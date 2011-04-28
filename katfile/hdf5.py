@@ -130,10 +130,11 @@ class H5DataV1(SimpleVisData):
         Offset to add to all timestamps, in seconds
 
     """
-    def __init__(self, filename, ref_ant=None, channel_range=None, time_offset=0.0):
+    def __init__(self, filename, ref_ant='', channel_range=None, time_offset=0.0):
+        SimpleVisData.__init__(self, filename, ref_ant, channel_range, time_offset)
+
         # Load file
-        f = h5py.File(filename, 'r')
-        self._f, self.filename = f, filename
+        self._f = f = h5py.File(filename, 'r')
 
         # Only continue if file is correct version and has been properly augmented
         self.version = f.attrs.get('version', '1.x')
@@ -142,10 +143,15 @@ class H5DataV1(SimpleVisData):
         if not 'augment' in f.attrs:
             raise ValueError('HDF5 file not augmented - please run k7_augment.py')
 
+        # Get observation script attributes, with defaults
+        self.observer = f.attrs.get('observer', '')
+        self.description = f.attrs.get('description', '')
+        self.experiment_id = f.attrs.get('experiment_id', '')
+
         # Find connected antennas and build Antenna objects for them
         ant_groups = f['Antennas'].listnames()
         self.ants = [katpoint.Antenna(f['Antennas'][group].attrs['description']) for group in ant_groups]
-        self.ref_ant = self.ants[0].name if ref_ant is None else ref_ant
+        self.ref_ant = self.ants[0].name if not ref_ant else ref_ant
 
         # Map from antenna signal to DBE input
         self.input_map = dict([(ant.name + 'H', f['Antennas'][group]['H'].attrs['dbe_input'])
@@ -262,10 +268,11 @@ class H5DataV2(SimpleVisData):
         Offset to add to all timestamps, in seconds
 
     """
-    def __init__(self, filename, ref_ant=None, channel_range=None, time_offset=0.0):
+    def __init__(self, filename, ref_ant='', channel_range=None, time_offset=0.0):
+        SimpleVisData.__init__(self, filename, ref_ant, channel_range, time_offset)
+
         # Load file
-        f = h5py.File(filename, 'r')
-        self._f, self.filename = f, filename
+        self._f = f = h5py.File(filename, 'r')
 
         # Only continue if file is correct version and has been properly augmented
         self.version = f.attrs.get('version', '1.x')
@@ -276,9 +283,14 @@ class H5DataV2(SimpleVisData):
 
         # Load main HDF5 groups
         data_group, sensors_group, config_group = f['Data'], f['MetaData/Sensors'], f['MetaData/Configuration']
+        # Get observation script attributes, with defaults
+        script_attrs = config_group['Observation'].attrs
+        self.observer = script_attrs.get('script_observer', '')
+        self.description = script_attrs.get('script_description', '')
+        self.experiment_id = script_attrs.get('script_experiment_id', '')
         # Only pick antennas that were in use by the script
         ant_names = config_group['Observation'].attrs['script_ants'].split(',')
-        self.ref_ant = ant_names[0] if ref_ant is None else ref_ant
+        self.ref_ant = ant_names[0] if not ref_ant else ref_ant
         # Build Antenna objects for them
         self.ants = [katpoint.Antenna(config_group['Antennas'][name].attrs['description']) for name in ant_names]
 

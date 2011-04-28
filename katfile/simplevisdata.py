@@ -23,8 +23,17 @@ class SimpleVisData(object):
 
     Attributes
     ----------
+    filename : string
+        Name of data file
     version : string
         Format version string
+    observer : string
+        Name of person that recorded the data set
+    description : string
+        Short description of the purpose of the data set
+    experiment_id : string
+        Experiment ID, a unique string used to link the data files of an
+        experiment together with blog entries, etc.
     ants : list of :class:`katpoint.Antenna` objects
         List of antennas present in file and used in experiment (i.e. subarray)
     ref_ant : string
@@ -44,11 +53,14 @@ class SimpleVisData(object):
         Timestamp of the first sample in file, in UT seconds since Unix epoch
 
     """
-    def __init__(self, filename, ref_ant=None, channel_range=None, time_offset=0.0):
+    def __init__(self, filename, ref_ant='', channel_range=None, time_offset=0.0):
         self.filename = filename
-        self.version = 'unknown'
+        self.version = ''
+        self.observer = ''
+        self.description = ''
+        self.experiment_id = ''
         self.ants = []
-        self.ref_ant = ''
+        self.ref_ant = ref_ant
         self.input_map = {}
         self.corrprod_map = {}
         self.channel_bw = 0.0
@@ -60,6 +72,9 @@ class SimpleVisData(object):
         """Verbose human-friendly string representation of data object."""
         signals_used = [signal for signal in self.input_map if signal[:-1] in [ant.name for ant in self.ants]]
         descr = ['%s (version %s)' % (self.filename, self.version),
+                 "description: %s | %s" % (self.experiment_id if self.experiment_id else 'No experiment ID',
+                                           self.observer if self.observer else 'No observer'),
+                 "'%s'" % (self.description if self.description else 'No description',),
                  'antennas: %s' % (' '.join([(ant.name + ' (*ref*)' if ant.name == self.ref_ant else ant.name)
                                              for ant in self.ants]),),
                  'inputs: %d, corrprods: %d' % (len(signals_used), len(self.corr_products(signals_used))),
