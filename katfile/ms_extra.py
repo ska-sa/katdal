@@ -34,7 +34,7 @@ def populate_main_dict(uvw_coordinates, vis_data, timestamps,
     vis_data : array of complex, shape (num_vis_samples, num_pols, num_channels)
         Array containing complex visibility data in Janskys
     timestamps : array of float, shape (num_vis_samples,)
-        Array of timestamps in units of Modified Julian Date seconds
+        Array of timestamps as Modified Julian Dates in seconds
         (may contain duplicate times for multiple baselines)
     antenna1_index : array of int, shape (num_vis_samples,)
         Array containing the index of the first antenna of each vis sample
@@ -94,9 +94,9 @@ def populate_main_dict(uvw_coordinates, vis_data, timestamps,
     main_dict['SIGMA'] = np.ones((num_vis_samples, 1), dtype=np.float32)
     # ID for this observing state (integer)
     main_dict['STATE_ID'] = - np.ones(num_vis_samples, dtype=np.int32)
-    # Modified Julian Day (double)
+    # Modified Julian Dates in seconds (double)
     main_dict['TIME'] = np.array(timestamps, dtype=np.float64)
-    # Modified Julian Day (double)
+    # Modified Julian Dates in seconds (double)
     main_dict['TIME_CENTROID'] = np.array(timestamps, dtype=np.float64)
     # Vector with uvw coordinates (in metres) (double, 1-dim, shape=(3,))
     main_dict['UVW'] = np.array(uvw_coordinates).transpose()
@@ -261,9 +261,9 @@ def populate_observation_dict(start_time, end_time, telescope_name='unknown',
     Parameters
     ----------
     start_time : float
-        Start time of project, in units of Modified Julian Date seconds
+        Start time of project, as a Modified Julian Date in seconds
     end_time : float
-        End time of project, in units of Modified Julian Date seconds
+        End time of project, as a Modified Julian Date in seconds
     telescope_name : string, optional
         Telescope name
     observer_name : string, optional
@@ -368,8 +368,8 @@ def populate_field_dict(phase_center, time_origin, field_name='default'):
     phase_center : array of float, shape (2,)
         Direction of phase center, in ra-dec coordinates as 2-element array
     time_origin : float
-        Time origin where phase center is correct, in units of Modified Julian
-        Date seconds
+        Time origin where phase center is correct, as a Modified Julian Date
+        in seconds
     field_name : string, optional
         Name of field/pointing (typically some source name)
 
@@ -415,7 +415,7 @@ def populate_pointing_dict(num_antennas, observation_duration, start_time, phase
     observation_duration : float
         Length of observation, in seconds
     start_time : float
-        Start time of observation, in units of Modified Julian Date seconds
+        Start time of observation, as a Modified Julian Date in seconds
     phase_center : array of float, shape (2,)
         Direction of phase center, in ra-dec coordinates as 2-element array
     pointing_name : string, optional
@@ -450,10 +450,10 @@ def populate_pointing_dict(num_antennas, observation_duration, start_time, phase
     return pointing_dict
 
 
-def populate_ms_dict(uvw_coordinates, vis_data, time_line, antenna1_index, antenna2_index,
+def populate_ms_dict(uvw_coordinates, vis_data, timestamps, antenna1_index, antenna2_index,
                      integrate_length, center_frequencies, channel_bandwidths,
                      antenna_names, antenna_positions, antenna_diameter,
-                     num_receptors_per_feed, start_time_utc, end_time_utc,
+                     num_receptors_per_feed, start_time, end_time,
                      telescope_name, observer_name, project_name, phase_center):
     """Construct a dictionary containing all the tables in a MeasurementSet.
 
@@ -463,8 +463,8 @@ def populate_ms_dict(uvw_coordinates, vis_data, time_line, antenna1_index, anten
         Array containing (u,v,w) coordinates in multiples of the wavelength
     vis_data : array of complex, shape (num_vis_samples, num_pols, num_channels)
         Array containing complex visibility data in Janskys
-    time_line : array of float, shape (num_vis_samples,)
-        Array of timestamps in units of secondsSinceEpochUTC
+    timestamps : array of float, shape (num_vis_samples,)
+        Array of timestamps as Modified Julian Dates in seconds
     antenna1_index : array of int, shape (num_vis_samples,)
         Array containing the index of the first antenna of each uv sample
     antenna2_index : array of int, shape (num_vis_samples,)
@@ -483,10 +483,10 @@ def populate_ms_dict(uvw_coordinates, vis_data, time_line, antenna1_index, anten
         Array of antenna diameters, in metres
     num_receptors_per_feed : integer
         Number of receptors per feed (usually one per polarisation type)
-    start_time_utc : float
-        Start time of project, in units of secondsSinceEpochUTC
-    end_time_utc : float
-        End time of project, in units of secondsSinceEpochUTC
+    start_time : float
+        Start time of project, as a Modified Julian Date in seconds
+    end_time : float
+        End time of project, as a Modified Julian Date in seconds
     telescope_name : string
         Telescope name
     observer_name : string
@@ -503,16 +503,16 @@ def populate_ms_dict(uvw_coordinates, vis_data, time_line, antenna1_index, anten
 
     """
     ms_dict = {}
-    ms_dict['MAIN'] = populate_main_dict(uvw_coordinates, vis_data, time_line,
+    ms_dict['MAIN'] = populate_main_dict(uvw_coordinates, vis_data, timestamps,
                                          antenna1_index, antenna2_index, integrate_length)
     ms_dict['ANTENNA'] = populate_antenna_dict(antenna_names, antenna_positions, antenna_diameter)
     ms_dict['FEED'] = populate_feed_dict(len(antenna_positions), num_receptors_per_feed)
     ms_dict['DATA_DESCRIPTION'] = populate_data_description_dict()
     ms_dict['POLARIZATION'] = populate_polarization_dict()
-    ms_dict['OBSERVATION'] = populate_observation_dict(start_time_utc, end_time_utc,
+    ms_dict['OBSERVATION'] = populate_observation_dict(start_time, end_time,
                                                        telescope_name, observer_name, project_name)
     ms_dict['SPECTRAL_WINDOW'] = populate_spectral_window_dict(center_frequencies, channel_bandwidths)
-    ms_dict['FIELD'] = populate_field_dict(phase_center, start_time_utc)
+    ms_dict['FIELD'] = populate_field_dict(phase_center, start_time)
     return ms_dict
 
 # ----------------- Write completed dictionary to MS file --------------------
