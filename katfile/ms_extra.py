@@ -306,7 +306,6 @@ def populate_spectral_window_dict(center_frequencies, channel_bandwidths):
     spectral windows. It has one row per spectral window. At the moment, only a
     single spectral window is considered. The reference frequency is chosen to
     be the center frequency of the middle channel.
-    
 
     Parameters
     ----------
@@ -357,21 +356,21 @@ def populate_spectral_window_dict(center_frequencies, channel_bandwidths):
     return spectral_window_dict
 
 
-def populate_field_dict(phase_center, time_origin, field_name='default'):
+def populate_field_dict(phase_centers, time_origins, field_names=None):
     """Construct a dictionary containing the columns of the FIELD subtable.
 
-    The FIELD subtable describes each field (or pointing) by its sky coordinates
-    and source ID. It has one row per field/pointing.
+    The FIELD subtable describes each field (or pointing) by its sky coordinates.
+    It has one row per field/pointing.
 
     Parameters
     ----------
-    phase_center : array of float, shape (2,)
-        Direction of phase center, in ra-dec coordinates as 2-element array
-    time_origin : float
-        Time origin where phase center is correct, as a Modified Julian Date
-        in seconds
-    field_name : string, optional
-        Name of field/pointing (typically some source name)
+    phase_centers : array of float, shape (M, 2)
+        Direction of *M* phase centers as (ra, dec) coordinates in radians
+    time_origins : array of float, shape (M,)
+        Time origins where the *M* phase centers are correct, as Modified Julian
+        Dates in seconds
+    field_names : array of string, shape (M,), optional
+        Names of fields/pointings (typically some source names)
 
     Returns
     -------
@@ -379,26 +378,29 @@ def populate_field_dict(phase_center, time_origin, field_name='default'):
         Dictionary containing columns of FIELD subtable
 
     """
-    phase_center = np.array([[phase_center]])
+    phase_centers = np.atleast_2d(np.asarray(phase_centers, np.float64))[:, np.newaxis, :]
+    num_fields = len(phase_centers)
+    if field_names is None:
+        field_names = ['Field%d' % (field,) for field in range(num_fields)]
     field_dict = {}
     # Special characteristics of field, e.g. position code (string)
-    field_dict['CODE'] = np.array(['T'])
+    field_dict['CODE'] = np.tile('T', num_fields)
     # Direction of delay center (e.g. RA, DEC) as polynomial in time (double, 2-dim)
-    field_dict['DELAY_DIR'] = phase_center
+    field_dict['DELAY_DIR'] = phase_centers
     # Row flag (boolean)
-    field_dict['FLAG_ROW'] = np.zeros(1, dtype=np.uint8)
+    field_dict['FLAG_ROW'] = np.zeros(num_fields, dtype=np.uint8)
     # Name of this field (string)
-    field_dict['NAME'] = np.array([field_name])
+    field_dict['NAME'] = np.atleast_1d(field_names)
     # Polynomial order of *_DIR columns (integer)
-    field_dict['NUM_POLY'] = np.zeros(1, dtype=np.int32)
+    field_dict['NUM_POLY'] = np.zeros(num_fields, dtype=np.int32)
     # Direction of phase center (e.g. RA, DEC) (double, 2-dim)
-    field_dict['PHASE_DIR'] = phase_center
+    field_dict['PHASE_DIR'] = phase_centers
     # Direction of REFERENCE center (e.g. RA, DEC) as polynomial in time (double, 2-dim)
-    field_dict['REFERENCE_DIR'] = phase_center
+    field_dict['REFERENCE_DIR'] = phase_centers
     # Source id (integer), or a value of -1 indicates there is no corresponding source defined
-    field_dict['SOURCE_ID'] = - np.ones(1, dtype=np.int32)
+    field_dict['SOURCE_ID'] = - np.ones(num_fields, dtype=np.int32)
     # Time origin for direction and rate (double)
-    field_dict['TIME'] = np.array([time_origin], dtype=np.float64)
+    field_dict['TIME'] = np.atleast_1d(np.asarray(time_origins, dtype=np.float64))
     return field_dict
 
 
