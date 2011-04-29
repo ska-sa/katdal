@@ -50,7 +50,9 @@ class SimpleVisData(object):
     dump_rate : float
         Dump rate, in Hz
     start_time : float
-        Timestamp of the first sample in file, in UT seconds since Unix epoch
+        Timestamp of start of first sample in file, in UT seconds since Unix epoch
+    end_time : float
+        Timestamp of end of last sample in file, in UT seconds since Unix epoch
 
     """
     def __init__(self, filename, ref_ant='', channel_range=None, time_offset=0.0):
@@ -67,6 +69,7 @@ class SimpleVisData(object):
         self.channel_freqs = []
         self.dump_rate = 0.0
         self.start_time = 0.0
+        self.end_time = 0.0
 
     def __str__(self):
         """Verbose human-friendly string representation of data object."""
@@ -77,17 +80,18 @@ class SimpleVisData(object):
                  "'%s'" % (self.description if self.description else 'No description',),
                  'antennas: %s' % (' '.join([(ant.name + ' (*ref*)' if ant.name == self.ref_ant else ant.name)
                                              for ant in self.ants]),),
-                 'inputs: %d, corrprods: %d' % (len(signals_used), len(self.corr_products(signals_used))),
-                 'channels: %d (%.3f - %.3f MHz), %.3f MHz wide, %.3f Hz dump rate' %
-                 (len(self.channel_freqs), self.channel_freqs[0] * 1e-6, self.channel_freqs[-1] * 1e-6,
-                  self.channel_bw * 1e-6, self.dump_rate),
-                 'first sample at %s' % (katpoint.Timestamp(self.start_time).local(),)]
-        ts = []
+                 'inputs: %d, corrprods: %d' % (len(signals_used), len(self.all_corr_products(signals_used))),
+                 'channels: %d (%.3f - %.3f MHz), %.3f MHz wide' % (len(self.channel_freqs), self.channel_freqs[0] / 1e6,
+                                                                    self.channel_freqs[-1] / 1e6, self.channel_bw / 1e6),
+                 'first sample starts at ' + katpoint.Timestamp(self.start_time).local()]
+        num_samples = 0
         for s, cs, state, target in self.scans():
             ts = self.timestamps()
             descr.append("scan %2d (compscan %2d) %s '%s' for %d samples" % (s, cs, state, target.name, len(ts)))
-        if len(ts) > 0:
-            descr.append('last sample at %s' % (katpoint.Timestamp(ts[-1]).local(),))
+            num_samples += len(ts)
+        descr.append('last sample ends at ' + katpoint.Timestamp(self.end_time).local())
+        descr.append('time samples: %d at %.3f Hz dump rate (%.1f min)' %
+                     (num_samples, self.dump_rate, num_samples / self.dump_rate / 60.))
         return '\n'.join(descr)
 
     def corr_input(self, signal):
@@ -115,7 +119,7 @@ class SimpleVisData(object):
             raise KeyError("Signal path '%s' not connected to correlator (available signals are '%s')" %
                            (signal, "', '".join(self.input_map.keys())))
 
-    def corr_products(self, signals):
+    def all_corr_products(self, signals):
         """Correlation products in data set involving the desired signals.
 
         This finds all the non-redundant correlation products in the file where

@@ -174,11 +174,19 @@ class H5DataV1(SimpleVisData):
         self.channel_freqs = self.channel_freqs[self._first_chan:self._last_chan + 1]
         self.dump_rate = f['Correlator'].attrs['dump_rate_hz']
         self._time_offset = time_offset
+        # Check whether there is any data at all (and get first timestamp)
         try:
             self._scan_group = f['Scans']['CompoundScan0']['Scan0']
         except (KeyError, h5py.H5Error):
             raise ValueError('HDF5 file contains no vis data (/Scans/CompoundScan0/Scan0 group absent)')
-        self.start_time = self.timestamps()[0]
+        self.start_time = self.timestamps()[0] - 0.5 / self.dump_rate
+        # Find last scan and corresponding last timestamp
+        last_compscan = 'CompoundScan' + str(len(f['Scans']) - 1)
+        last_scan = 'Scan' + str(len(f['Scans'][last_compscan]) - 1)
+        self._scan_group = f['Scans'][last_compscan][last_scan]
+        self.end_time = self.timestamps()[-1] + 0.5 / self.dump_rate
+        # Reset back to first scan
+        self._scan_group = f['Scans']['CompoundScan0']['Scan0']
 
     def scans(self):
         """Generator that iterates through scans in file.
@@ -325,7 +333,8 @@ class H5DataV2(SimpleVisData):
         # Discard the last sample if the timestamp is a duplicate (caused by stop packet in k7_capture)
         if len(dump_endtimes) > 1 and (dump_endtimes[-1] == dump_endtimes[-2]):
             dump_endtimes = dump_endtimes[:-1]
-        self.start_time = self._data_timestamps[0]
+        self.start_time = self._data_timestamps[0] - 0.5 * sample_period
+        self.end_time = self._data_timestamps[-1] + 0.5 * sample_period
 
         # Use sensors of reference antenna to dissect data set
         ant_sensors = sensors_group['Antennas'][self.ref_ant]
