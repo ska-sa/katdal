@@ -1,7 +1,6 @@
 """Create MS compatible data and write this data into a template MeasurementSet.
 
-This is based on the tables module from pyrap, which uses casacore as its
-underlying implementation.
+This can use either casapy (the default) or pyrap to create the MS.
 
 """
 #
@@ -12,10 +11,56 @@ underlying implementation.
 import os.path
 
 import numpy as np
+
+# Look for a casacore library binding that will provide Table tools
 try:
-    from pyrap import tables
-except ImportError:
-    tables = None
+    # Try to use the casapy table tool first
+    if not tb.ok():
+        raise NameError('Could not use casapy table tool')
+    casacore_binding = 'casapy'
+except NameError:
+    try:
+        # Otherwise fall back to pyrap
+        from pyrap import tables
+        casacore_binding = 'pyrap'
+    except ImportError:
+        casacore_binding = ''
+
+# Table descriptions for the standard MS tables
+# ---------------------------------------------
+# These dicts are used to create a new MS via pyrap. They are obtained by first
+# creating a blank MS in CASA, using::
+#
+#   sm.open('blank.ms')
+#   sm.close()
+#
+# The structure of this MS is then extracted in pyrap by getting the description
+# of the MAIN and sub-tables::
+#
+#   import pyrap.tables as tables
+#   import os
+#   ms_name = 'blank.ms'
+#   ms_desc = {'MAIN' : tables.table(ms_name).getdesc(actual=False)}
+#   for sub_table in os.walk(ms_name).next()[1]:
+#       ms_desc[sub_table] = tables.table(os.path.join(ms_name, sub_table)).getdesc(actual=False)
+#   ...
+#
+
+# Define the appropriate way to open a table using the selected binding
+if casacore_binding == 'casapy':
+    def open_table(filename, readonly=False):
+        success = tb.open(filename, nomodify=readonly)
+        return tb if success else None
+
+elif casacore_binding == 'pyrap':
+    def open_table(filename, readonly=False):
+        t = tables.table(filename, readonly=readonly)
+        return t if type(t) == tables.table else None
+
+else:
+    def open_table(filename, readonly=False):
+        raise ImportError("Cannot open MS '%s', as neither casapy nor pyrap were found" % (filename,))
+
 
 # -------- Routines that create MS data structures in dictionaries -----------
 
@@ -520,8 +565,6 @@ def populate_ms_dict(uvw_coordinates, vis_data, timestamps, antenna1_index, ante
 # ----------------- Write completed dictionary to MS file --------------------
 
 def write_dict(ms_dict, ms_name='./blank.ms', verbose=True):
-    if tables is None:
-        raise ImportError("Cannot create MS, as pyrap.tables failed to import")
     # Iterate through subtables
     for sub_table_name, sub_dict in ms_dict.iteritems():
         # Allow parsing of single dict and array of dicts in the same fashion
@@ -532,15 +575,13 @@ def write_dict(ms_dict, ms_name='./blank.ms', verbose=True):
         for row_dict in sub_dict:
             if verbose:
                 print "Table %s:" % (sub_table_name,)
-            if sub_table_name == 'MAIN':
-                t = tables.table(ms_name, readonly=False)
-            else:
-                t = tables.table(os.path.join(ms_name, sub_table_name), readonly=False)
-            if verbose:
-                if type(t) == tables.table:
-                    print "  opened successfully"
-                else:
-                    print "  could not open table!"
+            # Open table using whichever casacore library was found
+            t = open_table(ms_name) if sub_table_name == 'MAIN' else open_table(os.path.join(ms_name, sub_table_name))
+            if verbose and t is not None:
+                print "  opened successfully"
+            if t is None:
+                print "  could not open table!"
+                break
             num_rows = row_dict.values()[0].shape[0]
             # Add the space required for this group of rows
             t.addrows(num_rows)
@@ -557,6 +598,6 @@ def write_dict(ms_dict, ms_name='./blank.ms', verbose=True):
                         print "  column '%s' not in table" % (col_name,)
             # Flush table to disk
             t.flush()
-            success = t.close()
+            t.close()
             print "  closed successfully"
             row_count += num_rows
