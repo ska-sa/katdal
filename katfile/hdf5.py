@@ -220,7 +220,7 @@ class H5DataV1(SimpleVisData):
                 scan_index += 1
         self._scan_group = self._f['Scans']['CompoundScan0']['Scan0']
 
-    def vis(self, corrprod):
+    def vis(self, corrprod, zero_missing_data=False):
         """Extract complex visibility data for current scan.
 
         Parameters
@@ -229,7 +229,11 @@ class H5DataV1(SimpleVisData):
             Correlation product to extract from visibility data, either as
             string of concatenated correlator input labels (e.g. '0x1y') or a
             pair of signal path labels (e.g. ('ant1H', 'ant2V'))
- 
+        zero_missing_data : {False, True}
+            True if an array of zeros of the appropriate shape should be returned
+            when the requested correlation product could not be found (as opposed
+            to raising an exception)
+
         Returns
         -------
         vis : array of complex64, shape (*T_k*, *F*)
@@ -240,10 +244,18 @@ class H5DataV1(SimpleVisData):
             matches the size of `channel_freqs`.
 
         """
-        if len(corrprod) == 2 and not isinstance(corrprod, basestring):
-            corrprod = self.corr_input(corrprod[0]) + self.corr_input(corrprod[1])
-        corr_id = self.corrprod_map[corrprod]
-        return self._scan_group['data'][str(corr_id)][:, self._first_chan:self._last_chan + 1]
+        try:
+            if isinstance(corrprod, basestring):
+                corr_id, conj = self.corrprod_map[corrprod], False
+            else:
+                corr_id, conj = self.corr_product(corrprod[0], corrprod[1])
+            vis = self._scan_group['data'][str(corr_id)][:, self._first_chan:self._last_chan + 1]
+            return vis.conj() if conj else vis
+        except (KeyError, ValueError):
+            if zero_missing_data:
+                return np.zeros((len(self._scan_group['timestamps']), len(self.channel_freqs)), dtype=np.complex64)
+            else:
+                raise
 
     def timestamps(self):
         """Extract timestamps for current scan.
@@ -389,7 +401,7 @@ class H5DataV2(SimpleVisData):
             yield scan_index, compscan_index, state, target
         self._first_sample, self._last_sample = 0, len(self._data_timestamps) - 1
 
-    def vis(self, corrprod):
+    def vis(self, corrprod, zero_missing_data=False):
         """Extract complex visibility data for current scan.
 
         Parameters
@@ -398,6 +410,10 @@ class H5DataV2(SimpleVisData):
             Correlation product to extract from visibility data, either as
             string of concatenated correlator input labels (e.g. '0x1y') or a
             pair of signal path labels (e.g. ('ant1H', 'ant2V'))
+        zero_missing_data : {False, True}
+            True if an array of zeros of the appropriate shape should be returned
+            when the requested correlation product could not be found (as opposed
+            to raising an exception)
  
         Returns
         -------
@@ -409,11 +425,20 @@ class H5DataV2(SimpleVisData):
             matches the size of `channel_freqs`.
 
         """
-        if len(corrprod) == 2 and not isinstance(corrprod, basestring):
-            corrprod = self.corr_input(corrprod[0]) + self.corr_input(corrprod[1])
-        bl_id, pol_id = self.corrprod_map[corrprod]
-        return self._vis[self._first_sample:self._last_sample + 1, self._first_chan:self._last_chan + 1,
-                         bl_id, pol_id].astype(np.float32).view(np.complex64)[:, :, 0]
+        try:
+            if isinstance(corrprod, basestring):
+                (bl_id, pol_id), conj = self.corrprod_map[corrprod], False
+            else:
+                (bl_id, pol_id), conj = self.corr_product(corrprod[0], corrprod[1])
+            vis = self._vis[self._first_sample:self._last_sample + 1, self._first_chan:self._last_chan + 1,
+                            bl_id, pol_id].astype(np.float32).view(np.complex64)[:, :, 0]
+            return vis.conj() if conj else vis
+        except (KeyError, ValueError):
+            if zero_missing_data:
+                return np.zeros((self._last_sample + 1 - self._first_sample,
+                                 len(self.channel_freqs)), dtype=np.complex64)
+            else:
+                raise
 
     def timestamps(self):
         """Extract timestamps for current scan.

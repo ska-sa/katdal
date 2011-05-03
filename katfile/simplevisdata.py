@@ -119,6 +119,44 @@ class SimpleVisData(object):
             raise KeyError("Signal path '%s' not connected to correlator (available signals are '%s')" %
                            (signal, "', '".join(self.input_map.keys())))
 
+    def corr_product(self, signalA, signalB):
+        """Correlation product associated with signal A x signal B.
+
+        This looks for the correlation product <A, B*> in the file, and returns
+        the appropriate visibility index. If the direct product is not found,
+        the reverse product <B, A*> is looked up instead, which will be the
+        conjugate of the desired correlation product.
+
+        Parameters
+        ----------
+        signalA, signalB : string
+            Labels of signal paths to correlate (e.g. 'ant1H', 'ant2V')
+
+        Returns
+        -------
+        corrprod_index : object
+            Index into vis data array (typically integer index or pair of indices)
+        conjugate : {False, True}
+            True if visibility data should be conjugated
+
+        Raises
+        ------
+        KeyError
+            If requested signal path is not connected to correlator
+        ValueError
+            If requested correlation product is not available
+
+        """
+        # Look for direct product (A x B) first
+        corrprod = self.corr_input(signalA) + self.corr_input(signalB)
+        if corrprod in self.corrprod_map:
+            return self.corrprod_map[corrprod], False
+        # Now look for reversed product (B x A), which will require conjugation of vis data
+        corrprod = self.corr_input(signalB) + self.corr_input(signalA)
+        if corrprod in self.corrprod_map:
+            return self.corrprod_map[corrprod], True
+        raise ValueError("Correlation product ('%s', '%s') or its reverse could not be found" % (signalA, signalB))
+
     def all_corr_products(self, signals):
         """Correlation products in data set involving the desired signals.
 
@@ -172,7 +210,7 @@ class SimpleVisData(object):
         """
         raise NotImplementedError
 
-    def vis(self, corrprod):
+    def vis(self, corrprod, zero_missing_data=False):
         """Extract complex visibility data for current scan.
 
         Parameters
@@ -181,7 +219,11 @@ class SimpleVisData(object):
             Correlation product to extract from visibility data, either as
             string of concatenated correlator input labels (e.g. '0x1y') or a
             pair of signal path labels (e.g. ('ant1H', 'ant2V'))
- 
+        zero_missing_data : {False, True}
+            True if an array of zeros of the appropriate shape should be returned
+            when the requested correlation product could not be found (as opposed
+            to raising an exception)
+
         Returns
         -------
         vis : array of complex64, shape (*T_k*, *F*)
