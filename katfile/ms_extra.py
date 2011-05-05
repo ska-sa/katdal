@@ -15,10 +15,10 @@ import numpy as np
 # Look for a casacore library binding that will provide Table tools
 try:
     # Try to use the casapy table tool first
-    if not tb.ok():
-        raise NameError('Could not use casapy table tool')
+    import casac
+    tb = casac.homefinder.find_home_by_name('tableHome').create()
     casacore_binding = 'casapy'
-except NameError:
+except:
     try:
         # Otherwise fall back to pyrap
         from pyrap import tables
@@ -772,7 +772,7 @@ def write_dict(ms_dict, ms_name='./blank.ms', verbose=True):
             for col_name, col_data in row_dict.iteritems():
                 if col_name in t.colnames():
                     try:
-                        t.putcol(col_name, col_data, startrow)
+                        t.putcol(col_name, col_data.T if casacore_binding == 'casapy' else col_data, startrow)
                         print "  wrote column '%s' with shape %s" % (col_name, col_data.shape)
                     except RuntimeError, err:
                         print "  error writing column '%s' with shape %s (%s)" % (col_name, col_data.shape, err)
