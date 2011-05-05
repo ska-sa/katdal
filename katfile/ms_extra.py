@@ -46,6 +46,158 @@ except NameError:
 #   ...
 #
 
+def std_scalar(comment, valueType='integer', **kwargs):
+    """Description for standard scalar column."""
+    return dict(comment=comment, valueType=valueType, dataManagerType='StandardStMan',
+                dataManagerGroup='StandardStMan', option=0, maxlen=0, **kwargs)
+
+def std_array(comment, valueType, ndim, **kwargs):
+    """Description for standard array column with variable shape (used for smaller arrays)."""
+    return dict(comment=comment, valueType=valueType, ndim=ndim, dataManagerType='StandardStMan',
+                dataManagerGroup='StandardStMan', _c_order=True, option=0, maxlen=0, **kwargs)
+
+def fixed_array(comment, valueType, shape, **kwargs):
+    """Description for direct array column with fixed shape (used for smaller arrays)."""
+    return dict(comment=comment, valueType=valueType, shape=np.asarray(shape, dtype=np.int32), ndim=len(shape),
+                dataManagerType='StandardStMan', dataManagerGroup='StandardStMan',
+                _c_order=True, option=5, maxlen=0, **kwargs)
+
+def tiled_array(comment, valueType, ndim, dataManagerGroup, **kwargs):
+    """Description for array column with tiled storage manager (used for bigger arrays)."""
+    return dict(comment=comment, valueType=valueType, ndim=ndim, dataManagerType='TiledShapeStMan',
+                dataManagerGroup=dataManagerGroup, _c_order=True, option=0, maxlen=0, **kwargs)
+
+def define_hypercolumn(desc):
+    """Add hypercolumn definitions to table description."""
+    desc['_define_hypercolumn_'] = dict([(v['dataManagerGroup'],
+                                          dict(HCdatanames=[k], HCndim=v['ndim'] + 1, HCcoordnames=[], HCidnames=[]))
+                                         for k, v in desc.iteritems() if v['dataManagerType'] == 'TiledShapeStMan'])
+
+ms_desc = {}
+
+ms_desc['MAIN'] = {
+    'ANTENNA1': std_scalar('ID of first antenna in interferometer'),
+    'ANTENNA2': std_scalar('ID of second antenna in interferometer'),
+    'ARRAY_ID': std_scalar('ID of array or subarray'),
+    'CORRECTED_DATA': tiled_array('The corrected data column', 'complex', 2, 'CorrectedDataColumn'),
+    'DATA': tiled_array('The data column', 'complex', 2, 'dataHyperColumn'),
+    'DATA_DESC_ID': std_scalar('The data description table index'),
+    'EXPOSURE': std_scalar('The effective integration time', 'double'),
+    'FEED1': std_scalar('The feed index for ANTENNA1'),
+    'FEED2': std_scalar('The feed index for ANTENNA2'),
+    'FIELD_ID': std_scalar('Unique id for this pointing'),
+    'FLAG': tiled_array('The data flags, array of bools with same shape as data', 'boolean', 2, 'FlagColumn'),
+    'FLAG_CATEGORY': tiled_array('The flag category, NUM_CAT flags for each datum', 'boolean', 3, 'flagHyperColumn'),
+    'FLAG_ROW': std_scalar('Row flag - flag all data in this row if True', valueType='boolean'),
+    'IMAGING_WEIGHT': tiled_array('Weight set by imaging task (e.g. uniform weighting)', 'float', 1, 'imWeightHyperColumn'),
+    'INTERVAL': std_scalar('The sampling interval', 'double'),
+    'MODEL_DATA': tiled_array('The model data column', 'complex', 2, 'ModelDataColumn'),
+    'OBSERVATION_ID': std_scalar('ID for this observation, index in OBSERVATION table'),
+    'PROCESSOR_ID': std_scalar('Id for backend processor, index in PROCESSOR table'),
+    'SCAN_NUMBER': std_scalar('Sequential scan number from on-line system'),
+    'SIGMA': tiled_array('Estimated rms noise for channel with unity bandpass response', 'float', 1, 'SigmaColumn'),
+    'STATE_ID': std_scalar('ID for this observing state'),
+    'TIME': std_scalar('Modified Julian Day', 'double'),
+    'TIME_CENTROID': std_scalar('Modified Julian Day', 'double'),
+    'UVW': fixed_array('Vector with uvw coordinates (in meters)', 'double', [3]),
+    'WEIGHT': tiled_array('Weight for each polarization spectrum', 'float', 1, 'WeightColumn'),
+}
+
+ms_desc['ANTENNA'] = {
+    'DISH_DIAMETER': std_scalar('Physical diameter of dish', 'double'),
+    'FLAG_ROW': std_scalar('Flag for this row', 'boolean'),
+    'MOUNT': std_scalar('Mount type e.g. alt-az, equatorial, etc.', 'string'),
+    'NAME': std_scalar('Antenna name, e.g. VLA22, CA03', 'string'),
+    'OFFSET': fixed_array('Axes offset of mount to FEED REFERENCE point', 'double', [3]),
+    'POSITION': fixed_array('Antenna X,Y,Z phase reference position', 'double', [3]),
+    'STATION': std_scalar('Station (antenna pad) name', 'string'),
+    'TYPE': std_scalar('Antenna type (e.g. SPACE-BASED)', 'string'),
+}
+
+ms_desc['FEED'] = {
+    'ANTENNA_ID': std_scalar('ID of antenna in this array'),
+    'BEAM_ID': std_scalar('Id for BEAM model'),
+    'BEAM_OFFSET': std_array('Beam position offset (on sky but in antennareference frame)', 'double', 2),
+    'FEED_ID': std_scalar('Feed id'),
+    'INTERVAL': std_scalar('Interval for which this set of parameters is accurate', 'double'),
+    'NUM_RECEPTORS': std_scalar('Number of receptors on this feed (probably 1 or 2'),
+    'POLARIZATION_TYPE': std_array('Type of polarization to which a given RECEPTOR responds', 'string', 1),
+    'POL_RESPONSE': std_array('D-matrix i.e. leakage between two receptors', 'complex', 2),
+    'POSITION': fixed_array('Position of feed relative to feed reference position', 'double', [3]),
+    'RECEPTOR_ANGLE': std_array('The reference angle for polarization', 'double', 1),
+    'SPECTRAL_WINDOW_ID': std_scalar('ID for this spectral window setup'),
+    'TIME': std_scalar('Midpoint of time for which this set of parameters is accurate', 'double'),
+}
+
+ms_desc['DATA_DESCRIPTION'] = {
+    'FLAG_ROW': std_scalar('Flag this row', 'boolean'),
+    'POLARIZATION_ID': std_scalar('Pointer to polarization table'),
+    'SPECTRAL_WINDOW_ID': std_scalar('Pointer to spectralwindow table'),
+}
+
+ms_desc['POLARIZATION'] = {
+    'CORR_PRODUCT': std_array('Indices describing receptors of feed going into correlation', 'integer', 2),
+    'CORR_TYPE': std_array('The polarization type for each correlation product, as a Stokes enum.', 'integer', 1),
+    'FLAG_ROW': std_scalar('Row flag', 'boolean'),
+    'NUM_CORR': std_scalar('Number of correlation products'),
+}
+
+ms_desc['OBSERVATION'] = {
+    'FLAG_ROW': std_scalar('Row flag', 'boolean'),
+    'LOG': std_array('Observing log', 'string', 1),
+    'PROJECT': std_scalar('Project identification string', 'string'),
+    'OBSERVER': std_scalar('Name of observer(s)', 'string'),
+    'RELEASE_DATE': std_scalar('Release date when data becomes public', 'double'),
+    'SCHEDULE': std_array('Observing schedule', 'string', 1),
+    'SCHEDULE_TYPE': std_scalar('Observing schedule type', 'string'),
+    'TELESCOPE_NAME': std_scalar('Telescope Name (e.g. WSRT, VLBA)', 'string'),
+    'TIME_RANGE': fixed_array('Start and end of observation', 'double', [2]),
+}
+
+ms_desc['SPECTRAL_WINDOW'] = {
+    'CHAN_FREQ': std_array('Center frequencies for each channel in the data matrix', 'double', 1),
+    'CHAN_WIDTH': std_array('Channel width for each channel', 'double', 1),
+    'EFFECTIVE_BW': std_array('Effective noise bandwidth of each channel', 'double', 1),
+    'FLAG_ROW': std_scalar('Row flag', 'boolean'),
+    'FREQ_GROUP': std_scalar('Frequency group'),
+    'FREQ_GROUP_NAME': std_scalar('Frequency group name', 'string'),
+    'IF_CONV_CHAIN': std_scalar('The IF conversion chain number'),
+    'MEAS_FREQ_REF': std_scalar('Frequency Measure reference'),
+    'NAME': std_scalar('Spectral window name', 'string'),
+    'NET_SIDEBAND': std_scalar('Net sideband'),
+    'NUM_CHAN': std_scalar('Number of spectral channels'),
+    'REF_FREQUENCY': std_scalar('The reference frequency', 'double'),
+    'RESOLUTION': std_array('The effective noise bandwidth for each channel', 'double', 1),
+    'TOTAL_BANDWIDTH': std_scalar('The total bandwidth for this window', 'double'),
+}
+
+ms_desc['FIELD'] = {
+    'CODE': std_scalar('Special characteristics of field, e.g. Bandpass calibrator', 'string'),
+    'DELAY_DIR': std_array('Direction of delay center (e.g. RA, DEC)as polynomial in time.', 'double', 2),
+    'FLAG_ROW': std_scalar('Row Flag', 'boolean'),
+    'NAME': std_scalar('Name of this field', 'string'),
+    'NUM_POLY': std_scalar('Polynomial order of _DIR columns'),
+    'PHASE_DIR': std_array('Direction of phase center (e.g. RA, DEC).', 'double', 2),
+    'REFERENCE_DIR': std_array('Direction of REFERENCE center (e.g. RA, DEC).as polynomial in time.', 'double', 2),
+    'SOURCE_ID': std_scalar('Source id'),
+    'TIME': std_scalar('Time origin for direction and rate', 'double'),
+}
+
+ms_desc['POINTING'] = {
+    'ANTENNA_ID': std_scalar('Antenna Id'),
+    'DIRECTION': std_array('Antenna pointing direction as polynomial in time', 'double', 2),
+    'INTERVAL': std_scalar('Time interval', 'double'),
+    'NAME': std_scalar('Pointing position name', 'string'),
+    'NUM_POLY': std_scalar('Series order'),
+    'TARGET': std_array('target direction as polynomial in time', 'double', -1),
+    'TIME': std_scalar('Time interval midpoint', 'double'),
+    'TIME_ORIGIN': std_scalar('Time origin for direction', 'double'),
+    'TRACKING': std_scalar('Tracking flag - True if on position', 'boolean'),
+}
+
+for sub_table in ms_desc:
+    define_hypercolumn(ms_desc[sub_table])
+
 # Define the appropriate way to open a table using the selected binding
 if casacore_binding == 'casapy':
     def open_table(filename, readonly=False):
