@@ -64,8 +64,8 @@ else:
 
 # -------- Routines that create MS data structures in dictionaries -----------
 
-def populate_main_dict(uvw_coordinates, vis_data, timestamps,
-                       antenna1_index, antenna2_index, integrate_length, field_id):
+def populate_main_dict(uvw_coordinates, vis_data, timestamps, antenna1_index,
+                       antenna2_index, integrate_length, field_id=0, scan_number=0):
     """Construct a dictionary containing the columns of the MAIN table.
 
     The MAIN table contains the visibility data itself. The vis data has shape
@@ -76,31 +76,60 @@ def populate_main_dict(uvw_coordinates, vis_data, timestamps,
     ----------
     uvw_coordinates : array of float, shape (num_vis_samples, 3)
         Array containing (u,v,w) coordinates in metres
-    vis_data : array of complex, shape (num_vis_samples, num_pols, num_channels)
+    vis_data : array of complex, shape (num_vis_samples, num_channels, num_pols)
         Array containing complex visibility data in Janskys
     timestamps : array of float, shape (num_vis_samples,)
         Array of timestamps as Modified Julian Dates in seconds
         (may contain duplicate times for multiple baselines)
-    antenna1_index : array of int, shape (num_vis_samples,)
+    antenna1_index : int or array of int, shape (num_vis_samples,)
         Array containing the index of the first antenna of each vis sample
-    antenna2_index : array of int, shape (num_vis_samples,)
+    antenna2_index : int or array of int, shape (num_vis_samples,)
         Array containing the index of the second antenna of each vis sample
     integrate_length : float
         The integration time (one over dump rate), in seconds
-    field_id : int
+    field_id : int or array of int, shape (num_vis_samples,), optional
         The field ID (pointing) associated with this data
+    scan_number : int or array of int, shape (num_vis_samples,), optional
+        The scan index (compound scan index in the case of KAT-7)
+
     Returns
     -------
     main_dict : dict
         Dictionary containing columns of MAIN table
 
+    Raises
+    ------
+    ValueError
+        If there is a shape mismatch between some input arrays
+
     """
-    num_vis_samples = len(timestamps)
+    num_vis_samples, num_channels, num_pols = vis_data.shape
+    timestamps = np.atleast_1d(np.asarray(timestamps, dtype=np.float64))
+    try:
+        antenna1_index, t = np.broadcast_arrays(np.asarray(antenna1_index, np.int32), timestamps)
+    except ValueError:
+        raise ValueError("Length of 'antenna1_index' should be 1 or %d, is %d instead" %
+                         (num_vis_samples, len(antenna1_index)))
+    try:
+        antenna2_index, t = np.broadcast_arrays(np.asarray(antenna2_index, np.int32), timestamps)
+    except ValueError:
+        raise ValueError("Length of 'antenna2_index' should be 1 or %d, is %d instead" %
+                         (num_vis_samples, len(antenna2_index)))
+    try:
+        field_id, t = np.broadcast_arrays(np.asarray(field_id, np.int32), timestamps)
+    except ValueError:
+        raise ValueError("Length of 'field_id' should be 1 or %d, is %d instead" %
+                         (num_vis_samples, len(field_id)))
+    try:
+        scan_number, t = np.broadcast_arrays(np.asarray(scan_number, np.int32), timestamps)
+    except ValueError:
+        raise ValueError("Length of 'scan_number' should be 1 or %d, is %d instead" %
+                         (num_vis_samples, len(scan_number)))
     main_dict = {}
     # ID of first antenna in interferometer (integer)
-    main_dict['ANTENNA1'] = np.asarray(antenna1_index, np.int32)
+    main_dict['ANTENNA1'] = antenna1_index
     # ID of second antenna in interferometer (integer)
-    main_dict['ANTENNA2'] = np.asarray(antenna2_index, np.int32)
+    main_dict['ANTENNA2'] = antenna2_index
     # ID of array or subarray (integer)
     main_dict['ARRAY_ID'] = np.zeros(num_vis_samples, dtype=np.int32)
     # The corrected data column (complex, 3-dim)
@@ -116,11 +145,11 @@ def populate_main_dict(uvw_coordinates, vis_data, timestamps,
     # The feed index for ANTENNA1 (integer)
     main_dict['FEED2'] = np.zeros(num_vis_samples, dtype=np.int32)
     # Unique id for this pointing (integer)
-    main_dict['FIELD_ID'] = np.tile(field_id, num_vis_samples)
+    main_dict['FIELD_ID'] = field_id
     # The data flags, array of bools with same shape as data
     main_dict['FLAG'] = np.zeros(np.shape(vis_data), dtype=np.bool)
-    # The flag category, NUM_CAT flags for each datum [snd 1 is num channels] (boolean, 3-dim)
-    main_dict['FLAG_CATEGORY'] = np.zeros((num_vis_samples, 1, np.shape(vis_data)[1], np.shape(vis_data)[2]), dtype='uint8')
+    # The flag category, NUM_CAT flags for each datum [snd 1 is num channels] (boolean, 4-dim)
+    main_dict['FLAG_CATEGORY'] = np.zeros((num_vis_samples, 1, num_channels, num_pols), dtype='uint8')
     # Row flag - flag all data in this row if True (boolean)
     main_dict['FLAG_ROW'] = np.zeros(num_vis_samples, dtype=np.uint8)
     # Weight set by imaging task (e.g. uniform weighting) (float, 1-dim)
@@ -134,15 +163,15 @@ def populate_main_dict(uvw_coordinates, vis_data, timestamps,
     # Id for backend processor, index in PROCESSOR table (integer)
     main_dict['PROCESSOR_ID'] = - np.ones(num_vis_samples, dtype=np.int32)
     # Sequential scan number from on-line system (integer)
-    main_dict['SCAN_NUMBER'] = np.zeros(num_vis_samples, dtype=np.int32)
+    main_dict['SCAN_NUMBER'] = scan_number
     # Estimated rms noise for channel with unity bandpass response (float, 1-dim)
     main_dict['SIGMA'] = np.ones((num_vis_samples, 1), dtype=np.float32)
     # ID for this observing state (integer)
     main_dict['STATE_ID'] = - np.ones(num_vis_samples, dtype=np.int32)
     # Modified Julian Dates in seconds (double)
-    main_dict['TIME'] = np.asarray(timestamps, dtype=np.float64)
+    main_dict['TIME'] = timestamps
     # Modified Julian Dates in seconds (double)
-    main_dict['TIME_CENTROID'] = np.asarray(timestamps, dtype=np.float64)
+    main_dict['TIME_CENTROID'] = timestamps
     # Vector with uvw coordinates (in metres) (double, 1-dim, shape=(3,))
     main_dict['UVW'] = np.asarray(uvw_coordinates).transpose()
     # Weight for each polarisation spectrum (float, 1-dim)
@@ -150,7 +179,7 @@ def populate_main_dict(uvw_coordinates, vis_data, timestamps,
     return main_dict
 
 
-def populate_antenna_dict(antenna_names, antenna_positions, antenna_diameter):
+def populate_antenna_dict(antenna_names, antenna_positions, antenna_diameters):
     """Construct a dictionary containing the columns of the ANTENNA subtable.
 
     The ANTENNA subtable contains info about each antenna, such as its name,
@@ -162,7 +191,7 @@ def populate_antenna_dict(antenna_names, antenna_positions, antenna_diameter):
         Array of antenna names, one per antenna
     antenna_positions : array of float, shape (num_antennas, 3)
         Array of antenna positions in ECEF (aka XYZ) coordinates, in metres
-    antenna_diameter : array of float, shape (num_antennas,)
+    antenna_diameters : array of float, shape (num_antennas,)
         Array of antenna diameters, in metres
 
     Returns
@@ -171,22 +200,22 @@ def populate_antenna_dict(antenna_names, antenna_positions, antenna_diameter):
         Dictionary containing columns of ANTENNA subtable
 
     """
-    num_antennas = len(antenna_positions)
+    num_antennas = len(antenna_names)
     antenna_dict = {}
     # Physical diameter of dish (double)
-    antenna_dict['DISH_DIAMETER'] = np.asarray(antenna_diameter, np.float64)
+    antenna_dict['DISH_DIAMETER'] = np.asarray(antenna_diameters, np.float64)
     # Flag for this row (boolean)
     antenna_dict['FLAG_ROW'] = np.zeros(num_antennas, np.uint8)
     # Mount type e.g. alt-az, equatorial, etc. (string)
     antenna_dict['MOUNT'] = np.tile('ALT-AZ', num_antennas)
     # Antenna name, e.g. VLA22, CA03 (string)
-    antenna_dict['NAME'] = antenna_names
+    antenna_dict['NAME'] = np.asarray(antenna_names)
     # Axes offset of mount to FEED REFERENCE point (double, 1-dim, shape=(3,))
     antenna_dict['OFFSET'] = np.zeros((num_antennas, 3), np.float64)
     # Antenna X,Y,Z phase reference position (double, 1-dim, shape=(3,))
     antenna_dict['POSITION'] = np.asarray(antenna_positions, dtype=np.float64)
     # Station (antenna pad) name (string)
-    antenna_dict['STATION'] = antenna_names
+    antenna_dict['STATION'] = np.asarray(antenna_names)
     # Antenna type (e.g. SPACE-BASED) (string)
     antenna_dict['TYPE'] = np.tile('GROUND-BASED', num_antennas)
     return antenna_dict
@@ -508,13 +537,13 @@ def populate_ms_dict(uvw_coordinates, vis_data, timestamps, antenna1_index, ante
     ----------
     uvw_coordinates : array of float, shape (num_vis_samples, 3)
         Array containing (u,v,w) coordinates in multiples of the wavelength
-    vis_data : array of complex, shape (num_vis_samples, num_pols, num_channels)
+    vis_data : array of complex, shape (num_vis_samples, num_channels, num_pols)
         Array containing complex visibility data in Janskys
     timestamps : array of float, shape (num_vis_samples,)
         Array of timestamps as Modified Julian Dates in seconds
-    antenna1_index : array of int, shape (num_vis_samples,)
+    antenna1_index : int or array of int, shape (num_vis_samples,)
         Array containing the index of the first antenna of each uv sample
-    antenna2_index : array of int, shape (num_vis_samples,)
+    antenna2_index : int or array of int, shape (num_vis_samples,)
         Array containing the index of the second antenna of each uv sample
     integrate_length : float
         The integration time (one over dump rate), in seconds
@@ -583,13 +612,15 @@ def write_dict(ms_dict, ms_name='./blank.ms', verbose=True):
                 print "  could not open table!"
                 break
             num_rows = row_dict.values()[0].shape[0]
+            # Append rows to the table by starting after the last row in table
+            startrow = t.nrows()
             # Add the space required for this group of rows
             t.addrows(num_rows)
             print "  added %d rows" % (num_rows,)
             for col_name, col_data in row_dict.iteritems():
                 if col_name in t.colnames():
                     try:
-                        t.putcol(col_name, col_data, startrow=t.nrows())
+                        t.putcol(col_name, col_data, startrow)
                         print "  wrote column '%s' with shape %s" % (col_name, col_data.shape)
                     except RuntimeError, err:
                         print "  error writing column '%s' with shape %s (%s)" % (col_name, col_data.shape, err)
