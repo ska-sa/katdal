@@ -33,7 +33,7 @@ if options.stop_w:
     print "W term in UVW coordinates will be used to stop the fringes."
 
 if not ms_extra.casacore_binding:
-    print "Failed to find casacore binding. You need to install both casacore and pyrap, or run the script from within casapy."
+    print "Failed to find casacore binding. You need to install both casacore and pyrap, or run the script from within a modified casapy containing h5py and katpoint."
     sys.exit(1)
 else:
     print "Using '%s' casacore binding to produce MS" % (ms_extra.casacore_binding,)
@@ -105,6 +105,7 @@ for scan_ind, compscan_ind, scan_state, target in h5.scans():
             vis_data = np.dstack([h5.vis(prod, zero_missing_data=True) for prod in polprods])
             uvw_coordinates = np.array(target.uvw(ant2, tstamps, ant1))
             if options.stop_w:
+                # NB: this is not completely correct, as the cable delay is per pol (signal path) and not per antenna
                 cable_delay_diff = delays[ant2_index] - delays[ant1_index]
                 # Result of delay model in turns of phase. This is now frequency dependent so has shape (tstamps, channels)
                 turns = np.outer((uvw_coordinates[2] / katpoint.lightspeed) + cable_delay_diff, h5.channel_freqs)
