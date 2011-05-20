@@ -2,6 +2,10 @@
 
 import katpoint
 
+class ScanIteratorStopped(Exception):
+    """Scan iterator stopped (or not started yet) and file format does not allow direct data access."""
+    pass
+
 class SimpleVisData(object):
     """Base class for loading a visibility data file.
 
@@ -25,6 +29,8 @@ class SimpleVisData(object):
     ----------
     filename : string
         Name of data file
+    file : object
+        File object providing access to data file (e.g. h5py file handle)
     version : string
         Format version string
     observer : string
@@ -38,11 +44,11 @@ class SimpleVisData(object):
         List of antennas present in file and used in experiment (i.e. subarray)
     ref_ant : string
         Name of reference antenna, used to partition data set into scans
-    input_map : dict mapping string to string
-        Map from signal path labels ('ant1H') to correlator input labels ('0x')
-    corrprod_map : dict mapping string to object
-        Map from DBE correlation product strings ('0x1y') to objects that index
-        the visibility data array (typically integer indices or pairs of indices)
+    inputs : list of strings
+        List of available correlator input labels ('ant1H'), in DBE input order
+    corrprod_map : dict mapping tuple of 2 strings to object
+        Map from a pair of correlator input labels, e.g. ('ant1H', 'ant2V'), to
+        objects that index the visibility data array (typically an integer index)
     channel_bw : float
         Channel bandwidth, in Hz
     channel_freqs : array of float, shape (*F*,)
@@ -57,13 +63,14 @@ class SimpleVisData(object):
     """
     def __init__(self, filename, ref_ant='', channel_range=None, time_offset=0.0):
         self.filename = filename
+        self.file = None
         self.version = ''
         self.observer = ''
         self.description = ''
         self.experiment_id = ''
         self.ants = []
         self.ref_ant = ref_ant
-        self.input_map = {}
+        self.inputs = set()
         self.corrprod_map = {}
         self.channel_bw = 0.0
         self.channel_freqs = []
@@ -73,14 +80,14 @@ class SimpleVisData(object):
 
     def __str__(self):
         """Verbose human-friendly string representation of data object."""
-        signals_used = [signal for signal in self.input_map if signal[:-1] in [ant.name for ant in self.ants]]
+        inputs_used = [inp for inp in self.inputs if inp[:-1] in [ant.name for ant in self.ants]]
         descr = ['%s (version %s)' % (self.filename, self.version),
                  "description: %s | %s" % (self.experiment_id if self.experiment_id else 'No experiment ID',
                                            self.observer if self.observer else 'No observer'),
                  "'%s'" % (self.description if self.description else 'No description',),
                  'antennas: %s' % (' '.join([(ant.name + ' (*ref*)' if ant.name == self.ref_ant else ant.name)
                                              for ant in self.ants]),),
-                 'inputs: %d, corrprods: %d' % (len(signals_used), len(self.all_corr_products(signals_used))),
+                 'inputs: %d, corrprods: %d' % (len(inputs_used), len(self.all_corr_products(inputs_used))),
                  'channels: %d (%.3f - %.3f MHz), %.3f MHz wide' % (len(self.channel_freqs), self.channel_freqs[0] / 1e6,
                                                                     self.channel_freqs[-1] / 1e6, self.channel_bw / 1e6),
                  'first sample starts at ' + katpoint.Timestamp(self.start_time).local()]
@@ -94,33 +101,30 @@ class SimpleVisData(object):
                      (num_samples, self.dump_rate, num_samples / self.dump_rate / 60.))
         return '\n'.join(descr)
 
-    def corr_input(self, signal):
-        """Correlator input corresponding to signal path, with error reporting.
+    def validate_inputs(self, inputs):
+        """Validate a sequence of correlator input labels.
+
+        This checks that all the provided input labels are present in the file,
+        raising a :exc:`KeyError` exception if any are not.
 
         Parameters
         ----------
-        signal : string
-            Label of signal path, as antenna name + pol name, e.g. 'ant1H'
-
-        Returns
-        -------
-        dbe_input : string
-            Label of corresponding correlator input in DBE format, e.g. '0x'
+        inputs : sequence of strings
+            List of correlator input labels (e.g. ['ant1H', 'ant1V'])
 
         Raises
         ------
         KeyError
-            If requested signal path is not connected to correlator
+            If any label was not found in file
 
         """
-        try:
-            return self.input_map[signal]
-        except KeyError:
-            raise KeyError("Signal path '%s' not connected to correlator (available signals are '%s')" %
-                           (signal, "', '".join(self.input_map.keys())))
+        for inp in inputs:
+            if inp not in self.inputs:
+                raise KeyError("Correlator does not have input labelled '%s' (available inputs are '%s')" %
+                               (inp, "', '".join(self.inputs)))
 
-    def corr_product(self, signalA, signalB):
-        """Correlation product associated with signal A x signal B.
+    def corr_product(self, inputA, inputB):
+        """Correlation product associated with input A x input B.
 
         This looks for the correlation product <A, B*> in the file, and returns
         the appropriate visibility index. If the direct product is not found,
@@ -129,61 +133,61 @@ class SimpleVisData(object):
 
         Parameters
         ----------
-        signalA, signalB : string
-            Labels of signal paths to correlate (e.g. 'ant1H', 'ant2V')
+        inputA, inputB : string
+            Labels of correlator inputs to correlate (e.g. 'ant1H', 'ant2V')
 
         Returns
         -------
         corrprod_index : object
-            Index into vis data array (typically integer index or pair of indices)
+            Index into vis data array (typically integer index)
         conjugate : {False, True}
             True if visibility data should be conjugated
 
         Raises
         ------
         KeyError
-            If requested signal path is not connected to correlator
+            If requested input label is not available
         ValueError
             If requested correlation product is not available
 
         """
         # Look for direct product (A x B) first
-        corrprod = self.corr_input(signalA) + self.corr_input(signalB)
+        corrprod = (inputA, inputB)
+        self.validate_inputs(corrprod)
         if corrprod in self.corrprod_map:
             return self.corrprod_map[corrprod], False
         # Now look for reversed product (B x A), which will require conjugation of vis data
-        corrprod = self.corr_input(signalB) + self.corr_input(signalA)
+        corrprod = (inputB, inputA)
         if corrprod in self.corrprod_map:
             return self.corrprod_map[corrprod], True
-        raise ValueError("Correlation product ('%s', '%s') or its reverse could not be found" % (signalA, signalB))
+        raise ValueError("Correlation product ('%s', '%s') or its reverse could not be found" % (inputA, inputB))
 
-    def all_corr_products(self, signals):
-        """Correlation products in data set involving the desired signals.
+    def all_corr_products(self, inputs):
+        """Correlation products in data set involving the desired inputs.
 
-        This finds all the non-redundant correlation products in the file where
-        both signal paths in the product are present in the provided list. It
-        will return both autocorrelations and cross-correlations.
+        This finds all the non-redundant correlation products in the file for
+        which both inputs forming the product are present in the provided list.
+        It will return both autocorrelations and cross-correlations.
 
         Parameters
         ----------
-        signals : sequence of strings
-            List of signal path labels (e.g. ['ant1H', 'ant1V'])
+        inputs : sequence of strings
+            List of correlator input labels (e.g. ['ant1H', 'ant1V'])
 
         Returns
         -------
         corrprods : list of (int, int) pairs
             List of correlation products available in data file, as pairs of
-            indices into the list of signal paths (e.g. [(0, 0), (0, 1), (1, 1)])
+            indices into the list of input labels (e.g. [(0, 0), (0, 1), (1, 1)])
 
         """
-        # DBE inputs that correspond to signal paths
-        inputs = [self.corr_input(signal) for signal in signals]
-        # Build all correlation products (and corresponding signal index pairs) from DBE input strings
+        self.validate_inputs(inputs)
+        # Build all correlation products (and corresponding input index pairs) from DBE input strings
         # For N antennas this results in N * N products
-        dbestr_signalpairs = [(inputA + inputB, indexA, indexB) for indexA, inputA in enumerate(inputs)
-                                                                for indexB, inputB in enumerate(inputs)]
+        input_pairs = [((inputA, inputB), indexA, indexB) for indexA, inputA in enumerate(inputs)
+                                                          for indexB, inputB in enumerate(inputs)]
         # Filter correlation products to keep the ones actually in the file (typically N * (N + 1) / 2 products)
-        corrprods = [(indexA, indexB) for dbestr, indexA, indexB in dbestr_signalpairs if dbestr in self.corrprod_map]
+        corrprods = [(indexA, indexB) for pair, indexA, indexB in input_pairs if pair in self.corrprod_map]
         # If baseline A-B and its reverse B-A are both in the file, only keep the one where A < B
         for cp in corrprods:
             if (cp[1], cp[0]) in corrprods and cp[1] < cp[0]:
@@ -215,10 +219,9 @@ class SimpleVisData(object):
 
         Parameters
         ----------
-        corrprod : string or (string, string) pair
-            Correlation product to extract from visibility data, either as
-            string of concatenated correlator input labels (e.g. '0x1y') or a
-            pair of signal path labels (e.g. ('ant1H', 'ant2V'))
+        corrprod : (string, string) pair
+            Correlation product to extract from visibility data, as a pair of
+            correlator input labels, e.g. ('ant1H', 'ant2V')
         zero_missing_data : {False, True}
             True if an array of zeros of the appropriate shape should be returned
             when the requested correlation product could not be found (as opposed

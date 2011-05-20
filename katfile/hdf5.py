@@ -1,10 +1,12 @@
 """Data accessor classes for HDF5 files produced by KAT correlators."""
 
+import re
+
 import numpy as np
 import h5py
 import katpoint
 
-from .simplevisdata import SimpleVisData
+from .simplevisdata import SimpleVisData, ScanIteratorStopped
 
 #--------------------------------------------------------------------------------------------------
 #--- Utility functions
@@ -101,10 +103,10 @@ def get_single_value(group, name):
     if name in group.attrs:
         return group.attrs[name]
     if not has_data(group, name):
-        raise ValueError("Could not find attribute or non-empty dataset named %r/%r" % (group.name, name))
+        raise ValueError("Could not find attribute or non-empty dataset named '%s/%s'" % (group.name, name))
     dataset = group[name]
     if not all(dataset.value == dataset.value[0]):
-        raise ValueError("Not all values in %r/%r are equal. Values found: %r" % (group.name, name, dataset.value))
+        raise ValueError("Not all values in '%s/%s' are equal. Values found: %s" % (group.name, name, dataset.value))
     return dataset.value[0]
 
 class WrongH5Version(Exception):
@@ -134,7 +136,7 @@ class H5DataV1(SimpleVisData):
         SimpleVisData.__init__(self, filename, ref_ant, channel_range, time_offset)
 
         # Load file
-        self._f = f = h5py.File(filename, 'r')
+        self.file = f = h5py.File(filename, 'r')
 
         # Only continue if file is correct version and has been properly augmented
         self.version = f.attrs.get('version', '1.x')
@@ -153,13 +155,23 @@ class H5DataV1(SimpleVisData):
         self.ants = [katpoint.Antenna(f['Antennas'][group].attrs['description']) for group in ant_groups]
         self.ref_ant = self.ants[0].name if not ref_ant else ref_ant
 
-        # Map from antenna signal to DBE input
-        self.input_map = dict([(ant.name + 'H', f['Antennas'][group]['H'].attrs['dbe_input'])
-                               for ant, group in zip(self.ants, ant_groups) if 'H' in f['Antennas'][group]])
-        self.input_map.update(dict([(ant.name + 'V', f['Antennas'][group]['V'].attrs['dbe_input'])
-                                    for ant, group in zip(self.ants, ant_groups) if 'V' in f['Antennas'][group]]))
-        # Map from DBE input product string to correlation product index
-        self.corrprod_map = dict([(v, k) for k, v in f['Correlator']['input_map'].value])
+        # Map from (old-style) DBE input label (e.g. '0x') to the new antenna-based input label (e.g. 'ant1H')
+        input_label = dict([(f['Antennas'][group]['H'].attrs['dbe_input'], ant.name + 'H')
+                            for ant, group in zip(self.ants, ant_groups) if 'H' in f['Antennas'][group]])
+        input_label.update(dict([(f['Antennas'][group]['V'].attrs['dbe_input'], ant.name + 'V')
+                                 for ant, group in zip(self.ants, ant_groups) if 'V' in f['Antennas'][group]]))
+        # List input labels in order of system-wide DBE inputs
+        self.inputs = [input_label[inp] for inp in sorted(input_label.keys())]
+        # Split DBE input product string into its separate inputs
+        split_product = re.compile(r'(\d+[xy])(\d+[xy])')
+        self.corrprod_map = {}
+        # Unpack map from DBE input product string to correlation product index so that it maps
+        # pairs of input labels to the correlation product index instead
+        for corrind, product in f['Correlator']['input_map']:
+            match = split_product.match(product)
+            if match is None:
+                raise ValueError("Unknown DBE input product '%s' in input map (expected e.g. '0x1y')" % (product,))
+            self.corrprod_map[tuple([input_label[inp] for inp in match.groups()])] = corrind
 
         # Extract frequency information
         band_center = f['Correlator'].attrs['center_frequency_hz']
@@ -185,8 +197,8 @@ class H5DataV1(SimpleVisData):
         last_scan = 'Scan' + str(len(f['Scans'][last_compscan]) - 1)
         self._scan_group = f['Scans'][last_compscan][last_scan]
         self.end_time = self.timestamps()[-1] + 0.5 / self.dump_rate
-        # Reset back to first scan
-        self._scan_group = f['Scans']['CompoundScan0']['Scan0']
+        # Reset scan group - this file format only permits data access via scans() interface
+        self._scan_group = None
 
     def scans(self):
         """Generator that iterates through scans in file.
@@ -207,8 +219,8 @@ class H5DataV1(SimpleVisData):
 
         """
         scan_index = 0
-        for compscan_index in range(len(self._f['Scans'])):
-            compscan_group = self._f['Scans']['CompoundScan' + str(compscan_index)]
+        for compscan_index in range(len(self.file['Scans'])):
+            compscan_group = self.file['Scans']['CompoundScan' + str(compscan_index)]
             target = katpoint.Target(compscan_group.attrs['target'])
             compscan_label = compscan_group.attrs['label']
             for scan in range(len(compscan_group)):
@@ -218,17 +230,16 @@ class H5DataV1(SimpleVisData):
                     state = 'track'
                 yield scan_index, compscan_index, state, target
                 scan_index += 1
-        self._scan_group = self._f['Scans']['CompoundScan0']['Scan0']
+        self._scan_group = None
 
     def vis(self, corrprod, zero_missing_data=False):
         """Extract complex visibility data for current scan.
 
         Parameters
         ----------
-        corrprod : string or (string, string) pair
-            Correlation product to extract from visibility data, either as
-            string of concatenated correlator input labels (e.g. '0x1y') or a
-            pair of signal path labels (e.g. ('ant1H', 'ant2V'))
+        corrprod : (string, string) pair
+            Correlation product to extract from visibility data, as a pair of
+            correlator input labels, e.g. ('ant1H', 'ant2V')
         zero_missing_data : {False, True}
             True if an array of zeros of the appropriate shape should be returned
             when the requested correlation product could not be found (as opposed
@@ -244,11 +255,10 @@ class H5DataV1(SimpleVisData):
             matches the size of `channel_freqs`.
 
         """
+        if self._scan_group is None:
+            raise ScanIteratorStopped('HDF5 v1 format only supports scan iterator interface - call scans() method first')
         try:
-            if isinstance(corrprod, basestring):
-                corr_id, conj = self.corrprod_map[corrprod], False
-            else:
-                corr_id, conj = self.corr_product(corrprod[0], corrprod[1])
+            corr_id, conj = self.corr_product(corrprod[0], corrprod[1])
             vis = self._scan_group['data'][str(corr_id)][:, self._first_chan:self._last_chan + 1]
             return vis.conj() if conj else vis
         except (KeyError, ValueError):
@@ -267,6 +277,8 @@ class H5DataV1(SimpleVisData):
             epoch). These timestamps should be in *middle* of each integration.
 
         """
+        if self._scan_group is None:
+            raise ScanIteratorStopped('HDF5 v1 format only supports scan iterator interface - call scans() method first')
         return self._scan_group['timestamps'].value.astype(np.float64) / 1000. + 0.5 / self.dump_rate + self._time_offset
 
 #--------------------------------------------------------------------------------------------------
@@ -292,7 +304,7 @@ class H5DataV2(SimpleVisData):
         SimpleVisData.__init__(self, filename, ref_ant, channel_range, time_offset)
 
         # Load file
-        self._f = f = h5py.File(filename, 'r')
+        self.file = f = h5py.File(filename, 'r')
 
         # Only continue if file is correct version and has been properly augmented
         self.version = f.attrs.get('version', '1.x')
@@ -314,14 +326,11 @@ class H5DataV2(SimpleVisData):
         # Build Antenna objects for them
         self.ants = [katpoint.Antenna(config_group['Antennas'][name].attrs['description']) for name in ant_names]
 
-        # Map from antenna signal to DBE input
-        self.input_map = dict(get_single_value(config_group['Correlator'], 'input_map'))
-        # Map from DBE input product string to correlation product index in form of (baseline, polarisation) pair
-        # This typically follows Miriad-style numbering
-        self.corrprod_map = {}
-        for bl_ind, bl in enumerate(get_single_value(config_group['Correlator'], 'bls_ordering')):
-            for pol_ind, pol in enumerate(get_single_value(config_group['Correlator'], 'crosspol_ordering')):
-                self.corrprod_map['%d%s%d%s' % (bl[0], pol[0], bl[1], pol[1])] = (bl_ind, pol_ind)
+        # List of correlator input labels, in order of system-wide DBE inputs (assume they are sequential in array)
+        self.inputs = [labels[0] for labels in get_single_value(config_group['Correlator'], 'input_labelling')]
+        # Map from input label pair to correlation product index (which typically follows Miriad-style numbering)
+        self.corrprod_map = dict([(tuple(input_pair), corr_id) for corr_id, input_pair in
+                                  enumerate(get_single_value(config_group['Correlator'], 'bls_ordering'))])
 
         # Extract frequency information
         band_center = sensors_group['RFE']['center-frequency-hz']['value'][0]
@@ -368,9 +377,7 @@ class H5DataV2(SimpleVisData):
         target_changes = [n for n in xrange(len(target)) if target[n] and ((n == 0) or (target[n] != target[n - 1]))]
         compscan_targets, target_timestamps = target[target_changes], target_timestamps[target_changes]
         compscan_starts = dump_endtimes.searchsorted(target_timestamps)
-
-        # Strip off quotes from target description string and build Target objects
-        self._compscan_targets = [katpoint.Target(tgt[1:-1]) for tgt in compscan_targets]
+        self._compscan_targets = [katpoint.Target(tgt) for tgt in compscan_targets]
         self._scan_compscans = compscan_starts.searchsorted(self._scan_starts, side='right') - 1
         self._first_sample, self._last_sample = 0, len(self._data_timestamps) - 1
 
@@ -406,10 +413,9 @@ class H5DataV2(SimpleVisData):
 
         Parameters
         ----------
-        corrprod : string or (string, string) pair
-            Correlation product to extract from visibility data, either as
-            string of concatenated correlator input labels (e.g. '0x1y') or a
-            pair of signal path labels (e.g. ('ant1H', 'ant2V'))
+        corrprod : (string, string) pair
+            Correlation product to extract from visibility data, as a pair of
+            correlator input labels, e.g. ('ant1H', 'ant2V')
         zero_missing_data : {False, True}
             True if an array of zeros of the appropriate shape should be returned
             when the requested correlation product could not be found (as opposed
@@ -426,12 +432,9 @@ class H5DataV2(SimpleVisData):
 
         """
         try:
-            if isinstance(corrprod, basestring):
-                (bl_id, pol_id), conj = self.corrprod_map[corrprod], False
-            else:
-                (bl_id, pol_id), conj = self.corr_product(corrprod[0], corrprod[1])
-            vis = self._vis[self._first_sample:self._last_sample + 1, self._first_chan:self._last_chan + 1,
-                            bl_id, pol_id].astype(np.float32).view(np.complex64)[:, :, 0]
+            corr_id, conj = self.corr_product(corrprod[0], corrprod[1])
+            vis = self._vis[self._first_sample:self._last_sample + 1,
+                            self._first_chan:self._last_chan + 1, corr_id].view(np.complex64)[:, :, 0]
             return vis.conj() if conj else vis
         except (KeyError, ValueError):
             if zero_missing_data:
