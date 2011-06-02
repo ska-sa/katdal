@@ -65,13 +65,13 @@ def remove_duplicates(sensor):
     replacement = unique_ind[len(unique_ind) - np.cumsum(last_of_run[::-1])[::-1]]
     # All duplicates should have the same y and z values - complain otherwise, but continue
     if not np.all(y[replacement] == y) or not np.all(z[replacement] == z):
-        logger.warning("Sensor '%s' has duplicate timestamps with different values or statuses" % sensor.name)
+        print "WARNING: Sensor '%s' has duplicate timestamps with different values or statuses" % (sensor.name,)
         for ind in (y[replacement] != y).nonzero()[0]:
-            logger.debug("At %s, sensor '%s' has values of %s and %s - keeping last one" %
-                         (katpoint.Timestamp(x[ind]).local(), sensor.name, y[ind], y[replacement][ind]))
+            print "DEBUG: At %s, sensor '%s' has values of %s and %s - keeping last one" % \
+                  (katpoint.Timestamp(x[ind]).local(), sensor.name, y[ind], y[replacement][ind])
         for ind in (z[replacement] != z).nonzero()[0]:
-            logger.debug("At %s, sensor '%s' has statuses of '%s' and '%s' - keeping last one" %
-                         (katpoint.Timestamp(x[ind]).local(), sensor.name, z[ind], z[replacement][ind]))
+            print "DEBUG: At %s, sensor '%s' has statuses of '%s' and '%s' - keeping last one" % \
+                  (katpoint.Timestamp(x[ind]).local(), sensor.name, z[ind], z[replacement][ind])
     return np.rec.fromarrays([x[unique_ind], y[unique_ind], z[unique_ind]], dtype=sensor.dtype)
 
 def get_single_value(group, name):
