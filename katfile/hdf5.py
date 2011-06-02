@@ -362,12 +362,19 @@ class H5DataV2(SimpleVisData):
 
         # Use the activity sensor of reference antenna to partition the data set into scans (and to label the scans)
         activity_sensor = remove_duplicates(ant_sensors['activity'])
+        activity, activity_timestamps = activity_sensor['value'], activity_sensor['timestamp']
         # Simplify the activities to derive the basic state of the antenna (slewing, scanning, tracking, stopped)
         simplify = {'scan': 'scan', 'track': 'track', 'slew': 'slew', 'scan_ready': 'slew', 'scan_complete': 'slew'}
-        state = np.array([simplify.get(act, 'stop') for act in activity_sensor['value']])
+        state = np.array([simplify.get(act, 'stop') for act in activity])
+        # Cull spurious short-lived activities (e.g. track immediately preceding scan_ready)
+        state_durations = np.diff(np.r_[activity_timestamps, dump_endtimes[-1]])
+        non_spurious = state_durations > 0.5 * sample_period
+        state, activity_timestamps = state[non_spurious], activity_timestamps[non_spurious]
+        # Identify times where the state changes - these become scan boundaries
         state_changes = [n for n in xrange(len(state)) if (n == 0) or (state[n] != state[n - 1])]
-        self._scan_states, state_timestamps = state[state_changes], activity_sensor['timestamp'][state_changes]
-        self._scan_starts = dump_endtimes.searchsorted(state_timestamps)
+        self._scan_states, scan_timestamps = state[state_changes], activity_timestamps[state_changes]
+        # Convert scan boundary times to sample indices
+        self._scan_starts = dump_endtimes.searchsorted(scan_timestamps)
         self._scan_ends = np.r_[self._scan_starts[1:] - 1, len(dump_endtimes) - 1]
 
         # Use the target sensor of reference antenna to partition the data set into compound scans
