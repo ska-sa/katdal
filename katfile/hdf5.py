@@ -379,7 +379,9 @@ class H5DataV2(SimpleVisData):
         compscan_starts = dump_endtimes.searchsorted(target_timestamps)
         self._compscan_targets = [katpoint.Target(tgt) for tgt in compscan_targets]
         # TODO: Split scans at compscan boundaries
-        self._scan_compscans = max(compscan_starts.searchsorted(self._scan_starts, side='right') - 1, 0)
+        self._scan_compscans = compscan_starts.searchsorted(self._scan_starts, side='right') - 1
+        self._scan_compscans[self._scan_compscans < 0] = 0
+         # lump first scan in with the first compound scan
         self._first_sample, self._last_sample = 0, len(self._data_timestamps) - 1
 
     def scans(self):
