@@ -71,6 +71,8 @@ ms_dict['SPECTRAL_WINDOW'] = ms_extra.populate_spectral_window_dict(h5.channel_f
 
 field_centers, field_times, field_names = [], [], []
 
+#increment scans sequentially in the ms
+scan_itr = 1
 for scan_ind, compscan_ind, scan_state, target in h5.scans():
     tstamps = h5.timestamps()
     if scan_state != 'track':
@@ -111,7 +113,8 @@ for scan_ind, compscan_ind, scan_state, target in h5.scans():
                 turns = np.outer((uvw_coordinates[2] / katpoint.lightspeed) + cable_delay_diff, h5.channel_freqs)
                 vis_data *= np.exp(-2j * np.pi * turns[:, :, np.newaxis])
             ms_dict['MAIN'].append(ms_extra.populate_main_dict(uvw_coordinates, vis_data, mjd_seconds,
-                                                               ant1_index, ant2_index, 1.0 / h5.dump_rate, field_id))
+                                                               ant1_index, ant2_index, 1.0 / h5.dump_rate, field_id, scan_itr))
+    scan_itr+=1
 
 ms_dict['FIELD'] = ms_extra.populate_field_dict(field_centers, field_times, field_names)
 
