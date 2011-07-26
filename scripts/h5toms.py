@@ -14,8 +14,10 @@ import katpoint
 from katfile import h5_data, ms_extra
 
  # NOTE: This should be checked before running (only for w stopping) to see how up to date the cable delays are !!!
-delays = [478.041e-9, 545.235e-9, 669.900e-9, 772.868e-9, 600.0e-9, 600.0e-9, 600.0e-9]
+#delays = [478.041e-9, 545.235e-9, 669.900e-9, 772.868e-9, 600.0e-9, 600.0e-9, 600.0e-9]
  # updated by simonr July 5th 2010
+delays = [23243.947e-9, 23297.184e-9, 23406.078e-9, 23514.801e-9, 23676.916e-9, 23784.112e-9, 24047.285e-9]
+ # updated by schwardt July 23rd 2011
 
 parser = optparse.OptionParser(usage="%prog [options] <filename.h5>", description='Convert HDF5 file to MeasurementSet')
 parser.add_option("-b", "--blank-ms", default="/var/kat/static/blank.ms", help="Blank MS used as template (default=%default)")
