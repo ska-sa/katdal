@@ -183,6 +183,18 @@ ms_desc['FIELD'] = {
     'TIME': std_scalar('Time origin for direction and rate', 'double'),
 }
 
+ms_desc['SOURCE'] = {
+    'DIRECTION':std_array('Source direction at specified time', 'double', 2),
+    'PROPER_MOTION':std_array('Source proper motion at specified time', 'double', 2),
+    'SOURCE_ID':std_scalar('Source identifier as specified in FIELD table', 'integer'),
+    'TIME':std_scalar('Mid point of time interval for which this row is valid', 'double'),
+    'CALIBRATION_GROUP':std_scalar('Cal group to which this source belongs','integer'),
+    'NAME':std_scalar('Name of this source', 'string'),
+    'NUM_LINES':std_scalar('Number of line transitions associated with this source','integer'),
+    'REST_FREQUENCY':std_scalar('Rest frequency of line','double'),
+    'SYSVEL':std_scalar('Systemic velocity of line','double'),
+}
+
 ms_desc['POINTING'] = {
     'ANTENNA_ID': std_scalar('Antenna Id'),
     'DIRECTION': std_array('Antenna pointing direction as polynomial in time', 'double', 2),
@@ -583,6 +595,30 @@ def populate_spectral_window_dict(center_frequencies, channel_bandwidths):
     return spectral_window_dict
 
 
+def populate_source_dict(phase_centers, time_origins, center_frequencies, field_names=None):
+    """Construct a dictionary containing the columns of the SOURCE subtable.
+    
+    The SOURCE subtable describes time-variable source information, that may
+    be associated with a given FIELD_ID. It appears to be optional, but for
+    completeness it is included here (with no time varying terms).
+    """
+    num_channels = len(center_frequencies)
+    phase_centers = np.atleast_2d(np.asarray(phase_centers, np.float64))[:, np.newaxis, :]
+    num_fields = len(phase_centers)
+    if field_names is None:
+        field_names = ['Source%d' % (field,) for field in range(num_fields)]
+    source_dict = {}
+    source_dict['SOURCE_ID'] = np.arange(num_fields)
+    source_dict['PROPER_MOTION'] = np.zeros((num_fields, 2), dtype=np.float32)
+    source_dict['DIRECTION'] = phase_centers
+    source_dict['CALIBRATION_GROUP'] = np.ones(num_fields) * -1
+    source_dict['NAME'] = np.atleast_1d(field_names)
+    source_dict['NUM_LINES'] = np.ones(num_fields)
+    source_dict['TIME'] = np.atleast_1d(np.asarray(time_origins, dtype=np.float64))
+    source_dict['REST_FREQUENCY'] = np.tile(np.array([center_frequencies[num_channels // 2]], dtype=np.float64), (num_fields,1))
+    source_dict['SYSVEL'] = np.ones((num_fields,1), dtype=np.float64)
+    return source_dict
+
 def populate_field_dict(phase_centers, time_origins, field_names=None):
     """Construct a dictionary containing the columns of the FIELD subtable.
 
@@ -742,6 +778,7 @@ def populate_ms_dict(uvw_coordinates, vis_data, timestamps, antenna1_index, ante
                                                        telescope_name, observer_name, project_name)
     ms_dict['SPECTRAL_WINDOW'] = populate_spectral_window_dict(center_frequencies, channel_bandwidths)
     ms_dict['FIELD'] = populate_field_dict(phase_center, start_time)
+    ms_dict['SOURCE'] = populate_source_dict(phase_center)
     return ms_dict
 
 # ----------------- Write completed dictionary to MS file --------------------

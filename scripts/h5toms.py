@@ -113,7 +113,6 @@ for scan_ind, compscan_ind, scan_state, target in h5.scans():
                         (ant1.name + 'H', ant2.name + 'V'), (ant1.name + 'V', ant2.name + 'H')]
                 # Create 3-dim complex data array with shape (tstamps, channels, pols)
                 vis_data = np.dstack([h5.vis(prod, zero_missing_data=True) for prod in polprods])
-            print vis_data.shape
             uvw_coordinates = np.array(target.uvw(ant2, tstamps, ant1))
             if options.stop_w:
                 # NB: this is not completely correct, as the cable delay is per pol (signal path) and not per antenna
@@ -126,6 +125,7 @@ for scan_ind, compscan_ind, scan_state, target in h5.scans():
     scan_itr+=1
 
 ms_dict['FIELD'] = ms_extra.populate_field_dict(field_centers, field_times, field_names)
+ms_dict['SOURCE'] = ms_extra.populate_source_dict(field_centers, field_times, h5.channel_freqs, field_names)
 
 # Finally we write the MS as per our created dicts
 ms_extra.write_dict(ms_dict, ms_name)
