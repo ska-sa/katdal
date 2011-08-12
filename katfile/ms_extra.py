@@ -452,7 +452,7 @@ def populate_polarization_dict(pol_type='HV'):
 
     Parameters
     ----------
-    pol_type : {'HV', 'HH', 'VV'}, optional
+    pol_type : {'HV', 'HH', 'VV', 'I'}, optional
         The polarisation types of the connected feeds
 
     Returns
@@ -470,7 +470,8 @@ def populate_polarization_dict(pol_type='HV'):
     # The native correlator data is in XX, YY, XY, YX for HV pol, XX for H pol and YY for V pol
     polarization_dict['CORR_TYPE'] = np.array([9, 12, 10, 11], dtype=np.int32).reshape((1, 4)) if pol_type == 'HV' \
                                      else np.array([[9]], dtype=np.int32) if pol_type == 'HH' \
-                                     else np.array([[12]], dtype=np.int32)
+                                     else np.array([[12]], dtype=np.int32) if pol_type == 'VV' \
+                                     else np.array([[1]], dtype=np.int32)
     polarization_dict['FLAG_ROW'] = np.zeros(1, dtype=np.uint8)
     # Number of correlation products (integer)
     polarization_dict['NUM_CORR'] = np.array([4 if pol_type == 'HV' else 1], dtype=np.int32)

@@ -23,6 +23,7 @@ parser = optparse.OptionParser(usage="%prog [options] <filename.h5>", descriptio
 parser.add_option("-b", "--blank-ms", default="/var/kat/static/blank.ms", help="Blank MS used as template (default=%default)")
 parser.add_option("-r" , "--ref-ant", help="Reference antenna (default is first one used by script)")
 parser.add_option("-t", "--tar", action="store_true", default=False, help="Tar-ball the MS")
+parser.add_option("-i", "--stokes-i", action="store_true", default=False, help="Produce only Stokes I")
 parser.add_option("-w", "--stop-w", action="store_true", default=False, help="Use W term to stop fringes for each baseline")
 (options, args) = parser.parse_args()
 
@@ -67,7 +68,7 @@ ms_dict['ANTENNA'] = ms_extra.populate_antenna_dict([ant.name for ant in h5.ants
                                                     [ant.diameter for ant in h5.ants])
 ms_dict['FEED'] = ms_extra.populate_feed_dict(len(h5.ants), num_receptors_per_feed=2)
 ms_dict['DATA_DESCRIPTION'] = ms_extra.populate_data_description_dict()
-ms_dict['POLARIZATION'] = ms_extra.populate_polarization_dict(pol_type='HV')
+ms_dict['POLARIZATION'] = ms_extra.populate_polarization_dict(pol_type='I' if options.stokes_i else 'HV')
 ms_dict['OBSERVATION'] = ms_extra.populate_observation_dict(h5.start_time, h5.end_time, "KAT-7", h5.observer, h5.experiment_id)
 ms_dict['SPECTRAL_WINDOW'] = ms_extra.populate_spectral_window_dict(h5.channel_freqs, np.tile(h5.channel_bw, len(h5.channel_freqs)))
 
@@ -102,11 +103,17 @@ for scan_ind, compscan_ind, scan_state, target in h5.scans():
         for ant2_index, ant2 in enumerate(h5.ants):
             if ant2_index < ant1_index:
                 continue
-            # This is the order in which the polarisation products are expected, according to POLARIZATION table
-            polprods = [(ant1.name + 'H', ant2.name + 'H'), (ant1.name + 'V', ant2.name + 'V'),
+            if options.stokes_i:
+                vis_data = h5.vis((ant1.name + 'H', ant2.name + 'H'), zero_missing_data=True) + h5.vis((ant1.name + 'V', ant2.name + 'V'), zero_missing_data=True)
+                vis_data = vis_data.reshape(list(vis_data.shape) + [1])
+                 # reshape for compatibility with multi pol data
+            else:
+                # This is the order in which the polarisation products are expected, according to POLARIZATION table
+                polprods = [(ant1.name + 'H', ant2.name + 'H'), (ant1.name + 'V', ant2.name + 'V'),
                         (ant1.name + 'H', ant2.name + 'V'), (ant1.name + 'V', ant2.name + 'H')]
-            # Create 3-dim complex data array with shape (tstamps, channels, pols)
-            vis_data = np.dstack([h5.vis(prod, zero_missing_data=True) for prod in polprods])
+                # Create 3-dim complex data array with shape (tstamps, channels, pols)
+                vis_data = np.dstack([h5.vis(prod, zero_missing_data=True) for prod in polprods])
+            print vis_data.shape
             uvw_coordinates = np.array(target.uvw(ant2, tstamps, ant1))
             if options.stop_w:
                 # NB: this is not completely correct, as the cable delay is per pol (signal path) and not per antenna
