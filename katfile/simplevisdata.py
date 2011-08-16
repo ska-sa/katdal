@@ -2,6 +2,10 @@
 
 import katpoint
 
+class WrongVersion(Exception):
+    """Trying to access file using accessor class with the wrong version."""
+    pass
+
 class ScanIteratorStopped(Exception):
     """Scan iterator stopped (or not started yet) and file format does not allow direct data access."""
     pass

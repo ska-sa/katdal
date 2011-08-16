@@ -6,7 +6,7 @@ import numpy as np
 import h5py
 import katpoint
 
-from .simplevisdata import SimpleVisData, ScanIteratorStopped
+from .simplevisdata import SimpleVisData, WrongVersion, ScanIteratorStopped
 
 #--------------------------------------------------------------------------------------------------
 #--- Utility functions
@@ -98,10 +98,6 @@ def get_single_value(group, name):
     """
     return group.attrs[name] if name in group.attrs else group[name].value[-1]
 
-class WrongH5Version(Exception):
-    """Trying to access HDF5 file using accessor class with the wrong version."""
-    pass
-
 #--------------------------------------------------------------------------------------------------
 #--- CLASS :  H5DataV1
 #--------------------------------------------------------------------------------------------------
@@ -130,7 +126,7 @@ class H5DataV1(SimpleVisData):
         # Only continue if file is correct version and has been properly augmented
         self.version = f.attrs.get('version', '1.x')
         if not self.version.startswith('1.'):
-            raise WrongH5Version("Attempting to load version '%s' file with version 1 loader" % (self.version,))
+            raise WrongVersion("Attempting to load version '%s' file with version 1 loader" % (self.version,))
         if not 'augment' in f.attrs:
             raise ValueError('HDF5 file not augmented - please run k7_augment.py')
 
@@ -298,7 +294,7 @@ class H5DataV2(SimpleVisData):
         # Only continue if file is correct version and has been properly augmented
         self.version = f.attrs.get('version', '1.x')
         if not self.version.startswith('2.'):
-            raise WrongH5Version("Attempting to load version '%s' file with version 2 loader" % (self.version,))
+            raise WrongVersion("Attempting to load version '%s' file with version 2 loader" % (self.version,))
         if not 'augment_ts' in f.attrs:
             raise ValueError('HDF5 file not augmented - please run k7_augment.py')
 
@@ -453,23 +449,3 @@ class H5DataV2(SimpleVisData):
 
         """
         return self._data_timestamps[self._first_sample:self._last_sample + 1]
-
-#--------------------------------------------------------------------------------------------------
-#--- FUNCTION :  h5_data
-#--------------------------------------------------------------------------------------------------
-
-def h5_data(filename, *args, **kwargs):
-    """Factory that opens HDF5 file with the loader of the appropriate version.
-
-    This takes the same parameters as :class:`SimpleVisData` and returns the
-    appropriate H5DataV* object, based on the version string found in the file.
-
-    """
-    try:
-        return H5DataV2(filename, *args, **kwargs)
-    except WrongH5Version:
-        try:
-            return H5DataV1(filename, *args, **kwargs)
-        except WrongH5Version, e:
-            version = e.message.split("'")[1] if e.message.startswith("Attempting to load") else "<unable to parse>"
-            raise WrongH5Version("Unknown HDF5 version '%s'" % (version,))
