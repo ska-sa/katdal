@@ -212,13 +212,13 @@ for sub_table in ms_desc:
 
 # Define the appropriate way to open a table using the selected binding
 if casacore_binding == 'casapy':
-    def open_table(filename, readonly=False):
+    def open_table(filename, readonly=False, ack=False):
         success = tb.open(filename, nomodify=readonly)
         return tb if success else None
 
 elif casacore_binding == 'pyrap':
-    def open_table(filename, readonly=False):
-        t = tables.table(filename, readonly=readonly)
+    def open_table(filename, readonly=False, ack=False):
+        t = tables.table(filename, readonly=readonly, ack=ack)
         return t if type(t) == tables.table else None
 
 else:
@@ -795,7 +795,7 @@ def write_dict(ms_dict, ms_name='./blank.ms', verbose=True):
             if verbose:
                 print "Table %s:" % (sub_table_name,)
             # Open table using whichever casacore library was found
-            t = open_table(ms_name) if sub_table_name == 'MAIN' else open_table(os.path.join(ms_name, sub_table_name))
+            t = open_table(ms_name, ack=verbose) if sub_table_name == 'MAIN' else open_table(os.path.join(ms_name, sub_table_name))
             if verbose and t is not None:
                 print "  opened successfully"
             if t is None:
@@ -806,12 +806,12 @@ def write_dict(ms_dict, ms_name='./blank.ms', verbose=True):
             startrow = t.nrows()
             # Add the space required for this group of rows
             t.addrows(num_rows)
-            print "  added %d rows" % (num_rows,)
+            if verbose: print "  added %d rows" % (num_rows,)
             for col_name, col_data in row_dict.iteritems():
                 if col_name in t.colnames():
                     try:
                         t.putcol(col_name, col_data.T if casacore_binding == 'casapy' else col_data, startrow)
-                        print "  wrote column '%s' with shape %s" % (col_name, col_data.shape)
+                        if verbose: print "  wrote column '%s' with shape %s" % (col_name, col_data.shape)
                     except RuntimeError, err:
                         print "  error writing column '%s' with shape %s (%s)" % (col_name, col_data.shape, err)
                 else:
@@ -820,5 +820,5 @@ def write_dict(ms_dict, ms_name='./blank.ms', verbose=True):
             # Flush table to disk
             t.flush()
             t.close()
-            print "  closed successfully"
+            if verbose: print "  closed successfully"
             row_count += num_rows

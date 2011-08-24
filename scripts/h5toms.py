@@ -11,26 +11,34 @@ import optparse
 
 import numpy as np
 import katpoint
-from katfile import h5_data, ms_extra
+import katfile
+from katfile import ms_extra
 
  # NOTE: This should be checked before running (only for w stopping) to see how up to date the cable delays are !!!
 #delays = [478.041e-9, 545.235e-9, 669.900e-9, 772.868e-9, 600.0e-9, 600.0e-9, 600.0e-9]
  # updated by simonr July 5th 2010
-delays = [23243.947e-9, 23297.184e-9, 23406.078e-9, 23514.801e-9, 23676.916e-9, 23784.112e-9, 24047.285e-9]
+#delays = [23243.947e-9, 23297.184e-9, 23398.078e-9, 23514.801e-9, 23676.916e-9, 23784.112e-9, 24047.285e-9]
  # updated by schwardt July 23rd 2011
+delays_h = [23218.005e-9, 23282.532e-9, 23406.719e-9, 23514.801e-9, 23676.024e-9, 23780.326e-9, 24047.674e-9]
+delays_v = [23243.947e-9, 23297.184e-9, 23398.639e-9, 23514.801e-9, 23668.491e-9, 23782.643e-9, 24037.784e-9]
+ # updated by schwardt/simonr Aug 15th 2011
 
 parser = optparse.OptionParser(usage="%prog [options] <filename.h5>", description='Convert HDF5 file to MeasurementSet')
 parser.add_option("-b", "--blank-ms", default="/var/kat/static/blank.ms", help="Blank MS used as template (default=%default)")
 parser.add_option("-r" , "--ref-ant", help="Reference antenna (default is first one used by script)")
 parser.add_option("-t", "--tar", action="store_true", default=False, help="Tar-ball the MS")
-parser.add_option("-i", "--stokes-i", action="store_true", default=False, help="Produce only Stokes I")
+parser.add_option("-i", "--stokes-i", action="store_true", default=False, help="Produce only Stokes I (sum HH and VV)")
+parser.add_option("-v", "--verbose", action="store_true", default=False, help="More verbose progress information")
 parser.add_option("-w", "--stop-w", action="store_true", default=False, help="Use W term to stop fringes for each baseline")
+parser.add_option("-x", "--xx", action="store_true", default=False, help="Only use HH in production of Stokes I")
 (options, args) = parser.parse_args()
 
 if len(args) < 1 or not args[0].endswith(".h5"):
-    print "Please provide HDF5 filename as argument"
+    print "Please provide one or more HDF5 filenames as arguments"
     sys.exit(1)
-h5_filename = args[0]
+
+if len(args) > 1:
+    print "Concatenating multiple h5 files into single MS."
 
 if options.stop_w:
     print "W term in UVW coordinates will be used to stop the fringes."
@@ -40,7 +48,7 @@ if not ms_extra.casacore_binding:
     sys.exit(1)
 else:
     print "Using '%s' casacore binding to produce MS" % (ms_extra.casacore_binding,)
-ms_name = os.path.splitext(h5_filename)[0] + ".ms"
+ms_name = os.path.splitext(args[0])[0] + (".ms" if len(args) == 1 else ".et_al.ms")
 
 # The first step is to copy the blank template MS to our desired output (making sure it's not already there)
 if os.path.exists(ms_name):
@@ -54,8 +62,11 @@ except OSError:
 
 print "Will create MS output in", ms_name
 
+if options.xx: print "\n#### Using only HH in calculation of Stokes I MS####\n"
+
 # Open HDF5 file
-h5 = h5_data(h5_filename, ref_ant=options.ref_ant)
+h5 = katfile.open(args, ref_ant=options.ref_ant)
+ # katfile can handle a list of files, which get virtually concatenated internally
 
 print "\nUsing %s as the reference antenna. All targets and activity detection will be based on this antenna.\n" % (h5.ref_ant,)
 # MS expects timestamps in MJD seconds
@@ -76,17 +87,20 @@ field_centers, field_times, field_names = [], [], []
 
 #increment scans sequentially in the ms
 scan_itr = 1
+print "\nIterating through scans in file(s)...\n"
 for scan_ind, compscan_ind, scan_state, target in h5.scans():
     tstamps = h5.timestamps()
     if scan_state != 'track':
-        print "scan %3d (%4d samples) skipped '%s'" % (scan_ind, len(tstamps), scan_state)
+        if options.verbose: print "scan %3d (%4d samples) skipped '%s'" % (scan_ind, len(tstamps), scan_state)
         continue
     if len(tstamps) < 2:
-        print "scan %3d (%4d samples) skipped - too short" % (scan_ind, len(tstamps))
+        if options.verbose: print "scan %3d (%4d samples) skipped - too short" % (scan_ind, len(tstamps))
         continue
     if target.body_type != 'radec':
-        print "scan %3d (%4d samples) skipped - target '%s' not RADEC" % (scan_ind, len(tstamps), target.name)
+        if options.verbose: print "scan %3d (%4d samples) skipped - target '%s' not RADEC" % (scan_ind, len(tstamps), target.name)
         continue
+    if options.verbose: print "scan %3d (%4d samples) loaded. target: '%s'" % (scan_ind, len(tstamps), target.name)
+
     # MS expects timestamps in MJD seconds
     mjd_seconds = [katpoint.Timestamp(t).to_mjd() * 24 * 60 * 60 for t in tstamps]
     # Update field lists if this is a new target
@@ -96,7 +110,7 @@ for scan_ind, compscan_ind, scan_state, target in h5.scans():
         field_names.append(target.name)
         field_centers.append((ra, dec))
         field_times.append(mjd_seconds[0])
-        print "Added new field %d: '%s' %s %s" % (len(field_names) - 1, target.name, ra, dec)
+        if options.verbose: print "Added new field %d: '%s' %s %s" % (len(field_names) - 1, target.name, ra, dec)
     field_id = field_names.index(target.name)
     
     for ant1_index, ant1 in enumerate(h5.ants):
@@ -104,7 +118,7 @@ for scan_ind, compscan_ind, scan_state, target in h5.scans():
             if ant2_index < ant1_index:
                 continue
             if options.stokes_i:
-                vis_data = h5.vis((ant1.name + 'H', ant2.name + 'H'), zero_missing_data=True) + h5.vis((ant1.name + 'V', ant2.name + 'V'), zero_missing_data=True)
+                vis_data = h5.vis((ant1.name + 'H', ant2.name + 'H'), zero_missing_data=True) + (0+0j if options.xx else h5.vis((ant1.name + 'V', ant2.name + 'V'), zero_missing_data=True))
                 vis_data = vis_data.reshape(list(vis_data.shape) + [1])
                  # reshape for compatibility with multi pol data
             else:
@@ -116,9 +130,9 @@ for scan_ind, compscan_ind, scan_state, target in h5.scans():
             uvw_coordinates = np.array(target.uvw(ant2, tstamps, ant1))
             if options.stop_w:
                 # NB: this is not completely correct, as the cable delay is per pol (signal path) and not per antenna
-                cable_delay_diff = delays[ant2_index] - delays[ant1_index]
+                cable_delay_diff = delays_h[ant2_index] - delays_h[ant1_index]
                 # Result of delay model in turns of phase. This is now frequency dependent so has shape (tstamps, channels)
-                turns = np.outer((uvw_coordinates[2] / katpoint.lightspeed) + cable_delay_diff, h5.channel_freqs)
+                turns = np.outer((uvw_coordinates[2] / katpoint.lightspeed) - cable_delay_diff, h5.channel_freqs)
                 vis_data *= np.exp(-2j * np.pi * turns[:, :, np.newaxis])
             ms_dict['MAIN'].append(ms_extra.populate_main_dict(uvw_coordinates, vis_data, mjd_seconds,
                                                                ant1_index, ant2_index, 1.0 / h5.dump_rate, field_id, scan_itr))
@@ -127,8 +141,10 @@ for scan_ind, compscan_ind, scan_state, target in h5.scans():
 ms_dict['FIELD'] = ms_extra.populate_field_dict(field_centers, field_times, field_names)
 ms_dict['SOURCE'] = ms_extra.populate_source_dict(field_centers, field_times, h5.channel_freqs, field_names)
 
+print "\nWriting MS to disk....\n"
+
 # Finally we write the MS as per our created dicts
-ms_extra.write_dict(ms_dict, ms_name)
+ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
 if options.tar:
     tar = tarfile.open('%s.tar' % (ms_name,), 'w')
     tar.add(ms_name, arcname=os.path.basename(ms_name))
