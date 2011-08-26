@@ -10,6 +10,7 @@ setup (
     packages = find_packages(),
     scripts = [
         "scripts/h5toms.py",
+        "scripts/fix_ant_positions.py",
     ],
     url='http://ska.ac.za/',
     classifiers=[

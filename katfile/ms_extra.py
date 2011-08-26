@@ -456,7 +456,7 @@ def populate_data_description_dict():
     return data_description_dict
 
 
-def populate_polarization_dict(pol_type='HV'):
+def populate_polarization_dict(ms_pols=['HH','VV'], stokes_i=False):
     """Construct a dictionary containing the columns of the POLARIZATION subtable.
 
     The POLARIZATION subtable describes how the various receptors are correlated
@@ -464,8 +464,10 @@ def populate_polarization_dict(pol_type='HV'):
 
     Parameters
     ----------
-    pol_type : {'HV', 'HH', 'VV', 'I'}, optional
-        The polarisation types of the connected feeds
+    ms_pols : ['HH'] | ['VV'] | ['HH','VV'] | ['HH','VV','HV','VH']
+        The polarisations used in this dataset
+    stokes_i : False
+        Mark single pol as Stokes I
 
     Returns
     -------
@@ -473,20 +475,22 @@ def populate_polarization_dict(pol_type='HV'):
         Dictionary containing columns of POLARIZATION subtable
 
     """
+    pol_num = {'H':0,'V':1}
+    pol_types = {'I':1,'HH':9,'VV':12,'HV':10,'VH':11}
+     # lookups for converting to CASA speak...
+    if len(ms_pols) > 1 and stokes_i:
+        print "Warning: Polarisation to be marked as stokes, but more than 1 polarisation product specified. Using first specified pol (%s)" % ms_pols[0]
+        ms_pols = [ms_pols[0]]
     polarization_dict = {}
      # Indices describing receptors of feed going into correlation (integer, 2-dim)
-    polarization_dict['CORR_PRODUCT'] = np.array([[0, 0] ,[1, 1], [0, 1], [1, 0]], dtype=np.int32).reshape((1, 4, 2)) \
-                                        if pol_type == 'HV' else np.array([[0, 0]], dtype=np.int32).reshape((1, 2, 1))
-    # The polarisation type for each correlation product, as a Stokes enum (4 integer, 1-dim)
-    # Stokes enum (starting at 1) = {I, Q, U, V, RR, RL, LR, LL, XX, XY, YX, YY, ...}
-    # The native correlator data is in XX, YY, XY, YX for HV pol, XX for H pol and YY for V pol
-    polarization_dict['CORR_TYPE'] = np.array([9, 12, 10, 11], dtype=np.int32).reshape((1, 4)) if pol_type == 'HV' \
-                                     else np.array([[9]], dtype=np.int32) if pol_type == 'HH' \
-                                     else np.array([[12]], dtype=np.int32) if pol_type == 'VV' \
-                                     else np.array([[1]], dtype=np.int32)
+    polarization_dict['CORR_PRODUCT'] = np.array([[pol_num[p[0]],pol_num[p[1]]] for p in ms_pols], dtype=np.int32)[np.newaxis,:,:]
+     # The polarisation type for each correlation product, as a Stokes enum (4 integer, 1-dim)
+     # Stokes enum (starting at 1) = {I, Q, U, V, RR, RL, LR, LL, XX, XY, YX, YY, ...}
+     # The native correlator data is in XX, YY, XY, YX for HV pol, XX for H pol and YY for V pol
+    polarization_dict['CORR_TYPE'] = np.array([pol_types[p] for p in (['I'] if stokes_i else ms_pols)])[np.newaxis,:]
     polarization_dict['FLAG_ROW'] = np.zeros(1, dtype=np.uint8)
-    # Number of correlation products (integer)
-    polarization_dict['NUM_CORR'] = np.array([4 if pol_type == 'HV' else 1], dtype=np.int32)
+     # Number of correlation products (integer)
+    polarization_dict['NUM_CORR'] = np.array([len(ms_pols)], dtype=np.int32)
     return polarization_dict
 
 
