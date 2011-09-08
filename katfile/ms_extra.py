@@ -456,7 +456,7 @@ def populate_data_description_dict():
     return data_description_dict
 
 
-def populate_polarization_dict(ms_pols=['HH','VV'], stokes_i=False):
+def populate_polarization_dict(ms_pols=['HH','VV'], stokes_i=False, circular=False):
     """Construct a dictionary containing the columns of the POLARIZATION subtable.
 
     The POLARIZATION subtable describes how the various receptors are correlated
@@ -468,6 +468,8 @@ def populate_polarization_dict(ms_pols=['HH','VV'], stokes_i=False):
         The polarisations used in this dataset
     stokes_i : False
         Mark single pol as Stokes I
+    circular : False
+        Label the linear pols with circular (for fun and/or profit)
 
     Returns
     -------
@@ -476,7 +478,7 @@ def populate_polarization_dict(ms_pols=['HH','VV'], stokes_i=False):
 
     """
     pol_num = {'H':0,'V':1}
-    pol_types = {'I':1,'HH':9,'VV':12,'HV':10,'VH':11}
+    pol_types = {'I':1,'Q':2,'U':3,'V':4,'RR':5,'RL':6,'LR':7,'LL':8,'HH':9,'VV':12,'HV':10,'VH':11}
      # lookups for converting to CASA speak...
     if len(ms_pols) > 1 and stokes_i:
         print "Warning: Polarisation to be marked as stokes, but more than 1 polarisation product specified. Using first specified pol (%s)" % ms_pols[0]
@@ -487,7 +489,7 @@ def populate_polarization_dict(ms_pols=['HH','VV'], stokes_i=False):
      # The polarisation type for each correlation product, as a Stokes enum (4 integer, 1-dim)
      # Stokes enum (starting at 1) = {I, Q, U, V, RR, RL, LR, LL, XX, XY, YX, YY, ...}
      # The native correlator data is in XX, YY, XY, YX for HV pol, XX for H pol and YY for V pol
-    polarization_dict['CORR_TYPE'] = np.array([pol_types[p] for p in (['I'] if stokes_i else ms_pols)])[np.newaxis,:]
+    polarization_dict['CORR_TYPE'] = np.array([pol_types[p] - (4 if circular else 0) for p in (['I'] if stokes_i else ms_pols)])[np.newaxis,:]
     polarization_dict['FLAG_ROW'] = np.zeros(1, dtype=np.uint8)
      # Number of correlation products (integer)
     polarization_dict['NUM_CORR'] = np.array([len(ms_pols)], dtype=np.int32)

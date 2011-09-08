@@ -22,9 +22,10 @@ delays['V'] = [23228.551e-9, 23286.823e-9, 23400.221e-9, 23514.801e-9, 23668.223
 
 parser = optparse.OptionParser(usage="%prog [options] <filename.h5>", description='Convert HDF5 file to MeasurementSet')
 parser.add_option("-b", "--blank-ms", default="/var/kat/static/blank.ms", help="Blank MS used as template (default=%default)")
+parser.add_option("-c", "--circular", action="store_true", default=False, help="Produce quad circular polarisation. (RR, RL, LR, LL) *** Currently just relabels the linear pols ****")
 parser.add_option("-r" , "--ref-ant", help="Reference antenna (default is first one used by script)")
 parser.add_option("-t", "--tar", action="store_true", default=False, help="Tar-ball the MS")
-parser.add_option("-f", "--full_pol", action="store_true", default=False, help="Produce a full polarisation MS (HH, VV, HV, VH). Default is to produce HH,VV only")
+parser.add_option("-f", "--full_pol", action="store_true", default=False, help="Produce a full polarisation MS in CASA canonical order (HH, HV, VH, VV). Default is to produce HH,VV only")
 parser.add_option("-v", "--verbose", action="store_true", default=False, help="More verbose progress information")
 parser.add_option("-w", "--stop-w", action="store_true", default=False, help="Use W term to stop fringes for each baseline")
 parser.add_option("-x", "--HH", action="store_true", default=False, help="Produce a Stokes I MeasurementSet using only HH")
@@ -55,9 +56,9 @@ if not ms_extra.casacore_binding:
 else:
     print "Using '%s' casacore binding to produce MS" % (ms_extra.casacore_binding,)
 
-pols_to_use = ['HH'] if options.HH else ['VV'] if options.VV else ['HH','VV','HV','VH'] if options.full_pol else ['HH','VV']
+pols_to_use = ['HH'] if options.HH else ['VV'] if options.VV else ['HH','HV','VH','VV'] if (options.full_pol or options.circular) else ['HH','VV']
  # which polarisation do we want to write into the MS and pull from the HDF5 file
-pol_for_name = 'hh' if options.HH else 'vv' if options.VV else 'full_pol' if options.full_pol else 'hh_vv'
+pol_for_name = 'hh' if options.HH else 'vv' if options.VV else 'full_pol' if options.full_pol else 'circular_pol' if options.circular else 'hh_vv'
 ms_name = os.path.splitext(args[0])[0] + ("." if len(args) == 1 else ".et_al.") + pol_for_name + ".ms"
 
 # The first step is to copy the blank template MS to our desired output (making sure it's not already there)
@@ -73,7 +74,7 @@ except OSError:
 print "Will create MS output in", ms_name
 
 if options.HH or options.VV: print "\n#### Producing Stokes I MS using " + ('HH' if options.HH else 'VV') + " only ####\n"
-elif options.full_pol: print "\n#### Producing a full polarisation MS (HH,VV,HV,VH) ####\n"
+elif options.full_pol: print "\n#### Producing a full polarisation MS (HH,HV,VH,VV) ####\n"
 else: print "\n#### Producing a two polarisation MS (HH, VV) ####\n"
 
 
@@ -92,7 +93,7 @@ ms_dict['ANTENNA'] = ms_extra.populate_antenna_dict([ant.name for ant in h5.ants
                                                     [ant.diameter for ant in h5.ants])
 ms_dict['FEED'] = ms_extra.populate_feed_dict(len(h5.ants), num_receptors_per_feed=2)
 ms_dict['DATA_DESCRIPTION'] = ms_extra.populate_data_description_dict()
-ms_dict['POLARIZATION'] = ms_extra.populate_polarization_dict(ms_pols=pols_to_use,stokes_i=(options.HH or options.VV))
+ms_dict['POLARIZATION'] = ms_extra.populate_polarization_dict(ms_pols=pols_to_use,stokes_i=(options.HH or options.VV),circular=options.circular)
 ms_dict['OBSERVATION'] = ms_extra.populate_observation_dict(h5.start_time, h5.end_time, "KAT-7", h5.observer, h5.experiment_id)
 ms_dict['SPECTRAL_WINDOW'] = ms_extra.populate_spectral_window_dict(h5.channel_freqs, np.tile(h5.channel_bw, len(h5.channel_freqs)))
 
