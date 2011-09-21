@@ -789,6 +789,34 @@ def populate_ms_dict(uvw_coordinates, vis_data, timestamps, antenna1_index, ante
 
 # ----------------- Write completed dictionary to MS file --------------------
 
+def open_main(ms_name='./blank.ms', verbose=True):
+    t = open_table(ms_name, ack=verbose)
+    if t is None:
+        print "Failed to open main table for writing."
+        sys.exit(1)
+    return t
+
+def write_rows(t, row_dict, verbose=True):
+    num_rows = row_dict.values()[0].shape[0]
+    # Append rows to the table by starting after the last row in table
+    startrow = t.nrows()
+    # Add the space required for this group of rows
+    t.addrows(num_rows)
+    if verbose: print "  added %d rows" % (num_rows,)
+    for col_name, col_data in row_dict.iteritems():
+        if col_name in t.colnames():
+            try:
+                t.putcol(col_name, col_data.T if casacore_binding == 'casapy' else col_data, startrow)
+                if verbose: print "  wrote column '%s' with shape %s" % (col_name, col_data.shape)
+            except RuntimeError, err:
+                print "  error writing column '%s' with shape %s (%s)" % (col_name, col_data.shape, err)
+        else:
+            if verbose:
+                print "  column '%s' not in table" % (col_name,)
+    # Flush table to disk
+    t.flush()
+
+
 def write_dict(ms_dict, ms_name='./blank.ms', verbose=True):
     # Iterate through subtables
     for sub_table_name, sub_dict in ms_dict.iteritems():
@@ -796,7 +824,6 @@ def write_dict(ms_dict, ms_name='./blank.ms', verbose=True):
         if type(sub_dict) == type({}):
             sub_dict = [sub_dict]
         # Iterate through row groups that are separate dicts within the sub_dict array
-        row_count = 0
         for row_dict in sub_dict:
             if verbose:
                 print "Table %s:" % (sub_table_name,)
@@ -807,24 +834,6 @@ def write_dict(ms_dict, ms_name='./blank.ms', verbose=True):
             if t is None:
                 print "  could not open table!"
                 break
-            num_rows = row_dict.values()[0].shape[0]
-            # Append rows to the table by starting after the last row in table
-            startrow = t.nrows()
-            # Add the space required for this group of rows
-            t.addrows(num_rows)
-            if verbose: print "  added %d rows" % (num_rows,)
-            for col_name, col_data in row_dict.iteritems():
-                if col_name in t.colnames():
-                    try:
-                        t.putcol(col_name, col_data.T if casacore_binding == 'casapy' else col_data, startrow)
-                        if verbose: print "  wrote column '%s' with shape %s" % (col_name, col_data.shape)
-                    except RuntimeError, err:
-                        print "  error writing column '%s' with shape %s (%s)" % (col_name, col_data.shape, err)
-                else:
-                    if verbose:
-                        print "  column '%s' not in table" % (col_name,)
-            # Flush table to disk
-            t.flush()
+            write_rows(t, row_dict, verbose)
             t.close()
             if verbose: print "  closed successfully"
-            row_count += num_rows

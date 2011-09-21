@@ -8,6 +8,7 @@ import sys
 import shutil
 import tarfile
 import optparse
+import time
 
 import numpy as np
 import katpoint
@@ -88,7 +89,6 @@ start_time = katpoint.Timestamp(h5.start_time).to_mjd() * 24 * 60 * 60
 end_time = katpoint.Timestamp(h5.end_time).to_mjd() * 24 * 60 * 60
 
 ms_dict = {}
-ms_dict['MAIN'] = []
 ms_dict['ANTENNA'] = ms_extra.populate_antenna_dict([ant.name for ant in h5.ants], [ant.position_ecef for ant in h5.ants],
                                                     [ant.diameter for ant in h5.ants])
 ms_dict['FEED'] = ms_extra.populate_feed_dict(len(h5.ants), num_receptors_per_feed=2)
@@ -99,10 +99,25 @@ ms_dict['SPECTRAL_WINDOW'] = ms_extra.populate_spectral_window_dict(h5.channel_f
 
 field_centers, field_times, field_names = [], [], []
 
+print "Writing static meta data..."
+ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
+
+ms_dict = {}
 #increment scans sequentially in the ms
 scan_itr = 1
 print "\nIterating through scans in file(s)...\n"
+main_table = ms_extra.open_main(ms_name, verbose=options.verbose)
+ # prepare to write main dict
+bls = None
+file_scan_lengths = np.zeros((len(h5.files)))
+
 for scan_ind, compscan_ind, scan_state, target in h5.scans():
+    s = time.time()
+    fid = h5.files.index(h5._current_file)
+    file_scan_lengths[fid] = len(h5._current_file._scan_starts)
+    scan_ind_relative = scan_ind if fid == 0 else scan_ind - (np.sum(file_scan_lengths[0:fid]))
+    if bls is None:
+        bls = h5._current_file.file['MetaData/Configuration/Correlator/'].attrs['bls_ordering'].tolist()
     tstamps = h5.timestamps()
     if scan_state != 'track':
         if options.verbose: print "scan %3d (%4d samples) skipped '%s'" % (scan_ind, len(tstamps), scan_state)
@@ -113,8 +128,14 @@ for scan_ind, compscan_ind, scan_state, target in h5.scans():
     if target.body_type != 'radec':
         if options.verbose: print "scan %3d (%4d samples) skipped - target '%s' not RADEC" % (scan_ind, len(tstamps), target.name)
         continue
-    print "scan %3d (%4d samples) loaded. target: '%s'" % (scan_ind, len(tstamps), target.name)
+    print "scan %3d (%3d rel) (%4d samples) loaded. target: '%s'. Writing to disk..." % (scan_ind, scan_ind_relative, len(tstamps), target.name)
 
+    # load all data for this scan...
+    sstart = h5._current_file._scan_starts[scan_ind_relative]
+    send = h5._current_file._scan_ends[scan_ind_relative]
+    scan_data = h5._current_file.file['Data/correlator_data'][sstart:send+1,:,:].view(np.complex64).squeeze()
+    #print "Scan start: %i, scan end: %i, length: %i\n" % (sstart, send, send - sstart)
+    sz_mb = (scan_data.size * scan_data.dtype.itemsize) / (1024.0 * 1024.0)
     # MS expects timestamps in MJD seconds
     mjd_seconds = [katpoint.Timestamp(t).to_mjd() * 24 * 60 * 60 for t in tstamps]
     # Update field lists if this is a new target
@@ -136,22 +157,25 @@ for scan_ind, compscan_ind, scan_state, target in h5.scans():
             for p in polprods:
                 cable_delay = delays[p[0][-1]][ant2_index] - delays[p[1][-1]][ant1_index]
                  # cable delays specific to pol type
-                vis_data = h5.vis(p, zero_missing_data=True)
+                vis_data = scan_data[:,:,bls.index(list(p))]
                 if options.stop_w:
                  # Result of delay model in turns of phase. This is now frequency dependent so has shape (tstamps, channels)
                     turns = np.outer((uvw_coordinates[2] / katpoint.lightspeed) - cable_delay, h5.channel_freqs)
                     vis_data *= np.exp(-2j * np.pi * turns)
                 pol_data.append(vis_data)
             vis_data = np.dstack(pol_data)
-            ms_dict['MAIN'].append(ms_extra.populate_main_dict(uvw_coordinates, vis_data, mjd_seconds,
-                                                               ant1_index, ant2_index, 1.0 / h5.dump_rate, field_id, scan_itr))
+            ms_extra.write_rows(main_table, ms_extra.populate_main_dict(uvw_coordinates, vis_data, mjd_seconds, ant1_index, ant2_index, 1.0 / h5.dump_rate, field_id, scan_itr), verbose=options.verbose)
+    s1 = time.time() - s
+    print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (sz_mb, s1, sz_mb / s1)
     scan_itr+=1
+main_table.close()
+ # done writing main table
 
+ms_dict = {}
 ms_dict['FIELD'] = ms_extra.populate_field_dict(field_centers, field_times, field_names)
 ms_dict['SOURCE'] = ms_extra.populate_source_dict(field_centers, field_times, h5.channel_freqs, field_names)
 
-print "\nWriting MS to disk....\n"
-
+print "\nWriting dynamic fields to disk....\n"
 # Finally we write the MS as per our created dicts
 ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
 if options.tar:
