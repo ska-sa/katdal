@@ -369,6 +369,10 @@ class H5DataV2(SimpleVisData):
         target_changes = [n for n in xrange(len(target)) if target[n] and ((n == 0) or (target[n] != target[n - 1]))]
         compscan_targets, target_timestamps = target[target_changes], target_timestamps[target_changes]
         compscan_starts = dump_endtimes.searchsorted(target_timestamps)
+        # If target changes within a dump, move start of compound scan to the next dump (which fully contains target)
+        dump_offset = dump_endtimes[compscan_starts] - target_timestamps
+        compscan_starts[dump_offset < sample_period] += 1
+        compscan_starts = np.clip(compscan_starts, 0, len(dump_endtimes) - 1)
         self._compscan_targets = [katpoint.Target(tgt) for tgt in compscan_targets]
         # TODO: Split scans at compscan boundaries
         self._scan_compscans = compscan_starts.searchsorted(self._scan_starts, side='right') - 1
