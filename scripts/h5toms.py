@@ -17,8 +17,8 @@ from katfile import ms_extra
 
  # NOTE: This should be checked before running (only for w stopping) to see how up to date the cable delays are !!!
 delays = {}
-delays['H'] = {'ant1': 23220.506e-9, 'ant2': 23283.799e-9, 'ant3': 23407.970e-9, 'ant4': 23514.801e-9, 'ant5': 23676.033e-9, 'ant6': 23782.854e-9, 'ant7': 24047.672e-9}
-delays['V'] = {'ant1': 23228.551e-9, 'ant2': 23286.823e-9, 'ant3': 23400.221e-9, 'ant4': 23514.801e-9, 'ant5': 23668.223e-9, 'ant6': 23782.150e-9, 'ant7': 24039.237e-9}
+delays['h'] = {'ant1': 23220.506e-9, 'ant2': 23283.799e-9, 'ant3': 23407.970e-9, 'ant4': 23514.801e-9, 'ant5': 23676.033e-9, 'ant6': 23782.854e-9, 'ant7': 24047.672e-9}
+delays['v'] = {'ant1': 23228.551e-9, 'ant2': 23286.823e-9, 'ant3': 23400.221e-9, 'ant4': 23514.801e-9, 'ant5': 23668.223e-9, 'ant6': 23782.150e-9, 'ant7': 24039.237e-9}
  # updated by schwardt/simonr Aug 26th 2011
 
 parser = optparse.OptionParser(usage="%prog [options] <filename.h5>", description='Convert HDF5 file to MeasurementSet')
@@ -117,7 +117,7 @@ for scan_ind, compscan_ind, scan_state, target in h5.scans():
     file_scan_lengths[fid] = len(h5._current_file._scan_starts)
     scan_ind_relative = scan_ind if fid == 0 else scan_ind - (np.sum(file_scan_lengths[0:fid]))
     if bls is None:
-        bls = h5._current_file.file['MetaData/Configuration/Correlator/'].attrs['bls_ordering'].tolist()
+        bls = [[x[0].lower(),x[1].lower()] for x in h5._current_file.file['MetaData/Configuration/Correlator/'].attrs['bls_ordering']]
     tstamps = h5.timestamps()
     if scan_state != 'track':
         if options.verbose: print "scan %3d (%4d samples) skipped '%s'" % (scan_ind, len(tstamps), scan_state)
@@ -151,7 +151,7 @@ for scan_ind, compscan_ind, scan_state, target in h5.scans():
         for ant2_index, ant2 in enumerate(h5.ants):
             if ant2_index < ant1_index:
                 continue
-            polprods = [("%s%s" % (ant1.name,p[0]), "%s%s" % (ant2.name,p[1])) for p in pols_to_use]
+            polprods = [("%s%s" % (ant1.name,p[0].lower()), "%s%s" % (ant2.name,p[1].lower())) for p in pols_to_use]
             pol_data = []
             uvw_coordinates = np.array(target.uvw(ant2, tstamps, ant1))
             for p in polprods:
