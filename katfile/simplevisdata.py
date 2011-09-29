@@ -49,9 +49,9 @@ class SimpleVisData(object):
     ref_ant : string
         Name of reference antenna, used to partition data set into scans
     inputs : list of strings
-        List of available correlator input labels ('ant1H'), in DBE input order
+        List of available correlator input labels ('ant1h'), in DBE input order
     corrprod_map : dict mapping tuple of 2 strings to object
-        Map from a pair of correlator input labels, e.g. ('ant1H', 'ant2V'), to
+        Map from a pair of correlator input labels, e.g. ('ant1h', 'ant2v'), to
         objects that index the visibility data array (typically an integer index)
     channel_bw : float
         Channel bandwidth, in Hz
@@ -114,7 +114,7 @@ class SimpleVisData(object):
         Parameters
         ----------
         inputs : sequence of strings
-            List of correlator input labels (e.g. ['ant1H', 'ant1V'])
+            List of correlator input labels (e.g. ['ant1h', 'ant1v'])
 
         Raises
         ------
@@ -123,9 +123,9 @@ class SimpleVisData(object):
 
         """
         for inp in inputs:
-            if inp not in self.inputs:
+            if inp.lower() not in self.inputs:
                 raise KeyError("Correlator does not have input labelled '%s' (available inputs are '%s')" %
-                               (inp, "', '".join(self.inputs)))
+                               (inp.lower(), "', '".join(self.inputs)))
 
     def corr_product(self, inputA, inputB):
         """Correlation product associated with input A x input B.
@@ -138,7 +138,7 @@ class SimpleVisData(object):
         Parameters
         ----------
         inputA, inputB : string
-            Labels of correlator inputs to correlate (e.g. 'ant1H', 'ant2V')
+            Labels of correlator inputs to correlate (e.g. 'ant1h', 'ant2v')
 
         Returns
         -------
@@ -155,6 +155,8 @@ class SimpleVisData(object):
             If requested correlation product is not available
 
         """
+        # Normalise input labels to be lower-case
+        inputA, inputB = inputA.lower(), inputB.lower()
         # Look for direct product (A x B) first
         corrprod = (inputA, inputB)
         self.validate_inputs(corrprod)
@@ -176,7 +178,7 @@ class SimpleVisData(object):
         Parameters
         ----------
         inputs : sequence of strings
-            List of correlator input labels (e.g. ['ant1H', 'ant1V'])
+            List of correlator input labels (e.g. ['ant1h', 'ant1v'])
 
         Returns
         -------
@@ -185,6 +187,8 @@ class SimpleVisData(object):
             indices into the list of input labels (e.g. [(0, 0), (0, 1), (1, 1)])
 
         """
+        # Normalise input labels to be lower-case
+        inputs = [inp.lower() for inp in inputs]
         self.validate_inputs(inputs)
         # Build all correlation products (and corresponding input index pairs) from DBE input strings
         # For N antennas this results in N * N products
@@ -225,7 +229,7 @@ class SimpleVisData(object):
         ----------
         corrprod : (string, string) pair
             Correlation product to extract from visibility data, as a pair of
-            correlator input labels, e.g. ('ant1H', 'ant2V')
+            correlator input labels, e.g. ('ant1h', 'ant2v')
         zero_missing_data : {False, True}
             True if an array of zeros of the appropriate shape should be returned
             when the requested correlation product could not be found (as opposed

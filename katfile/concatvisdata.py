@@ -50,9 +50,9 @@ class ConcatVisData(SimpleVisData):
     ref_ant : string
         Name of reference antenna, used to partition data set into scans
     inputs : list of strings
-        List of available correlator input labels ('ant1H'), in DBE input order
+        List of available correlator input labels ('ant1h'), in DBE input order
     corrprod_map : dict mapping tuple of 2 strings to object
-        Map from a pair of correlator input labels, e.g. ('ant1H', 'ant2V'), to
+        Map from a pair of correlator input labels, e.g. ('ant1h', 'ant2v'), to
         objects that index the visibility data array (typically an integer index)
     channel_bw : float
         Channel bandwidth, in Hz
@@ -171,7 +171,7 @@ class ConcatVisData(SimpleVisData):
         ----------
         corrprod : (string, string) pair
             Correlation product to extract from visibility data, as a pair of
-            correlator input labels, e.g. ('ant1H', 'ant2V')
+            correlator input labels, e.g. ('ant1h', 'ant2v')
         zero_missing_data : {False, True}
             True if an array of zeros of the appropriate shape should be returned
             when the requested correlation product could not be found (as opposed

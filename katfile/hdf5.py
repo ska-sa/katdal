@@ -136,14 +136,15 @@ class H5DataV1(SimpleVisData):
         self.experiment_id = f.attrs.get('experiment_id', '')
 
         # Find connected antennas and build Antenna objects for them
-        ant_groups = f['Antennas'].listnames()
+        ant_groups = f['Antennas'].keys()
         self.ants = [katpoint.Antenna(f['Antennas'][group].attrs['description']) for group in ant_groups]
         self.ref_ant = self.ants[0].name if not ref_ant else ref_ant
 
-        # Map from (old-style) DBE input label (e.g. '0x') to the new antenna-based input label (e.g. 'ant1H')
-        input_label = dict([(f['Antennas'][group]['H'].attrs['dbe_input'], ant.name + 'H')
+        # Map from (old-style) DBE input label (e.g. '0x') to the new antenna-based input label (e.g. 'ant1h')
+        # Ensure all input labels are lower-case to avoid mixed-case issues
+        input_label = dict([(f['Antennas'][group]['H'].attrs['dbe_input'], ant.name + 'h')
                             for ant, group in zip(self.ants, ant_groups) if 'H' in f['Antennas'][group]])
-        input_label.update(dict([(f['Antennas'][group]['V'].attrs['dbe_input'], ant.name + 'V')
+        input_label.update(dict([(f['Antennas'][group]['V'].attrs['dbe_input'], ant.name + 'v')
                                  for ant, group in zip(self.ants, ant_groups) if 'V' in f['Antennas'][group]]))
         # List input labels in order of system-wide DBE inputs
         self.inputs = [input_label[inp] for inp in sorted(input_label.keys())]
@@ -224,7 +225,7 @@ class H5DataV1(SimpleVisData):
         ----------
         corrprod : (string, string) pair
             Correlation product to extract from visibility data, as a pair of
-            correlator input labels, e.g. ('ant1H', 'ant2V')
+            correlator input labels, e.g. ('ant1h', 'ant2v')
         zero_missing_data : {False, True}
             True if an array of zeros of the appropriate shape should be returned
             when the requested correlation product could not be found (as opposed
@@ -312,9 +313,10 @@ class H5DataV2(SimpleVisData):
         self.ants = [katpoint.Antenna(config_group['Antennas'][name].attrs['description']) for name in ant_names]
 
         # List of correlator input labels, in order of system-wide DBE inputs (assume they are sequential in array)
-        self.inputs = [labels[0] for labels in get_single_value(config_group['Correlator'], 'input_labelling')]
+        # Ensure all input labels are lower-case to avoid mixed-case issues
+        self.inputs = [labels[0].lower() for labels in get_single_value(config_group['Correlator'], 'input_labelling')]
         # Map from input label pair to correlation product index (which typically follows Miriad-style numbering)
-        self.corrprod_map = dict([(tuple(input_pair), corr_id) for corr_id, input_pair in
+        self.corrprod_map = dict([((input_pair[0].lower(), input_pair[1].lower()), corr_id) for corr_id, input_pair in
                                   enumerate(get_single_value(config_group['Correlator'], 'bls_ordering'))])
 
         # Extract frequency information
@@ -414,7 +416,7 @@ class H5DataV2(SimpleVisData):
         ----------
         corrprod : (string, string) pair
             Correlation product to extract from visibility data, as a pair of
-            correlator input labels, e.g. ('ant1H', 'ant2V')
+            correlator input labels, e.g. ('ant1h', 'ant2v')
         zero_missing_data : {False, True}
             True if an array of zeros of the appropriate shape should be returned
             when the requested correlation product could not be found (as opposed
