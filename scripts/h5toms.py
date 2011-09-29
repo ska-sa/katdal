@@ -17,8 +17,8 @@ from katfile import ms_extra
 
  # NOTE: This should be checked before running (only for w stopping) to see how up to date the cable delays are !!!
 delays = {}
-delays['H'] = [23220.506e-9, 23283.799e-9, 23407.970e-9, 23514.801e-9, 23676.033e-9, 23782.854e-9, 24047.672e-9]
-delays['V'] = [23228.551e-9, 23286.823e-9, 23400.221e-9, 23514.801e-9, 23668.223e-9, 23782.150e-9, 24039.237e-9]
+delays['H'] = {'ant1': 23220.506e-9, 'ant2': 23283.799e-9, 'ant3': 23407.970e-9, 'ant4': 23514.801e-9, 'ant5': 23676.033e-9, 'ant6': 23782.854e-9, 'ant7': 24047.672e-9}
+delays['V'] = {'ant1': 23228.551e-9, 'ant2': 23286.823e-9, 'ant3': 23400.221e-9, 'ant4': 23514.801e-9, 'ant5': 23668.223e-9, 'ant6': 23782.150e-9, 'ant7': 24039.237e-9}
  # updated by schwardt/simonr Aug 26th 2011
 
 parser = optparse.OptionParser(usage="%prog [options] <filename.h5>", description='Convert HDF5 file to MeasurementSet')
@@ -155,7 +155,7 @@ for scan_ind, compscan_ind, scan_state, target in h5.scans():
             pol_data = []
             uvw_coordinates = np.array(target.uvw(ant2, tstamps, ant1))
             for p in polprods:
-                cable_delay = delays[p[0][-1]][ant2_index] - delays[p[1][-1]][ant1_index]
+                cable_delay = delays[p[0][-1]][ant2.name] - delays[p[1][-1]][ant1.name]
                  # cable delays specific to pol type
                 vis_data = scan_data[:,:,bls.index(list(p))]
                 if options.stop_w:
