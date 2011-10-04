@@ -133,7 +133,7 @@ for scan_ind, compscan_ind, scan_state, target in h5.scans():
     # load all data for this scan...
     sstart = h5._current_file._scan_starts[scan_ind_relative]
     send = h5._current_file._scan_ends[scan_ind_relative]
-    scan_data = h5._current_file.file['Data/correlator_data'][sstart:send+1,:,:].view(np.complex64).squeeze()
+    scan_data = h5._current_file.file['Data/correlator_data'][sstart:send+1,:,:].view(np.complex64)[:,:,:,0]
     #print "Scan start: %i, scan end: %i, length: %i\n" % (sstart, send, send - sstart)
     sz_mb = (scan_data.size * scan_data.dtype.itemsize) / (1024.0 * 1024.0)
     # MS expects timestamps in MJD seconds
