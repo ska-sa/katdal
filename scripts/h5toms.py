@@ -155,7 +155,7 @@ for scan_ind, compscan_ind, scan_state, target in h5.scans():
             pol_data = []
             uvw_coordinates = np.array(target.uvw(ant2, tstamps, ant1))
             for p in polprods:
-                cable_delay = delays[p[0][-1]][ant2.name] - delays[p[1][-1]][ant1.name]
+                cable_delay = delays[p[1][-1]][ant2.name] - delays[p[0][-1]][ant1.name]
                  # cable delays specific to pol type
                 vis_data = scan_data[:,:,bls.index(list(p))]
                 if options.stop_w:
