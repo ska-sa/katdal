@@ -17,9 +17,9 @@ from katfile import ms_extra
 
  # NOTE: This should be checked before running (only for w stopping) to see how up to date the cable delays are !!!
 delays = {}
-delays['h'] = {'ant1': 23220.506e-9, 'ant2': 23283.799e-9, 'ant3': 23407.970e-9, 'ant4': 23514.801e-9, 'ant5': 23676.033e-9, 'ant6': 23782.854e-9, 'ant7': 24047.672e-9}
-delays['v'] = {'ant1': 23228.551e-9, 'ant2': 23286.823e-9, 'ant3': 23400.221e-9, 'ant4': 23514.801e-9, 'ant5': 23668.223e-9, 'ant6': 23782.150e-9, 'ant7': 24039.237e-9}
- # updated by schwardt/simonr Aug 26th 2011
+delays['h'] = {'ant1': 2.32205060e-05, 'ant2': 2.32837990e-05, 'ant3': 2.34095752e-05, 'ant4': 2.35148010e-05, 'ant5': 2.36785718e-05, 'ant6': 2.37855760e-05, 'ant7': 2.40477543e-05}
+delays['v'] = {'ant1': 2.32285510e-05, 'ant2': 2.32868230e-05, 'ant3': 2.34014698e-05, 'ant4': 2.35148010e-05, 'ant5': 2.36707571e-05, 'ant6': 2.37847872e-05, 'ant7': 2.40391733e-05}
+ #updated by mattieu Oct 2011 (ant2 and ant4 are unchanged from prior values)
 
 parser = optparse.OptionParser(usage="%prog [options] <filename.h5>", description='Convert HDF5 file to MeasurementSet')
 parser.add_option("-b", "--blank-ms", default="/var/kat/static/blank.ms", help="Blank MS used as template (default=%default)")
