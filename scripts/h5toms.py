@@ -18,7 +18,7 @@ from katfile import ms_extra
  # NOTE: This should be checked before running (only for w stopping) to see how up to date the cable delays are !!!
 delays = {}
 delays['h'] = {'ant1': 2.32205060e-05, 'ant2': 2.32837990e-05, 'ant3': 2.34095752e-05, 'ant4': 2.35148010e-05, 'ant5': 2.36785718e-05, 'ant6': 2.37855760e-05, 'ant7': 2.40477543e-05}
-delays['v'] = {'ant1': 2.32285510e-05, 'ant2': 2.32868230e-05, 'ant3': 2.34014698e-05, 'ant4': 2.35148010e-05, 'ant5': 2.36707571e-05, 'ant6': 2.37847872e-05, 'ant7': 2.40391733e-05}
+delays['v'] = {'ant1': 2.32319854e-05, 'ant2': 2.32902574e-05, 'ant3': 2.34049042e-05, 'ant4': 2.35182354e-05, 'ant5': 2.36741915e-05, 'ant6': 2.37882216e-05, 'ant7': 2.40426077e-05}
  #updated by mattieu Oct 2011 (ant2 and ant4 are unchanged from prior values)
 
 parser = optparse.OptionParser(usage="%prog [options] <filename.h5>", description='Convert HDF5 file to MeasurementSet')
