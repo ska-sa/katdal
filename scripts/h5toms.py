@@ -11,6 +11,7 @@ import optparse
 import time
 
 import numpy as np
+
 import katpoint
 import katfile
 from katfile import ms_extra
@@ -21,7 +22,7 @@ delays['h'] = {'ant1': 2.32205060e-05, 'ant2': 2.32842541e-05, 'ant3': 2.3409376
 delays['v'] = {'ant1': 2.32319854e-05, 'ant2': 2.32902574e-05, 'ant3': 2.34050180e-05, 'ant4': 2.35194585e-05, 'ant5': 2.36741915e-05, 'ant6': 2.37882216e-05, 'ant7': 2.40424086e-05}
  #updated by mattieu 21 Oct 2011 (for all antennas - previously antennas 2 and 4 not updated)
 
-parser = optparse.OptionParser(usage="%prog [options] <filename.h5>", description='Convert HDF5 file to MeasurementSet')
+parser = optparse.OptionParser(usage="%prog [options] <filename.h5> [<filename2.h5>]*", description='Convert HDF5 file(s) to MeasurementSet')
 parser.add_option("-b", "--blank-ms", default="/var/kat/static/blank.ms", help="Blank MS used as template (default=%default)")
 parser.add_option("-c", "--circular", action="store_true", default=False, help="Produce quad circular polarisation. (RR, RL, LR, LL) *** Currently just relabels the linear pols ****")
 parser.add_option("-r" , "--ref-ant", help="Reference antenna (default is first one used by script)")
@@ -85,8 +86,8 @@ h5 = katfile.open(args, ref_ant=options.ref_ant)
 
 print "\nUsing %s as the reference antenna. All targets and activity detection will be based on this antenna.\n" % (h5.ref_ant,)
 # MS expects timestamps in MJD seconds
-start_time = katpoint.Timestamp(h5.start_time).to_mjd() * 24 * 60 * 60
-end_time = katpoint.Timestamp(h5.end_time).to_mjd() * 24 * 60 * 60
+start_time = h5.start_time.to_mjd() * 24 * 60 * 60
+end_time = h5.end_time.to_mjd() * 24 * 60 * 60
 
 ms_dict = {}
 ms_dict['ANTENNA'] = ms_extra.populate_antenna_dict([ant.name for ant in h5.ants], [ant.position_ecef for ant in h5.ants],
@@ -94,10 +95,8 @@ ms_dict['ANTENNA'] = ms_extra.populate_antenna_dict([ant.name for ant in h5.ants
 ms_dict['FEED'] = ms_extra.populate_feed_dict(len(h5.ants), num_receptors_per_feed=2)
 ms_dict['DATA_DESCRIPTION'] = ms_extra.populate_data_description_dict()
 ms_dict['POLARIZATION'] = ms_extra.populate_polarization_dict(ms_pols=pols_to_use,stokes_i=(options.HH or options.VV),circular=options.circular)
-ms_dict['OBSERVATION'] = ms_extra.populate_observation_dict(h5.start_time, h5.end_time, "KAT-7", h5.observer, h5.experiment_id)
-ms_dict['SPECTRAL_WINDOW'] = ms_extra.populate_spectral_window_dict(h5.channel_freqs, np.tile(h5.channel_bw, len(h5.channel_freqs)))
-
-field_centers, field_times, field_names = [], [], []
+ms_dict['OBSERVATION'] = ms_extra.populate_observation_dict(start_time, end_time, "KAT-7", h5.observer, h5.experiment_id)
+ms_dict['SPECTRAL_WINDOW'] = ms_extra.populate_spectral_window_dict(h5.channel_freqs, h5.channel_width * np.ones(len(h5.channel_freqs)))
 
 print "Writing static meta data..."
 ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
@@ -108,36 +107,28 @@ scan_itr = 1
 print "\nIterating through scans in file(s)...\n"
 main_table = ms_extra.open_main(ms_name, verbose=options.verbose)
  # prepare to write main dict
-bls = None
-file_scan_lengths = np.zeros((len(h5.files)))
+corrprod_to_index = dict([(tuple(cp), ind) for cp, ind in zip(h5.corr_products, range(len(h5.corr_products)))])
+field_names, field_centers, field_times = [], [], []
 
-for scan_ind, compscan_ind, scan_state, target in h5.scans():
+for scan_ind, scan_state, target in h5.scans():
     s = time.time()
-    fid = h5.files.index(h5._current_file)
-    file_scan_lengths[fid] = len(h5._current_file._scan_starts)
-    scan_ind_relative = scan_ind if fid == 0 else scan_ind - (np.sum(file_scan_lengths[0:fid]))
-    if bls is None:
-        bls = [[x[0].lower(),x[1].lower()] for x in h5._current_file.file['MetaData/Configuration/Correlator/'].attrs['bls_ordering']]
-    tstamps = h5.timestamps()
+    scan_len = h5.shape[0]
     if scan_state != 'track':
-        if options.verbose: print "scan %3d (%4d samples) skipped '%s'" % (scan_ind, len(tstamps), scan_state)
+        if options.verbose: print "scan %3d (%4d samples) skipped '%s' - not a track" % (scan_ind, scan_len, scan_state)
         continue
-    if len(tstamps) < 2:
-        if options.verbose: print "scan %3d (%4d samples) skipped - too short" % (scan_ind, len(tstamps))
+    if scan_len < 2:
+        if options.verbose: print "scan %3d (%4d samples) skipped - too short" % (scan_ind, scan_len)
         continue
     if target.body_type != 'radec':
-        if options.verbose: print "scan %3d (%4d samples) skipped - target '%s' not RADEC" % (scan_ind, len(tstamps), target.name)
+        if options.verbose: print "scan %3d (%4d samples) skipped - target '%s' not RADEC" % (scan_ind, scan_len, target.name)
         continue
-    print "scan %3d (%3d rel) (%4d samples) loaded. target: '%s'. Writing to disk..." % (scan_ind, scan_ind_relative, len(tstamps), target.name)
+    print "scan %3d (%4d samples) loaded. Target: '%s'. Writing to disk..." % (scan_ind, scan_len, target.name)
 
-    # load all data for this scan...
-    sstart = h5._current_file._scan_starts[scan_ind_relative]
-    send = h5._current_file._scan_ends[scan_ind_relative]
-    scan_data = h5._current_file.file['Data/correlator_data'][sstart:send+1,:,:].view(np.complex64)[:,:,:,0]
-    #print "Scan start: %i, scan end: %i, length: %i\n" % (sstart, send, send - sstart)
-    sz_mb = (scan_data.size * scan_data.dtype.itemsize) / (1024.0 * 1024.0)
+    # load all data for this scan up front, as this improves disk throughput
+    scan_data = h5.vis[:]
+    sz_mb = h5.size / (1024.0 * 1024.0)
     # MS expects timestamps in MJD seconds
-    mjd_seconds = [katpoint.Timestamp(t).to_mjd() * 24 * 60 * 60 for t in tstamps]
+    mjd_seconds = h5.mjd * 24 * 60 * 60
     # Update field lists if this is a new target
     if target.name not in field_names:
         # Since this will be an 'radec' target, we don't need an antenna or timestamp to get the (astrometric) ra, dec
@@ -153,18 +144,19 @@ for scan_ind, compscan_ind, scan_state, target in h5.scans():
                 continue
             polprods = [("%s%s" % (ant1.name,p[0].lower()), "%s%s" % (ant2.name,p[1].lower())) for p in pols_to_use]
             pol_data = []
-            uvw_coordinates = np.array(target.uvw(ant2, tstamps, ant1))
             for p in polprods:
                 cable_delay = delays[p[1][-1]][ant2.name] - delays[p[0][-1]][ant1.name]
                  # cable delays specific to pol type
-                vis_data = scan_data[:,:,bls.index(list(p))]
+                cp_index = corrprod_to_index.get(p)
+                vis_data = scan_data[:,:,cp_index] if cp_index is not None else np.zeros(h5.shape[:2], dtype=np.complex64)
                 if options.stop_w:
                  # Result of delay model in turns of phase. This is now frequency dependent so has shape (tstamps, channels)
-                    turns = np.outer((uvw_coordinates[2] / katpoint.lightspeed) - cable_delay, h5.channel_freqs)
+                    turns = np.outer((h5.w[:, cp_index] / katpoint.lightspeed) - cable_delay, h5.channel_freqs)
                     vis_data *= np.exp(-2j * np.pi * turns)
                 pol_data.append(vis_data)
             vis_data = np.dstack(pol_data)
-            ms_extra.write_rows(main_table, ms_extra.populate_main_dict(uvw_coordinates, vis_data, mjd_seconds, ant1_index, ant2_index, 1.0 / h5.dump_rate, field_id, scan_itr), verbose=options.verbose)
+            uvw_coordinates = np.array([h5.u[:, cp_index], h5.v[:, cp_index], h5.w[:, cp_index]])
+            ms_extra.write_rows(main_table, ms_extra.populate_main_dict(uvw_coordinates, vis_data, mjd_seconds, ant1_index, ant2_index, h5.dump_period, field_id, scan_itr), verbose=options.verbose)
     s1 = time.time() - s
     print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (sz_mb, s1, sz_mb / s1)
     scan_itr+=1
