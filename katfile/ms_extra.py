@@ -303,7 +303,7 @@ def populate_main_dict(uvw_coordinates, vis_data, timestamps, antenna1_index,
     # The data description table index (integer)
     main_dict['DATA_DESC_ID'] = np.zeros(num_vis_samples, dtype=np.int32)
     # The effective integration time (double)
-    main_dict['EXPOSURE'] = np.tile(integrate_length, num_vis_samples)
+    main_dict['EXPOSURE'] = integrate_length * np.ones(num_vis_samples)
     # The feed index for ANTENNA1 (integer)
     main_dict['FEED1'] = np.zeros(num_vis_samples, dtype=np.int32)
     # The feed index for ANTENNA1 (integer)
@@ -319,7 +319,7 @@ def populate_main_dict(uvw_coordinates, vis_data, timestamps, antenna1_index,
     # Weight set by imaging task (e.g. uniform weighting) (float, 1-dim)
     #main_dict['IMAGING_WEIGHT'] = np.ones((num_vis_samples, 1), dtype=np.float32)
     # The sampling interval (double)
-    main_dict['INTERVAL'] = np.tile(integrate_length, num_vis_samples)
+    main_dict['INTERVAL'] = integrate_length * np.ones(num_vis_samples)
     # The model data column (complex, 3-dim)
     #main_dict['MODEL_DATA'] = vis_data
     # ID for this observation, index in OBSERVATION table (integer)
@@ -603,7 +603,7 @@ def populate_spectral_window_dict(center_frequencies, channel_bandwidths):
 
 def populate_source_dict(phase_centers, time_origins, center_frequencies, field_names=None):
     """Construct a dictionary containing the columns of the SOURCE subtable.
-    
+
     The SOURCE subtable describes time-variable source information, that may
     be associated with a given FIELD_ID. It appears to be optional, but for
     completeness it is included here (with no time varying terms).

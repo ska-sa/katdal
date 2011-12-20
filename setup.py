@@ -9,6 +9,7 @@ setup (
     author_email = "ludwig@ska.ac.za",
     packages = find_packages(),
     scripts = [
+        "scripts/h5list.py",
         "scripts/h5toms.py",
         "scripts/fix_ant_positions.py",
     ],
