@@ -148,6 +148,8 @@ class H5DataV2(DataSet):
         def register_sensor(name, obj):
             """A sensor is defined as a non-empty dataset with expected dtype."""
             if isinstance(obj, h5py.Dataset) and obj.shape != () and obj.dtype.names == ('timestamp','value','status'):
+                # Rename pedestal sensors from the old regime to become sensors of the corresponding antenna
+                name = ('Antennas/ant' + name[13:]) if name.startswith('Pedestals/ped') else name
                 cache[name] = SensorData(obj, name)
         sensors_group.visititems(register_sensor)
         # Use estimated data timestamps for now, to speed up data segmentation
