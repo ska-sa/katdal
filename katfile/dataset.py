@@ -475,7 +475,7 @@ class DataSet(object):
 
         The *subarray* and *spw* criteria are special, as they affect multiple
         dimensions (time + correlation product and time + frequency,
-        respectively), are always active and forced to be a single index.
+        respectively), are always active and are forced to be a single index.
 
         If there are multiple criteria on the same dimension within a select()
         call, they are ANDed together, while multiple items within the same
@@ -489,8 +489,9 @@ class DataSet(object):
 
         Parameters
         ----------
-        dumps : sequence of ints, or sequence of bool, length *T*, optional
-            Select dumps by index or by boolean mask (select where mask is True)
+        dumps : int or slice or sequence of ints or sequence of bools, optional
+            Select dumps by index, slice or boolean mask of length *T*
+            (keep dumps where mask is True)
         timerange : sequence of 2 :class:`katpoint.Timestamp` objects
                     or equivalent, optional
             Select range of times between given start and end times
@@ -503,18 +504,19 @@ class DataSet(object):
             Select targets by index or name or description or object
         spw : int, optional
             Select spectral window by index (only one may be active)
-        channels : sequence of ints, or sequence of bool, length *F*, optional
-            Select frequency channels by index or by boolean mask (select where
-            mask is True)
+        channels : int or slice or sequence of ints or sequence of bools, optional
+            Select frequency channels by index, slice or boolean mask of length
+            *F* (keep channels where mask is True)
         freqrange : sequence of 2 floats, optional
             Select range of frequencies between start and end frequencies, in Hz
         subarray : int, optional
             Select subarray by index (only one may be active)
-        corrprods : sequence of string pairs or ints, or sequence of bool,
-                    length *B*, or {'auto', 'cross'}, optional
-            Select correlation products by index, by value or by boolean mask
-            (select where mask is True). Alternatively, select all
-            autocorrelations via 'auto', or all cross-correlations via 'cross'.
+        corrprods : int or slice or sequence of ints or sequence of bools or
+                    sequence of string pairs or {'auto', 'cross'}, optional
+            Select correlation products by index, slice or boolean mask of length
+            *B* (keep products where mask is True). Alternatively, select by
+            value via a sequence of string pairs, or select all autocorrelations
+            via 'auto' or all cross-correlations via 'cross'.
         ants : string or :class:`katpoint.Antenna` object or sequence, optional
             Select antennas by name or object
         inputs : string or sequence of strings, optional
