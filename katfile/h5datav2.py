@@ -6,8 +6,8 @@ import numpy as np
 import h5py
 import katpoint
 
-from .dataset import DataSet, WrongVersion, BrokenFile, Subarray, \
-                     SpectralWindow, DEFAULT_VIRTUAL_SENSORS, _robust_target
+from .dataset import DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow, \
+                     DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target
 from .sensordata import SensorData, SensorCache
 from .categorical import CategoricalData, sensor_to_categorical
 from .lazy_indexer import LazyIndexer
@@ -17,13 +17,18 @@ logger = logging.getLogger('katfile.h5datav2')
 # Simplify the scan activities to derive the basic state of the antenna (slewing, scanning, tracking, stopped)
 SIMPLIFY_STATE = {'scan_ready': 'slew', 'scan': 'scan', 'scan_complete': 'scan', 'track': 'track', 'slew': 'slew'}
 
-SENSOR_PROPS = {
+SENSOR_PROPS = dict(DEFAULT_SENSOR_PROPS)
+SENSOR_PROPS.update({
     '*activity' : {'greedy_values' : ('slew', 'stop'), 'initial_value' : 'slew',
                    'transform' : lambda act: SIMPLIFY_STATE.get(act, 'stop')},
     '*target' : {'initial_value' : '', 'transform' : _robust_target},
     'RFE/center-frequency-hz' : {'categorical' : True},
     'RFE/rfe7.lo1.frequency' : {'categorical' : True},
-    'Observation/label' : {'initial_value' : '', 'transform' : str, 'allow_repeats' : True}
+})
+
+SENSOR_ALIASES = {
+    'nd_coupler' : 'rfe3.rfe15.noise.coupler.on',
+    'nd_pin' : 'rfe3.rfe15.noise.pin.on',
 }
 
 def _calc_azel(cache, name, ant):
@@ -154,7 +159,7 @@ class H5DataV2(DataSet):
         sensors_group.visititems(register_sensor)
         # Use estimated data timestamps for now, to speed up data segmentation
         self.sensor = SensorCache(cache, data_timestamps, self.dump_period, keep=self._time_keep,
-                                  props=SENSOR_PROPS, virtual=VIRTUAL_SENSORS)
+                                  props=SENSOR_PROPS, virtual=VIRTUAL_SENSORS, aliases=SENSOR_ALIASES)
 
         # ------ Extract subarrays ------
 

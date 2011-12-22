@@ -7,8 +7,8 @@ import numpy as np
 import h5py
 import katpoint
 
-from .dataset import DataSet, WrongVersion, BrokenFile, Subarray, \
-                     SpectralWindow, DEFAULT_VIRTUAL_SENSORS, _robust_target
+from .dataset import DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow, \
+                     DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target
 from .sensordata import SensorData, SensorCache
 from .categorical import CategoricalData
 from .lazy_indexer import LazyIndexer
@@ -24,8 +24,11 @@ def _labels_to_state(scan_label, compscan_label):
         return 'track'
     return 'track' if compscan_label == 'track' else 'scan'
 
-SENSOR_PROPS = {
-    'Observation/label' : {'initial_value' : '', 'transform' : str, 'allow_repeats' : True}
+SENSOR_PROPS = dict(DEFAULT_SENSOR_PROPS)
+
+SENSOR_ALIASES = {
+    'nd_coupler' : 'rfe3_rfe15_noise_coupler_on',
+    'nd_pin' : 'rfe3_rfe15_noise_pin_on',
 }
 
 def _calc_azel(cache, name, ant):
@@ -136,7 +139,7 @@ class H5DataV1(DataSet):
         # This will linearly interpolate pointing coordinates to correlator data timestamps (on access)
         # As long as azimuth is in natural antenna coordinates, no special angle interpolation required
         self.sensor = SensorCache(cache, data_timestamps, self.dump_period, keep=self._time_keep,
-                                  props=SENSOR_PROPS, virtual=VIRTUAL_SENSORS)
+                                  props=SENSOR_PROPS, virtual=VIRTUAL_SENSORS, aliases=SENSOR_ALIASES)
 
         # ------ Extract subarrays ------
 
