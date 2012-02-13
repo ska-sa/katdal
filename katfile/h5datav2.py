@@ -163,11 +163,21 @@ class H5DataV2(DataSet):
 
         # ------ Extract subarrays ------
 
+        # By default, only pick antennas that were in use by the script
+        script_ants = config_group['Observation'].attrs['script_ants'].split(',')
+        self.ref_ant = script_ants[0] if not ref_ant else ref_ant
         # Original list of correlation products as pairs of input labels
         corrprods = get_single_value(config_group['Correlator'], 'bls_ordering')
         if len(corrprods) != self._vis.shape[2]:
-            raise BrokenFile('Number of baseline labels received from correlator '
-                           '(%d) differs from number of baselines in data (%d)' % (len(corrprods), self._vis.shape[2]))
+            # Apply k7_capture baseline mask after the fact, in the hope that it fixes correlation product mislabelling
+            corrprods = np.array([cp for cp in corrprods if cp[0][:-1] in script_ants and cp[1][:-1] in script_ants])
+            # If there is still a mismatch between labels and data shape, file is considered broken (maybe bad labels?)
+            if len(corrprods) != self._vis.shape[2]:
+                raise BrokenFile('Number of baseline labels (containing expected antenna names) '
+                                 'received from correlator (%d) differs from number of baselines in data (%d)' %
+                                 (len(corrprods), self._vis.shape[2]))
+            else:
+                logger.warning('Reapplied k7_capture baseline mask to fix unexpected number of baseline labels')
         # All antennas in configuration as katpoint Antenna objects
         ants = [katpoint.Antenna(config_group['Antennas'][name].attrs['description'])
                 for name in config_group['Antennas']]
@@ -177,9 +187,6 @@ class H5DataV2(DataSet):
         # Store antenna objects in sensor cache too, for use in virtual sensor calculations
         for ant in ants:
             self.sensor['Antennas/%s/antenna' % (ant.name,)] = CategoricalData([ant], [0, len(data_timestamps)])
-        # By default, only pick antennas that were in use by the script
-        script_ants = config_group['Observation'].attrs['script_ants'].split(',')
-        self.ref_ant = script_ants[0] if not ref_ant else ref_ant
 
         # ------ Extract spectral windows / frequencies ------
 
