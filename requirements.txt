@@ -1,0 +1,4 @@
+h5py
+katpoint
+numpy
+scikits.fitting
