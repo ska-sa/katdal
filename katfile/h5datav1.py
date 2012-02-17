@@ -259,9 +259,12 @@ class H5DataV1(DataSet):
         corrprod_keep = self._corrprod_keep
         # Apply both first-stage and second-stage corrprod indexing in the transform
         def index_corrprod(tf, keep):
-            same_ndim = tuple([(np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep[:3]])
-            return np.dstack([tf[str(corrind)][same_ndim[:2]] for corrind in np.nonzero(corrprod_keep)[0]])\
-                   [:, :, keep[2] if len(keep) > 2 else slice(None)][:, :, same_ndim[2]]
+            # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
+            keep = keep[:3] + (slice(None),) * (3 - len(keep))
+            # Final indexing ensures that returned data is always 3-dimensional (i.e. keep singleton dimensions)
+            force_3dim = tuple((np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep)
+            return np.dstack([tf[str(corrind)][force_3dim[:2]] for corrind in np.nonzero(corrprod_keep)[0]])\
+                   [:, :, keep[2]][:, :, force_3dim[2]]
         for n, s in enumerate(self._scan_groups):
             indexers.append(LazyIndexer(s['data'], keep=(self._time_keep[self._segments[n]:self._segments[n + 1]],
                                                          self._freq_keep),

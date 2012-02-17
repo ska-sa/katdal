@@ -271,7 +271,11 @@ class H5DataV2(DataSet):
 
         """
         def extract_vis(vis, keep):
-            same_ndim = tuple([(np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep[:3]] + [0])
-            return vis.view(np.complex64)[same_ndim]
+            # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
+            keep = keep[:3] + (slice(None),) * (3 - len(keep))
+            # Final indexing ensures that returned data is always 3-dimensional (i.e. keep singleton dimensions)
+            # Discard the 4th / last dimension, however, as this is subsumed in the complex view of the data
+            force_3dim = tuple([(np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep] + [0])
+            return vis.view(np.complex64)[force_3dim]
         return LazyIndexer(self._vis, (self._time_keep, self._freq_keep, self._corrprod_keep),
                            transform=extract_vis, shape_transform=lambda shape:shape[:-1], dtype=np.complex64)
