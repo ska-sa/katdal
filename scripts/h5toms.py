@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-# Produces a CASA compatible Measurement Set from a KAT-7 HDF5 file (versions 1 and 2),
+# Produces a CASA compatible Measurement Set and/or a miriad importable uvfits from a KAT-7 HDF5 file (versions 1 and 2),
 # using the casacore table tools in the ms_extra module (or pyrap if casacore not available)
 
 import os.path
@@ -32,6 +32,8 @@ parser.add_option("-v", "--verbose", action="store_true", default=False, help="M
 parser.add_option("-w", "--stop-w", action="store_true", default=False, help="Use W term to stop fringes for each baseline")
 parser.add_option("-x", "--HH", action="store_true", default=False, help="Produce a Stokes I MeasurementSet using only HH")
 parser.add_option("-y", "--VV", action="store_true", default=False, help="Produce a Stokes I MeasurementSet using only VV")
+parser.add_option("-u", "--uvfits", action="store_true", default=False, help="Produce uvfits")
+parser.add_option("-U", "--uvfits_ms", action="store_true", default=False, help="Produce uvfits and casa MeasurementSets")
 (options, args) = parser.parse_args()
 
 if len(args) < 1 or not args[0].endswith(".h5"):
@@ -56,12 +58,13 @@ if not ms_extra.casacore_binding:
     print "Failed to find casacore binding. You need to install both casacore and pyrap, or run the script from within a modified casapy containing h5py and katpoint."
     sys.exit(1)
 else:
-    print "Using '%s' casacore binding to produce MS" % (ms_extra.casacore_binding,)
+    print "Using '%s' casacore binding to produce MS and/or uvfits" % (ms_extra.casacore_binding,)
 
 pols_to_use = ['HH'] if options.HH else ['VV'] if options.VV else ['HH','HV','VH','VV'] if (options.full_pol or options.circular) else ['HH','VV']
  # which polarisation do we want to write into the MS and pull from the HDF5 file
 pol_for_name = 'hh' if options.HH else 'vv' if options.VV else 'full_pol' if options.full_pol else 'circular_pol' if options.circular else 'hh_vv'
 ms_name = os.path.splitext(args[0])[0] + ("." if len(args) == 1 else ".et_al.") + pol_for_name + ".ms"
+uv_name = os.path.splitext(args[0])[0] + ("." if len(args) == 1 else ".et_al.") + pol_for_name + ".uvfits"
 
 # The first step is to copy the blank template MS to our desired output (making sure it's not already there)
 if os.path.exists(ms_name):
@@ -73,7 +76,15 @@ except OSError:
     print "Failed to copy blank MS from %s to %s - please check presence of blank MS and/or permissions" % (options.blank_ms, ms_name)
     sys.exit(1)
 
-print "Will create MS output in", ms_name
+if not options.uvfits:
+    print "Will create MS output in", ms_name
+    
+if options.uvfits_ms or options.uvfits:
+    print "Will create uvfits output in", uv_name
+    import os
+    del os.environ['DISPLAY']
+    sys.path.append("/usr/local/casapy-32.1.15198-001-64b/lib64/python2.6")
+    import exportuvfits
 
 if options.HH or options.VV: print "\n#### Producing Stokes I MS using " + ('HH' if options.HH else 'VV') + " only ####\n"
 elif options.full_pol: print "\n#### Producing a full polarisation MS (HH,HV,VH,VV) ####\n"
@@ -174,3 +185,14 @@ if options.tar:
     tar = tarfile.open('%s.tar' % (ms_name,), 'w')
     tar.add(ms_name, arcname=os.path.basename(ms_name))
     tar.close()
+
+# Create uvfits file if requested
+if options.uvfits or options.uvfits_ms:
+    print "\nWriting uvfits file\n"
+    exportuvfits.exportuvfits(vis=ms_name,fitsfile=uv_name,datacolumn='data')
+
+# Delete MS if only uvfits is requested
+if options.uvfits:
+    shutil.rmtree(ms_name)
+                                    
+
