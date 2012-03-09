@@ -3,7 +3,7 @@
 # Produces a CASA compatible Measurement Set and/or a miriad importable uvfits from a KAT-7 HDF5 file (versions 1 and 2),
 # using the casacore table tools in the ms_extra module (or pyrap if casacore not available)
 
-import os.path
+import os
 import sys
 import shutil
 import tarfile
@@ -81,9 +81,10 @@ if not options.uvfits:
     
 if options.uvfits_ms or options.uvfits:
     print "Will create uvfits output in", uv_name
-    import os
-    del os.environ['DISPLAY']
-    sys.path.append("/usr/local/casapy-32.1.15198-001-64b/lib64/python2.6")
+    # If DISPLAY variable is set, it may cause problems when importing exportuvfits
+    os.environ.pop('DISPLAY', None)
+    # This assumes casapy is installed in /usr/local
+    sys.path.append("/usr/local/casapy/lib/python")
     import exportuvfits
 
 if options.HH or options.VV: print "\n#### Producing Stokes I MS using " + ('HH' if options.HH else 'VV') + " only ####\n"
@@ -189,10 +190,8 @@ if options.tar:
 # Create uvfits file if requested
 if options.uvfits or options.uvfits_ms:
     print "\nWriting uvfits file\n"
-    exportuvfits.exportuvfits(vis=ms_name,fitsfile=uv_name,datacolumn='data')
+    exportuvfits.exportuvfits(vis=ms_name, fitsfile=uv_name, datacolumn='data')
 
 # Delete MS if only uvfits is requested
 if options.uvfits:
     shutil.rmtree(ms_name)
-                                    
-
