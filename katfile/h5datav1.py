@@ -58,6 +58,8 @@ class H5DataV1(DataSet):
         (default is first antenna in use)
     time_offset : float, optional
         Offset to add to all correlator timestamps, in seconds
+    kwargs : dict, optional
+        Extra keyword arguments, typically meant for other formats and ignored
 
     Attributes
     ----------
@@ -65,7 +67,7 @@ class H5DataV1(DataSet):
         Underlying HDF5 file, exposed via :mod:`h5py` interface
 
     """
-    def __init__(self, filename, ref_ant='', time_offset=0.0):
+    def __init__(self, filename, ref_ant='', time_offset=0.0, **kwargs):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file

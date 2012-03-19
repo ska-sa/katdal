@@ -261,7 +261,12 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
     time_offset : float, optional
         Offset to add to all timestamps, in seconds
     kwargs : dict, optional
-        Extra parameters are passed on to underlying accessor class
+        Extra keyword arguments are passed on to underlying accessor class:
+        quicklook : {False, True}
+            [H5DataV2] True if synthesised timestamps should be used to
+            partition data set even if real timestamps are irregular, thereby
+            avoiding the slow loading of real timestamps at the cost of slightly
+            inaccurate label borders
 
     Returns
     -------

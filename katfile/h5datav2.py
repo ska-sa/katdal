@@ -86,6 +86,12 @@ class H5DataV2(DataSet):
         (default is first antenna in use)
     time_offset : float, optional
         Offset to add to all correlator timestamps, in seconds
+    quicklook : {False, True}
+        True if synthesised timestamps should be used to partition data set even
+        if real timestamps are irregular, thereby avoiding the slow loading of
+        real timestamps at the cost of slightly inaccurate label borders
+    kwargs : dict, optional
+        Extra keyword arguments, typically meant for other formats and ignored
 
     Attributes
     ----------
@@ -93,7 +99,7 @@ class H5DataV2(DataSet):
         Underlying HDF5 file, exposed via :mod:`h5py` interface
 
     """
-    def __init__(self, filename, ref_ant='', time_offset=0.0):
+    def __init__(self, filename, ref_ant='', time_offset=0.0, quicklook=False, **kwargs):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file
@@ -124,20 +130,26 @@ class H5DataV2(DataSet):
         num_dumps = len(self._timestamps)
         # Discard the last sample if the timestamp is a duplicate (caused by stop packet in k7_capture)
         num_dumps = (num_dumps - 1) if num_dumps > 1 and (self._timestamps[-1] == self._timestamps[-2]) else num_dumps
-        # Estimate timestamps by assuming they are uniformly spaced (much quicker than loading them from file).
-        # This is useful for the purpose of segmenting data set, where accurate timestamps are not that crucial.
-        # The real timestamps are still loaded when the user explicitly asks for them.
-        # Do quick test for uniform spacing of timestamps (necessary but not sufficient).
-        if abs((self._timestamps[num_dumps - 1] - self._timestamps[0]) / self.dump_period + 1 - num_dumps) < 0.01:
-            # Estimate the timestamps as being uniformly spaced
+        # Do quick test for uniform spacing of timestamps (necessary but not sufficient)
+        expected_dumps = (self._timestamps[num_dumps - 1] - self._timestamps[0]) / self.dump_period + 1
+        # The expected_dumps should always be an integer (like num_dumps), unless the timestamps and/or dump period
+        # are messed up in the file, so the threshold of this test is a bit arbitrary (e.g. could use > 0.5)
+        irregular = abs(expected_dumps - num_dumps) >= 0.01
+        if irregular:
+            # Warn the user, as this is anomalous
+            logger.warning(("Irregular timestamps detected in file '%s': "
+                           "expected %g dumps based on dump period and start/end times, got %d instead") %
+                           (filename, expected_dumps, num_dumps))
+            if quicklook:
+                logger.warning("Quicklook option selected - partitioning data based on synthesised timestamps instead")
+        if not irregular or quicklook:
+            # Estimate timestamps by assuming they are uniformly spaced (much quicker than loading them from file).
+            # This is useful for the purpose of segmenting data set, where accurate timestamps are not that crucial.
+            # The real timestamps are still loaded when the user explicitly asks for them.
             data_timestamps = self._timestamps[0] + self.dump_period * np.arange(num_dumps)
         else:
-            # Load the real timestamps instead and warn the user, as this is anomalous
+            # Load the real timestamps instead (could take several seconds on a large data set)
             data_timestamps = self._timestamps[:num_dumps]
-            expected_dumps = (self._timestamps[num_dumps - 1] - self._timestamps[0]) / self.dump_period + 1
-            logger.warning(("Irregular timestamps detected in file '%s':"
-                           "expected %.3f dumps based on dump period and start/end times, got %d instead") %
-                           (filename, expected_dumps, num_dumps))
         # Move timestamps from start of each dump to the middle of the dump
         data_timestamps += 0.5 * self.dump_period + self.time_offset
         if data_timestamps[0] < 1e9:
