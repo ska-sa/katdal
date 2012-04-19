@@ -35,7 +35,11 @@ for arg in args:
 # Open each file in turn and print a one-line summary
 print "Name          Ver Observer   StartTimeSAST       Shape               SizeGB DumpHz SPW CFreqMHz Ants Tgts Scans Description"
 for f in files:
-    d = katfile.open(f)
+    try:
+        d = katfile.open(f, quicklook=True)
+    except Exception, e:
+        print '%s: Exception(%s)' % (f, e)
+        continue
     name = os.path.basename(f)
     name = (name[:10] + '...') if len(name) > 13 else name
     print '%13s %3s %10s %19s (%6d,%5d,%4d) %6.2f %6.3f %3d %8.3f %4d %4d %5d %s' % \
