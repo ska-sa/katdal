@@ -23,6 +23,19 @@ class BrokenFile(Exception):
     """Data set could not be loaded because file is inconsistent or misses critical bits."""
     pass
 
+def array_equal(a1, a2):
+    """True if two arrays have the same shape and elements, False otherwise.
+
+    This is meant to be identical to :func:`numpy.array_equal` but should also
+    work for variable-sized arrays containing strings. See the discussion at
+    http://mail.scipy.org/pipermail/numpy-discussion/2007-February/025967.html.
+
+    """
+    try:
+        return np.array_equal(a1, a2)
+    except AttributeError:
+        a1, a2 = np.asarray(a1), np.asarray(a2)
+        return (a1.shape == a2.shape) and np.all(a1 == a2)
 
 class Subarray(object):
     """Subarray specification.
@@ -61,8 +74,8 @@ class Subarray(object):
 
     def __eq__(self, other):
         """Equality comparison operator."""
-        return isinstance(other, Subarray) and np.array_equal(self.corr_products, other.corr_products) and \
-               np.array_equal(self.inputs, other.inputs) and np.array_equal(self.ants, other.ants)
+        return isinstance(other, Subarray) and array_equal(self.corr_products, other.corr_products) and \
+               array_equal(self.inputs, other.inputs) and array_equal(self.ants, other.ants)
 
     def __ne__(self, other):
         """Inequality comparison operator."""
@@ -113,10 +126,10 @@ class SpectralWindow(object):
 
     def __eq__(self, other):
         """Equality comparison operator."""
-        return isinstance(other, SpectralWindow) and np.array_equal(self.centre_freq, other.centre_freq) and \
-               np.array_equal(self.channel_width, other.channel_width) and \
-               np.array_equal(self.num_chans, other.num_chans) and \
-               np.array_equal(self.channel_freqs, other.channel_freqs)
+        return isinstance(other, SpectralWindow) and array_equal(self.centre_freq, other.centre_freq) and \
+               array_equal(self.channel_width, other.channel_width) and \
+               array_equal(self.num_chans, other.num_chans) and \
+               array_equal(self.channel_freqs, other.channel_freqs)
 
     def __ne__(self, other):
         """Inequality comparison operator."""
