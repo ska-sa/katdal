@@ -217,13 +217,16 @@ class H5DataV2(DataSet):
 
         # Use the activity sensor of reference antenna to partition the data set into scans (and to set their states)
         scan = self.sensor.get('Antennas/%s/activity' % (self.ref_ant,))
-        self.sensor['Observation/scan_state'] = scan
-        self.sensor['Observation/scan_index'] = CategoricalData(range(len(scan)), scan.events)
         # Use labels to partition the data set into compound scans
         label = sensor_to_categorical(markup_group['labels']['timestamp'], markup_group['labels']['label'],
                                       data_timestamps, self.dump_period, **SENSOR_PROPS['Observation/label'])
         # Discard empty labels (typically found in raster scans, where first scan has proper label and rest are empty)
         label.remove('')
+        # Create duplicate scan events where labels are set during a scan (i.e. not at start of scan)
+        # ASSUMPTION: Number of scans >= number of labels (i.e. each label should introduce a new scan)
+        scan.add_unmatched(label.events)
+        self.sensor['Observation/scan_state'] = scan
+        self.sensor['Observation/scan_index'] = CategoricalData(range(len(scan)), scan.events)
         # Move proper label events onto the nearest scan start
         # ASSUMPTION: Number of labels <= number of scans (i.e. only a single label allowed per scan)
         label.align(scan.events)
