@@ -59,7 +59,7 @@ class CategoricalData(object):
     Parameters
     ----------
     sensor_values : sequence, length *N*
-        Sequence of sensor values (of any type)
+        Sequence of sensor values (of any type except None)
     events : sequence of non-negative ints, length *N* + 1
         Corresponding monotonic sequence of dump indices where each sensor value
         came into effect. The last event is one past the last dump where the
@@ -205,16 +205,16 @@ class CategoricalData(object):
     def add(self, event, value=None):
         """Add or override sensor event.
 
-        This adds a new event to the container, with a new value or re-using the
-        existing value at that dump. If the new event coincides with an existing
-        one, it overrides the value at that dump.
+        This adds a new event to the container, with a new value or a duplicate
+        of the existing value at that dump. If the new event coincides with an
+        existing one, it overrides the value at that dump.
 
         Parameters
         ----------
         event : int
             Dump of event to add or override
         value : object, optional
-            New value for event (re-use the current value at this dump by default)
+            New value for event (duplicate current value at this dump by default)
 
         """
         # If value has not been seen before, add it to unique_values (and create new index for it)
@@ -249,12 +249,42 @@ class CategoricalData(object):
             self.events = np.r_[self.events[keep], self.events[-1]]
             self.unique_values = np.r_[self.unique_values[:index], self.unique_values[index + 1:]]
 
+    def add_unmatched(self, segments, match_dist=1):
+        """Add duplicate events for segment starts that don't match sensor events.
+
+        Given a sequence of segments, this matches each segment start to the
+        nearest sensor event dump (within *match_dist*). Any unmatched segment
+        starts are added as duplicate sensor events (or ignored if they fall
+        outside the sensor event range).
+
+        Parameters
+        ----------
+        segments : sequence of int
+            Monotonically increasing sequence of segment starts, including an
+            extra element at the end that is one past the end of the last segment
+        match_dist : int, optional
+            Maximum distance in dumps that signify a match between events
+
+        """
+        # Identify unmatched segment starts
+        segments = np.asarray(segments)
+        unmatched = segments[np.abs(self.events[np.newaxis, :] - segments[:, np.newaxis]).min(axis=1) > match_dist]
+        # Add these dumps as duplicate events, ignoring those that are out of bounds
+        for segm in unmatched:
+            try:
+                self.add(segm)
+            except IndexError:
+                pass
+
     def align(self, segments):
-        """Align sensor events with segment starts, possibly discarding some values.
+        """Align sensor events with segment starts, possibly discarding events.
 
         Given a sequence of segments, this moves each sensor event dump onto the
         nearest segment start. If more than one event ends up in the same segment,
         only keep the last event, discarding the rest.
+
+        The end result is that the sensor event dumps become a subset of the
+        segment starts and there cannot be more sensor events than segments.
 
         Parameters
         ----------
