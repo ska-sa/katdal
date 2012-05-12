@@ -125,6 +125,12 @@ class CategoricalData(object):
         return "<katfile.CategoricalData events=%d values=%d type='%s' at 0x%x>" % \
                (len(self.indices), len(self.unique_values), self.unique_values.dtype, id(self))
 
+    def __str__(self):
+        """Long human-friendly string representation of categorical data object."""
+        index_width = len(str(self.events[-1] - 1))
+        return '\n'.join([('%*d - %*d: %s' % (index_width, b, index_width, e - 1, v))
+                          for b, e, v in zip(self.events[:-1], self.events[1:], self.unique_values[self.indices])])
+
     def __len__(self):
         """Length operator indicates number of events produced by sensor."""
         return len(self.indices)
