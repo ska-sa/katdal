@@ -128,8 +128,8 @@ class CategoricalData(object):
     def __str__(self):
         """Long human-friendly string representation of categorical data object."""
         index_width = len(str(self.events[-1] - 1))
-        return '\n'.join([('%*d - %*d: %s' % (index_width, b, index_width, e - 1, v))
-                          for b, e, v in zip(self.events[:-1], self.events[1:], self.unique_values[self.indices])])
+        return '\n'.join([('%*d - %*d: %s' % (index_width, segm.start, index_width, segm.stop - 1, val))
+                          for segm, val in self.segments()])
 
     def __len__(self):
         """Length operator indicates number of events produced by sensor."""
