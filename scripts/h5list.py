@@ -13,8 +13,8 @@ import logging
 
 import katfile
 
-# See warnings while loading files (will appear *above* the relevant file, emphasised by an empty line above warning)
-logging.basicConfig(format='\n%(levelname)s %(name)s %(message)s')
+# See warnings while loading files (will appear *above* the relevant file)
+# logging.basicConfig(format='%(levelname)s %(name)s %(message)s')
 
 parser = optparse.OptionParser(usage="%prog [options] [filename or directory]*", description='List HDF5 files')
 opts, args = parser.parse_args()
@@ -33,18 +33,21 @@ for arg in args:
             files.extend([os.path.join(rootdir, name) for name in dirfiles if name.endswith('.h5')])
 
 # Open each file in turn and print a one-line summary
-print "Name          Ver Observer   StartTimeSAST       Shape               SizeGB DumpHz SPW CFreqMHz Ants Tgts Scans Description"
+print "Name          Ver Observer   StartTimeSAST       Shape               SizeGB DumpHz SPW CFreqMHz Ants    Tgts Scans Description"
 for f in files:
     try:
         d = katfile.open(f, quicklook=True)
     except Exception, e:
-        print '%s: Exception(%s)' % (f, e)
+        print '%s %s - %s' % (f, e.__class__.__name__, e)
         continue
     name = os.path.basename(f)
     name = (name[:10] + '...') if len(name) > 13 else name
-    print '%13s %3s %10s %19s (%6d,%5d,%4d) %6.2f %6.3f %3d %8.3f %4d %4d %5d %s' % \
+    all_ants = ('ant1', 'ant2', 'ant3', 'ant4', 'ant5', 'ant6', 'ant7')
+    file_ants = [ant.name for ant in d.ants]
+    ants = ''.join([(ant[3:] if ant in file_ants else '-') for ant in all_ants])
+    print '%13s %3s %10s %19s (%6d,%5d,%4d) %6.2f %6.3f %3d %8.3f %s %4d %5d %s' % \
           (name, d.version, d.observer.strip()[:10].ljust(10), d.start_time.local()[:19],
            d.shape[0], d.shape[1], d.shape[2], d.size / 1024. / 1024. / 1024., 1.0 / d.dump_period,
-           len(d.spectral_windows), d.spectral_windows[d.spw].centre_freq / 1e6, len(d.ants),
+           len(d.spectral_windows), d.spectral_windows[d.spw].centre_freq / 1e6, ants,
            len(d.catalogue), len(d.scan_indices), d.description)
     del d
