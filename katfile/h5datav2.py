@@ -128,6 +128,9 @@ class H5DataV2(DataSet):
         self._vis = data_group['correlator_data']
         self._timestamps = data_group['timestamps']
         num_dumps = len(self._timestamps)
+        if num_dumps != self._vis.shape[0]:
+            raise BrokenFile('Number of timestamps received from k7_capture '
+                             '(%d) differs from number of dumps in data (%d)' % (num_dumps, self._vis.shape[0]))
         # Discard the last sample if the timestamp is a duplicate (caused by stop packet in k7_capture)
         num_dumps = (num_dumps - 1) if num_dumps > 1 and (self._timestamps[-1] == self._timestamps[-2]) else num_dumps
         # Do quick test for uniform spacing of timestamps (necessary but not sufficient)
