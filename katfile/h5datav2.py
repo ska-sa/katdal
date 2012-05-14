@@ -205,7 +205,13 @@ class H5DataV2(DataSet):
 
         # ------ Extract spectral windows / frequencies ------
 
-        centre_freq = self.sensor.get('RFE/center-frequency-hz')
+        # Ideally we would like to use calculated center-frequency-hz sensor produced by k7_capture (better for nband)
+        k7c_centre_freq = self.sensor.get('RFE/center-frequency-hz')
+        # Also check the basic RFE7 LO frequency, as this supported multiple spectral windows before k7_capture did
+        rfe_centre_freq = self.sensor.get('RFE/rfe7.lo1.frequency')
+        rfe_centre_freq.unique_values -= 4200e6
+        # Use whichever center frequency source has the most events (defaulting to k7_capture version)
+        centre_freq = k7c_centre_freq if len(k7c_centre_freq) >= len(rfe_centre_freq) else rfe_centre_freq
         num_chans = get_single_value(config_group['Correlator'], 'n_chans')
         if num_chans != self._vis.shape[1]:
             raise BrokenFile('Number of channels received from correlator '
