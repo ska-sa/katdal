@@ -360,9 +360,10 @@ class SensorCache(dict):
                 raise KeyError("Unknown sensor '%s' (does not match actual name or virtual template)" % (name,))
         # If this is the first time this sensor is accessed, extract its data and store it in cache, if enabled
         if isinstance(sensor_data, SensorData) and extract:
-            # Sort sensor events in chronological order and discard duplicates and sensor values in error
+            # Sort sensor events in chronological order and discard duplicates and sensor values that could not be read
             sensor_data = remove_duplicates(sensor_data)
-            sensor_data.data = np.atleast_1d(sensor_data[sensor_data['status'] == 'nominal'])
+            # Explicitly cast status to string type, as k7_augment produced sensors with integer statuses
+            sensor_data.data = np.atleast_1d(sensor_data[sensor_data['status'].astype('|S7') != 'failure'])
             if len(sensor_data) == 0:
                 sensor_data = dummy_sensor_data(name, sensor_data.dtype)
                 logger.warning("No usable data found for sensor '%s' - replaced with dummy data" % (name,))
