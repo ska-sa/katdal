@@ -226,6 +226,12 @@ class H5DataV2(DataSet):
 
         # Use the activity sensor of reference antenna to partition the data set into scans (and to set their states)
         scan = self.sensor.get('Antennas/%s/activity' % (self.ref_ant,))
+        # If the antenna starts slewing on the second dump, incorporate the first dump into the slew too.
+        # This scenario typically occurs when the first target is only set after the first dump is received.
+        # The workaround avoids putting the first dump in a scan by itself, typically with an irrelevant target.
+        if len(scan) > 1 and scan.events[1] == 1 and scan[1] == 'slew':
+            scan.events, scan.indices = scan.events[1:], scan.indices[1:]
+            scan.events[0] = 0
         # Use labels to partition the data set into compound scans
         label = sensor_to_categorical(markup_group['labels']['timestamp'], markup_group['labels']['label'],
                                       data_timestamps, self.dump_period, **SENSOR_PROPS['Observation/label'])
