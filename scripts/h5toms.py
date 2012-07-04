@@ -33,7 +33,9 @@ parser.add_option("-w", "--stop-w", action="store_true", default=False, help="Us
 parser.add_option("-x", "--HH", action="store_true", default=False, help="Produce a Stokes I MeasurementSet using only HH")
 parser.add_option("-y", "--VV", action="store_true", default=False, help="Produce a Stokes I MeasurementSet using only VV")
 parser.add_option("-u", "--uvfits", action="store_true", default=False, help="Produce uvfits")
-parser.add_option("-U", "--uvfits_ms", action="store_true", default=False, help="Produce uvfits and casa MeasurementSets")
+parser.add_option("-U", "--uvfits-ms", action="store_true", default=False, help="Produce uvfits and casa MeasurementSets")
+parser.add_option("-a", "--no-auto", action="store_true", default=False, help="MeasurementSet will exclude autocorrelation data")
+parser.add_option("-C", "--channel-range", help="Range of frequency channels to keep (zero-based inclusive 'first_chan,last_chan', default is all channels)")
 (options, args) = parser.parse_args()
 
 if len(args) < 1 or not args[0].endswith(".h5"):
@@ -91,10 +93,27 @@ if options.HH or options.VV: print "\n#### Producing Stokes I MS using " + ('HH'
 elif options.full_pol: print "\n#### Producing a full polarisation MS (HH,HV,VH,VV) ####\n"
 else: print "\n#### Producing a two polarisation MS (HH, VV) ####\n"
 
-
 # Open HDF5 file
 h5 = katfile.open(args, ref_ant=options.ref_ant)
  # katfile can handle a list of files, which get virtually concatenated internally
+
+# Select frequency channel range
+if options.channel_range is not None:
+    channel_range = [int(chan_str) for chan_str in options.channel_range.split(',')]
+    first_chan, last_chan = channel_range[0], channel_range[1]
+
+    if (first_chan < 0) or (last_chan >= h5.shape[1]):
+        print "Requested channel range outside data set boundaries. Set channels in the range [0,%s]" % (h5.shape[1]-1,)
+        sys.exit(1)
+
+    chan_range = slice(first_chan, last_chan + 1)
+    print "\nChannel range %s through %s." % (first_chan, last_chan)
+    h5.select(channels=chan_range)
+
+# Optionally keep only cross-correlation products
+if options.no_auto:
+    h5.select(corrprods='cross')
+    print "\nCross-correlations only."
 
 print "\nUsing %s as the reference antenna. All targets and activity detection will be based on this antenna.\n" % (h5.ref_ant,)
 # MS expects timestamps in MJD seconds
@@ -153,6 +172,8 @@ for scan_ind, scan_state, target in h5.scans():
     for ant1_index, ant1 in enumerate(h5.ants):
         for ant2_index, ant2 in enumerate(h5.ants):
             if ant2_index < ant1_index:
+                continue
+            if options.no_auto and (ant2_index == ant1_index):
                 continue
             polprods = [("%s%s" % (ant1.name,p[0].lower()), "%s%s" % (ant2.name,p[1].lower())) for p in pols_to_use]
             pol_data = []
