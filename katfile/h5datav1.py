@@ -182,7 +182,7 @@ class H5DataV1(DataSet):
             raise BrokenFile('Number of channels received from correlator '
                              '(%d) differs from number of channels in data (%d)' % (num_chans, data_num_chans))
         channel_width = corr_group.attrs['channel_bandwidth_hz']
-        self.spectral_windows = [SpectralWindow(centre_freq, channel_width, num_chans)]
+        self.spectral_windows = [SpectralWindow(centre_freq, channel_width, num_chans, 'poco')]
         self.sensor['Observation/spw'] = CategoricalData(self.spectral_windows, [0, len(data_timestamps)])
         self.sensor['Observation/spw_index'] = CategoricalData([0], [0, len(data_timestamps)])
 

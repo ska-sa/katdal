@@ -216,8 +216,14 @@ class H5DataV2(DataSet):
         if num_chans != self._vis.shape[1]:
             raise BrokenFile('Number of channels received from correlator '
                              '(%d) differs from number of channels in data (%d)' % (num_chans, self._vis.shape[1]))
-        channel_width = get_single_value(config_group['Correlator'], 'bandwidth') / num_chans
-        self.spectral_windows = [SpectralWindow(spw_centre, channel_width, num_chans)
+        bandwidth = get_single_value(config_group['Correlator'], 'bandwidth')
+        channel_width = bandwidth / num_chans
+        try:
+            mode = self.sensor.get('DBE/dbe.mode').unique_values[0]
+        except KeyError, IndexError:
+            # Guess the mode for version 2.0 files that haven't been re-augmented
+            mode = 'wbc' if num_chans <= 1024 else 'wbc8k' if bandwidth > 200e6 else 'nbc'
+        self.spectral_windows = [SpectralWindow(spw_centre, channel_width, num_chans, mode)
                                  for spw_centre in centre_freq.unique_values]
         self.sensor['Observation/spw'] = CategoricalData(self.spectral_windows, centre_freq.events)
         self.sensor['Observation/spw_index'] = CategoricalData(centre_freq.indices, centre_freq.events)

@@ -104,6 +104,8 @@ class SpectralWindow(object):
         Bandwidth of each frequency channel, in Hz
     num_chans : int
         Number of frequency channels
+    mode : string, optional
+        DBE (correlator) mode
 
     Attributes
     ----------
@@ -111,22 +113,24 @@ class SpectralWindow(object):
         Centre frequency of each frequency channel (assuming LSB mixing), in Hz
 
     """
-    def __init__(self, centre_freq, channel_width, num_chans):
+    def __init__(self, centre_freq, channel_width, num_chans, mode=None):
         self.centre_freq = centre_freq
         self.channel_width = channel_width
         self.num_chans = num_chans
+        self.mode = mode if mode is not None else ''
         # Assume that lower-sideband downconversion has been used, which flips frequency axis
         # Also subtract half a channel width to get frequencies at center of each channel
         self.channel_freqs = centre_freq - channel_width * (np.arange(num_chans) - num_chans / 2 + 0.5)
 
     def __repr__(self):
         """Short human-friendly string representation of spectral window object."""
-        return "<katfile.SpectralWindow centre=%.3f MHz bandwidth=%.3f MHz channels=%d at 0x%x>" % \
-              (self.centre_freq / 1e6, self.num_chans * self.channel_width / 1e6, self.num_chans, id(self))
+        return "<katfile.SpectralWindow mode='%s' centre=%.3f MHz bandwidth=%.3f MHz channels=%d at 0x%x>" % \
+              (self.mode, self.centre_freq / 1e6, self.num_chans * self.channel_width / 1e6, self.num_chans, id(self))
 
     def __eq__(self, other):
         """Equality comparison operator."""
-        return isinstance(other, SpectralWindow) and array_equal(self.centre_freq, other.centre_freq) and \
+        return isinstance(other, SpectralWindow) and self.mode == other.mode and \
+               array_equal(self.centre_freq, other.centre_freq) and \
                array_equal(self.channel_width, other.channel_width) and \
                array_equal(self.num_chans, other.num_chans) and \
                array_equal(self.channel_freqs, other.channel_freqs)
@@ -387,10 +391,10 @@ class DataSet(object):
             descr.append('  %2d  %28s  %2d      %3d' %
                          (n, ant_names.ljust(7 * 4 + 6), len(sub.inputs), len(sub.corr_products)))
         descr += ['Spectral Windows: %d' % (len(self.spectral_windows),),
-                  '  ID  CentreFreq(MHz)  Bandwidth(MHz)  Channels  ChannelWidth(kHz)']
+                  '  ID  Mode       CentreFreq(MHz)  Bandwidth(MHz)  Channels  ChannelWidth(kHz)']
         for n, spw in enumerate(self.spectral_windows):
-            descr.append('  %2d  %8.3f         %7.3f         %5d     %8.3f' %
-                         (n, spw.centre_freq / 1e6, spw.channel_width / 1e6 * spw.num_chans,
+            descr.append('  %2d  %-11s %8.3f         %7.3f         %5d     %8.3f' %
+                         (n, spw.mode, spw.centre_freq / 1e6, spw.channel_width / 1e6 * spw.num_chans,
                           spw.num_chans, spw.channel_width / 1e3))
         # Now add dynamic information, which depends on the current selection criteria
         descr += ['-------------------------------------------------------------------------------',
