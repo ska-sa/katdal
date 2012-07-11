@@ -53,9 +53,6 @@ if options.full_pol and (options.HH or options.VV):
 if len(args) > 1:
     print "Concatenating multiple h5 files into single MS."
 
-if options.stop_w:
-    print "W term in UVW coordinates will be used to stop the fringes."
-
 if not ms_extra.casacore_binding:
     print "Failed to find casacore binding. You need to install both casacore and pyrap, or run the script from within a modified casapy containing h5py and katpoint."
     sys.exit(1)
@@ -96,6 +93,15 @@ else: print "\n#### Producing a two polarisation MS (HH, VV) ####\n"
 # Open HDF5 file
 h5 = katfile.open(args, ref_ant=options.ref_ant)
  # katfile can handle a list of files, which get virtually concatenated internally
+
+# if fringe stopping is requested, check that it has not already been done in hardware
+if options.stop_w:
+    print "W term in UVW coordinates will be used to stop the fringes."
+    try:
+        autodelay=[int(ad) for ad in h5.sensor['DBE/auto-delay']]
+        if all(autodelay): print "Fringe-stopping already performed in hardware... do you really want to stop the fringes here?"
+    except KeyError:
+        pass
 
 # Select frequency channel range
 if options.channel_range is not None:
