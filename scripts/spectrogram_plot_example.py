@@ -8,6 +8,7 @@
 #
 
 import optparse
+import time
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -71,8 +72,13 @@ class ResampledImage(object):
         im_bottom = y_inds[0] / data_scale_y + data_limits.y0
         im_top = (y_inds[-1] + 1) / data_scale_y + data_limits.y0
         # print "im =", (im_left, im_right, im_bottom, im_top)
+        before = time.time()
         # Load and update image data and make it fill the view
         data = self.extract(self.data, x_slice, y_slice)
+        extract_time = time.time() - before
+        size_bytes = data.size * np.dtype('complex64').itemsize
+        print "Loaded %d visibilities - x %s y %s - in %.2f seconds (%g MB/s)" % \
+              (data.size, x_slice, y_slice, extract_time, size_bytes * 1e-6 / extract_time)
         self.image.set_data(data)
         self.image._extent = (im_left, im_right, im_bottom, im_top)
         if self.autoscale:
