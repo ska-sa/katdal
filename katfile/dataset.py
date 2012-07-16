@@ -119,8 +119,8 @@ class SpectralWindow(object):
         self.num_chans = num_chans
         self.mode = mode if mode is not None else ''
         # Assume that lower-sideband downconversion has been used, which flips frequency axis
-        # Also subtract half a channel width to get frequencies at center of each channel
-        self.channel_freqs = centre_freq - channel_width * (np.arange(num_chans) - num_chans / 2 + 0.5)
+        # Don't subtract half a channel width as channel 0 is centred on 0 Hz in baseband
+        self.channel_freqs = centre_freq - channel_width * (np.arange(num_chans) - num_chans / 2)
 
     def __repr__(self):
         """Short human-friendly string representation of spectral window object."""
