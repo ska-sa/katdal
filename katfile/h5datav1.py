@@ -274,3 +274,43 @@ class H5DataV1(DataSet):
                                         shape_transform=lambda shape: (shape[0], shape[1], corrprod_keep.sum()),
                                         dtype=np.complex64))
         return ConcatenatedLazyIndexer(indexers)
+
+    def flags(self,flaglist=''):
+        """Visibility flags as a function of time, frequency and baseline.
+
+        The flag function is called with flags('flag1,flag2')[index_list]
+        where the function input is a string comma separated list of flag names,
+        and the output flag is set if any of the listed flags are set.
+
+        The flags are returned as an array indexer of boolean, of shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The returned array always has all three dimensions,
+        even for scalar (single) values. The number of integrations *T* matches
+        the length of :meth:`timestamps`, the number of frequency channels *F*
+        matches the length of :meth:`freqs` and the number of correlation
+        products *B* matches the length of :meth:`corr_products`. To get the
+        flag array itself from the indexer `x`, do `x[:]` or perform any other
+        form of indexing on it. Only then will data be loaded into memory.
+
+        """
+        # tell the user that there are no flags in the h5 file
+        logger.warning("No flags in v1 h5 data files, returning array of zero flags")
+
+        # empty flag list for lazy indexer
+        self._flags = np.empty_like(self)
+
+        def extract_flags(flags, keep):
+            # create dummy 0 flags for chosen slice
+            # get dimensions of slice
+            flagdim=np.ones(3)
+            for k in range(3):
+                if isinstance(keep[k],slice):
+                    flagdim[k]=keep[k].stop-keep[k].start
+            # return array of s=zeros
+            return np.zeros(flagdim,dtype=np.bool)
+
+        return LazyIndexer(self._flags, (self._time_keep, self._freq_keep, self._corrprod_keep),
+                           transform=extract_flags, dtype=np.bool)
+
+

@@ -161,6 +161,26 @@ class H5DataV2(DataSet):
         self.start_time = katpoint.Timestamp(data_timestamps[0] - 0.5 * self.dump_period)
         self.end_time = katpoint.Timestamp(data_timestamps[-1] + 0.5 * self.dump_period)
 
+        # ------ Extract flags ------
+
+        # obtain flags
+        try:
+            self._flags = markup_group['flags']
+        except KeyError:
+            # dummy array if h5 file doesn't have flags
+            self._flags = np.empty_like(self)
+
+        # obtain flag descriptions
+        try:
+            self._flags_description = markup_group['flags_description']
+        except KeyError:
+            # put flag descriptions in manually if h5 file doesn't have this table
+            flag_names = ['reserved0','static','cam','reserved3','detected_rfi','predicted_rfi','reserved6','reserved7']
+            flag_descriptions = ['reserved - bit 0','predefined static flag list','flag based on live CAM information',
+                                  'reserved - bit 3','RFI detected in the online system','RFI predicted from space based pollutants',
+                                  'reserved - bit 6','reserved - bit 7']
+            self._flags_description = np.array([[nm, flag_descriptions[i]] for (i,nm) in enumerate(flag_names)])
+
         # ------ Extract sensors ------
 
         # Populate sensor cache with all HDF5 datasets below sensor group that fit the description of a sensor
@@ -315,3 +335,67 @@ class H5DataV2(DataSet):
             return vis.view(np.complex64)[force_3dim]
         return LazyIndexer(self._vis, (self._time_keep, self._freq_keep, self._corrprod_keep),
                            transform=extract_vis, shape_transform=lambda shape:shape[:-1], dtype=np.complex64)
+
+    def flags(self,flaglist='reserved0,static,cam,reserved3,detected_rfi,predicted_rfi,reserved6,reserved7'):
+        """Visibility flags as a function of time, frequency and baseline.
+
+        The flag function is called with flags('flag1,flag2')[index_list]
+        where the function input is a string comma separated list of flag names,
+        and the output flag is set if any of the listed flags are set.
+
+        The flags are returned as an array indexer of boolean, of shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The returned array always has all three dimensions,
+        even for scalar (single) values. The number of integrations *T* matches
+        the length of :meth:`timestamps`, the number of frequency channels *F*
+        matches the length of :meth:`freqs` and the number of correlation
+        products *B* matches the length of :meth:`corr_products`. To get the
+        flag array itself from the indexer `x`, do `x[:]` or perform any other
+        form of indexing on it. Only then will data be loaded into memory.
+
+        """
+        flaglist = flaglist.split(',')
+
+        # create index list for desired flags
+        flagmask = np.zeros(8,int)
+        in_list = False
+        for flagname in flaglist:
+            for i in range(len(self._flags_description)):
+                if flagname == self._flags_description[i,0]:
+                    flagmask[i]=1
+                    in_list = True
+            # warning if flag type is not in flag description list
+            if in_list == False:
+                logger.warning(" '%s' is not a legitimate flag type for this file" % (flagname,))
+            in_list = False
+        # create bit flag mask
+        flagmask = np.packbits(flagmask)
+
+        def extract_flags(flags, keep):
+            # check if these are real existing flags
+            if self._flags.dtype == np.uint8:
+                # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
+                keep = keep[:3] + (slice(None),) * (3 - len(keep))
+                # Final indexing ensures that returned data is always 3-dimensional (i.e. keep singleton dimensions)
+                force_3dim = tuple([(np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep])
+                flags_3dim = flags[force_3dim]
+
+                # use flagmask to blank out the flags we don't want
+                total_flags=np.bitwise_and(flagmask,flags_3dim)
+                # convert uint8 to bool: if any flag bits set, flag is set
+                return np.bool_(total_flags)
+            # if not real flags, create dummy 0 flags for chosen slice
+            else:
+                # get dimensions of slice
+                flagdim=np.ones(3)
+                for k in range(3):
+                    if isinstance(keep[k],slice):
+                        flagdim[k]=keep[k].stop-keep[k].start
+                # return array of s=zeros
+                return np.zeros(flagdim,dtype=np.bool)
+
+        return LazyIndexer(self._flags, (self._time_keep, self._freq_keep, self._corrprod_keep),
+                           transform=extract_flags, dtype=np.bool)
+
+

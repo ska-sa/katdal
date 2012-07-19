@@ -460,3 +460,25 @@ class ConcatenatedDataSet(DataSet):
 
         """
         return ConcatenatedLazyIndexer([d.vis for d in self.datasets])
+
+    def flags(self,flaglist='reserved0,static,cam,reserved3,detected_rfi,predicted_rfi,reserved6,reserved7'):
+        """Visibility flags as a function of time, frequency and baseline.
+
+        The flag function is called with flags('flag1,flag2')[index_list]
+        where the function input is a string comma separated list of flag names,
+        and the output flag is set if any of the listed flags are set.
+
+        The flags are returned as an array indexer of boolean, of shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The returned array always has all three dimensions,
+        even for scalar (single) values. The number of integrations *T* matches
+        the length of :meth:`timestamps`, the number of frequency channels *F*
+        matches the length of :meth:`freqs` and the number of correlation
+        products *B* matches the length of :meth:`corr_products`. To get the
+        flag array itself from the indexer `x`, do `x[:]` or perform any other
+        form of indexing on it. Only then will data be loaded into memory.
+
+        """
+        return ConcatenatedLazyIndexer([d.flags(flaglist) for d in self.datasets])
+
