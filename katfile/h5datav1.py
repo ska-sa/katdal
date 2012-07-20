@@ -317,6 +317,6 @@ class H5DataV1(DataSet):
                                                          self._freq_keep),
                                         transform=index_corrprod,
                                         shape_transform=lambda shape: (shape[0], shape[1], corrprod_keep.sum()),
-                                        dtype=np.complex64))
+                                        dtype=np.bool))
         return ConcatenatedLazyIndexer(indexers)
 
