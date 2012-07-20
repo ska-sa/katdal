@@ -275,7 +275,7 @@ class H5DataV1(DataSet):
                                         dtype=np.complex64))
         return ConcatenatedLazyIndexer(indexers)
 
-    def flags(self,flaglist=''):
+    def flags(self,flaglist=None):
         """Visibility flags as a function of time, frequency and baseline.
 
         The flag function is called with flags('flag1,flag2')[index_list]
@@ -297,20 +297,26 @@ class H5DataV1(DataSet):
         # tell the user that there are no flags in the h5 file
         logger.warning("No flags in v1 h5 data files, returning array of zero flags")
 
-        # empty flag list for lazy indexer
-        self._flags = np.empty_like(self)
-
-        def extract_flags(flags, keep):
-            # create dummy 0 flags for chosen slice
-            # get dimensions of slice
-            flagdim=np.ones(3)
-            for k in range(3):
-                if isinstance(keep[k],slice):
-                    flagdim[k]=keep[k].stop-keep[k].start
-            # return array of s=zeros
-            return np.zeros(flagdim,dtype=np.bool)
-
-        return LazyIndexer(self._flags, (self._time_keep, self._freq_keep, self._corrprod_keep),
-                           transform=extract_flags, dtype=np.bool)
-
+        # Fringe Finder has a weird vis data structure: each scan data group is a recarray
+        # with shape (T, F) and fields '0'...'11' indicating the correlation products.
+        # The per-scan LazyIndexers therefore only do the time + frequency indexing,
+        # leaving corrprod indexing to the final transform.
+        indexers = []
+        corrprod_keep = self._corrprod_keep
+        # Apply both first-stage and second-stage corrprod indexing in the transform
+        def index_corrprod(tf, keep):
+            # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
+            keep = keep[:3] + (slice(None),) * (3 - len(keep))
+            # Final indexing ensures that returned data is always 3-dimensional (i.e. keep singleton dimensions)
+            force_3dim = tuple((np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep)
+            data_array = np.dstack([tf[str(corrind)][force_3dim[:2]] for corrind in np.nonzero(corrprod_keep)[0]])\
+                   [:, :, keep[2]][:, :, force_3dim[2]]
+            return np.bool_(np.zeros_like(data_array))
+        for n, s in enumerate(self._scan_groups):
+            indexers.append(LazyIndexer(s['data'], keep=(self._time_keep[self._segments[n]:self._segments[n + 1]],
+                                                         self._freq_keep),
+                                        transform=index_corrprod,
+                                        shape_transform=lambda shape: (shape[0], shape[1], corrprod_keep.sum()),
+                                        dtype=np.complex64))
+        return ConcatenatedLazyIndexer(indexers)
 

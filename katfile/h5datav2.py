@@ -40,6 +40,8 @@ def _calc_azel(cache, name, ant):
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az' : _calc_azel, 'Antennas/{ant}/el' : _calc_azel})
 
+FLAG_NAMES = ['reserved0','static','cam','reserved3','detected_rfi','predicted_rfi','reserved6','reserved7']
+
 #--------------------------------------------------------------------------------------------------
 #--- Utility functions
 #--------------------------------------------------------------------------------------------------
@@ -162,20 +164,16 @@ class H5DataV2(DataSet):
         self.end_time = katpoint.Timestamp(data_timestamps[-1] + 0.5 * self.dump_period)
 
         # ------ Extract flags ------
-
-        # obtain flags
-        try:
-            self._flags = markup_group['flags']
-        except KeyError:
-            # dummy array if h5 file doesn't have flags
-            self._flags = np.empty_like(self)
+ 
+        # check if flag group present, else use dummy flag data
+        self._flags = markup_group['flags'] if 'flags' in markup_group else np.empty(self._vis.shape[:-1])
 
         # obtain flag descriptions
         try:
             self._flags_description = markup_group['flags_description']
         except KeyError:
             # put flag descriptions in manually if h5 file doesn't have this table
-            flag_names = ['reserved0','static','cam','reserved3','detected_rfi','predicted_rfi','reserved6','reserved7']
+            flag_names = FLAG_NAMES
             flag_descriptions = ['reserved - bit 0','predefined static flag list','flag based on live CAM information',
                                   'reserved - bit 3','RFI detected in the online system','RFI predicted from space based pollutants',
                                   'reserved - bit 6','reserved - bit 7']
@@ -337,7 +335,7 @@ class H5DataV2(DataSet):
         return LazyIndexer(self._vis, (self._time_keep, self._freq_keep, self._corrprod_keep),
                            transform=extract_vis, shape_transform=lambda shape:shape[:-1], dtype=np.complex64)
 
-    def flags(self,flaglist='reserved0,static,cam,reserved3,detected_rfi,predicted_rfi,reserved6,reserved7'):
+    def flags(self,flaglist=None):
         """Visibility flags as a function of time, frequency and baseline.
 
         The flag function is called with flags('flag1,flag2')[index_list]
@@ -356,7 +354,10 @@ class H5DataV2(DataSet):
         form of indexing on it. Only then will data be loaded into memory.
 
         """
-        flaglist = flaglist.split(',')
+        if flaglist != None:
+            flaglist = flaglist.split(',')
+        else:
+            flaglist = FLAG_NAMES
 
         # create index list for desired flags
         flagmask = np.zeros(8,int)
@@ -391,9 +392,8 @@ class H5DataV2(DataSet):
                 # get dimensions of slice
                 flagdim=np.ones(3)
                 for k in range(3):
-                    if isinstance(keep[k],slice):
-                        flagdim[k]=keep[k].stop-keep[k].start
-                # return array of s=zeros
+                    flagdim[k]=len(np.atleast_1d(np.empty(max(self._vis.shape))[keep[k]]))
+                # return array of zeros of required shape
                 return np.zeros(flagdim,dtype=np.bool)
 
         return LazyIndexer(self._flags, (self._time_keep, self._freq_keep, self._corrprod_keep),
