@@ -36,6 +36,7 @@ parser.add_option("-u", "--uvfits", action="store_true", default=False, help="Pr
 parser.add_option("-U", "--uvfits-ms", action="store_true", default=False, help="Produce uvfits and casa MeasurementSets")
 parser.add_option("-a", "--no-auto", action="store_true", default=False, help="MeasurementSet will exclude autocorrelation data")
 parser.add_option("-C", "--channel-range", help="Range of frequency channels to keep (zero-based inclusive 'first_chan,last_chan', default is all channels)")
+parser.add_option("--flags", help="List of online flags to apply (from 'static,cam,detected_rfi,predicted_rfi', default is all flags, '' will apply no flags)")
 (options, args) = parser.parse_args()
 
 if len(args) < 1 or not args[0].endswith(".h5"):
@@ -163,6 +164,9 @@ for scan_ind, scan_state, target in h5.scans():
 
     # load all data for this scan up front, as this improves disk throughput
     scan_data = h5.vis[:]
+    # load flags selected from 'options.flags' for this scan
+    scan_flag_data = h5.flags(options.flags)[:]
+
     sz_mb = h5.size / (1024.0 * 1024.0)
     # MS expects timestamps in MJD seconds
     mjd_seconds = h5.mjd * 24 * 60 * 60
@@ -182,20 +186,23 @@ for scan_ind, scan_state, target in h5.scans():
             if options.no_auto and (ant2_index == ant1_index):
                 continue
             polprods = [("%s%s" % (ant1.name,p[0].lower()), "%s%s" % (ant2.name,p[1].lower())) for p in pols_to_use]
-            pol_data = []
+            pol_data,flag_pol_data = [],[]
             for p in polprods:
                 cable_delay = delays[p[1][-1]][ant2.name] - delays[p[0][-1]][ant1.name]
                  # cable delays specific to pol type
                 cp_index = corrprod_to_index.get(p)
                 vis_data = scan_data[:,:,cp_index] if cp_index is not None else np.zeros(h5.shape[:2], dtype=np.complex64)
+                flag_data = scan_flag_data[:,:,cp_index] if cp_index is not None else np.zeros(h5.shape[:2], dtype=np.bool)
                 if options.stop_w:
                  # Result of delay model in turns of phase. This is now frequency dependent so has shape (tstamps, channels)
                     turns = np.outer((h5.w[:, cp_index] / katpoint.lightspeed) - cable_delay, h5.channel_freqs)
                     vis_data *= np.exp(-2j * np.pi * turns)
                 pol_data.append(vis_data)
+                flag_pol_data.append(flag_data)
             vis_data = np.dstack(pol_data)
+            flag_data = np.dstack(flag_pol_data)
             uvw_coordinates = np.array([h5.u[:, cp_index], h5.v[:, cp_index], h5.w[:, cp_index]])
-            ms_extra.write_rows(main_table, ms_extra.populate_main_dict(uvw_coordinates, vis_data, mjd_seconds, ant1_index, ant2_index, h5.dump_period, field_id, scan_itr), verbose=options.verbose)
+            ms_extra.write_rows(main_table, ms_extra.populate_main_dict(uvw_coordinates, vis_data, flag_data, mjd_seconds, ant1_index, ant2_index, h5.dump_period, field_id, scan_itr), verbose=options.verbose)
     s1 = time.time() - s
     print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (sz_mb, s1, sz_mb / s1)
     scan_itr+=1

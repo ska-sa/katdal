@@ -228,7 +228,7 @@ else:
 
 # -------- Routines that create MS data structures in dictionaries -----------
 
-def populate_main_dict(uvw_coordinates, vis_data, timestamps, antenna1_index,
+def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna1_index,
                        antenna2_index, integrate_length, field_id=0, scan_number=0):
     """Construct a dictionary containing the columns of the MAIN table.
 
@@ -242,6 +242,7 @@ def populate_main_dict(uvw_coordinates, vis_data, timestamps, antenna1_index,
         Array containing (u,v,w) coordinates in metres
     vis_data : array of complex, shape (num_vis_samples, num_channels, num_pols)
         Array containing complex visibility data in Janskys
+    flag_data : array of boolean, shape same as vis_data
     timestamps : array of float, shape (num_vis_samples,)
         Array of timestamps as Modified Julian Dates in seconds
         (may contain duplicate times for multiple baselines)
@@ -289,6 +290,7 @@ def populate_main_dict(uvw_coordinates, vis_data, timestamps, antenna1_index,
     except ValueError:
         raise ValueError("Length of 'scan_number' should be 1 or %d, is %d instead" %
                          (num_vis_samples, len(scan_number)))
+
     main_dict = {}
     # ID of first antenna in interferometer (integer)
     main_dict['ANTENNA1'] = antenna1_index
@@ -311,7 +313,7 @@ def populate_main_dict(uvw_coordinates, vis_data, timestamps, antenna1_index,
     # Unique id for this pointing (integer)
     main_dict['FIELD_ID'] = field_id
     # The data flags, array of bools with same shape as data
-    main_dict['FLAG'] = np.zeros(np.shape(vis_data), dtype=np.bool)
+    main_dict['FLAG'] = flag_data
     # The flag category, NUM_CAT flags for each datum [snd 1 is num channels] (boolean, 4-dim)
     main_dict['FLAG_CATEGORY'] = np.zeros((num_vis_samples, 1, num_channels, num_pols), dtype='uint8')
     # Row flag - flag all data in this row if True (boolean)
