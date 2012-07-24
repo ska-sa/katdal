@@ -261,7 +261,9 @@ class H5DataV2(DataSet):
         label = sensor_to_categorical(markup_group['labels']['timestamp'], markup_group['labels']['label'],
                                       data_timestamps, self.dump_period, **SENSOR_PROPS['Observation/label'])
         # Discard empty labels (typically found in raster scans, where first scan has proper label and rest are empty)
-        label.remove('')
+        # However, if all labels are empty, keep them, otherwise whole data set will be one pathological compscan...
+        if len(label.unique_values) > 1:
+            label.remove('')
         # Create duplicate scan events where labels are set during a scan (i.e. not at start of scan)
         # ASSUMPTION: Number of scans >= number of labels (i.e. each label should introduce a new scan)
         scan.add_unmatched(label.events)
