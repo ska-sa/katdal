@@ -32,10 +32,10 @@ parser.add_option("-v", "--verbose", action="store_true", default=False, help="M
 parser.add_option("-w", "--stop-w", action="store_true", default=False, help="Use W term to stop fringes for each baseline")
 parser.add_option("-x", "--HH", action="store_true", default=False, help="Produce a Stokes I MeasurementSet using only HH")
 parser.add_option("-y", "--VV", action="store_true", default=False, help="Produce a Stokes I MeasurementSet using only VV")
-parser.add_option("-u", "--uvfits", action="store_true", default=False, help="Produce uvfits")
-parser.add_option("-U", "--uvfits-ms", action="store_true", default=False, help="Produce uvfits and casa MeasurementSets")
+parser.add_option("-u", "--uvfits", action="store_true", default=False, help="Produce uvfits and casa MeasurementSets")
 parser.add_option("-a", "--no-auto", action="store_true", default=False, help="MeasurementSet will exclude autocorrelation data")
 parser.add_option("-C", "--channel-range", help="Range of frequency channels to keep (zero-based inclusive 'first_chan,last_chan', default is all channels)")
+parser.add_option("-e", "--elevation-range", help="Flag elevations outside the range 'lowest_elevation,highest_elevation'")
 parser.add_option("--flags", help="List of online flags to apply (from 'static,cam,detected_rfi,predicted_rfi', default is all flags, '' will apply no flags)")
 (options, args) = parser.parse_args()
 
@@ -58,13 +58,12 @@ if not ms_extra.casacore_binding:
     print "Failed to find casacore binding. You need to install both casacore and pyrap, or run the script from within a modified casapy containing h5py and katpoint."
     sys.exit(1)
 else:
-    print "Using '%s' casacore binding to produce MS and/or uvfits" % (ms_extra.casacore_binding,)
+    print "Using '%s' casacore binding to produce MS" % (ms_extra.casacore_binding,)
 
 pols_to_use = ['HH'] if options.HH else ['VV'] if options.VV else ['HH','HV','VH','VV'] if (options.full_pol or options.circular) else ['HH','VV']
  # which polarisation do we want to write into the MS and pull from the HDF5 file
 pol_for_name = 'hh' if options.HH else 'vv' if options.VV else 'full_pol' if options.full_pol else 'circular_pol' if options.circular else 'hh_vv'
 ms_name = os.path.splitext(args[0])[0] + ("." if len(args) == 1 else ".et_al.") + pol_for_name + ".ms"
-uv_name = os.path.splitext(args[0])[0] + ("." if len(args) == 1 else ".et_al.") + pol_for_name + ".uvfits"
 
 # The first step is to copy the blank template MS to our desired output (making sure it's not already there)
 if os.path.exists(ms_name):
@@ -76,16 +75,19 @@ except OSError:
     print "Failed to copy blank MS from %s to %s - please check presence of blank MS and/or permissions" % (options.blank_ms, ms_name)
     sys.exit(1)
 
-if not options.uvfits:
-    print "Will create MS output in", ms_name
-    
-if options.uvfits_ms or options.uvfits:
-    print "Will create uvfits output in", uv_name
-    # If DISPLAY variable is set, it may cause problems when importing exportuvfits
-    os.environ.pop('DISPLAY', None)
-    # This assumes casapy is installed in /usr/local
-    sys.path.append("/usr/local/casapy/lib/python")
-    import exportuvfits
+print "Will create MS output in", ms_name
+
+# Instructions to flag by elevation if requested
+if options.elevation_range is not None:
+    emin,emax = options.elevation_range.split(',')
+    print "\nThe MS can be flagged by elevation in casapy v3.4.0 or higher, with the command:"
+    print "      tflagdata(vis='%s', mode='elevation', lowerlimit=%s, upperlimit=%s, action='apply')\n" % (ms_name, emin, emax)
+
+# Instructions to create uvfits file if requested
+if options.uvfits:
+    uv_name = os.path.splitext(args[0])[0] + ("." if len(args) == 1 else ".et_al.") + pol_for_name + ".uvfits"
+    print "\nThe MS can be converted into a uvfits file in casapy, with the command:"
+    print "      exportuvfits(vis='%s', fitsfile='%s', datacolumn='data')\n" % (ms_name, uv_name)
 
 if options.HH or options.VV: print "\n#### Producing Stokes I MS using " + ('HH' if options.HH else 'VV') + " only ####\n"
 elif options.full_pol: print "\n#### Producing a full polarisation MS (HH,HV,VH,VV) ####\n"
@@ -221,11 +223,3 @@ if options.tar:
     tar.add(ms_name, arcname=os.path.basename(ms_name))
     tar.close()
 
-# Create uvfits file if requested
-if options.uvfits or options.uvfits_ms:
-    print "\nWriting uvfits file\n"
-    exportuvfits.exportuvfits(vis=ms_name, fitsfile=uv_name, datacolumn='data')
-
-# Delete MS if only uvfits is requested
-if options.uvfits:
-    shutil.rmtree(ms_name)
