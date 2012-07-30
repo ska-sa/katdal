@@ -51,6 +51,10 @@ if options.full_pol and (options.HH or options.VV):
     print "You have specified a full pol MS but also chosen to produce Stokes I (either HH or VV). Choose one or the other."
     sys.exit(1)
 
+if options.elevation_range and len(options.elevation_range.split(',')) < 2:
+    print "You have selected elevation flagging. Please provide elevation limits in the form 'lowest_elevation,highest_elevation'."
+    sys.exit(1)
+
 if len(args) > 1:
     print "Concatenating multiple h5 files into single MS."
 
@@ -94,6 +98,7 @@ elif options.full_pol: print "\n#### Producing a full polarisation MS (HH,HV,VH,
 else: print "\n#### Producing a two polarisation MS (HH, VV) ####\n"
 
 # Open HDF5 file
+if len(args) == 1: args = args[0]
 h5 = katfile.open(args, ref_ant=options.ref_ant)
  # katfile can handle a list of files, which get virtually concatenated internally
 

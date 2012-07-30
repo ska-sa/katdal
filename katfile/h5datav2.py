@@ -391,10 +391,13 @@ class H5DataV2(DataSet):
                 return np.bool_(total_flags)
             # if not real flags, create dummy 0 flags for chosen slice
             else:
+                # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
+                keep = keep[:3] + (slice(None),) * (3 - len(keep))
+
                 # get dimensions of slice
                 flagdim=np.ones(3)
                 for k in range(3):
-                    flagdim[k]=len(np.atleast_1d(np.empty(max(self._vis.shape))[keep[k]]))
+                    flagdim[k]=len(np.atleast_1d(np.empty(self.shape[k])[keep[k]]))
                 # return array of zeros of required shape
                 return np.zeros(flagdim,dtype=np.bool)
 
