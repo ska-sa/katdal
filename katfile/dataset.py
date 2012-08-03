@@ -898,15 +898,15 @@ class DataSet(object):
 
     @property
     def parangle(self):
-        """Parallactic angle of each dish while tracking target in degrees.
+        """Parallactic angle of the actual pointing of each dish in degrees.
 
         The parallactic angle is the position angle of the observer's vertical
         on the sky, measured from north toward east. This is the angle between
-        the great-circle arc connecting the celestial North pole to the target
-        position, and the great-circle arc connecting the zenith above the
-        antenna to the target, or the angle between the *hour circle* and
-        *vertical circle* through the target. It is returned as an array of
-        float, shape (*T*, *A*).
+        the great-circle arc connecting the celestial North pole to the dish
+        pointing direction, and the great-circle arc connecting the zenith above
+        the antenna to the pointing direction, or the angle between the
+        *hour circle* and *vertical circle* through the pointing direction.
+        It is returned as an array of float, shape (*T*, *A*).
 
         """
         return np.column_stack([katpoint.rad2deg(self.sensor['Antennas/%s/parangle' % ant.name]) for ant in self.ants])
