@@ -195,11 +195,11 @@ def _calc_radec(cache, name, ant):
 
 def _calc_parangle(cache, name, ant):
     """Calculate parallactic angle using sensor cache contents."""
-    antenna = cache.get('Antennas/%s/antenna' % (ant,))[0]
-    parangle = np.empty(len(cache.timestamps))
-    targets = cache.get('Observation/target')
-    for segm, target in targets.segments():
-        parangle[segm] = target.parallactic_angle(cache.timestamps[segm], antenna)
+    ant_group = 'Antennas/%s/' % (ant,)
+    antenna = cache.get(ant_group + 'antenna')[0]
+    az, el = cache.get(ant_group + 'az'), cache.get(ant_group + 'el')
+    parangle = np.array([katpoint.construct_azel_target(a, e).parallactic_angle(t, antenna)
+                         for t, a, e in zip(cache.timestamps[:], az, el)])
     cache[name] = parangle
     return parangle
 
