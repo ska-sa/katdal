@@ -454,6 +454,16 @@ class DataSet(object):
             descr.append('  %31s  %3d:%5s  %3d:%9s  %5d  %3d:%s' %
                          (timerange, scan, state.ljust(5), compscan, label.ljust(9),
                           self.shape[0], self.target_indices[0], target.name))
+        # append the process_log, if it exists, for non-concatenated h5 files
+        if hasattr(self, 'file'):
+            if 'process_log' in self.file['History']:
+                descr.append('-------------------------------------------------------------------------------')
+                descr.append('Process log:')
+                for proc in self.file['History']['process_log']:
+                    param_list = '%15s:' % proc[0]
+                    for param in proc[1].split(','):
+                        param_list += '  %s' % param
+                    descr.append(param_list)
         return '\n'.join(descr)
 
     def _set_keep(self, time_keep=None, freq_keep=None, corrprod_keep=None):
