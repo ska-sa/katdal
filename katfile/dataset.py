@@ -255,7 +255,7 @@ class DataSet(object):
 
     This provides a simple interface to a generic file (or files) containing
     visibility data (both single-dish and interferometer data supported).
-    The data is not loaded into memory on opening the file, but is accessible
+    The data are not loaded into memory on opening the file, but are accessible
     via properties after typically selecting a subset of the data. This allows
     the reading of huge files.
 
@@ -837,7 +837,7 @@ class DataSet(object):
     def vis(self):
         """Complex visibility data as a function of time, frequency and corrprod.
 
-        The visibility data is returned as an array of complex64, shape
+        The visibility data are returned as an array of complex64, shape
         (*T*, *F*, *B*), with time along the first dimension, frequency along the
         second dimension and correlation product ("baseline") index along the
         third dimension. The array always has all three dimensions, even for
@@ -845,6 +845,22 @@ class DataSet(object):
         length of :meth:`timestamps`, the number of frequency channels *F*
         matches the length of :meth:`freqs` and the number of correlation
         products *B* matches the length of :meth:`corr_products`.
+
+        """
+        raise NotImplementedError
+
+    @property
+    def weights(self):
+        """Sigma spectrum weights as a function of time, frequency and corrprod.
+
+        The weights are returned as an array of float32, shape (*T*, *F*, *B*, *W*),
+        with time along the first dimension, frequency along the second dimension,
+        correlation product ("baseline") index along the third dimension and weight
+        along the fourth dimension. The array always has all four dimensions, even
+        for scalar (single) values. The number of integrations *T* matches the length
+        of :meth:`timestamps`, the number of frequency channels *F* matches the length
+        of :meth:`freqs`, the number of correlation products *B* matches the length of
+        :meth:`corr_products` and the number of weights *W* is one at present.
 
         """
         raise NotImplementedError

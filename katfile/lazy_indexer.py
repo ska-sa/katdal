@@ -31,7 +31,7 @@ class LazyIndexer(object):
     new __getitem__ interface on it. It efficiently composes two stages of
     indexing: a first stage specified at object instantiation time and a second
     stage that applies on top of the first stage when __getitem__ is called on
-    this object. The data is only loaded after the combined index is determined,
+    this object. The data are only loaded after the combined index is determined,
     addressing issue 1.
 
     Furthermore, advanced indexing is allowed on any dimension by decomposing
@@ -174,7 +174,7 @@ class LazyIndexer(object):
                 last = dim_keep[jumps].tolist() + [dim_keep[-1]]
                 segments = np.c_[first, np.array(last) + 1]
                 if len(dim_keep) > 0.2 * dim_len and len(segments) > 1:
-                    # If more than 20% of data is selected in 2 or more separate segments (the Ratcliffian benchmark),
+                    # If more than 20% of data are selected in 2 or more separate segments (the Ratcliffian benchmark),
                     # select data at dataset level with a single slice spanning segments and then postselect the ndarray
                     selection.append([(slice(segments[0, 0], segments[-1, 1], 1),
                                        dim_keep - dim_keep[0], slice(0, len(dim_keep), 1))])

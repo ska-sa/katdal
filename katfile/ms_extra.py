@@ -490,7 +490,7 @@ def populate_polarization_dict(ms_pols=['HH','VV'], stokes_i=False, circular=Fal
     polarization_dict['CORR_PRODUCT'] = np.array([[pol_num[p[0]],pol_num[p[1]]] for p in ms_pols], dtype=np.int32)[np.newaxis,:,:]
      # The polarisation type for each correlation product, as a Stokes enum (4 integer, 1-dim)
      # Stokes enum (starting at 1) = {I, Q, U, V, RR, RL, LR, LL, XX, XY, YX, YY, ...}
-     # The native correlator data is in XX, YY, XY, YX for HV pol, XX for H pol and YY for V pol
+     # The native correlator data are in XX, YY, XY, YX for HV pol, XX for H pol and YY for V pol
     polarization_dict['CORR_TYPE'] = np.array([pol_types[p] - (4 if circular else 0) for p in (['I'] if stokes_i else ms_pols)])[np.newaxis,:]
     polarization_dict['FLAG_ROW'] = np.zeros(1, dtype=np.uint8)
      # Number of correlation products (integer)

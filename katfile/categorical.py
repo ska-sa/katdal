@@ -43,7 +43,7 @@ class CategoricalData(object):
     """Container for categorical (i.e. non-numerical) sensor data.
 
     This container allows simple manipulation and interpolation of a time series
-    of non-numerical data represented as discrete events. The data is stored in
+    of non-numerical data represented as discrete events. The data are stored in
     three arrays:
 
     * `events` stores the time indices (dumps) where each event occurs

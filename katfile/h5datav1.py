@@ -1,3 +1,4 @@
+
 """Data accessor class for HDF5 files produced by Fringe Finder correlator."""
 
 import logging
@@ -241,7 +242,7 @@ class H5DataV1(DataSet):
     def vis(self):
         """Complex visibility data as a function of time, frequency and baseline.
 
-        The visibility data is returned as an array indexer of complex64, shape
+        The visibility data are returned as an array indexer of complex64, shape
         (*T*, *F*, *B*), with time along the first dimension, frequency along the
         second dimension and correlation product ("baseline") index along the
         third dimension. The returned array always has all three dimensions,
@@ -263,7 +264,7 @@ class H5DataV1(DataSet):
         def index_corrprod(tf, keep):
             # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
             keep = keep[:3] + (slice(None),) * (3 - len(keep))
-            # Final indexing ensures that returned data is always 3-dimensional (i.e. keep singleton dimensions)
+            # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
             force_3dim = tuple((np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep)
             return np.dstack([tf[str(corrind)][force_3dim[:2]] for corrind in np.nonzero(corrprod_keep)[0]])\
                    [:, :, keep[2]][:, :, force_3dim[2]]
@@ -273,6 +274,49 @@ class H5DataV1(DataSet):
                                         transform=index_corrprod,
                                         shape_transform=lambda shape: (shape[0], shape[1], corrprod_keep.sum()),
                                         dtype=np.complex64))
+        return ConcatenatedLazyIndexer(indexers)
+
+    @property
+    def weights(self):
+        """Sigma spectrum weights as a function of time, frequency and baseline.
+
+        The weights are returned as an array indexer of float32, shape
+        (*T*, *F*, *B*, *W*), with time along the first dimension, frequency along
+        the second dimension, correlation product ("baseline") index along the
+        third dimension and weight along the fourth dimension. The returned array
+        always has all four dimensions, even for scalar (single) values. The number
+        of integrations *T* matches the length of :meth:`timestamps`, the number of
+        frequency channels *F* matches the length of :meth:`freqs`, the number of
+        correlation products *B* matches the length of :meth:`corr_products`, and
+        the number of weights *W* is one at present. To get the data array itself
+        from the indexer `x`, do `x[:]` or perform any other form of indexing on it.
+        Only then will weights be loaded into memory.
+
+        """
+        # tell the user that there are no weights in the h5 file
+        logger.warning("No weights in v1 h5 data files, returning array of unity weights")
+
+        # Fringe Finder has a weird vis data structure: each scan data group is a recarray
+        # with shape (T, F) and fields '0'...'11' indicating the correlation products.
+        # The per-scan LazyIndexers therefore only do the time + frequency indexing,
+        # leaving corrprod indexing to the final transform.
+        indexers = []
+        corrprod_keep = self._corrprod_keep
+        # Apply both first-stage and second-stage corrprod indexing in the transform
+        def index_corrprod(tf, keep):
+            # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
+            keep = keep[:3] + (slice(None),) * (3 - len(keep))
+            # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
+            force_3dim = tuple((np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep)
+            data_array = np.dstack([tf[str(corrind)][force_3dim[:2]] for corrind in np.nonzero(corrprod_keep)[0]])\
+                   [:, :, keep[2]][:, :, force_3dim[2]]
+            return np.ones(data_array.shape+(1,),dtype=np.float32)
+        for n, s in enumerate(self._scan_groups):
+            indexers.append(LazyIndexer(s['data'], keep=(self._time_keep[self._segments[n]:self._segments[n + 1]],
+                                                         self._freq_keep),
+                                        transform=index_corrprod,
+                                        shape_transform=lambda shape: (shape[0], shape[1], corrprod_keep.sum(), 1),
+                                        dtype=np.float32))
         return ConcatenatedLazyIndexer(indexers)
 
     def flags(self,flaglist=None):
@@ -307,11 +351,11 @@ class H5DataV1(DataSet):
         def index_corrprod(tf, keep):
             # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
             keep = keep[:3] + (slice(None),) * (3 - len(keep))
-            # Final indexing ensures that returned data is always 3-dimensional (i.e. keep singleton dimensions)
+            # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
             force_3dim = tuple((np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep)
             data_array = np.dstack([tf[str(corrind)][force_3dim[:2]] for corrind in np.nonzero(corrprod_keep)[0]])\
                    [:, :, keep[2]][:, :, force_3dim[2]]
-            return np.bool_(np.zeros_like(data_array))
+            return np.zeros_like(data_array,dtype=np.bool)
         for n, s in enumerate(self._scan_groups):
             indexers.append(LazyIndexer(s['data'], keep=(self._time_keep[self._segments[n]:self._segments[n + 1]],
                                                          self._freq_keep),

@@ -179,6 +179,11 @@ class H5DataV2(DataSet):
                                   'reserved - bit 6','reserved - bit 7']
             self._flags_description = np.array([[nm, flag_descriptions[i]] for (i,nm) in enumerate(flag_names)])
 
+        # ------ Extract weights ------
+ 
+        # check if weight group present, else use dummy weight data
+        self._weights = markup_group['weights'] if 'weights' in markup_group else np.empty(self._vis.shape[:-1] + (1,))
+
         # ------ Extract sensors ------
 
         # Populate sensor cache with all HDF5 datasets below sensor group that fit the description of a sensor
@@ -315,7 +320,7 @@ class H5DataV2(DataSet):
     def vis(self):
         """Complex visibility data as a function of time, frequency and baseline.
 
-        The visibility data is returned as an array indexer of complex64, shape
+        The visibility data are returned as an array indexer of complex64, shape
         (*T*, *F*, *B*), with time along the first dimension, frequency along the
         second dimension and correlation product ("baseline") index along the
         third dimension. The returned array always has all three dimensions,
@@ -330,12 +335,53 @@ class H5DataV2(DataSet):
         def extract_vis(vis, keep):
             # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
             keep = keep[:3] + (slice(None),) * (3 - len(keep))
-            # Final indexing ensures that returned data is always 3-dimensional (i.e. keep singleton dimensions)
+            # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
             # Discard the 4th / last dimension, however, as this is subsumed in the complex view of the data
             force_3dim = tuple([(np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep] + [0])
             return vis.view(np.complex64)[force_3dim]
         return LazyIndexer(self._vis, (self._time_keep, self._freq_keep, self._corrprod_keep),
                            transform=extract_vis, shape_transform=lambda shape:shape[:-1], dtype=np.complex64)
+
+    @property
+    def weights(self):
+        """Sigma spectrum weights as a function of time, frequency and baseline.
+
+        The weights are returned as an array indexer of float32, shape
+        (*T*, *F*, *B*, *W*), with time along the first dimension, frequency along
+        the second dimension, correlation product ("baseline") index along the
+        third dimension and weight along the fourth dimension. The returned array
+        always has all four dimensions, even for scalar (single) values. The number
+        of integrations *T* matches the length of :meth:`timestamps`, the number of
+        frequency channels *F* matches the length of :meth:`freqs`, the number of
+        correlation products *B* matches the length of :meth:`corr_products`, and
+        the number of weights *W* is one at present. To get the data array itself
+        from the indexer `x`, do `x[:]` or perform any other form of indexing on it.
+        Only then will weights be loaded into memory.
+
+        """
+        def extract_weights(weights, keep):
+            # check if these are real existing weights
+            if 'weights' in self.file['Markup']:
+                # Ensure that keep tuple has length of 4 (truncate or pad with blanket slices as necessary)
+                keep = keep[:4] + (slice(None),) * (4 - len(keep))
+                # Final indexing ensures that returned data are always 4-dimensional (i.e. keep singleton dimensions)
+                force_4dim = tuple([(np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep])
+                return weights[force_4dim]
+            # if not real weights, create dummy unit value weights for chosen slice
+            else:
+                # Ensure that keep tuple has length of 4 (truncate or pad with blanket slices as necessary)
+                keep = keep[:4] + (slice(None),) * (4 - len(keep))
+
+                # get dimensions of slice
+                flagdim=np.ones(4)
+                for k in range(3):
+                    flagdim[k]=len(np.atleast_1d(np.empty(self.shape[k])[keep[k]]))
+                flagdim[3] = 1
+                # return array of zeros of required shape
+                return np.ones(flagdim,dtype=np.float32)
+
+        return LazyIndexer(self._weights, (self._time_keep, self._freq_keep, self._corrprod_keep),
+                           transform=extract_weights, dtype=np.float32)
 
     def flags(self,flaglist=None):
         """Visibility flags as a function of time, frequency and baseline.
@@ -378,10 +424,10 @@ class H5DataV2(DataSet):
 
         def extract_flags(flags, keep):
             # check if these are real existing flags
-            if self._flags.dtype == np.uint8:
+            if 'flags' in self.file['Markup']:
                 # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
                 keep = keep[:3] + (slice(None),) * (3 - len(keep))
-                # Final indexing ensures that returned data is always 3-dimensional (i.e. keep singleton dimensions)
+                # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
                 force_3dim = tuple([(np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep])
                 flags_3dim = flags[force_3dim]
 

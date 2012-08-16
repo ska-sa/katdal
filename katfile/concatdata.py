@@ -23,7 +23,7 @@ class ConcatenatedLazyIndexer(LazyIndexer):
 
     This indexer concatenates a sequence of indexers along the first (i.e. time)
     axis. The index specification is broken down into chunks along this axis,
-    sent to the applicable underlying indexers and the returned data is
+    sent to the applicable underlying indexers and the returned data are
     concatenated again before returning it.
 
     Parameters
@@ -448,7 +448,7 @@ class ConcatenatedDataSet(DataSet):
     def vis(self):
         """Complex visibility data as a function of time, frequency and baseline.
 
-        The visibility data is returned as an array selector of complex64, shape
+        The visibility data are returned as an array selector of complex64, shape
         (*T*, *F*, *B*), with time along the first dimension, frequency along the
         second dimension and correlation product ("baseline") index along the
         third dimension. The number of integrations *T* matches the length of
@@ -460,6 +460,22 @@ class ConcatenatedDataSet(DataSet):
 
         """
         return ConcatenatedLazyIndexer([d.vis for d in self.datasets])
+
+    @property
+    def weights(self):
+        """Sigma spectrum weights as a function of time, frequency and corrprod.
+
+        The weights are returned as an array of float32, shape (*T*, *F*, *B*, *W*),
+        with time along the first dimension, frequency along the second dimension,
+        correlation product ("baseline") index along the third dimension and weight
+        along the fourth dimension. The array always has all four dimensions, even
+        for scalar (single) values. The number of integrations *T* matches the length
+        of :meth:`timestamps`, the number of frequency channels *F* matches the length
+        of :meth:`freqs`, the number of correlation products *B* matches the length of
+        :meth:`corr_products` and the number of weights *W* is one at present.
+
+        """
+        return ConcatenatedLazyIndexer([d.weights for d in self.datasets])
 
     def flags(self,flaglist='reserved0,static,cam,reserved3,detected_rfi,predicted_rfi,reserved6,reserved7'):
         """Visibility flags as a function of time, frequency and baseline.

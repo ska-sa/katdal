@@ -82,7 +82,7 @@ def dummy_sensor_data(name, dtype, timestamp=0.0):
     """Create a SensorData object with a single default value based on type.
 
     This creates a dummy :class:`SensorData` object based on its type, for use
-    when no sensor data is available, but filler data is required (e.g. when
+    when no sensor data are available, but filler data are required (e.g. when
     concatenating sensors from different datasets and one dataset lacks the
     sensor). The dummy dataset contains a single data point with the filler
     value and a configurable timestamp (defaulting to way back).
@@ -177,9 +177,9 @@ class SensorCache(dict):
 
     A *sensor cache* stores sensor data with dictionary-like lookup based on the
     sensor name. Since the extraction of sensor data from e.g. HDF5 files may be
-    costly, the data is first represented in uncached (raw) form as
+    costly, the data are first represented in uncached (raw) form as
     :class:`SensorData` objects, which typically wrap the underlying sensor
-    HDF5 datasets. After extraction, the sensor data is stored either as a NumPy
+    HDF5 datasets. After extraction, the sensor data are stored either as a NumPy
     array (for numerical data) or as a :class:`CategoricalData` object (for
     non-numerical data).
 
@@ -217,7 +217,7 @@ class SensorCache(dict):
         Default time selection specification that will be applied to sensor data
         (this can be disabled on data retrieval)
     props : dict, optional
-        Default properties that govern how sensor data is interpreted and
+        Default properties that govern how sensor data are interpreted and
         interpolated (this can be overridden on data retrieval)
     virtual : dict mapping string to function, optional
         Virtual sensors, specified as a pattern matching the virtual sensor name
@@ -377,7 +377,7 @@ class SensorCache(dict):
             props.update(kwargs)
             # If this is the first time any sensor is accessed, obtain all data timestamps via indexer
             self.timestamps = self.timestamps[:] if not isinstance(self.timestamps, np.ndarray) else self.timestamps
-            # Determine if sensor produces categorical or numerical data (by default, float data is non-categorical)
+            # Determine if sensor produces categorical or numerical data (by default, float data are non-categorical)
             categ = props.get('categorical', not np.issubdtype(sensor_data.dtype, np.float))
             props['categorical'] = categ
             if categ:
