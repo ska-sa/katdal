@@ -301,6 +301,20 @@ class H5DataV2(DataSet):
         # Apply default selection and initialise all members that depend on selection in the process
         self.select(spw=0, subarray=0, ants=script_ants)
 
+    def __str__(self):
+        """Verbose human-friendly string representation of data set."""
+        descr = [super(H5DataV2,self).__str__()]
+        # append the process_log, if it exists, for non-concatenated h5 files
+        if 'process_log' in self.file['History']:
+            descr.append('-------------------------------------------------------------------------------')
+            descr.append('Process log:')
+            for proc in self.file['History']['process_log']:
+                param_list = '%15s:' % proc[0]
+                for param in proc[1].split(','):
+                    param_list += '  %s' % param
+                descr.append(param_list)
+        return '\n'.join(descr)
+
     @property
     def timestamps(self):
         """Visibility timestamps in UTC seconds since epoch.
