@@ -205,8 +205,11 @@ class LazyIndexer(object):
             post_select = [select[segment][1] for select, segment in zip(selection, chunk_index)]
             # If any dimensions were dropped due to scalar indexing, drop them from post_select/out_select tuples too
             post_select = tuple([select for select in post_select if select is not None])
-            # Only do post-selection if it will be non-trivial
-            chunk = chunk[post_select] if tuple(np.hstack(post_select)) != no_select else chunk
+            for i in range(len(self.dataset.shape)):
+                c_index=list(no_select)
+                c_index[i] = post_select[i]
+                # Only do post-selection if it will be non-trivial
+                chunk = chunk[c_index] if tuple(np.hstack(post_select)) != no_select else chunk
             # Determine appropriate output selection and insert chunk into output array
             out_select = [select[segment][2] for select, segment in zip(selection, chunk_index)]
             out_select = tuple([select for select in out_select if select is not None])
