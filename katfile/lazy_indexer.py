@@ -194,8 +194,6 @@ class LazyIndexer(object):
         chunk_indices = np.mgrid[[slice(0, len(select), 1) for select in selection]]
         # Pre-allocate output ndarray to have the correct shape and dtype (will be at least 1-dimensional)
         out_data = np.empty([np.sum(segments) for segments in segment_sizes if segments], dtype=self.dataset.dtype)
-        # Empty selection tuple (which corresponds to e.g. [:, :, :])
-        no_select = tuple([slice(None)] * ndim)
         # Iterate over chunks, extracting them from dataset and inserting them into the right spot in output array
         for chunk_index in chunk_indices.reshape(ndim, -1).T:
             # Extract chunk from dataset (don't use any advanced indexing here, only scalars and slices)
@@ -205,11 +203,14 @@ class LazyIndexer(object):
             post_select = [select[segment][1] for select, segment in zip(selection, chunk_index)]
             # If any dimensions were dropped due to scalar indexing, drop them from post_select/out_select tuples too
             post_select = tuple([select for select in post_select if select is not None])
-            for i in range(len(self.dataset.shape)):
-                c_index=list(no_select)
-                c_index[i] = post_select[i]
-                # Only do post-selection if it will be non-trivial
-                chunk = chunk[c_index] if tuple(np.hstack(post_select)) != no_select else chunk
+            # Do post-selection one dimension at a time, as ndarray does not allow simultaneous advanced indexing
+            # on more than one dimension. This caters for the scenario where more than one dimension satisfies
+            # the Ratcliffian benchmark (the only way to get advanced post-selection).
+            for dim in range(len(chunk.shape)):
+                # Only do post-selection on this dimension if non-trivial (otherwise an unnecessary copy happens)
+                if not (isinstance(post_select[dim], slice) and post_select[dim] == slice(None)):
+                    # Prepend the appropriate number of colons to the selection to place it at the correct dimension
+                    chunk = chunk[[slice(None)] * dim + [post_select[dim]]]
             # Determine appropriate output selection and insert chunk into output array
             out_select = [select[segment][2] for select, segment in zip(selection, chunk_index)]
             out_select = tuple([select for select in out_select if select is not None])
