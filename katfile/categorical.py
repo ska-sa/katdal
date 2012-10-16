@@ -2,6 +2,89 @@
 
 import numpy as np
 
+def unique(ar, return_index=False, return_inverse=False):
+    """Find the unique elements of an array.
+
+    Returns the sorted unique elements of an array. There are two optional
+    outputs in addition to the unique elements: the indices of the input array
+    that give the unique values, and the indices of the unique array that
+    reconstruct the input array.
+
+    Parameters
+    ----------
+    ar : array_like
+        Input array. This will be flattened if it is not already 1-D.
+    return_index : bool, optional
+        If True, also return the indices of `ar` that result in the unique
+        array.
+    return_inverse : bool, optional
+        If True, also return the indices of the unique array that can be used
+        to reconstruct `ar`.
+
+    Returns
+    -------
+    unique : ndarray
+        The sorted unique values.
+    unique_indices : ndarray, optional
+        The indices of the first occurrences of the unique values in the
+        (flattened) original array. Only provided if `return_index` is True.
+    unique_inverse : ndarray, optional
+        The indices to reconstruct the (flattened) original array from the
+        unique array. Only provided if `return_inverse` is True.
+
+    Notes
+    -----
+    This is a copy of :func:`numpy.unique` from NumPy 1.6.2, backported to make
+    katfile work with NumPy 1.3.0 (which did not have the return_index and
+    return_inverse keyword arguments). Once backwards compatibility is not
+    required anymore, this function may be removed and replaced by np.unique.
+
+    """
+    # Attempt to use the new np.unique interface first, otherwise reimplement it
+    try:
+        return np.unique(ar, return_index, return_inverse)
+    except TypeError:
+        pass
+
+    try:
+        ar = ar.flatten()
+    except AttributeError:
+        if not return_inverse and not return_index:
+            items = sorted(set(ar))
+            return np.asarray(items)
+        else:
+            ar = np.asanyarray(ar).flatten()
+
+    if ar.size == 0:
+        if return_inverse and return_index:
+            return ar, np.empty(0, np.bool), np.empty(0, np.bool)
+        elif return_inverse or return_index:
+            return ar, np.empty(0, np.bool)
+        else:
+            return ar
+
+    if return_inverse or return_index:
+        if return_index:
+            perm = ar.argsort(kind='mergesort')
+        else:
+            perm = ar.argsort()
+        aux = ar[perm]
+        flag = np.concatenate(([True], aux[1:] != aux[:-1]))
+        if return_inverse:
+            iflag = np.cumsum(flag) - 1
+            iperm = perm.argsort()
+            if return_index:
+                return aux[flag], perm[flag], iflag[iperm]
+            else:
+                return aux[flag], iflag[iperm]
+        else:
+            return aux[flag], perm[flag]
+    else:
+        ar.sort()
+        flag = np.concatenate(([True], ar[1:] != ar[:-1]))
+        return ar[flag]
+
+
 def unique_in_order(elements, return_inverse=False):
     """Extract unique elements from *elements* while preserving original order.
 
@@ -28,7 +111,7 @@ def unique_in_order(elements, return_inverse=False):
         raise TypeError("Cannot identify unique objects of %s as it has no __lt__ or __cmp__ methods" %
                         (elements[0].__class__,))
     # Find unique elements based on sorting
-    unique_elements, indices = np.unique(elements, return_inverse=True)
+    unique_elements, indices = unique(elements, return_inverse=True)
     # Shuffle unique values back into their original order as they were found in elements
     indices_list = indices.tolist()
     original_order = np.argsort([indices_list.index(n) for n in range(len(unique_elements))])
@@ -298,7 +381,7 @@ class CategoricalData(object):
         events = segments[segments_with_event]
         # When multiple sensor events are associated with the same segment, only keep the final one
         final = (np.diff(events) > 0)
-        subset, self.indices = np.unique(self.indices[final], return_inverse=True)
+        subset, self.indices = unique(self.indices[final], return_inverse=True)
         self.unique_values = self.unique_values[subset]
         self.events = np.r_[events[final], events[-1]]
 
