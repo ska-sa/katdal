@@ -5,7 +5,6 @@ import re
 
 import numpy as np
 import katpoint
-from scikits.fitting import PiecewisePolynomial1DFit
 
 from .categorical import sensor_to_categorical
 
@@ -26,6 +25,12 @@ try:
     import readline
 except ImportError:
     readline = None
+
+# Optionally depend on scikits.fitting for higher-order sensor data interpolation
+try:
+    from scikits.fitting import PiecewisePolynomial1DFit
+except ImportError:
+    PiecewisePolynomial1DFit = None
 
 #--------------------------------------------------------------------------------------------------
 #--- CLASS :  SensorData
@@ -77,6 +82,48 @@ class SensorData(object):
 #--------------------------------------------------------------------------------------------------
 #--- Utility functions
 #--------------------------------------------------------------------------------------------------
+
+def _linear_interp(xi, yi, x):
+    """Linearly interpolate (or extrapolate) (xi, yi) values to x positions.
+
+    Given a set of N ``(x, y)`` points, provided in the *xi* and *yi* arrays,
+    this will calculate ``y``-coordinate values for a set of M ``x``-coordinates
+    provided in the *x* array, using linear interpolation and extrapolation.
+
+    Parameters
+    ----------
+    xi : array, shape (N,)
+        Array of fixed x-coordinates, sorted in ascending order and with no
+        duplicate values
+    yi : array, shape (N,)
+        Corresponding array of fixed y-coordinates
+    x : float or array, shape (M,)
+        Array of x-coordinates at which to do interpolation of y-values
+
+    Returns
+    -------
+    y : float or array, shape (M,)
+        Array of interpolated y-values
+
+    Notes
+    -----
+    This is lifted from scikits.fitting.poly as it is the only part of the
+    package that is typically required. This weens katfile off SciPy too.
+
+    """
+    # Find lowest xi value >= x (end of segment containing x)
+    end = np.atleast_1d(xi.searchsorted(x))
+    # Associate any x found outside xi range with closest segment (first or last one)
+    # This linearly extrapolates the first and last segment to -inf and +inf, respectively
+    end[end == 0] += 1
+    end[end == len(xi)] -= 1
+    start = end - 1
+    # Ensure that output y has same shape as input x (especially, let scalar input result in scalar output)
+    start, end = np.reshape(start, np.shape(x)), np.reshape(end, np.shape(x))
+    # Set up weight such that xi[start] => 0 and xi[end] => 1
+    end_weight = (x - xi[start]) / (xi[end] - xi[start])
+    return (1.0 - end_weight) * yi[start] + end_weight * yi[end]
+
 
 def dummy_sensor_data(name, dtype, timestamp=0.0):
     """Create a SensorData object with a single default value based on type.
@@ -386,9 +433,15 @@ class SensorCache(dict):
             else:
                 # Interpolate numerical data onto data timestamps (fallback option is linear interpolation)
                 props['interp_degree'] = interp_degree = props.get('interp_degree', 1)
-                interp = PiecewisePolynomial1DFit(max_degree=interp_degree)
-                interp.fit(sensor_data['timestamp'], sensor_data['value'])
-                sensor_data = interp(self.timestamps)
+                if PiecewisePolynomial1DFit is not None:
+                    interp = PiecewisePolynomial1DFit(max_degree=interp_degree)
+                    interp.fit(sensor_data['timestamp'], sensor_data['value'])
+                    sensor_data = interp(self.timestamps)
+                else:
+                    if interp_degree != 1:
+                        logger.warning('Requested sensor interpolation with polynomial degree ' + str(interp_degree) +
+                                       ' but scikits.fitting not installed - falling back to linear interpolation')
+                    sensor_data = _linear_interp(sensor_data['timestamp'], sensor_data['value'], self.timestamps)
             self[name] = sensor_data
         return sensor_data[self.keep] if select else sensor_data
 
