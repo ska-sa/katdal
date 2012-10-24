@@ -371,7 +371,7 @@ class DataSet(object):
 
     def __repr__(self):
         """Short human-friendly string representation of data set object."""
-        return "<katfile.%s '%s' at 0x%x>" % (self.__class__.__name__, self.name, id(self))
+        return "<katfile.%s '%s' shape %s at 0x%x>" % (self.__class__.__name__, self.name, self.shape, id(self))
 
     def __str__(self):
         """Verbose human-friendly string representation of data set."""
@@ -383,7 +383,7 @@ class DataSet(object):
                                                       self.experiment_id if self.experiment_id else '-'),
                  "Description: '%s'" % (self.description if self.description else 'No description',),
                  'Observed from %s to %s' % (self.start_time.local(), self.end_time.local()),
-                 'Dump rate: %.5f Hz' % (1 / self.dump_period,),
+                 'Dump rate / period: %.5f Hz / %.3f s' % (1 / self.dump_period, self.dump_period),
                  'Subarrays: %d' % (len(self.subarrays),),
                  '  ID  Antennas                            Inputs  Corrprods']
         for n, sub in enumerate(self.subarrays):
