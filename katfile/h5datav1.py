@@ -28,8 +28,8 @@ def _labels_to_state(scan_label, compscan_label):
 SENSOR_PROPS = dict(DEFAULT_SENSOR_PROPS)
 
 SENSOR_ALIASES = {
-    'nd_coupler' : 'rfe3_rfe15_noise_coupler_on',
-    'nd_pin' : 'rfe3_rfe15_noise_pin_on',
+    'nd_coupler': 'rfe3_rfe15_noise_coupler_on',
+    'nd_pin': 'rfe3_rfe15_noise_pin_on',
 }
 
 def _calc_azel(cache, name, ant):
@@ -39,7 +39,7 @@ def _calc_azel(cache, name, ant):
     return sensor_data
 
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
-VIRTUAL_SENSORS.update({'Antennas/{ant}/az' : _calc_azel, 'Antennas/{ant}/el' : _calc_azel})
+VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel, 'Antennas/{ant}/el': _calc_azel})
 
 #--------------------------------------------------------------------------------------------------
 #--- CLASS :  H5DataV1
@@ -114,7 +114,7 @@ class H5DataV1(DataSet):
         # This is useful for the purpose of segmenting data set, where accurate timestamps are not that crucial.
         # The real timestamps are still loaded when the user explicitly asks for them.
         # Do quick test for uniform spacing of timestamps (necessary but not sufficient).
-        if abs((data_timestamps[-1] - data_timestamps[0]) / self.dump_period  + 1 - num_dumps) < 0.01:
+        if abs((data_timestamps[-1] - data_timestamps[0]) / self.dump_period + 1 - num_dumps) < 0.01:
             # Estimate the timestamps as being uniformly spaced
             data_timestamps = data_timestamps[0] + self.dump_period * np.arange(num_dumps)
         else:
@@ -132,7 +132,7 @@ class H5DataV1(DataSet):
         # Populate sensor cache with all HDF5 datasets below antennas group that fit the description of a sensor
         cache = {}
         def register_sensor(name, obj):
-            if isinstance(obj, h5py.Dataset) and obj.shape != () and obj.dtype.names == ('timestamp','value','status'):
+            if isinstance(obj, h5py.Dataset) and obj.shape != () and obj.dtype.names == ('timestamp', 'value', 'status'):
                 # Assume sensor dataset name is AntennaN/Sensors/dataset and rename it to Antennas/{ant}/dataset
                 ant_name = obj.parent.parent.attrs['description'].split(',')[0]
                 standardised_name = 'Antennas/%s/%s' % (ant_name, name.split('/')[-1])
@@ -310,7 +310,7 @@ class H5DataV1(DataSet):
             force_3dim = tuple((np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep)
             data_array = np.dstack([tf[str(corrind)][force_3dim[:2]] for corrind in np.nonzero(corrprod_keep)[0]])\
                    [:, :, keep[2]][:, :, force_3dim[2]]
-            return np.ones(data_array.shape+(1,),dtype=np.float32)
+            return np.ones(data_array.shape + (1,), dtype=np.float32)
         for n, s in enumerate(self._scan_groups):
             indexers.append(LazyIndexer(s['data'], keep=(self._time_keep[self._segments[n]:self._segments[n + 1]],
                                                          self._freq_keep),
@@ -319,7 +319,7 @@ class H5DataV1(DataSet):
                                         dtype=np.float32))
         return ConcatenatedLazyIndexer(indexers)
 
-    def flags(self,flaglist=None):
+    def flags(self, flaglist=None):
         """Visibility flags as a function of time, frequency and baseline.
 
         The flag function is called with flags('flag1,flag2')[index_list]
@@ -355,7 +355,7 @@ class H5DataV1(DataSet):
             force_3dim = tuple((np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep)
             data_array = np.dstack([tf[str(corrind)][force_3dim[:2]] for corrind in np.nonzero(corrprod_keep)[0]])\
                    [:, :, keep[2]][:, :, force_3dim[2]]
-            return np.zeros_like(data_array,dtype=np.bool)
+            return np.zeros_like(data_array, dtype=np.bool)
         for n, s in enumerate(self._scan_groups):
             indexers.append(LazyIndexer(s['data'], keep=(self._time_keep[self._segments[n]:self._segments[n + 1]],
                                                          self._freq_keep),
@@ -363,4 +363,3 @@ class H5DataV1(DataSet):
                                         shape_transform=lambda shape: (shape[0], shape[1], corrprod_keep.sum()),
                                         dtype=np.bool))
         return ConcatenatedLazyIndexer(indexers)
-

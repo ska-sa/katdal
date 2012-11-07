@@ -184,15 +184,15 @@ ms_desc['FIELD'] = {
 }
 
 ms_desc['SOURCE'] = {
-    'DIRECTION':std_array('Source direction at specified time', 'double', 2),
-    'PROPER_MOTION':std_array('Source proper motion at specified time', 'double', 2),
-    'SOURCE_ID':std_scalar('Source identifier as specified in FIELD table', 'integer'),
-    'TIME':std_scalar('Mid point of time interval for which this row is valid', 'double'),
-    'CALIBRATION_GROUP':std_scalar('Cal group to which this source belongs','integer'),
-    'NAME':std_scalar('Name of this source', 'string'),
-    'NUM_LINES':std_scalar('Number of line transitions associated with this source','integer'),
-    'REST_FREQUENCY':std_scalar('Rest frequency of line','double'),
-    'SYSVEL':std_scalar('Systemic velocity of line','double'),
+    'DIRECTION': std_array('Source direction at specified time', 'double', 2),
+    'PROPER_MOTION': std_array('Source proper motion at specified time', 'double', 2),
+    'SOURCE_ID': std_scalar('Source identifier as specified in FIELD table', 'integer'),
+    'TIME': std_scalar('Mid point of time interval for which this row is valid', 'double'),
+    'CALIBRATION_GROUP': std_scalar('Cal group to which this source belongs', 'integer'),
+    'NAME': std_scalar('Name of this source', 'string'),
+    'NUM_LINES': std_scalar('Number of line transitions associated with this source', 'integer'),
+    'REST_FREQUENCY': std_scalar('Rest frequency of line', 'double'),
+    'SYSVEL': std_scalar('Systemic velocity of line', 'double'),
 }
 
 ms_desc['POINTING'] = {
@@ -458,7 +458,7 @@ def populate_data_description_dict():
     return data_description_dict
 
 
-def populate_polarization_dict(ms_pols=['HH','VV'], stokes_i=False, circular=False):
+def populate_polarization_dict(ms_pols=['HH', 'VV'], stokes_i=False, circular=False):
     """Construct a dictionary containing the columns of the POLARIZATION subtable.
 
     The POLARIZATION subtable describes how the various receptors are correlated
@@ -479,19 +479,19 @@ def populate_polarization_dict(ms_pols=['HH','VV'], stokes_i=False, circular=Fal
         Dictionary containing columns of POLARIZATION subtable
 
     """
-    pol_num = {'H':0,'V':1}
-    pol_types = {'I':1,'Q':2,'U':3,'V':4,'RR':5,'RL':6,'LR':7,'LL':8,'HH':9,'VV':12,'HV':10,'VH':11}
+    pol_num = {'H': 0, 'V': 1}
+    pol_types = {'I': 1, 'Q': 2, 'U': 3, 'V': 4, 'RR': 5, 'RL': 6, 'LR': 7, 'LL': 8, 'HH': 9, 'VV': 12, 'HV': 10, 'VH': 11}
      # lookups for converting to CASA speak...
     if len(ms_pols) > 1 and stokes_i:
         print "Warning: Polarisation to be marked as stokes, but more than 1 polarisation product specified. Using first specified pol (%s)" % ms_pols[0]
         ms_pols = [ms_pols[0]]
     polarization_dict = {}
      # Indices describing receptors of feed going into correlation (integer, 2-dim)
-    polarization_dict['CORR_PRODUCT'] = np.array([[pol_num[p[0]],pol_num[p[1]]] for p in ms_pols], dtype=np.int32)[np.newaxis,:,:]
+    polarization_dict['CORR_PRODUCT'] = np.array([[pol_num[p[0]], pol_num[p[1]]] for p in ms_pols], dtype=np.int32)[np.newaxis, :, :]
      # The polarisation type for each correlation product, as a Stokes enum (4 integer, 1-dim)
      # Stokes enum (starting at 1) = {I, Q, U, V, RR, RL, LR, LL, XX, XY, YX, YY, ...}
      # The native correlator data are in XX, YY, XY, YX for HV pol, XX for H pol and YY for V pol
-    polarization_dict['CORR_TYPE'] = np.array([pol_types[p] - (4 if circular else 0) for p in (['I'] if stokes_i else ms_pols)])[np.newaxis,:]
+    polarization_dict['CORR_TYPE'] = np.array([pol_types[p] - (4 if circular else 0) for p in (['I'] if stokes_i else ms_pols)])[np.newaxis, :]
     polarization_dict['FLAG_ROW'] = np.zeros(1, dtype=np.uint8)
      # Number of correlation products (integer)
     polarization_dict['NUM_CORR'] = np.array([len(ms_pols)], dtype=np.int32)
@@ -623,8 +623,8 @@ def populate_source_dict(phase_centers, time_origins, center_frequencies, field_
     source_dict['NAME'] = np.atleast_1d(field_names)
     source_dict['NUM_LINES'] = np.ones(num_fields)
     source_dict['TIME'] = np.atleast_1d(np.asarray(time_origins, dtype=np.float64))
-    source_dict['REST_FREQUENCY'] = np.tile(np.array([center_frequencies[num_channels // 2]], dtype=np.float64), (num_fields,1))
-    source_dict['SYSVEL'] = np.ones((num_fields,1), dtype=np.float64)
+    source_dict['REST_FREQUENCY'] = np.tile(np.array([center_frequencies[num_channels // 2]], dtype=np.float64), (num_fields, 1))
+    source_dict['SYSVEL'] = np.ones((num_fields, 1), dtype=np.float64)
     return source_dict
 
 def populate_field_dict(phase_centers, time_origins, field_names=None):
@@ -804,12 +804,14 @@ def write_rows(t, row_dict, verbose=True):
     startrow = t.nrows()
     # Add the space required for this group of rows
     t.addrows(num_rows)
-    if verbose: print "  added %d rows" % (num_rows,)
+    if verbose:
+        print "  added %d rows" % (num_rows,)
     for col_name, col_data in row_dict.iteritems():
         if col_name in t.colnames():
             try:
                 t.putcol(col_name, col_data.T if casacore_binding == 'casapy' else col_data, startrow)
-                if verbose: print "  wrote column '%s' with shape %s" % (col_name, col_data.shape)
+                if verbose:
+                    print "  wrote column '%s' with shape %s" % (col_name, col_data.shape)
             except RuntimeError, err:
                 print "  error writing column '%s' with shape %s (%s)" % (col_name, col_data.shape, err)
         else:
@@ -838,4 +840,5 @@ def write_dict(ms_dict, ms_name='./blank.ms', verbose=True):
                 break
             write_rows(t, row_dict, verbose)
             t.close()
-            if verbose: print "  closed successfully"
+            if verbose:
+                print "  closed successfully"

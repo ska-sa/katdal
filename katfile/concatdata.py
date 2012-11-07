@@ -477,7 +477,7 @@ class ConcatenatedDataSet(DataSet):
         """
         return ConcatenatedLazyIndexer([d.weights for d in self.datasets])
 
-    def flags(self,flaglist='reserved0,static,cam,reserved3,detected_rfi,predicted_rfi,reserved6,reserved7'):
+    def flags(self, flaglist='reserved0,static,cam,reserved3,detected_rfi,predicted_rfi,reserved6,reserved7'):
         """Visibility flags as a function of time, frequency and baseline.
 
         The flag function is called with flags('flag1,flag2')[index_list]
@@ -497,4 +497,3 @@ class ConcatenatedDataSet(DataSet):
 
         """
         return ConcatenatedLazyIndexer([d.flags(flaglist) for d in self.datasets])
-

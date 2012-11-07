@@ -156,12 +156,12 @@ def _robust_target(description):
 
 
 DEFAULT_SENSOR_PROPS = {
-    '*nd_coupler' : {'categorical' : True, 'greedy_values' : (True,), 'initial_value' : '0',
-                     'transform' : lambda x: x in ('1', 'True', 1)},
-    '*nd_pin' : {'categorical' : True, 'greedy_values' : (True,), 'initial_value' : '0',
-                 'transform' : lambda x: x in ('1', 'True', 1)},
-    'Observation/label' : {'initial_value' : '', 'transform' : str, 'allow_repeats' : True},
-    'Observation/scan_state' : {'allow_repeats' : True},
+    '*nd_coupler': {'categorical': True, 'greedy_values': (True,), 'initial_value': '0',
+                    'transform': lambda x: x in ('1', 'True', 1)},
+    '*nd_pin': {'categorical': True, 'greedy_values': (True,), 'initial_value': '0',
+                'transform': lambda x: x in ('1', 'True', 1)},
+    'Observation/label': {'initial_value': '', 'transform': str, 'allow_repeats': True},
+    'Observation/scan_state': {'allow_repeats': True},
 }
 
 #--------------------------------------------------------------------------------------------------
@@ -239,11 +239,11 @@ def _calc_uvw(cache, name, antA, antB):
 
 
 DEFAULT_VIRTUAL_SENSORS = {
-    'Timestamps/mjd' : _calc_mjd, 'Antennas/{ant}/lst' : _calc_lst,
-    'Antennas/{ant}/ra' : _calc_radec, 'Antennas/{ant}/dec' : _calc_radec,
-    'Antennas/{ant}/parangle' : _calc_parangle,
-    'Antennas/{ant}/target_[xy]_{projection}_{coordsys}' : _calc_target_coords,
-    'Antennas/{antA}/[uvw]_{antB}' : _calc_uvw,
+    'Timestamps/mjd': _calc_mjd, 'Antennas/{ant}/lst': _calc_lst,
+    'Antennas/{ant}/ra': _calc_radec, 'Antennas/{ant}/dec': _calc_radec,
+    'Antennas/{ant}/parangle': _calc_parangle,
+    'Antennas/{ant}/target_[xy]_{projection}_{coordsys}': _calc_target_coords,
+    'Antennas/{antA}/[uvw]_{antB}': _calc_uvw,
 }
 
 #--------------------------------------------------------------------------------------------------
@@ -620,7 +620,7 @@ class DataSet(object):
             elif k in ('scans', 'compscans'):
                 scans = v if is_iterable(v) else [l.strip() for l in v.split(',')] if isinstance(v, basestring) else [v]
                 scan_keep = np.zeros(len(self._time_keep), dtype=np.bool)
-                scan_sensor = {'scans' : 'scan_state', 'compscans' : 'label'}
+                scan_sensor = {'scans': 'scan_state', 'compscans': 'label'}
                 for scan in scans:
                     if isinstance(scan, int):
                         scan_keep |= (self.sensor.get('Observation/%s_index' % (k[:-1],)) == scan)
@@ -790,7 +790,7 @@ class DataSet(object):
         # Restore original selection more thoroughly
         self.select(**preselection)
 
-    def flags(self,flaglist):
+    def flags(self, flaglist):
         """Visibility flags as a function of time, frequency and baseline.
 
         The flag function is called with flags('flag1,flag2')[index_list]
@@ -996,7 +996,3 @@ class DataSet(object):
         """
         return np.column_stack([self.sensor['Antennas/%s/w_%s' % (inpA[:-1], inpB[:-1])]
                                 for inpA, inpB in self.corr_products])
-
-
-
- 

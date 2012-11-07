@@ -476,6 +476,6 @@ def _sensor_completer(context, event):
 
     if readline:
         # Remove space and plus from delimiter list, so completion works past spaces and pluses in names
-        readline.set_completer_delims(readline.get_completer_delims().replace(' ','').replace('+', ''))
+        readline.set_completer_delims(readline.get_completer_delims().replace(' ', '').replace('+', ''))
 
     return [name for name in cache.iterkeys() if name[:len(start_of_name)] == start_of_name]

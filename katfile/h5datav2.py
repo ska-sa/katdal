@@ -19,17 +19,18 @@ SIMPLIFY_STATE = {'scan_ready': 'slew', 'scan': 'scan', 'scan_complete': 'scan',
 
 SENSOR_PROPS = dict(DEFAULT_SENSOR_PROPS)
 SENSOR_PROPS.update({
-    '*activity' : {'greedy_values' : ('slew', 'stop'), 'initial_value' : 'slew',
-                   'transform' : lambda act: SIMPLIFY_STATE.get(act, 'stop')},
-    '*target' : {'initial_value' : '', 'transform' : _robust_target},
-    'RFE/center-frequency-hz' : {'categorical' : True},
-    'RFE/rfe7.lo1.frequency' : {'categorical' : True},
+    '*activity': {'greedy_values': ('slew', 'stop'), 'initial_value': 'slew',
+                   'transform': lambda act: SIMPLIFY_STATE.get(act, 'stop')},
+    '*target': {'initial_value': '', 'transform': _robust_target},
+    'RFE/center-frequency-hz': {'categorical': True},
+    'RFE/rfe7.lo1.frequency': {'categorical': True},
 })
 
 SENSOR_ALIASES = {
-    'nd_coupler' : 'rfe3.rfe15.noise.coupler.on',
-    'nd_pin' : 'rfe3.rfe15.noise.pin.on',
+    'nd_coupler': 'rfe3.rfe15.noise.coupler.on',
+    'nd_pin': 'rfe3.rfe15.noise.pin.on',
 }
+
 
 def _calc_azel(cache, name, ant):
     """Calculate virtual (az, el) sensors from actual ones in sensor cache."""
@@ -38,9 +39,9 @@ def _calc_azel(cache, name, ant):
     return sensor_data
 
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
-VIRTUAL_SENSORS.update({'Antennas/{ant}/az' : _calc_azel, 'Antennas/{ant}/el' : _calc_azel})
+VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel, 'Antennas/{ant}/el': _calc_azel})
 
-FLAG_NAMES = ['reserved0','static','cam','reserved3','detected_rfi','predicted_rfi','reserved6','reserved7']
+FLAG_NAMES = ['reserved0', 'static', 'cam', 'reserved3', 'detected_rfi', 'predicted_rfi', 'reserved6', 'reserved7']
 
 #--------------------------------------------------------------------------------------------------
 #--- Utility functions
@@ -164,7 +165,7 @@ class H5DataV2(DataSet):
         self.end_time = katpoint.Timestamp(data_timestamps[-1] + 0.5 * self.dump_period)
 
         # ------ Extract flags ------
- 
+
         # check if flag group present, else use dummy flag data
         self._flags = markup_group['flags'] if 'flags' in markup_group else np.empty(self._vis.shape[:-1])
 
@@ -174,13 +175,13 @@ class H5DataV2(DataSet):
         except KeyError:
             # put flag descriptions in manually if h5 file doesn't have this table
             flag_names = FLAG_NAMES
-            flag_descriptions = ['reserved - bit 0','predefined static flag list','flag based on live CAM information',
-                                  'reserved - bit 3','RFI detected in the online system','RFI predicted from space based pollutants',
-                                  'reserved - bit 6','reserved - bit 7']
-            self._flags_description = np.array([[nm, flag_descriptions[i]] for (i,nm) in enumerate(flag_names)])
+            flag_descriptions = ['reserved - bit 0', 'predefined static flag list', 'flag based on live CAM information',
+                                  'reserved - bit 3', 'RFI detected in the online system', 'RFI predicted from space based pollutants',
+                                  'reserved - bit 6', 'reserved - bit 7']
+            self._flags_description = np.array([[nm, flag_descriptions[i]] for (i, nm) in enumerate(flag_names)])
 
         # ------ Extract weights ------
- 
+
         # check if weight group present, else use dummy weight data
         self._weights = markup_group['weights'] if 'weights' in markup_group else np.empty(self._vis.shape[:-1] + (1,))
 
@@ -190,7 +191,7 @@ class H5DataV2(DataSet):
         cache = {}
         def register_sensor(name, obj):
             """A sensor is defined as a non-empty dataset with expected dtype."""
-            if isinstance(obj, h5py.Dataset) and obj.shape != () and obj.dtype.names == ('timestamp','value','status'):
+            if isinstance(obj, h5py.Dataset) and obj.shape != () and obj.dtype.names == ('timestamp', 'value', 'status'):
                 # Rename pedestal sensors from the old regime to become sensors of the corresponding antenna
                 name = ('Antennas/ant' + name[13:]) if name.startswith('Pedestals/ped') else name
                 cache[name] = SensorData(obj, name)
@@ -303,7 +304,7 @@ class H5DataV2(DataSet):
 
     def __str__(self):
         """Verbose human-friendly string representation of data set."""
-        descr = [super(H5DataV2,self).__str__()]
+        descr = [super(H5DataV2, self).__str__()]
         # append the process_log, if it exists, for non-concatenated h5 files
         if 'process_log' in self.file['History']:
             descr.append('-------------------------------------------------------------------------------')
@@ -354,7 +355,7 @@ class H5DataV2(DataSet):
             force_3dim = tuple([(np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep] + [0])
             return vis.view(np.complex64)[force_3dim]
         return LazyIndexer(self._vis, (self._time_keep, self._freq_keep, self._corrprod_keep),
-                           transform=extract_vis, shape_transform=lambda shape:shape[:-1], dtype=np.complex64)
+                           transform=extract_vis, shape_transform=lambda shape: shape[:-1], dtype=np.complex64)
 
     @property
     def weights(self):
@@ -387,17 +388,17 @@ class H5DataV2(DataSet):
                 keep = keep[:4] + (slice(None),) * (4 - len(keep))
 
                 # get dimensions of slice
-                flagdim=np.ones(4)
+                flagdim = np.ones(4)
                 for k in range(3):
-                    flagdim[k]=len(np.atleast_1d(np.empty(self.shape[k])[keep[k]]))
+                    flagdim[k] = len(np.atleast_1d(np.empty(self.shape[k])[keep[k]]))
                 flagdim[3] = 1
                 # return array of zeros of required shape
-                return np.ones(flagdim,dtype=np.float32)
+                return np.ones(flagdim, dtype=np.float32)
 
         return LazyIndexer(self._weights, (self._time_keep, self._freq_keep, self._corrprod_keep),
                            transform=extract_weights, dtype=np.float32)
 
-    def flags(self,flaglist=None):
+    def flags(self, flaglist=None):
         """Visibility flags as a function of time, frequency and baseline.
 
         The flag function is called with flags('flag1,flag2')[index_list]
@@ -422,12 +423,12 @@ class H5DataV2(DataSet):
             flaglist = FLAG_NAMES
 
         # create index list for desired flags
-        flagmask = np.zeros(8,int)
+        flagmask = np.zeros(8, int)
         in_list = False
         for flagname in flaglist:
             for i in range(len(self._flags_description)):
-                if flagname == self._flags_description[i,0]:
-                    flagmask[i]=1
+                if flagname == self._flags_description[i, 0]:
+                    flagmask[i] = 1
                     in_list = True
             # warning if flag type is not in flag description list
             if in_list == False:
@@ -446,7 +447,7 @@ class H5DataV2(DataSet):
                 flags_3dim = flags[force_3dim]
 
                 # use flagmask to blank out the flags we don't want
-                total_flags=np.bitwise_and(flagmask,flags_3dim)
+                total_flags = np.bitwise_and(flagmask, flags_3dim)
                 # convert uint8 to bool: if any flag bits set, flag is set
                 return np.bool_(total_flags)
             # if not real flags, create dummy 0 flags for chosen slice
@@ -455,13 +456,11 @@ class H5DataV2(DataSet):
                 keep = keep[:3] + (slice(None),) * (3 - len(keep))
 
                 # get dimensions of slice
-                flagdim=np.ones(3)
+                flagdim = np.ones(3)
                 for k in range(3):
-                    flagdim[k]=len(np.atleast_1d(np.empty(self.shape[k])[keep[k]]))
+                    flagdim[k] = len(np.atleast_1d(np.empty(self.shape[k])[keep[k]]))
                 # return array of zeros of required shape
-                return np.zeros(flagdim,dtype=np.bool)
+                return np.zeros(flagdim, dtype=np.bool)
 
         return LazyIndexer(self._flags, (self._time_keep, self._freq_keep, self._corrprod_keep),
                            transform=extract_flags, dtype=np.bool)
-
-
