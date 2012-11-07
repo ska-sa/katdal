@@ -209,7 +209,8 @@ class H5DataV2(DataSet):
         # ------ Extract weights ------
 
         # check if weight group present, else use dummy weight data
-        self._weights = markup_group['weights'] if 'weights' in markup_group else np.empty(self._vis.shape[:-1] + (1,))
+        self._weights = markup_group['weights'] if 'weights' in markup_group else \
+                        dummy_dataset('dummy_weights', shape=self._vis.shape[:-1] + (1,), dtype=np.float32, value=1.0)
 
         # ------ Extract sensors ------
 
@@ -401,26 +402,11 @@ class H5DataV2(DataSet):
 
         """
         def extract_weights(weights, keep):
-            # check if these are real existing weights
-            if 'weights' in self.file['Markup']:
-                # Ensure that keep tuple has length of 4 (truncate or pad with blanket slices as necessary)
-                keep = keep[:4] + (slice(None),) * (4 - len(keep))
-                # Final indexing ensures that returned data are always 4-dimensional (i.e. keep singleton dimensions)
-                force_4dim = tuple([(np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep])
-                return weights[force_4dim]
-            # if not real weights, create dummy unit value weights for chosen slice
-            else:
-                # Ensure that keep tuple has length of 4 (truncate or pad with blanket slices as necessary)
-                keep = keep[:4] + (slice(None),) * (4 - len(keep))
-
-                # get dimensions of slice
-                flagdim = np.ones(4)
-                for k in range(3):
-                    flagdim[k] = len(np.atleast_1d(np.empty(self.shape[k])[keep[k]]))
-                flagdim[3] = 1
-                # return array of zeros of required shape
-                return np.ones(flagdim, dtype=np.float32)
-
+            # Ensure that keep tuple has length of 4 (truncate or pad with blanket slices as necessary)
+            keep = keep[:4] + (slice(None),) * (4 - len(keep))
+            # Final indexing ensures that returned data are always 4-dimensional (i.e. keep singleton dimensions)
+            force_4dim = tuple([(np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep])
+            return weights[force_4dim]
         return LazyIndexer(self._weights, (self._time_keep, self._freq_keep, self._corrprod_keep),
                            transform=extract_weights, dtype=np.float32)
 
