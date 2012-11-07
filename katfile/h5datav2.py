@@ -41,7 +41,10 @@ def _calc_azel(cache, name, ant):
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel, 'Antennas/{ant}/el': _calc_azel})
 
-FLAG_NAMES = ['reserved0', 'static', 'cam', 'reserved3', 'detected_rfi', 'predicted_rfi', 'reserved6', 'reserved7']
+FLAG_NAMES = ('reserved0', 'static', 'cam', 'reserved3', 'detected_rfi', 'predicted_rfi', 'reserved6', 'reserved7')
+FLAG_DESCRIPTIONS = ('reserved - bit 0', 'predefined static flag list', 'flag based on live CAM information',
+                     'reserved - bit 3', 'RFI detected in the online system', 'RFI predicted from space based pollutants',
+                     'reserved - bit 6', 'reserved - bit 7')
 
 #--------------------------------------------------------------------------------------------------
 #--- Utility functions
@@ -70,6 +73,36 @@ def get_single_value(group, name):
 
     """
     return group.attrs[name] if name in group.attrs else group[name].value[-1]
+
+
+def dummy_dataset(name, shape, dtype, value):
+    """Dummy HDF5 dataset containing a single value.
+
+    This creates a dummy HDF5 dataset in memory containing a single value. It
+    can have virtually unlimited size as the dataset is highly compressed.
+
+    Parameters
+    ----------
+    name : string
+        Name of dataset
+    shape : sequence of int
+        Shape of dataset
+    dtype : :class:`numpy.dtype` object or equivalent
+        Type of data stored in dataset
+    value : object
+        All elements in the dataset will equal this value
+
+    Returns
+    -------
+    dataset : :class:`h5py.Dataset` object
+        Dummy HDF5 dataset
+
+    """
+    # It is important to randomise the filename as h5py does not allow two writable file objects with the same name
+    # Without this randomness katfile can only open one file requiring a dummy dataset
+    random_string = ''.join(['%02x' % (x,) for x in np.random.randint(256, size=8)])
+    dummy_file = h5py.File('%s_%s.h5' % (name, random_string), driver='core', backing_store=False)
+    return dummy_file.create_dataset(name, shape=shape, maxshape=shape, dtype=dtype, fillvalue=value, compression='szip')
 
 #--------------------------------------------------------------------------------------------------
 #--- CLASS :  H5DataV2
@@ -166,19 +199,12 @@ class H5DataV2(DataSet):
 
         # ------ Extract flags ------
 
-        # check if flag group present, else use dummy flag data
-        self._flags = markup_group['flags'] if 'flags' in markup_group else np.empty(self._vis.shape[:-1])
-
-        # obtain flag descriptions
-        try:
-            self._flags_description = markup_group['flags_description']
-        except KeyError:
-            # put flag descriptions in manually if h5 file doesn't have this table
-            flag_names = FLAG_NAMES
-            flag_descriptions = ['reserved - bit 0', 'predefined static flag list', 'flag based on live CAM information',
-                                  'reserved - bit 3', 'RFI detected in the online system', 'RFI predicted from space based pollutants',
-                                  'reserved - bit 6', 'reserved - bit 7']
-            self._flags_description = np.array([[nm, flag_descriptions[i]] for (i, nm) in enumerate(flag_names)])
+        # Check if flag group is present, else use dummy flag data
+        self._flags = markup_group['flags'] if 'flags' in markup_group else \
+                      dummy_dataset('dummy_flags', shape=self._vis.shape[:-1], dtype=np.uint8, value=0)
+        # Obtain flag descriptions from file or recreate default flag description table
+        self._flags_description = markup_group['flags_description'] if 'flags_description' in markup_group else \
+                                  np.array(zip(FLAG_NAMES, FLAG_DESCRIPTIONS))
 
         # ------ Extract weights ------
 
@@ -398,69 +424,48 @@ class H5DataV2(DataSet):
         return LazyIndexer(self._weights, (self._time_keep, self._freq_keep, self._corrprod_keep),
                            transform=extract_weights, dtype=np.float32)
 
-    def flags(self, flaglist=None):
-        """Visibility flags as a function of time, frequency and baseline.
+    def flags(self, names=None):
+        """Flags as a function of time, frequency and baseline.
 
-        The flag function is called with flags('flag1,flag2')[index_list]
-        where the function input is a string comma separated list of flag names,
-        and the output flag is set if any of the listed flags are set.
+        Parameters
+        ----------
+        names : None or string or sequence of strings, optional
+            List of names of flags that will be OR'ed together, as a sequence or
+            a string of comma-separated names (use all flags by default)
 
-        The flags are returned as an array indexer of boolean, of shape
-        (*T*, *F*, *B*), with time along the first dimension, frequency along the
-        second dimension and correlation product ("baseline") index along the
-        third dimension. The returned array always has all three dimensions,
-        even for scalar (single) values. The number of integrations *T* matches
-        the length of :meth:`timestamps`, the number of frequency channels *F*
-        matches the length of :meth:`freqs` and the number of correlation
-        products *B* matches the length of :meth:`corr_products`. To get the
-        flag array itself from the indexer `x`, do `x[:]` or perform any other
-        form of indexing on it. Only then will data be loaded into memory.
+        Returns
+        -------
+        flags : :class:`LazyIndexer` object of bool, shape (*T*, *F*, *B*)
+            Array indexer with time along the first dimension, frequency along
+            the second dimension and correlation product ("baseline") index
+            along the third dimension. To get the data array itself from the
+            indexer `x`, do `x[:]` or perform any other form of indexing on it.
+            Only then will data be loaded into memory.
 
         """
-        if flaglist != None:
-            flaglist = flaglist.split(',')
-        else:
-            flaglist = FLAG_NAMES
+        names = names.split(',') if isinstance(names, basestring) else FLAG_NAMES if names is None else names
 
-        # create index list for desired flags
-        flagmask = np.zeros(8, int)
-        in_list = False
-        for flagname in flaglist:
-            for i in range(len(self._flags_description)):
-                if flagname == self._flags_description[i, 0]:
-                    flagmask[i] = 1
-                    in_list = True
-            # warning if flag type is not in flag description list
-            if in_list == False:
-                logger.warning(" '%s' is not a legitimate flag type for this file" % (flagname,))
-            in_list = False
-        # create bit flag mask
+        # Create index list for desired flags
+        flagmask = np.zeros(8, dtype=np.int)
+        known_flags = [row[0] for row in self._flags_description]
+        for name in names:
+            try:
+                flagmask[known_flags.index(name)] = 1
+            except ValueError:
+                logger.warning("'%s' is not a legitimate flag type for this file" % (name,))
+        # Pack index list into bit mask
         flagmask = np.packbits(flagmask)
 
         def extract_flags(flags, keep):
-            # check if these are real existing flags
-            if 'flags' in self.file['Markup']:
-                # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
-                keep = keep[:3] + (slice(None),) * (3 - len(keep))
-                # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
-                force_3dim = tuple([(np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep])
-                flags_3dim = flags[force_3dim]
-
-                # use flagmask to blank out the flags we don't want
-                total_flags = np.bitwise_and(flagmask, flags_3dim)
-                # convert uint8 to bool: if any flag bits set, flag is set
-                return np.bool_(total_flags)
-            # if not real flags, create dummy 0 flags for chosen slice
-            else:
-                # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
-                keep = keep[:3] + (slice(None),) * (3 - len(keep))
-
-                # get dimensions of slice
-                flagdim = np.ones(3)
-                for k in range(3):
-                    flagdim[k] = len(np.atleast_1d(np.empty(self.shape[k])[keep[k]]))
-                # return array of zeros of required shape
-                return np.zeros(flagdim, dtype=np.bool)
+            # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
+            keep = keep[:3] + (slice(None),) * (3 - len(keep))
+            # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
+            force_3dim = tuple([(np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep])
+            flags_3dim = flags[force_3dim]
+            # Use flagmask to blank out the flags we don't want
+            total_flags = np.bitwise_and(flagmask, flags_3dim)
+            # Convert uint8 to bool: if any flag bits set, flag is set
+            return np.bool_(total_flags)
 
         return LazyIndexer(self._flags, (self._time_keep, self._freq_keep, self._corrprod_keep),
                            transform=extract_flags, dtype=np.bool)

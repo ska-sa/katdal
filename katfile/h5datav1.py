@@ -319,23 +319,22 @@ class H5DataV1(DataSet):
                                         dtype=np.float32))
         return ConcatenatedLazyIndexer(indexers)
 
-    def flags(self, flaglist=None):
-        """Visibility flags as a function of time, frequency and baseline.
+    def flags(self, names=None):
+        """Flags as a function of time, frequency and baseline.
 
-        The flag function is called with flags('flag1,flag2')[index_list]
-        where the function input is a string comma separated list of flag names,
-        and the output flag is set if any of the listed flags are set.
+        Parameters
+        ----------
+        names : None or string or sequence of strings, optional
+            Ignored because HDF5 v1 files do not contain flags
 
-        The flags are returned as an array indexer of boolean, of shape
-        (*T*, *F*, *B*), with time along the first dimension, frequency along the
-        second dimension and correlation product ("baseline") index along the
-        third dimension. The returned array always has all three dimensions,
-        even for scalar (single) values. The number of integrations *T* matches
-        the length of :meth:`timestamps`, the number of frequency channels *F*
-        matches the length of :meth:`freqs` and the number of correlation
-        products *B* matches the length of :meth:`corr_products`. To get the
-        flag array itself from the indexer `x`, do `x[:]` or perform any other
-        form of indexing on it. Only then will data be loaded into memory.
+        Returns
+        -------
+        flags : :class:`LazyIndexer` object of bool, shape (*T*, *F*, *B*)
+            Array indexer with time along the first dimension, frequency along
+            the second dimension and correlation product ("baseline") index
+            along the third dimension. To get the data array itself from the
+            indexer `x`, do `x[:]` or perform any other form of indexing on it.
+            Only then will data be loaded into memory.
 
         """
         # tell the user that there are no flags in the h5 file
