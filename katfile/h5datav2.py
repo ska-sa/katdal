@@ -102,7 +102,7 @@ def dummy_dataset(name, shape, dtype, value):
     # Without this randomness katfile can only open one file requiring a dummy dataset
     random_string = ''.join(['%02x' % (x,) for x in np.random.randint(256, size=8)])
     dummy_file = h5py.File('%s_%s.h5' % (name, random_string), driver='core', backing_store=False)
-    return dummy_file.create_dataset(name, shape=shape, maxshape=shape, dtype=dtype, fillvalue=value, compression='szip')
+    return dummy_file.create_dataset(name, shape=shape, maxshape=shape, dtype=dtype, fillvalue=value, compression='gzip')
 
 #--------------------------------------------------------------------------------------------------
 #--- CLASS :  H5DataV2
