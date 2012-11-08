@@ -697,7 +697,7 @@ class DataSet(object):
         self._set_keep(self._time_keep, self._freq_keep, self._corrprod_keep)
         # Update the relevant data members based on selection made
         self.shape = (self._time_keep.sum(), self._freq_keep.sum(), self._corrprod_keep.sum())
-        self.size = np.prod(self.shape) * np.dtype('complex64').itemsize
+        self.size = np.prod(self.shape, dtype=np.int64) * np.dtype('complex64').itemsize
         if not self.size:
             logger.warning('The selection criteria resulted in an empty data set')
         self.channels = np.arange(self.spectral_windows[self.spw].num_chans)[self._freq_keep]
