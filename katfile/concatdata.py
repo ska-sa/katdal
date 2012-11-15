@@ -461,24 +461,29 @@ class ConcatenatedDataSet(DataSet):
         """
         return ConcatenatedLazyIndexer([d.vis for d in self.datasets])
 
-    @property
-    def weights(self):
-        """Sigma spectrum weights as a function of time, frequency and corrprod.
+    def weights(self, names=None):
+        """Visibility weights as a function of time, frequency and baseline.
 
-        The weights are returned as an array of float32, shape (*T*, *F*, *B*, *W*),
-        with time along the first dimension, frequency along the second dimension,
-        correlation product ("baseline") index along the third dimension and weight
-        along the fourth dimension. The array always has all four dimensions, even
-        for scalar (single) values. The number of integrations *T* matches the length
-        of :meth:`timestamps`, the number of frequency channels *F* matches the length
-        of :meth:`freqs`, the number of correlation products *B* matches the length of
-        :meth:`corr_products` and the number of weights *W* is one at present.
+        Parameters
+        ----------
+        names : None or string or sequence of strings, optional
+            List of names of weights to be multiplied together, as a sequence
+            or string of comma-separated names (combine all weights by default)
+
+        Returns
+        -------
+        weights : :class:`LazyIndexer` object of float32, shape (*T*, *F*, *B*)
+            Array indexer with time along the first dimension, frequency along
+            the second dimension and correlation product ("baseline") index
+            along the third dimension. To get the data array itself from the
+            indexer `x`, do `x[:]` or perform any other form of indexing on it.
+            Only then will data be loaded into memory.
 
         """
-        return ConcatenatedLazyIndexer([d.weights for d in self.datasets])
+        return ConcatenatedLazyIndexer([d.weights(names) for d in self.datasets])
 
     def flags(self, names=None):
-        """Flags as a function of time, frequency and baseline.
+        """Visibility flags as a function of time, frequency and baseline.
 
         Parameters
         ----------

@@ -818,24 +818,27 @@ class DataSet(object):
         """
         raise NotImplementedError
 
-    @property
-    def weights(self):
-        """Sigma spectrum weights as a function of time, frequency and corrprod.
+    def weights(self, names=None):
+        """Visibility weights as a function of time, frequency and baseline.
 
-        The weights are returned as an array of float32, shape (*T*, *F*, *B*, *W*),
-        with time along the first dimension, frequency along the second dimension,
-        correlation product ("baseline") index along the third dimension and weight
-        along the fourth dimension. The array always has all four dimensions, even
-        for scalar (single) values. The number of integrations *T* matches the length
-        of :meth:`timestamps`, the number of frequency channels *F* matches the length
-        of :meth:`freqs`, the number of correlation products *B* matches the length of
-        :meth:`corr_products` and the number of weights *W* is one at present.
+        Parameters
+        ----------
+        names : None or string or sequence of strings, optional
+            List of names of weights to be multiplied together, as a sequence
+            or string of comma-separated names (combine all weights by default)
+
+        Returns
+        -------
+        weights : array-like of float32, shape (*T*, *F*, *B*)
+            Array of weights with time along the first dimension, frequency along
+            the second dimension and correlation product ("baseline") index
+            along the third dimension
 
         """
         raise NotImplementedError
 
     def flags(self, names=None):
-        """Flags as a function of time, frequency and baseline.
+        """Visibility flags as a function of time, frequency and baseline.
 
         Parameters
         ----------
@@ -848,7 +851,7 @@ class DataSet(object):
         flags : array-like of bool, shape (*T*, *F*, *B*)
             Array of flags with time along the first dimension, frequency along
             the second dimension and correlation product ("baseline") index
-            along the third dimension.
+            along the third dimension
 
         """
         raise NotImplementedError

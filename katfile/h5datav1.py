@@ -276,21 +276,23 @@ class H5DataV1(DataSet):
                                         dtype=np.complex64))
         return ConcatenatedLazyIndexer(indexers)
 
-    @property
-    def weights(self):
-        """Sigma spectrum weights as a function of time, frequency and baseline.
+    def weights(self, names=None):
+        """Visibility weights as a function of time, frequency and baseline.
 
-        The weights are returned as an array indexer of float32, shape
-        (*T*, *F*, *B*, *W*), with time along the first dimension, frequency along
-        the second dimension, correlation product ("baseline") index along the
-        third dimension and weight along the fourth dimension. The returned array
-        always has all four dimensions, even for scalar (single) values. The number
-        of integrations *T* matches the length of :meth:`timestamps`, the number of
-        frequency channels *F* matches the length of :meth:`freqs`, the number of
-        correlation products *B* matches the length of :meth:`corr_products`, and
-        the number of weights *W* is one at present. To get the data array itself
-        from the indexer `x`, do `x[:]` or perform any other form of indexing on it.
-        Only then will weights be loaded into memory.
+        Parameters
+        ----------
+        names : None or string or sequence of strings, optional
+            List of names of weights to be multiplied together, as a sequence
+            or string of comma-separated names (combine all weights by default)
+
+        Returns
+        -------
+        weights : :class:`LazyIndexer` object of float32, shape (*T*, *F*, *B*)
+            Array indexer with time along the first dimension, frequency along
+            the second dimension and correlation product ("baseline") index
+            along the third dimension. To get the data array itself from the
+            indexer `x`, do `x[:]` or perform any other form of indexing on it.
+            Only then will data be loaded into memory.
 
         """
         # tell the user that there are no weights in the h5 file
@@ -310,17 +312,17 @@ class H5DataV1(DataSet):
             force_3dim = tuple((np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep)
             data_array = np.dstack([tf[str(corrind)][force_3dim[:2]] for corrind in np.nonzero(corrprod_keep)[0]])\
                    [:, :, keep[2]][:, :, force_3dim[2]]
-            return np.ones(data_array.shape + (1,), dtype=np.float32)
+            return np.ones_like(data_array, dtype=np.float32)
         for n, s in enumerate(self._scan_groups):
             indexers.append(LazyIndexer(s['data'], keep=(self._time_keep[self._segments[n]:self._segments[n + 1]],
                                                          self._freq_keep),
                                         transform=index_corrprod,
-                                        shape_transform=lambda shape: (shape[0], shape[1], corrprod_keep.sum(), 1),
+                                        shape_transform=lambda shape: (shape[0], shape[1], corrprod_keep.sum()),
                                         dtype=np.float32))
         return ConcatenatedLazyIndexer(indexers)
 
     def flags(self, names=None):
-        """Flags as a function of time, frequency and baseline.
+        """Visibility flags as a function of time, frequency and baseline.
 
         Parameters
         ----------

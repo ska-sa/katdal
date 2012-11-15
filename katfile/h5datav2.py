@@ -45,6 +45,8 @@ FLAG_NAMES = ('reserved0', 'static', 'cam', 'reserved3', 'detected_rfi', 'predic
 FLAG_DESCRIPTIONS = ('reserved - bit 0', 'predefined static flag list', 'flag based on live CAM information',
                      'reserved - bit 3', 'RFI detected in the online system', 'RFI predicted from space based pollutants',
                      'reserved - bit 6', 'reserved - bit 7')
+WEIGHT_NAMES = ('precision',)
+WEIGHT_DESCRIPTIONS = ('visibility precision (inverse variance, i.e. 1 / sigma^2)',)
 
 #--------------------------------------------------------------------------------------------------
 #--- Utility functions
@@ -211,6 +213,7 @@ class H5DataV2(DataSet):
         # check if weight group present, else use dummy weight data
         self._weights = markup_group['weights'] if 'weights' in markup_group else \
                         dummy_dataset('dummy_weights', shape=self._vis.shape[:-1] + (1,), dtype=np.float32, value=1.0)
+        self._weights_description = np.array(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS))
 
         # ------ Extract sensors ------
 
@@ -384,31 +387,50 @@ class H5DataV2(DataSet):
         return LazyIndexer(self._vis, (self._time_keep, self._freq_keep, self._corrprod_keep),
                            transform=extract_vis, shape_transform=lambda shape: shape[:-1], dtype=np.complex64)
 
-    @property
-    def weights(self):
-        """Sigma spectrum weights as a function of time, frequency and baseline.
+    def weights(self, names=None):
+        """Visibility weights as a function of time, frequency and baseline.
 
-        The weights are returned as an array indexer of float32, shape
-        (*T*, *F*, *B*, *W*), with time along the first dimension, frequency along
-        the second dimension, correlation product ("baseline") index along the
-        third dimension and weight along the fourth dimension. The returned array
-        always has all four dimensions, even for scalar (single) values. The number
-        of integrations *T* matches the length of :meth:`timestamps`, the number of
-        frequency channels *F* matches the length of :meth:`freqs`, the number of
-        correlation products *B* matches the length of :meth:`corr_products`, and
-        the number of weights *W* is one at present. To get the data array itself
-        from the indexer `x`, do `x[:]` or perform any other form of indexing on it.
-        Only then will weights be loaded into memory.
+        Parameters
+        ----------
+        names : None or string or sequence of strings, optional
+            List of names of weights to be multiplied together, as a sequence
+            or string of comma-separated names (combine all weights by default)
+
+        Returns
+        -------
+        weights : :class:`LazyIndexer` object of float32, shape (*T*, *F*, *B*)
+            Array indexer with time along the first dimension, frequency along
+            the second dimension and correlation product ("baseline") index
+            along the third dimension. To get the data array itself from the
+            indexer `x`, do `x[:]` or perform any other form of indexing on it.
+            Only then will data be loaded into memory.
 
         """
+        names = names.split(',') if isinstance(names, basestring) else WEIGHT_NAMES if names is None else names
+
+        # Create index list for desired weights
+        selection = []
+        known_weights = [row[0] for row in self._weights_description]
+        for name in names:
+            try:
+                selection.append(known_weights.index(name))
+            except ValueError:
+                logger.warning("'%s' is not a legitimate weight type for this file" % (name,))
+        if not selection:
+            logger.warning('No valid weights were selected - setting all weights to 1.0 by default')
+
         def extract_weights(weights, keep):
-            # Ensure that keep tuple has length of 4 (truncate or pad with blanket slices as necessary)
-            keep = keep[:4] + (slice(None),) * (4 - len(keep))
-            # Final indexing ensures that returned data are always 4-dimensional (i.e. keep singleton dimensions)
-            force_4dim = tuple([(np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep])
-            return weights[force_4dim]
+            # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
+            keep = keep[:3] + (slice(None),) * (3 - len(keep))
+            # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
+            force_3dim = tuple([(np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep])
+            # Multiply selected weights together (or select lone weight)
+            # Strangely enough, if selection is [], prod produces the expected weights of 1.0 instead of an empty array
+            return weights[force_3dim][:, :, :, selection[0]] if len(selection) == 1 else \
+                   weights[force_3dim][:, :, :, selection].prod(axis=-1)
+
         return LazyIndexer(self._weights, (self._time_keep, self._freq_keep, self._corrprod_keep),
-                           transform=extract_weights, dtype=np.float32)
+                           transform=extract_weights, shape_transform=lambda shape: shape[:-1], dtype=np.float32)
 
     def flags(self, names=None):
         """Flags as a function of time, frequency and baseline.
@@ -441,6 +463,8 @@ class H5DataV2(DataSet):
                 logger.warning("'%s' is not a legitimate flag type for this file" % (name,))
         # Pack index list into bit mask
         flagmask = np.packbits(flagmask)
+        if not flagmask:
+            logger.warning('No valid flags were selected - setting all flags to False by default')
 
         def extract_flags(flags, keep):
             # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
