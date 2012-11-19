@@ -74,7 +74,7 @@ def get_single_value(group, name):
         Attribute or last value of dataset
 
     """
-    return group.attrs[name] if name in group.attrs else group[name].value[-1]
+    return group.attrs[name] if name in group.attrs else group[name][-1]
 
 
 def dummy_dataset(name, shape, dtype, value):
