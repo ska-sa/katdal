@@ -14,6 +14,7 @@ import numpy as np
 
 import katpoint
 import katfile
+from katfile import averager
 from katfile import ms_extra
 
  # NOTE: This should be checked before running (only for w stopping) to see how up to date the cable delays are !!!
@@ -37,6 +38,9 @@ parser.add_option("-a", "--no-auto", action="store_true", default=False, help="M
 parser.add_option("-C", "--channel-range", help="Range of frequency channels to keep (zero-based inclusive 'first_chan,last_chan', default is all channels)")
 parser.add_option("-e", "--elevation-range", help="Flag elevations outside the range 'lowest_elevation,highest_elevation'")
 parser.add_option("--flags", help="List of online flags to apply (from 'static,cam,detected_rfi,predicted_rfi', default is all flags, '' will apply no flags)")
+parser.add_option("--dumptime", type=float, default=0.0, help="Output time averaging interval in seconds, default is no averaging.")
+parser.add_option("--chanbin", type=int, default=0, help="Bin width for channel averaging in channels, default is no averaging.")
+
 (options, args) = parser.parse_args()
 
 if len(args) < 1 or not args[0].endswith(".h5"):
@@ -124,6 +128,39 @@ if options.channel_range is not None:
     print "\nChannel range %s through %s." % (first_chan, last_chan)
     h5.select(channels=chan_range)
 
+# Are we averaging?
+average_data = False
+
+# Work out channel average and frequency increment
+if options.chanbin > 1:
+    average_data = True
+    # Check how many channels we are dropping
+    numchans = len(h5.channels)
+    chan_remainder = numchans % options.chanbin
+    print "Averaging %s channels, output ms will have %s channels." % (options.chanbin,int(numchans/min(numchans,options.chanbin)))
+    if chan_remainder > 0:
+        print "The last %s channels in the data will be dropped during averaging (%s does not divide %s)." % (chan_remainder,options.chanbin,numchans)
+    chan_av = options.chanbin
+else:
+    # No averaging in channel
+    chan_av = 1
+    
+# Get the frequency increment per averaged channel
+channel_freq_width = h5.channel_width * chan_av
+
+# Work out dump average and dump increment
+# Is the desired time bin greater than the dump period?
+if options.dumptime > h5.dump_period:
+    average_data = True
+    dump_av = int(np.round(options.dumptime / h5.dump_period))
+    time_av = dump_av * h5.dump_period
+    print "Averaging %s second dumps to %s seconds." % (h5.dump_period, time_av)
+else:
+    # No averaging in time
+    dump_av = 1
+    time_av = h5.dump_period
+
+
 # Optionally keep only cross-correlation products
 if options.no_auto:
     h5.select(corrprods='cross')
@@ -141,7 +178,6 @@ ms_dict['FEED'] = ms_extra.populate_feed_dict(len(h5.ants), num_receptors_per_fe
 ms_dict['DATA_DESCRIPTION'] = ms_extra.populate_data_description_dict()
 ms_dict['POLARIZATION'] = ms_extra.populate_polarization_dict(ms_pols=pols_to_use,stokes_i=(options.HH or options.VV),circular=options.circular)
 ms_dict['OBSERVATION'] = ms_extra.populate_observation_dict(start_time, end_time, "KAT-7", h5.observer, h5.experiment_id)
-ms_dict['SPECTRAL_WINDOW'] = ms_extra.populate_spectral_window_dict(h5.channel_freqs, h5.channel_width * np.ones(len(h5.channel_freqs)))
 
 print "Writing static meta data..."
 ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
@@ -171,16 +207,22 @@ for scan_ind, scan_state, target in h5.scans():
 
     # load all data for this scan up front, as this improves disk throughput
     scan_data = h5.vis[:]
+    # load the weights for this scan.
+    scan_weight_data = h5.weights()[:]
     # load flags selected from 'options.flags' for this scan
     scan_flag_data = h5.flags(options.flags)[:]
+ 
+    # Get the average dump time for this scan (equal to scan length if the dump period is longer than a scan)
+    dump_time_width = min(time_av,scan_len*h5.dump_period)
 
-    sz_mb = h5.size / (1024.0 * 1024.0)
+    sz_mb = 0.0
     # MS expects timestamps in MJD seconds
     mjd_seconds = h5.mjd * 24 * 60 * 60
     # Update field lists if this is a new target
     if target.name not in field_names:
         # Since this will be an 'radec' target, we don't need an antenna or timestamp to get the (astrometric) ra, dec
         ra, dec = target.radec()
+
         field_names.append(target.name)
         field_centers.append((ra, dec))
         field_times.append(mjd_seconds[0])
@@ -193,32 +235,54 @@ for scan_ind, scan_state, target in h5.scans():
             if options.no_auto and (ant2_index == ant1_index):
                 continue
             polprods = [("%s%s" % (ant1.name,p[0].lower()), "%s%s" % (ant2.name,p[1].lower())) for p in pols_to_use]
-            pol_data,flag_pol_data = [],[]
+            pol_data,flag_pol_data,weight_pol_data = [],[],[]
             for p in polprods:
                 cable_delay = delays[p[1][-1]][ant2.name] - delays[p[0][-1]][ant1.name]
-                 # cable delays specific to pol type
+                # cable delays specific to pol type
                 cp_index = corrprod_to_index.get(p)
                 vis_data = scan_data[:,:,cp_index] if cp_index is not None else np.zeros(h5.shape[:2], dtype=np.complex64)
+                weight_data = scan_weight_data[:,:,cp_index] if cp_index is not None else np.ones(h5.shape[:2], dtype=np.float32)
                 flag_data = scan_flag_data[:,:,cp_index] if cp_index is not None else np.zeros(h5.shape[:2], dtype=np.bool)
                 if options.stop_w:
-                 # Result of delay model in turns of phase. This is now frequency dependent so has shape (tstamps, channels)
+                    # Result of delay model in turns of phase. This is now frequency dependent so has shape (tstamps, channels)
                     turns = np.outer((h5.w[:, cp_index] / katpoint.lightspeed) - cable_delay, h5.channel_freqs)
                     vis_data *= np.exp(-2j * np.pi * turns)
+                
+                out_mjd = mjd_seconds
+                out_freqs = h5.channel_freqs
+                
+                # Overwrite the input visibilities with averaged visibilities,flags,weights,timestamps,channel freqs
+                if average_data: vis_data,weight_data,flag_data,out_mjd,out_freqs=averager.average_visibilities(vis_data, weight_data, flag_data, out_mjd, out_freqs,dump_av,chan_av)
+                    
                 pol_data.append(vis_data)
+                weight_pol_data.append(weight_data)
                 flag_pol_data.append(flag_data)
+ 
             vis_data = np.dstack(pol_data)
+            weight_data = np.dstack(weight_pol_data)
             flag_data = np.dstack(flag_pol_data)
-            uvw_coordinates = np.array([h5.u[:, cp_index], h5.v[:, cp_index], h5.w[:, cp_index]])
-            ms_extra.write_rows(main_table, ms_extra.populate_main_dict(uvw_coordinates, vis_data, flag_data, mjd_seconds, ant1_index, ant2_index, h5.dump_period, field_id, scan_itr), verbose=options.verbose)
+             
+            uvw_coordinates = np.array(target.uvw(ant2, timestamp=out_mjd, antenna=ant1))
+            
+            #Increment the filesize.
+            sz_mb += vis_data.dtype.itemsize * vis_data.size / (1024.0 * 1024.0)
+            sz_mb += weight_data.dtype.itemsize * weight_data.size / (1024.0 * 1024.0)
+            sz_mb += flag_data.dtype.itemsize * flag_data.size / (1024.0 * 1024.0)
+            
+            #write the data to the ms.
+            ms_extra.write_rows(main_table, ms_extra.populate_main_dict(uvw_coordinates, vis_data, flag_data, out_mjd, ant1_index, ant2_index, dump_time_width, field_id, scan_itr), verbose=options.verbose)
+
     s1 = time.time() - s
+    if average_data: print "Averaged %s x %s second dumps to %s x %s second dumps" % (np.shape(mjd_seconds)[0],h5.dump_period,np.shape(out_mjd)[0],dump_time_width)
     print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (sz_mb, s1, sz_mb / s1)
     scan_itr+=1
 main_table.close()
- # done writing main table
+# done writing main table
 
 ms_dict = {}
+ms_dict['SPECTRAL_WINDOW'] = ms_extra.populate_spectral_window_dict(out_freqs, channel_freq_width * np.ones(len(out_freqs)))
 ms_dict['FIELD'] = ms_extra.populate_field_dict(field_centers, field_times, field_names)
-ms_dict['SOURCE'] = ms_extra.populate_source_dict(field_centers, field_times, h5.channel_freqs, field_names)
+ms_dict['SOURCE'] = ms_extra.populate_source_dict(field_centers, field_times, out_freqs, field_names)
 
 print "\nWriting dynamic fields to disk....\n"
 # Finally we write the MS as per our created dicts
@@ -227,4 +291,6 @@ if options.tar:
     tar = tarfile.open('%s.tar' % (ms_name,), 'w')
     tar.add(ms_name, arcname=os.path.basename(ms_name))
     tar.close()
+
+
 
