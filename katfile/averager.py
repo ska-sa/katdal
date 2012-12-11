@@ -1,15 +1,13 @@
 import numpy as np
 
-def block_and_average(vis,weight,flag,avsize):
+def block_and_average(vis,weight,flag,avsize,axis=0):
     
     """ 'block_and_average' does the dirty work of averaging for 'average_visibilities'.
     It blocks an input array in its last axis at a list of array indices calculated
     from the input avsize and the shape of the input visibility array.
-    It then weighted-averages the blocked data and returns arrays with
-    the last axis rotated to the first axis of the array. For time and channel
+    It then weighted-averages the blocked data. For time and channel
     averaging of 2d input arrays (as with 'average_visibilities') the function
-    is run twice - to rotate the axes back to their original configuration. Otherwise
-    the output can be reshaped after return.
+    is run twice.
 
     Inputs
     ------
@@ -29,31 +27,36 @@ def block_and_average(vis,weight,flag,avsize):
     # Get the array indices for blocking (if the avsize is bigger than the
     # array dimension to be averaged, use the size of the array dimension
     # instead).
-    indices=range(min(avsize,vis.shape[-1]),vis.shape[-1]+1,min(avsize,vis.shape[-1]))
+    indices=range(min(avsize,vis.shape[axis]),vis.shape[axis]+1,min(avsize,vis.shape[axis]))
     
     # Block the data at the given indices along the final axis- omit the final
     # element of the blocked array which is the remainder after equal blocks..
-    block_weight = np.array(np.split(weight,indices,axis=-1)[:-1])
-    block_vis    = np.array(np.split(vis,indices,axis=-1)[:-1])
-    block_flag   = np.array(np.split(flag,indices,axis=-1)[:-1])
-
+    block_weight = np.array(np.split(weight,indices,axis=axis)[:-1])
+    block_vis    = np.array(np.split(vis,indices,axis=axis)[:-1])
+    block_flag   = np.array(np.split(flag,indices,axis=axis)[:-1])
+    
     # Workaround for numpy zero weight problem (set blocks with zero weight to weight 1
     # so that an average is returned for these blocks, otherwise numpy returns an error).
-    zeroweights = np.where(np.all(block_flag,axis=-1))
+    zeroweights = np.where(np.all(block_flag,axis=axis+1))
     block_weight[zeroweights] = 1.0
 
     # Average the data
-    av_vis = np.average(block_vis,axis=-1,weights=block_weight,returned=False)
+    av_vis = np.average(block_vis,axis=axis+1,weights=block_weight,returned=False)
 
     # Undo the weights workaround
     block_weight[zeroweights] = 0.0
 
     #And get the final weights
-    av_weight = np.sum(block_weight,axis=-1)
+    av_weight = np.sum(block_weight,axis=axis+1)
     
     #Now do the flags
-    av_flag = np.all(block_flag,axis=-1)
+    av_flag = np.all(block_flag,axis=axis+1)
 
+    #Rotate the original arrays back to their assumed shape
+    av_vis = np.rollaxis(av_vis,0,axis+1)
+    av_weight = np.rollaxis(av_weight,0,axis+1)
+    av_flag = np.rollaxis(av_flag,0,axis+1)
+    
     return av_vis,av_weight,av_flag,indices
 
 
@@ -100,12 +103,12 @@ def average_visibilities(vis,weight,flag,timestamps,channel_freqs,timeav=10,chan
 
     # Set weight of flagged data to zero
     weight[np.where(flag==True)]=0.0
-    
+
     # Get the channel averaged visibilities, weights and flags
-    av_vis_chan,av_weight_chan,av_flag_chan,chan_inds = block_and_average(vis,weight,flag,chanav)
+    av_vis_chan,av_weight_chan,av_flag_chan,chan_inds = block_and_average(vis,weight,flag,chanav,axis=1)
     
     # Do the same on the channel averaged data in time
-    av_vis,av_weight,av_flag,time_inds = block_and_average(av_vis_chan,av_weight_chan,av_flag_chan,timeav)
+    av_vis,av_weight,av_flag,time_inds = block_and_average(av_vis_chan,av_weight_chan,av_flag_chan,timeav,axis=0)
 
     #print av_vis.shape,av_weight.shape,av_flag.shape
     #get the mjd of the average visibilities
