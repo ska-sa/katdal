@@ -216,8 +216,8 @@ for scan_ind, scan_state, target in h5.scans():
     dump_time_width = min(time_av,scan_len*h5.dump_period)
 
     sz_mb = 0.0
-    # MS expects timestamps in MJD seconds
-    mjd_seconds = h5.mjd * 24 * 60 * 60
+    # Get UTC timestamps
+    utc_seconds = h5.timestamps[:]
     # Update field lists if this is a new target
     if target.name not in field_names:
         # Since this will be an 'radec' target, we don't need an antenna or timestamp to get the (astrometric) ra, dec
@@ -225,7 +225,7 @@ for scan_ind, scan_state, target in h5.scans():
 
         field_names.append(target.name)
         field_centers.append((ra, dec))
-        field_times.append(mjd_seconds[0])
+        field_times.append(katpoint.Timestamp(utc_seconds[0]).to_mjd() * 60 * 60 * 24)
         if options.verbose: print "Added new field %d: '%s' %s %s" % (len(field_names) - 1, target.name, ra, dec)
     field_id = field_names.index(target.name)
     for ant1_index, ant1 in enumerate(h5.ants):
@@ -248,11 +248,11 @@ for scan_ind, scan_state, target in h5.scans():
                     turns = np.outer((h5.w[:, cp_index] / katpoint.lightspeed) - cable_delay, h5.channel_freqs)
                     vis_data *= np.exp(-2j * np.pi * turns)
                 
-                out_mjd = mjd_seconds
+                out_utc = utc_seconds
                 out_freqs = h5.channel_freqs
                 
                 # Overwrite the input visibilities with averaged visibilities,flags,weights,timestamps,channel freqs
-                if average_data: vis_data,weight_data,flag_data,out_mjd,out_freqs=averager.average_visibilities(vis_data, weight_data, flag_data, out_mjd, out_freqs,dump_av,chan_av)
+                if average_data: vis_data,weight_data,flag_data,out_utc,out_freqs=averager.average_visibilities(vis_data, weight_data, flag_data, out_utc, out_freqs,dump_av,chan_av)
                     
                 pol_data.append(vis_data)
                 weight_pol_data.append(weight_data)
@@ -261,8 +261,11 @@ for scan_ind, scan_state, target in h5.scans():
             vis_data = np.dstack(pol_data)
             weight_data = np.dstack(weight_pol_data)
             flag_data = np.dstack(flag_pol_data)
-             
-            uvw_coordinates = np.array(target.uvw(ant2, timestamp=out_mjd, antenna=ant1))
+            
+            uvw_coordinates = np.array(target.uvw(ant2, timestamp=out_utc, antenna=ant1))
+            
+            #Convert averaged UTC timestamps to MJD seconds.
+            out_mjd  =  [katpoint.Timestamp(time_utc).to_mjd() * 24 * 60 * 60 for time_utc in out_utc]
             
             #Increment the filesize.
             sz_mb += vis_data.dtype.itemsize * vis_data.size / (1024.0 * 1024.0)
@@ -273,7 +276,7 @@ for scan_ind, scan_state, target in h5.scans():
             ms_extra.write_rows(main_table, ms_extra.populate_main_dict(uvw_coordinates, vis_data, flag_data, out_mjd, ant1_index, ant2_index, dump_time_width, field_id, scan_itr), verbose=options.verbose)
 
     s1 = time.time() - s
-    if average_data: print "Averaged %s x %s second dumps to %s x %s second dumps" % (np.shape(mjd_seconds)[0],h5.dump_period,np.shape(out_mjd)[0],dump_time_width)
+    if average_data: print "Averaged %s x %s second dumps to %s x %s second dumps" % (np.shape(utc_seconds)[0],h5.dump_period,np.shape(out_utc)[0],dump_time_width)
     print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (sz_mb, s1, sz_mb / s1)
     scan_itr+=1
 main_table.close()
