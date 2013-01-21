@@ -794,7 +794,7 @@ class DataSet(object):
 
     @property
     def timestamps(self):
-        """Visibility timestamps in UTC seconds since epoch.
+        """Visibility timestamps in UTC seconds since Unix epoch.
 
         The timestamps are returned as an array of float64, shape (*T*,), with
         one timestamp per integration aligned with the integration *midpoint*.

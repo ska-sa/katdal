@@ -495,7 +495,7 @@ def sensor_to_categorical(sensor_timestamps, sensor_values, dump_midtimes, dump_
     Parameters
     ----------
     sensor_timestamps : sequence of float, length *M*
-        Sequence of sensor timestamps (typically UTC seconds since epoch)
+        Sequence of sensor timestamps (typically UTC seconds since Unix epoch)
     sensor_values : sequence, length *M*
         Corresponding sequence of sensor values
     dump_midtimes : sequence of float, length *N*
