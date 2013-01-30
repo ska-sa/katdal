@@ -28,29 +28,34 @@ def block_and_average(vis,weight,flag,avsize,axis=0):
     # array dimension to be averaged, use the size of the array dimension
     # instead).
     indices=range(min(avsize,vis.shape[axis]),vis.shape[axis]+1,min(avsize,vis.shape[axis]))
+
+    # Roll the data so that the averaging axis is the last dimension of the array
+    weight = np.rollaxis(weight,axis,np.ndim(weight))
+    vis    = np.rollaxis(vis,axis,np.ndim(vis))
+    flag   = np.rollaxis(flag,axis,np.ndim(flag))
     
     # Block the data at the given indices along the final axis- omit the final
     # element of the blocked array which is the remainder after equal blocks..
-    block_weight = np.array(np.split(weight,indices,axis=axis)[:-1])
-    block_vis    = np.array(np.split(vis,indices,axis=axis)[:-1])
-    block_flag   = np.array(np.split(flag,indices,axis=axis)[:-1])
-    
+    block_weight = np.array(np.split(weight,indices,axis=-1)[:-1])
+    block_vis    = np.array(np.split(vis,indices,axis=-1)[:-1])
+    block_flag   = np.array(np.split(flag,indices,axis=-1)[:-1])
+
     # Workaround for numpy zero weight problem (set blocks with zero weight to weight 1
     # so that an average is returned for these blocks, otherwise numpy returns an error).
-    zeroweights = np.where(np.all(block_flag,axis=axis+1))
+    zeroweights = np.where(np.all(block_flag,axis=-1))
     block_weight[zeroweights] = 1.0
 
     # Average the data
-    av_vis = np.average(block_vis,axis=axis+1,weights=block_weight,returned=False)
+    av_vis = np.average(block_vis,axis=-1,weights=block_weight,returned=False)
 
     # Undo the weights workaround
     block_weight[zeroweights] = 0.0
 
     #And get the final weights
-    av_weight = np.sum(block_weight,axis=axis+1)
+    av_weight = np.sum(block_weight,axis=-1)
     
     #Now do the flags
-    av_flag = np.all(block_flag,axis=axis+1)
+    av_flag = np.all(block_flag,axis=-1)
 
     #Rotate the original arrays back to their assumed shape
     av_vis = np.rollaxis(av_vis,0,axis+1)

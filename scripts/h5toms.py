@@ -276,7 +276,8 @@ for scan_ind, scan_state, target in h5.scans():
             ms_extra.write_rows(main_table, ms_extra.populate_main_dict(uvw_coordinates, vis_data, flag_data, out_mjd, ant1_index, ant2_index, dump_time_width, field_id, scan_itr), verbose=options.verbose)
 
     s1 = time.time() - s
-    if average_data: print "Averaged %s x %s second dumps to %s x %s second dumps" % (np.shape(utc_seconds)[0],h5.dump_period,np.shape(out_utc)[0],dump_time_width)
+    if average_data and np.shape(utc_seconds)[0]!=np.shape(out_utc)[0]:
+        print "Averaged %s x %s second dumps to %s x %s second dumps" % (np.shape(utc_seconds)[0],h5.dump_period,np.shape(out_utc)[0],dump_time_width)
     print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (sz_mb, s1, sz_mb / s1)
     scan_itr+=1
 main_table.close()
