@@ -179,7 +179,7 @@ class H5DataV2(DataSet):
         if irregular:
             # Warn the user, as this is anomalous
             logger.warning(("Irregular timestamps detected in file '%s': "
-                           "expected %g dumps based on dump period and start/end times, got %d instead") %
+                           "expected %.3f dumps based on dump period and start/end times, got %d instead") %
                            (filename, expected_dumps, num_dumps))
             if quicklook:
                 logger.warning("Quicklook option selected - partitioning data based on synthesised timestamps instead")
