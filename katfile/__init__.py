@@ -198,6 +198,7 @@ a back door installed at `d.file` in the case of a single-file data set.
 import logging as _logging
 
 from .dataset import DataSet, WrongVersion
+from .lazy_indexer import LazyTransform
 from .concatdata import ConcatenatedDataSet
 from .h5datav1 import H5DataV1
 from .h5datav2 import H5DataV2

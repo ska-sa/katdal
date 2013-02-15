@@ -30,33 +30,44 @@ class ConcatenatedLazyIndexer(LazyIndexer):
     ----------
     indexers : sequence of :class:`LazyIndexer` objects
         Sequence of indexers to be concatenated
+    transforms : list of :class:`LazyTransform` objects or None, optional
+        Extra chain of transforms to be applied to data after final indexing
+
+    Attributes
+    ----------
+    name : string
+        Name of first non-empty indexer (or empty string otherwise)
+
+    Raises
+    ------
+    InvalidTransform
+        If transform chain does not obey restrictions on changing the data shape
 
     """
-    def __init__(self, indexers):
+    def __init__(self, indexers, transforms=None):
         # Only keep those indexers that have any data selected on first axis (unless nothing at all is selected)
         self.indexers = [indexer for indexer in indexers if indexer.shape[0]]
         if not self.indexers:
             self.indexers = indexers[:1]
+        self.transforms = [] if transforms is None else transforms
         # Pick the first non-empty indexer name as overall name, or failing that, an empty string
         names = unique_in_order([indexer.name for indexer in self.indexers if indexer.name])
         self.name = (names[0] + ' etc.') if len(names) > 1 else names[0] if len(names) == 1 else ''
-        # Each component must have the same dtype, which becomes the overall dtype
-        dtypes = set([indexer.dtype for indexer in self.indexers])
-        if len(dtypes) == 1:
-            self.dtype = dtypes.pop()
-        elif np.all([np.issubdtype(dtype, np.str) for dtype in dtypes]):
-            # Strings of different lengths have different dtypes (e.g. '|S1' vs '|S10') but can be safely concatenated
-            self.dtype = np.dtype('|S%d' % (max([dt.itemsize for dt in dtypes]),))
-        else:
-            raise ConcatenationError("Incompatible dtypes among sub-indexers making up indexer '%s':\n%s" %
-                                     (self.name, '\n'.join([repr(indexer) for indexer in self.indexers])))
-        # Each component must have the same shape except for the first dimension (length)
-        # The overall length will be the sum of component lengths
-        shape_tails = set([indexer.shape[1:] for indexer in self.indexers])
-        if len(shape_tails) != 1:
-            raise ConcatenationError("Incompatible shapes among sub-indexers making up indexer '%s':\n%s" %
-                                     (self.name, '\n'.join([repr(indexer) for indexer in self.indexers])))
-        self.shape = tuple([np.sum([len(indexer) for indexer in self.indexers])] + list(shape_tails.pop()))
+        # Test validity of shape and dtype
+        self.shape, self.dtype
+
+    def __str__(self):
+        """Verbose human-friendly string representation of lazy indexer object."""
+        shape, dtype = self._initial_shape, self._initial_dtype
+        descr = [self._name_shape_dtype(self.name, shape, dtype)]
+        for n, indexer in enumerate(self.indexers):
+            indexer_descr = str(indexer).split('\n')
+            descr += [('- Indexer %03d: ' % (n,)) + indexer_descr[0]]
+            descr += ['               ' + indescr for indescr in indexer_descr[1:]]
+        for transform in self.transforms:
+            shape, dtype = transform.new_shape(shape), transform.dtype if transform.dtype is not None else dtype
+            descr += ['-> ' + self._name_shape_dtype(transform.name, shape, dtype)]
+        return '\n'.join(descr)
 
     def __getitem__(self, keep):
         """Extract a concatenated array from the underlying indexers.
@@ -77,14 +88,17 @@ class ConcatenatedLazyIndexer(LazyIndexer):
             Concatenated output array
 
         """
+        ndim = len(self._initial_shape)
         # Ensure that keep is a tuple (then turn it into a list to simplify further processing)
         keep = list(keep) if isinstance(keep, tuple) else [keep]
-        # Ensure that keep is same length as data shape (truncate or pad with blanket slices as necessary)
-        keep = keep[:len(self.shape)] + [slice(None)] * (len(self.shape) - len(keep))
+        # The original keep tuple will be passed to data transform chain
+        original_keep = tuple(keep)
+        # Ensure that keep is same length as first-stage data shape (truncate or pad with blanket slices as necessary)
+        keep = keep[:ndim] + [slice(None)] * (ndim - len(keep))
         keep_head, keep_tail = keep[0], keep[1:]
         # Figure out the final shape on the fixed tail dimensions
         shape_tails = [len(np.atleast_1d(np.arange(dim_len)[dim_keep]))
-                       for dim_keep, dim_len in zip(keep[1:], self.shape[1:])]
+                       for dim_keep, dim_len in zip(keep[1:], self._initial_shape[1:])]
         indexer_starts = np.cumsum([0] + [len(indexer) for indexer in self.indexers[:-1]])
         find_indexer = lambda index: indexer_starts.searchsorted(index, side='right') - 1
         # Interpret selection on first dimension, along which data will be concatenated
@@ -92,7 +106,7 @@ class ConcatenatedLazyIndexer(LazyIndexer):
             # If selection is a scalar, pass directly to appropriate indexer (after removing offset)
             keep_head = len(self) + keep_head if keep_head < 0 else keep_head
             ind = find_indexer(keep_head)
-            return self.indexers[ind][tuple([keep_head - indexer_starts[ind]] + keep_tail)]
+            out_data = self.indexers[ind][tuple([keep_head - indexer_starts[ind]] + keep_tail)]
         elif isinstance(keep_head, slice):
             # If selection is a slice, split it into smaller slices that span individual indexers
             # Start by normalising slice to full first-stage range
@@ -106,7 +120,7 @@ class ConcatenatedLazyIndexer(LazyIndexer):
                 # The final .reshape is needed to upgrade any scalar or singleton chunks to full dimension
                 chunks.append(self.indexers[ind][tuple([slice(chunk_start, chunk_stop, stride)] +
                                                        keep_tail)].reshape(tuple([-1] + shape_tails)))
-            return np.concatenate(chunks)
+            out_data = np.concatenate(chunks)
         else:
             # Anything else is advanced indexing via bool or integer sequences
             keep_head = np.atleast_1d(keep_head)
@@ -118,21 +132,47 @@ class ConcatenatedLazyIndexer(LazyIndexer):
                     chunk_stop = indexer_starts[ind + 1] if ind < len(indexer_starts) - 1 else len(self)
                     chunks.append(self.indexers[ind][tuple([keep_head[chunk_start:chunk_stop]] +
                                                            keep_tail)].reshape(tuple([-1] + shape_tails)))
-                return np.concatenate(chunks)
+                out_data = np.concatenate(chunks)
             else:
                 # Form sequence of relevant indexer indices and local data indices with indexer offsets removed
                 indexers = find_indexer(keep_head)
                 local_indices = keep_head - indexer_starts[indexers]
                 # Determine output data shape after second-stage selection
                 final_shape = [len(np.atleast_1d(np.arange(dim_len)[dim_keep]))
-                               for dim_keep, dim_len in zip(keep, self.shape)]
-                data = np.empty(final_shape, dtype=self.dtype)
+                               for dim_keep, dim_len in zip(keep, self._initial_shape)]
+                out_data = np.empty(final_shape, dtype=self.dtype)
                 for ind in range(len(self.indexers)):
                     chunk_mask = (indexers == ind)
                     # Insert all selected data originating from same indexer into final array
                     if chunk_mask.any():
-                        data[chunk_mask] = self.indexers[ind][tuple([local_indices[chunk_mask]] + keep_tail)]
-                return data
+                        out_data[chunk_mask] = self.indexers[ind][tuple([local_indices[chunk_mask]] + keep_tail)]
+        # Apply transform chain to output data, if any
+        return reduce(lambda data, transform: transform(data, original_keep), self.transforms, out_data)
+
+    @property
+    def _initial_shape(self):
+        """Shape of data array after first-stage indexing and before transformation."""
+        # Each component must have the same shape except for the first dimension (length)
+        # The overall length will be the sum of component lengths
+        shape_tails = set([indexer.shape[1:] for indexer in self.indexers])
+        if len(shape_tails) != 1:
+            raise ConcatenationError("Incompatible shapes among sub-indexers making up indexer '%s':\n%s" %
+                                     (self.name, '\n'.join([repr(indexer) for indexer in self.indexers])))
+        return tuple([np.sum([len(indexer) for indexer in self.indexers])] + list(shape_tails.pop()))
+
+    @property
+    def _initial_dtype(self):
+        """Type of data array before transformation."""
+        # Each component must have the same dtype, which becomes the overall dtype
+        dtypes = set([indexer.dtype for indexer in self.indexers])
+        if len(dtypes) == 1:
+            return dtypes.pop()
+        elif np.all([np.issubdtype(dtype, np.str) for dtype in dtypes]):
+            # Strings of different lengths have different dtypes (e.g. '|S1' vs '|S10') but can be safely concatenated
+            return np.dtype('|S%d' % (max([dt.itemsize for dt in dtypes]),))
+        else:
+            raise ConcatenationError("Incompatible dtypes among sub-indexers making up indexer '%s':\n%s" %
+                                     (self.name, '\n'.join([repr(indexer) for indexer in self.indexers])))
 
 #--------------------------------------------------------------------------------------------------
 #--- CLASS :  ConcatenatedSensorData

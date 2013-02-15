@@ -10,7 +10,7 @@ from .dataset import DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow
                      DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target
 from .sensordata import SensorData, SensorCache
 from .categorical import CategoricalData, sensor_to_categorical
-from .lazy_indexer import LazyIndexer
+from .lazy_indexer import LazyIndexer, LazyTransform
 
 logger = logging.getLogger('katfile.h5datav2')
 
@@ -327,8 +327,8 @@ class H5DataV2(DataSet):
         # Avoid storing reference to self in transform closure below, as this hinders garbage collection
         dump_period, time_offset = self.dump_period, self.time_offset
         # Restore original (slow) timestamps so that subsequent sensors (e.g. pointing) will have accurate values
-        self.sensor.timestamps = LazyIndexer(self._timestamps, keep=slice(num_dumps),
-                                             transform=lambda t, keep: t + 0.5 * dump_period + time_offset)
+        extract_time = LazyTransform('extract_time', lambda t, keep: t + 0.5 * dump_period + time_offset)
+        self.sensor.timestamps = LazyIndexer(self._timestamps, keep=slice(num_dumps), transforms=[extract_time])
         # Apply default selection and initialise all members that depend on selection in the process
         self.select(spw=0, subarray=0, ants=script_ants)
 
@@ -358,8 +358,8 @@ class H5DataV2(DataSet):
         """
         # Avoid storing reference to self in transform closure below, as this hinders garbage collection
         dump_period, time_offset = self.dump_period, self.time_offset
-        return LazyIndexer(self._timestamps, keep=self._time_keep,
-                           transform=lambda t, keep: t + 0.5 * dump_period + time_offset)
+        extract_time = LazyTransform('extract_time', lambda t, keep: t + 0.5 * dump_period + time_offset)
+        return LazyIndexer(self._timestamps, keep=self._time_keep, transforms=[extract_time])
 
     @property
     def vis(self):
@@ -377,15 +377,16 @@ class H5DataV2(DataSet):
         form of indexing on it. Only then will data be loaded into memory.
 
         """
-        def extract_vis(vis, keep):
+        def _extract_vis(vis, keep):
             # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
             keep = keep[:3] + (slice(None),) * (3 - len(keep))
             # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
             # Discard the 4th / last dimension, however, as this is subsumed in the complex view of the data
             force_3dim = tuple([(np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep] + [0])
             return vis.view(np.complex64)[force_3dim]
+        extract_vis = LazyTransform('extract_vis', _extract_vis, lambda shape: shape[:-1], np.complex64)
         return LazyIndexer(self._vis, (self._time_keep, self._freq_keep, self._corrprod_keep),
-                           transform=extract_vis, shape_transform=lambda shape: shape[:-1], dtype=np.complex64)
+                           transforms=[extract_vis])
 
     def weights(self, names=None):
         """Visibility weights as a function of time, frequency and baseline.
@@ -419,7 +420,7 @@ class H5DataV2(DataSet):
         if not selection:
             logger.warning('No valid weights were selected - setting all weights to 1.0 by default')
 
-        def extract_weights(weights, keep):
+        def _extract_weights(weights, keep):
             # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
             keep = keep[:3] + (slice(None),) * (3 - len(keep))
             # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
@@ -428,9 +429,9 @@ class H5DataV2(DataSet):
             # Strangely enough, if selection is [], prod produces the expected weights of 1.0 instead of an empty array
             return weights[force_3dim][:, :, :, selection[0]] if len(selection) == 1 else \
                    weights[force_3dim][:, :, :, selection].prod(axis=-1)
-
+        extract_weights = LazyTransform('extract_weights', _extract_weights, lambda shape: shape[:-1], np.float32)
         return LazyIndexer(self._weights, (self._time_keep, self._freq_keep, self._corrprod_keep),
-                           transform=extract_weights, shape_transform=lambda shape: shape[:-1], dtype=np.float32)
+                           transforms=[extract_weights])
 
     def flags(self, names=None):
         """Flags as a function of time, frequency and baseline.
@@ -466,7 +467,7 @@ class H5DataV2(DataSet):
         if not flagmask:
             logger.warning('No valid flags were selected - setting all flags to False by default')
 
-        def extract_flags(flags, keep):
+        def _extract_flags(flags, keep):
             # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
             keep = keep[:3] + (slice(None),) * (3 - len(keep))
             # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
@@ -476,6 +477,6 @@ class H5DataV2(DataSet):
             total_flags = np.bitwise_and(flagmask, flags_3dim)
             # Convert uint8 to bool: if any flag bits set, flag is set
             return np.bool_(total_flags)
-
+        extract_flags = LazyTransform('extract_flags', _extract_flags, dtype=np.bool)
         return LazyIndexer(self._flags, (self._time_keep, self._freq_keep, self._corrprod_keep),
-                           transform=extract_flags, dtype=np.bool)
+                           transforms=[extract_flags])

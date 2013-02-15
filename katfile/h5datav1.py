@@ -12,7 +12,7 @@ from .dataset import DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow
                      DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target
 from .sensordata import SensorData, SensorCache
 from .categorical import CategoricalData
-from .lazy_indexer import LazyIndexer
+from .lazy_indexer import LazyIndexer, LazyTransform
 from .concatdata import ConcatenatedLazyIndexer
 
 logger = logging.getLogger('katfile.h5datav1')
@@ -232,11 +232,42 @@ class H5DataV1(DataSet):
         # Avoid storing reference to self in extract_time closure below, as this hinders garbage collection
         dump_period, time_offset = self.dump_period, self.time_offset
         # Convert from millisecs to secs since Unix epoch, and be sure to use float64 to preserve digits
-        extract_time = lambda t, keep: np.float64(t) / 1000. + 0.5 * dump_period + time_offset
+        extract_time = LazyTransform('extract_time',
+                                     lambda t, keep: np.float64(t) / 1000. + 0.5 * dump_period + time_offset,
+                                     dtype=np.float64)
         for n, s in enumerate(self._scan_groups):
-            indexers.append(LazyIndexer(s['timestamps'], keep=self._time_keep[self._segments[n]:self._segments[n + 1]],
-                                        transform=extract_time, dtype=np.float64))
-        return ConcatenatedLazyIndexer(indexers)
+            indexers.append(LazyIndexer(s['timestamps'], keep=self._time_keep[self._segments[n]:self._segments[n + 1]]))
+        return ConcatenatedLazyIndexer(indexers, transforms=[extract_time])
+
+    def _vis_indexers(self):
+        """Create list of indexers to access visibilities across scans.
+
+        Fringe Finder has a weird vis data structure: each scan data group is
+        a recarray with shape (T, F) and fields '0'...'11' indicating the
+        correlation products. The per-scan LazyIndexers therefore only do the
+        time + frequency indexing, leaving corrprod indexing to the final
+        transform. This returns a list of per-scan visibility indexers based
+        on the current data selection.
+
+        """
+        # Avoid storing reference to self in transform closure below, as this hinders garbage collection
+        corrprod_keep = self._corrprod_keep
+        # Apply both first-stage and second-stage corrprod indexing in the transform
+        def index_corrprod(tf, keep):
+            # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
+            keep = keep[:3] + (slice(None),) * (3 - len(keep))
+            # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
+            force_3dim = tuple((np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep)
+            return np.dstack([tf[str(corrind)][force_3dim[:2]] for corrind in np.nonzero(corrprod_keep)[0]])\
+                   [:, :, keep[2]][:, :, force_3dim[2]]
+        extract_vis = LazyTransform('extract_vis_v1', index_corrprod,
+                                    lambda shape: (shape[0], shape[1], corrprod_keep.sum()), np.complex64)
+        indexers = []
+        for n, s in enumerate(self._scan_groups):
+            indexers.append(LazyIndexer(s['data'], keep=(self._time_keep[self._segments[n]:self._segments[n + 1]],
+                                                         self._freq_keep),
+                                        transforms=[extract_vis]))
+        return indexers
 
     @property
     def vis(self):
@@ -254,27 +285,7 @@ class H5DataV1(DataSet):
         form of indexing on it. Only then will data be loaded into memory.
 
         """
-        # Fringe Finder has a weird vis data structure: each scan data group is a recarray
-        # with shape (T, F) and fields '0'...'11' indicating the correlation products.
-        # The per-scan LazyIndexers therefore only do the time + frequency indexing,
-        # leaving corrprod indexing to the final transform.
-        indexers = []
-        corrprod_keep = self._corrprod_keep
-        # Apply both first-stage and second-stage corrprod indexing in the transform
-        def index_corrprod(tf, keep):
-            # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
-            keep = keep[:3] + (slice(None),) * (3 - len(keep))
-            # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
-            force_3dim = tuple((np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep)
-            return np.dstack([tf[str(corrind)][force_3dim[:2]] for corrind in np.nonzero(corrprod_keep)[0]])\
-                   [:, :, keep[2]][:, :, force_3dim[2]]
-        for n, s in enumerate(self._scan_groups):
-            indexers.append(LazyIndexer(s['data'], keep=(self._time_keep[self._segments[n]:self._segments[n + 1]],
-                                                         self._freq_keep),
-                                        transform=index_corrprod,
-                                        shape_transform=lambda shape: (shape[0], shape[1], corrprod_keep.sum()),
-                                        dtype=np.complex64))
-        return ConcatenatedLazyIndexer(indexers)
+        return ConcatenatedLazyIndexer(self._vis_indexers())
 
     def weights(self, names=None):
         """Visibility weights as a function of time, frequency and baseline.
@@ -297,29 +308,8 @@ class H5DataV1(DataSet):
         """
         # tell the user that there are no weights in the h5 file
         logger.warning("No weights in v1 h5 data files, returning array of unity weights")
-
-        # Fringe Finder has a weird vis data structure: each scan data group is a recarray
-        # with shape (T, F) and fields '0'...'11' indicating the correlation products.
-        # The per-scan LazyIndexers therefore only do the time + frequency indexing,
-        # leaving corrprod indexing to the final transform.
-        indexers = []
-        corrprod_keep = self._corrprod_keep
-        # Apply both first-stage and second-stage corrprod indexing in the transform
-        def index_corrprod(tf, keep):
-            # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
-            keep = keep[:3] + (slice(None),) * (3 - len(keep))
-            # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
-            force_3dim = tuple((np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep)
-            data_array = np.dstack([tf[str(corrind)][force_3dim[:2]] for corrind in np.nonzero(corrprod_keep)[0]])\
-                   [:, :, keep[2]][:, :, force_3dim[2]]
-            return np.ones_like(data_array, dtype=np.float32)
-        for n, s in enumerate(self._scan_groups):
-            indexers.append(LazyIndexer(s['data'], keep=(self._time_keep[self._segments[n]:self._segments[n + 1]],
-                                                         self._freq_keep),
-                                        transform=index_corrprod,
-                                        shape_transform=lambda shape: (shape[0], shape[1], corrprod_keep.sum()),
-                                        dtype=np.float32))
-        return ConcatenatedLazyIndexer(indexers)
+        ones = LazyTransform('ones', lambda data, keep: np.ones_like(data, dtype=np.float32), dtype=np.float32)
+        return ConcatenatedLazyIndexer(self._vis_indexers(), transforms=[ones])
 
     def flags(self, names=None):
         """Visibility flags as a function of time, frequency and baseline.
@@ -341,26 +331,5 @@ class H5DataV1(DataSet):
         """
         # tell the user that there are no flags in the h5 file
         logger.warning("No flags in v1 h5 data files, returning array of zero flags")
-
-        # Fringe Finder has a weird vis data structure: each scan data group is a recarray
-        # with shape (T, F) and fields '0'...'11' indicating the correlation products.
-        # The per-scan LazyIndexers therefore only do the time + frequency indexing,
-        # leaving corrprod indexing to the final transform.
-        indexers = []
-        corrprod_keep = self._corrprod_keep
-        # Apply both first-stage and second-stage corrprod indexing in the transform
-        def index_corrprod(tf, keep):
-            # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
-            keep = keep[:3] + (slice(None),) * (3 - len(keep))
-            # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
-            force_3dim = tuple((np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep)
-            data_array = np.dstack([tf[str(corrind)][force_3dim[:2]] for corrind in np.nonzero(corrprod_keep)[0]])\
-                   [:, :, keep[2]][:, :, force_3dim[2]]
-            return np.zeros_like(data_array, dtype=np.bool)
-        for n, s in enumerate(self._scan_groups):
-            indexers.append(LazyIndexer(s['data'], keep=(self._time_keep[self._segments[n]:self._segments[n + 1]],
-                                                         self._freq_keep),
-                                        transform=index_corrprod,
-                                        shape_transform=lambda shape: (shape[0], shape[1], corrprod_keep.sum()),
-                                        dtype=np.bool))
-        return ConcatenatedLazyIndexer(indexers)
+        falses = LazyTransform('falses', lambda data, keep: np.zeros_like(data, dtype=np.bool), dtype=np.bool)
+        return ConcatenatedLazyIndexer(self._vis_indexers(), transforms=[falses])

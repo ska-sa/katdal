@@ -5,6 +5,60 @@ import numpy as np
 #TODO support advanced integer indexing with non-strictly increasing indices (i.e. out-of-order and duplicates)
 
 #--------------------------------------------------------------------------------------------------
+#--- CLASS :  LazyTransform
+#--------------------------------------------------------------------------------------------------
+
+class InvalidTransform(Exception):
+    """Transform changes data shape in unallowed way."""
+    pass
+
+
+class LazyTransform(object):
+    """Transformation to be applied by LazyIndexer after final indexing.
+
+    A :class:`LazyIndexer` potentially applies a chain of transforms to the
+    data after the final second-stage indexing is done. These transforms are
+    restricted in their capabilities to simplify the indexing process.
+    Specifically, when it comes to the data shape, transforms may only::
+
+      - add dimensions at the end of the data shape, or
+      - drop dimensions at the end of the data shape.
+
+    The preserved dimensions are not allowed to change their shape or
+    interpretation so that the second-stage indexing matches the first-stage
+    indexing on these dimensions. The data type (aka `dtype`) is allowed to
+    change.
+
+    Parameters
+    ----------
+    name : string or None, optional
+        Name of transform
+    transform : function, signature ``data = f(data, keep)``, optional
+        Transform to apply to data (`keep` is user-specified second-stage index)
+    new_shape : function, signature ``new_shape = f(old_shape)``, optional
+        Function that predicts data array shape tuple after first-stage indexing
+        and transformation, given its original shape tuple as input.
+        Restrictions apply as described above.
+    dtype : :class:`numpy.dtype` object or equivalent or None, optional
+        Type of output array after transformation (None if same as input array)
+
+    """
+    def __init__(self, name=None, transform=lambda d, k: d, new_shape=lambda s: tuple(s), dtype=None):
+        self.name = 'unnamed' if name is None else name
+        self.transform = transform
+        self.new_shape = new_shape
+        self.dtype = np.dtype(dtype) if dtype is not None else None
+
+    def __repr__(self):
+        """Short human-friendly string representation of lazy transform object."""
+        return "<katfile.%s '%s': type '%s' at 0x%x>" % \
+               (self.__class__.__name__, self.name, 'unchanged' if self.dtype is None else self.dtype, id(self))
+
+    def __call__(self, data, keep):
+        """Transform data (`keep` is user-specified second-stage index)."""
+        return self.transform(data, keep)
+
+#--------------------------------------------------------------------------------------------------
 #--- CLASS :  LazyIndexer
 #--------------------------------------------------------------------------------------------------
 
@@ -60,32 +114,32 @@ class LazyIndexer(object):
     keep : tuple of int or slice or sequence of int or sequence of bool, optional
         First-stage index as a valid index or slice specification
         (supports arbitrary slicing or advanced indexing on any dimension)
-    transform : function, signature ``data = f(data, keep)``, optional
-        Transform that will be applied to data after final indexing
-    shape_transform : function, signature ``new_shape = f(old_shape)``, optional
-        Function that predicts data array shape after first-stage indexing and
-        transformation, given its original shape as input
-    dtype : :class:`numpy.dtype` object or equivalent, optional
-        Type of output array after transformation, i.e. `self[:].dtype`
+    transforms : list of :class:`LazyTransform` objects or None, optional
+        Chain of transforms to be applied to data after final indexing. The
+        chain as a whole may only add or drop dimensions at the end of data
+        shape without changing the preserved dimensions.
 
     Attributes
     ----------
-    shape : tuple of int
-        Shape of data array after first-stage indexing and transformation,
-        i.e. corresponding to `self[:].shape`
     name : string
         Name of HDF5 dataset (or empty string for unnamed ndarrays, etc.)
 
+    Raises
+    ------
+    InvalidTransform
+        If transform chain does not obey restrictions on changing the data shape
+
     """
-    def __init__(self, dataset, keep=slice(None), transform=lambda d, k: d, shape_transform=lambda s: s, dtype=None):
+    def __init__(self, dataset, keep=slice(None), transforms=None):
         self.dataset = dataset
-        self.transform = transform
+        self.transforms = [] if transforms is None else transforms
+        self.name = getattr(self.dataset, 'name', '')
         # Ensure that keep is a tuple (then turn it into a list to simplify further processing)
         keep = list(keep) if isinstance(keep, tuple) else [keep]
         # Ensure that keep is same length as data shape (truncate or pad with blanket slices as necessary)
         keep = keep[:len(dataset.shape)] + [slice(None)] * (len(dataset.shape) - len(keep))
-        self.lookup = []
         # Ensure that each index in lookup is an array of integer indices, or None
+        self._lookup = []
         for dim_keep, dim_len in zip(keep, dataset.shape):
             if isinstance(dim_keep, slice):
                 # Turn slice into array of integer indices (or None if it contains all indices)
@@ -96,16 +150,33 @@ class LazyIndexer(object):
                 # Turn boolean mask into integer indices (True means keep that index), or None if all is True
                 if dim_keep.dtype == np.bool and len(dim_keep) == dim_len:
                     dim_keep = np.nonzero(dim_keep)[0] if not dim_keep.all() else None
-            self.lookup.append(dim_keep)
-        self.shape = shape_transform(tuple([(len(dim_keep) if dim_keep is not None else dim_len)
-                                            for dim_keep, dim_len in zip(self.lookup, dataset.shape)]))
-        self.dtype = np.dtype(dtype) if dtype is not None else dataset.dtype
-        self.name = getattr(self.dataset, 'name', '')
+            self._lookup.append(dim_keep)
+        # Shape of data array after first-stage indexing and before transformation
+        self._initial_shape = tuple([(len(dim_keep) if dim_keep is not None else dim_len)
+                                     for dim_keep, dim_len in zip(self._lookup, self.dataset.shape)])
+        # Type of data array before transformation
+        self._initial_dtype = self.dataset.dtype
+        # Test validity of shape and dtype
+        self.shape, self.dtype
 
     def __repr__(self):
         """Short human-friendly string representation of lazy indexer object."""
         return "<katfile.%s '%s': shape %s, type '%s' at 0x%x>" % \
                (self.__class__.__name__, self.name, self.shape, self.dtype, id(self))
+
+    def _name_shape_dtype(self, name, shape, dtype):
+        """Helper function to create strings for display (limits dtype length)."""
+        dtype_str = (str(dtype)[:50] + '...') if len(str(dtype)) > 50 else str(dtype)
+        return "%s -> %s %s" % (name, shape, dtype_str)
+
+    def __str__(self):
+        """Verbose human-friendly string representation of lazy indexer object."""
+        shape, dtype = self._initial_shape, self._initial_dtype
+        descr = [self._name_shape_dtype(self.name, shape, dtype)]
+        for transform in self.transforms:
+            shape, dtype = transform.new_shape(shape), transform.dtype if transform.dtype is not None else dtype
+            descr += ['-> ' + self._name_shape_dtype(transform.name, shape, dtype)]
+        return '\n'.join(descr)
 
     def __len__(self):
         """Length operator."""
@@ -133,12 +204,12 @@ class LazyIndexer(object):
         ndim = len(self.dataset.shape)
         # Ensure that keep is a tuple (then turn it into a list to simplify further processing)
         keep = list(keep) if isinstance(keep, tuple) else [keep]
-        # The original keep tuple will be passed to data transform
+        # The original keep tuple will be passed to data transform chain
         original_keep = tuple(keep)
         # Ensure that keep is same length as data dimension (truncate or pad with blanket slices as necessary)
         keep = keep[:ndim] + [slice(None)] * (ndim - len(keep))
         # Map current selection to original data indices based on any existing initial selection, per data dimension
-        keep = [(dkeep if dlookup is None else dlookup[dkeep]) for dkeep, dlookup in zip(keep, self.lookup)]
+        keep = [(dkeep if dlookup is None else dlookup[dkeep]) for dkeep, dlookup in zip(keep, self._lookup)]
         # Iterate over dimensions of dataset, storing information on selection on each dimension:
         # `selection` is a list with one element per dimension; each element is a list of contiguous segments along
         # the dimension, and each segment is represented by a tuple of 3 elements:
@@ -189,30 +260,49 @@ class LazyIndexer(object):
                     segment_sizes.append(segm_sizes)
         # Short-circuit the selection if all dimensions are selected with scalars (resulting in a scalar output)
         if segment_sizes == [[]] * ndim:
-            return self.transform(self.dataset[tuple([select[0][0] for select in selection])], original_keep)
-        # Use a dense N-dimensional meshgrid to slice the data set into chunks, based on segments along each dimension
-        chunk_indices = np.mgrid[[slice(0, len(select), 1) for select in selection]]
-        # Pre-allocate output ndarray to have the correct shape and dtype (will be at least 1-dimensional)
-        out_data = np.empty([np.sum(segments) for segments in segment_sizes if segments], dtype=self.dataset.dtype)
-        # Iterate over chunks, extracting them from dataset and inserting them into the right spot in output array
-        for chunk_index in chunk_indices.reshape(ndim, -1).T:
-            # Extract chunk from dataset (don't use any advanced indexing here, only scalars and slices)
-            dataset_select = tuple([select[segment][0] for select, segment in zip(selection, chunk_index)])
-            chunk = self.dataset[dataset_select]
-            # Perform post-selection on chunk (can be fancier / advanced indexing because chunk is now an ndarray)
-            post_select = [select[segment][1] for select, segment in zip(selection, chunk_index)]
-            # If any dimensions were dropped due to scalar indexing, drop them from post_select/out_select tuples too
-            post_select = tuple([select for select in post_select if select is not None])
-            # Do post-selection one dimension at a time, as ndarray does not allow simultaneous advanced indexing
-            # on more than one dimension. This caters for the scenario where more than one dimension satisfies
-            # the Ratcliffian benchmark (the only way to get advanced post-selection).
-            for dim in range(len(chunk.shape)):
-                # Only do post-selection on this dimension if non-trivial (otherwise an unnecessary copy happens)
-                if not (isinstance(post_select[dim], slice) and post_select[dim] == slice(None)):
-                    # Prepend the appropriate number of colons to the selection to place it at the correct dimension
-                    chunk = chunk[[slice(None)] * dim + [post_select[dim]]]
-            # Determine appropriate output selection and insert chunk into output array
-            out_select = [select[segment][2] for select, segment in zip(selection, chunk_index)]
-            out_select = tuple([select for select in out_select if select is not None])
-            out_data[out_select] = chunk
-        return self.transform(out_data, original_keep)
+            out_data = self.dataset[tuple([select[0][0] for select in selection])]
+        else:
+            # Use dense N-dimensional meshgrid to slice data set into chunks, based on segments along each dimension
+            chunk_indices = np.mgrid[[slice(0, len(select), 1) for select in selection]]
+            # Pre-allocate output ndarray to have the correct shape and dtype (will be at least 1-dimensional)
+            out_data = np.empty([np.sum(segments) for segments in segment_sizes if segments], dtype=self.dataset.dtype)
+            # Iterate over chunks, extracting them from dataset and inserting them into the right spot in output array
+            for chunk_index in chunk_indices.reshape(ndim, -1).T:
+                # Extract chunk from dataset (don't use any advanced indexing here, only scalars and slices)
+                dataset_select = tuple([select[segment][0] for select, segment in zip(selection, chunk_index)])
+                chunk = self.dataset[dataset_select]
+                # Perform post-selection on chunk (can be fancier / advanced indexing because chunk is now an ndarray)
+                post_select = [select[segment][1] for select, segment in zip(selection, chunk_index)]
+                # If any dimensions were dropped due to scalar indexing, drop them from post_select/out_select tuples
+                post_select = tuple([select for select in post_select if select is not None])
+                # Do post-selection one dimension at a time, as ndarray does not allow simultaneous advanced indexing
+                # on more than one dimension. This caters for the scenario where more than one dimension satisfies
+                # the Ratcliffian benchmark (the only way to get advanced post-selection).
+                for dim in range(len(chunk.shape)):
+                    # Only do post-selection on this dimension if non-trivial (otherwise an unnecessary copy happens)
+                    if not (isinstance(post_select[dim], slice) and post_select[dim] == slice(None)):
+                        # Prepend the appropriate number of colons to the selection to place it at correct dimension
+                        chunk = chunk[[slice(None)] * dim + [post_select[dim]]]
+                # Determine appropriate output selection and insert chunk into output array
+                out_select = [select[segment][2] for select, segment in zip(selection, chunk_index)]
+                out_select = tuple([select for select in out_select if select is not None])
+                out_data[out_select] = chunk
+        # Apply transform chain to output data, if any
+        return reduce(lambda data, transform: transform(data, original_keep), self.transforms, out_data)
+
+    @property
+    def shape(self):
+        """Shape of data array after first-stage indexing and transformation, i.e. `self[:].shape`."""
+        new_shape = reduce(lambda shape, transform: transform.new_shape(shape), self.transforms, self._initial_shape)
+        # Do a quick test of shape transformation as verification of the transform chain
+        allowed_shapes = [self._initial_shape[:(n + 1)] for n in range(len(self._initial_shape))]
+        if new_shape[:len(self._initial_shape)] not in allowed_shapes:
+            raise InvalidTransform('Transform chain may only add or drop dimensions at the end of data shape: '
+                                   'final shape is %s, expected one of %s' % (new_shape, allowed_shapes))
+        return new_shape
+
+    @property
+    def dtype(self):
+        """Type of data array after transformation, i.e. `self[:].dtype`."""
+        return reduce(lambda dtype, transform: transform.dtype if transform.dtype is not None else dtype,
+                      self.transforms, self._initial_dtype)
