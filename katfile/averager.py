@@ -1,6 +1,6 @@
 import numpy as np
 
-def block_and_average(vis,weight,flag,avsize,axis=0):
+def block_and_average(vis,weight,flag,avsize,axis=0,flagav=False):
     
     """ 'block_and_average' does the dirty work of averaging for 'average_visibilities'.
     It blocks an input array in its last axis at a list of array indices calculated
@@ -14,7 +14,10 @@ def block_and_average(vis,weight,flag,avsize,axis=0):
     vis: array of input visibilities (as defined in 'average_visibilities')
     weight: array of input weights   ( " )
     flag: array of input flags       ( " )
-    avsize: int the averaging size along the last axis.
+    avsize: int, The averaging size along the last axis.
+    axis: int, The axis along with to perform the averaging
+    flagav: bool, (as defined in 'average_visibilities')
+    
 
     Outputs
     -------
@@ -55,7 +58,10 @@ def block_and_average(vis,weight,flag,avsize,axis=0):
     av_weight = np.sum(block_weight,axis=-1)
     
     #Now do the flags
-    av_flag = np.all(block_flag,axis=-1)
+    if flagav:
+        av_flag = np.any(block_flag,axis=-1)
+    else:
+        av_flag = np.all(block_flag,axis=-1)
 
     #Rotate the original arrays back to their assumed shape
     av_vis = np.rollaxis(av_vis,0,axis+1)
@@ -65,7 +71,7 @@ def block_and_average(vis,weight,flag,avsize,axis=0):
     return av_vis,av_weight,av_flag,indices
 
 
-def average_visibilities(vis,weight,flag,timestamps,channel_freqs,timeav=10,chanav=8):
+def average_visibilities(vis,weight,flag,timestamps,channel_freqs,timeav=10,chanav=8,flagav=False):
 
     """ 'average_visibilities' performs the task of averaging of visibilities and
     flags and weights. Visibilities are weight-averaged using the weights in the weight
@@ -95,6 +101,9 @@ def average_visibilities(vis,weight,flag,timestamps,channel_freqs,timeav=10,chan
           The desired averaging size in timestamps.
     chanav: int.
           The desired averaging size in channels.
+    flagav: bool
+          Flagged averaged data in when there is a single flag in the bin if true.
+          Only flag averaged data when all data in the bin is flagged if false.
     
     Outputs
     -------
@@ -110,12 +119,11 @@ def average_visibilities(vis,weight,flag,timestamps,channel_freqs,timeav=10,chan
     weight[np.where(flag==True)]=0.0
 
     # Get the channel averaged visibilities, weights and flags
-    av_vis_chan,av_weight_chan,av_flag_chan,chan_inds = block_and_average(vis,weight,flag,chanav,axis=1)
+    av_vis_chan,av_weight_chan,av_flag_chan,chan_inds = block_and_average(vis,weight,flag,chanav,axis=1,flagav=flagav)
     
     # Do the same on the channel averaged data in time
-    av_vis,av_weight,av_flag,time_inds = block_and_average(av_vis_chan,av_weight_chan,av_flag_chan,timeav,axis=0)
+    av_vis,av_weight,av_flag,time_inds = block_and_average(av_vis_chan,av_weight_chan,av_flag_chan,timeav,axis=0,flagav=flagav)
 
-    #print av_vis.shape,av_weight.shape,av_flag.shape
     #get the mjd of the average visibilities
     av_freq = np.average(np.array(np.split(channel_freqs,chan_inds)[:-1]),axis=1)
     av_timestamps = np.average(np.array(np.split(timestamps,time_inds)[:-1]),axis=1)

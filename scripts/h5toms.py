@@ -40,6 +40,7 @@ parser.add_option("-e", "--elevation-range", help="Flag elevations outside the r
 parser.add_option("--flags", help="List of online flags to apply (from 'static,cam,detected_rfi,predicted_rfi', default is all flags, '' will apply no flags)")
 parser.add_option("--dumptime", type=float, default=0.0, help="Output time averaging interval in seconds, default is no averaging.")
 parser.add_option("--chanbin", type=int, default=0, help="Bin width for channel averaging in channels, default is no averaging.")
+parser.add_option("--flagav", action="store_true", default=False, help="If a single element in an averaging bin is flagged, flag the averaged bin.")
 
 (options, args) = parser.parse_args()
 
@@ -160,6 +161,9 @@ else:
     dump_av = 1
     time_av = h5.dump_period
 
+# Print a message if extending flags to averageing bins.
+if average_data and options.flagav and options.flags!='': print "Extending flags to averaging bins."
+
 
 # Optionally keep only cross-correlation products
 if options.no_auto:
@@ -252,8 +256,9 @@ for scan_ind, scan_state, target in h5.scans():
                 out_freqs = h5.channel_freqs
                 
                 # Overwrite the input visibilities with averaged visibilities,flags,weights,timestamps,channel freqs
-                if average_data: vis_data,weight_data,flag_data,out_utc,out_freqs=averager.average_visibilities(vis_data, weight_data, flag_data, out_utc, out_freqs,dump_av,chan_av)
+                if average_data: vis_data,weight_data,flag_data,out_utc,out_freqs=averager.average_visibilities(vis_data, weight_data, flag_data, out_utc, out_freqs,timeav=dump_av,chanav=chan_av,flagav=options.flagav)
                     
+                
                 pol_data.append(vis_data)
                 weight_pol_data.append(weight_data)
                 flag_pol_data.append(flag_data)
