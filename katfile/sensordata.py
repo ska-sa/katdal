@@ -433,15 +433,26 @@ class SensorCache(dict):
             else:
                 # Interpolate numerical data onto data timestamps (fallback option is linear interpolation)
                 props['interp_degree'] = interp_degree = props.get('interp_degree', 1)
+                sensor_timestamps = sensor_data['timestamp']
+                # Warn if sensor data will be extrapolated to start or end of data set with potentially bogus results
+                if interp_degree > 0 and len(sensor_timestamps) > 1:
+                    if sensor_timestamps[0] > self.timestamps[0]:
+                        logger.warning(("First data point for sensor '%s' only arrives %g seconds into data set" %
+                                       (name, sensor_timestamps[0] - self.timestamps[0])) +
+                                       " - extrapolation may lead to ridiculous values")
+                    if sensor_timestamps[-1] < self.timestamps[-1]:
+                        logger.warning(("Last data point for sensor '%s' arrives %g seconds before end of data set" %
+                                       (name, self.timestamps[-1] - sensor_timestamps[-1])) +
+                                       " - extrapolation may lead to ridiculous values")
                 if PiecewisePolynomial1DFit is not None:
                     interp = PiecewisePolynomial1DFit(max_degree=interp_degree)
-                    interp.fit(sensor_data['timestamp'], sensor_data['value'])
+                    interp.fit(sensor_timestamps, sensor_data['value'])
                     sensor_data = interp(self.timestamps)
                 else:
                     if interp_degree != 1:
                         logger.warning('Requested sensor interpolation with polynomial degree ' + str(interp_degree) +
                                        ' but scikits.fitting not installed - falling back to linear interpolation')
-                    sensor_data = _linear_interp(sensor_data['timestamp'], sensor_data['value'], self.timestamps)
+                    sensor_data = _linear_interp(sensor_timestamps, sensor_data['value'], self.timestamps)
             self[name] = sensor_data
         return sensor_data[self.keep] if select else sensor_data
 
