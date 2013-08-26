@@ -455,15 +455,19 @@ def concatenate_categorical(split_data, **kwargs):
         Concatenated dataset
 
     """
+    if len(split_data) == 1:
+        return split_data[0]
     # Synthesise segment starts from the time length of each dataset
     segments = np.cumsum([0] + [cat_data.events[-1] for cat_data in split_data])
     data = CategoricalData([], [])
     # Combine all unique values in the order they are found in datasets
-    data.unique_values = unique_in_order(np.concatenate([cat_data.unique_values for cat_data in split_data]))
+    split_values = [cat_data.unique_values for cat_data in split_data]
+    inverse_splits = np.cumsum([0] + [len(vals) for vals in split_values])
+    data.unique_values, inverse = unique_in_order(np.concatenate(split_values), return_inverse=True)
     indices, events = [], []
     for n, cat_data in enumerate(split_data):
         # Remap indices to new unique_values array
-        lookup = np.array([data.unique_values.tolist().index(value) for value in cat_data.unique_values])
+        lookup = np.array(inverse[inverse_splits[n]:inverse_splits[n + 1]])
         indices.append(lookup[cat_data.indices])
         # Offset events by the start of each segment
         events.append(cat_data.events[:-1] + segments[n])
