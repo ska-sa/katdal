@@ -625,18 +625,20 @@ class DataSet(object):
             elif k in ('scans', 'compscans'):
                 scans = v if is_iterable(v) else [l.strip() for l in v.split(',')] if isinstance(v, basestring) else [v]
                 scan_keep = np.zeros(len(self._time_keep), dtype=np.bool)
-                scan_sensor = {'scans': 'scan_state', 'compscans': 'label'}
+                scan_sensor = self.sensor.get('Observation/scan_state' if k == 'scans' else 'Observation/label')
+                scan_index_sensor = self.sensor.get('Observation/%s_index' % (k[:-1],))
                 for scan in scans:
                     if isinstance(scan, int):
-                        scan_keep |= (self.sensor.get('Observation/%s_index' % (k[:-1],)) == scan)
+                        scan_keep |= (scan_index_sensor == scan)
                     elif scan[0] == '~':
-                        scan_keep |= ~(self.sensor.get('Observation/%s' % (scan_sensor[k],)) == scan[1:])
+                        scan_keep |= ~(scan_sensor == scan[1:])
                     else:
-                        scan_keep |= (self.sensor.get('Observation/%s' % (scan_sensor[k],)) == scan)
+                        scan_keep |= (scan_sensor == scan)
                 self._time_keep &= scan_keep
             elif k == 'targets':
                 targets = v if is_iterable(v) else [v]
                 target_keep = np.zeros(len(self._time_keep), dtype=np.bool)
+                target_index_sensor = self.sensor.get('Observation/target_index')
                 for t in targets:
                     if isinstance(t, int):
                         target_index = t
@@ -648,7 +650,7 @@ class DataSet(object):
                         target_index = self.catalogue.targets.index(t)
                     else:
                         target_index = self.catalogue.targets.index(self.catalogue[t])
-                    target_keep |= (self.sensor.get('Observation/target_index') == target_index)
+                    target_keep |= (target_index_sensor == target_index)
                 self._time_keep &= target_keep
             # Selections that affect frequency axis
             elif k == 'channels':
@@ -743,10 +745,10 @@ class DataSet(object):
         # This will ensure that the original selection is properly restored
         preselection['reset'] = 'T'
         old_timekeep = self._time_keep.copy()
+        state_data = self.sensor.get('Observation/scan_state')
         for scan in scans:
             # Add scan selection on top of existing selection
             self.select(scans=scan, reset='')
-            state_data = self.sensor.get('Observation/scan_state')
             state = state_data.unique_values[state_data.indices[scan]]
             target = self.catalogue.targets[self.target_indices[0]]
             yield scan, state, target
