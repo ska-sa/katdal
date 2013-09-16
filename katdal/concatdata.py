@@ -395,6 +395,9 @@ class ConcatenatedDataSet(DataSet):
         self.observer = ','.join(unique_in_order([d.observer for d in datasets]))
         self.description = ' | '.join(unique_in_order([d.description for d in datasets]))
         self.experiment_id = ','.join(unique_in_order([d.experiment_id for d in datasets]))
+        obs_params = unique_in_order(reduce(lambda x, y: x + y, [d.obs_params.keys() for d in datasets]))
+        for param in obs_params:
+            self.obs_params[param] = ' | '.join(unique_in_order([d.obs_params.get(param, '') for d in datasets]))
 
         dump_periods = unique_in_order([d.dump_period for d in datasets])
         if len(dump_periods) > 1:
