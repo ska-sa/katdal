@@ -8,7 +8,7 @@ import numpy as np
 import katpoint
 from katpoint import is_iterable
 
-logger = logging.getLogger("katfile.dataset")
+logger = logging.getLogger("katdal.dataset")
 
 #--------------------------------------------------------------------------------------------------
 #--- CLASS :  Helper classes
@@ -69,7 +69,7 @@ class Subarray(object):
 
     def __repr__(self):
         """Short human-friendly string representation of subarray object."""
-        return "<katfile.Subarray antennas=%d inputs=%d corrprods=%d at 0x%x>" % \
+        return "<katdal.Subarray antennas=%d inputs=%d corrprods=%d at 0x%x>" % \
                (len(self.ants), len(self.inputs), len(self.corr_products), id(self))
 
     def __eq__(self, other):
@@ -124,7 +124,7 @@ class SpectralWindow(object):
 
     def __repr__(self):
         """Short human-friendly string representation of spectral window object."""
-        return "<katfile.SpectralWindow mode='%s' centre=%.3f MHz bandwidth=%.3f MHz channels=%d at 0x%x>" % \
+        return "<katdal.SpectralWindow mode='%s' centre=%.3f MHz bandwidth=%.3f MHz channels=%d at 0x%x>" % \
               (self.mode, self.centre_freq / 1e6, self.num_chans * self.channel_width / 1e6, self.num_chans, id(self))
 
     def __eq__(self, other):
@@ -371,7 +371,7 @@ class DataSet(object):
 
     def __repr__(self):
         """Short human-friendly string representation of data set object."""
-        return "<katfile.%s '%s' shape %s at 0x%x>" % (self.__class__.__name__, self.name, self.shape, id(self))
+        return "<katdal.%s '%s' shape %s at 0x%x>" % (self.__class__.__name__, self.name, self.shape, id(self))
 
     def __str__(self):
         """Verbose human-friendly string representation of data set."""

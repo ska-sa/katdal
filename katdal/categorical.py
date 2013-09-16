@@ -35,7 +35,7 @@ def unique(ar, return_index=False, return_inverse=False):
     Notes
     -----
     This is a copy of :func:`numpy.unique` from NumPy 1.6.2, backported to make
-    katfile work with NumPy 1.3.0 (which did not have the return_index and
+    katdal work with NumPy 1.3.0 (which did not have the return_index and
     return_inverse keyword arguments). Once backwards compatibility is not
     required anymore, this function may be removed and replaced by np.unique.
 
@@ -205,7 +205,7 @@ class CategoricalData(object):
 
     def __repr__(self):
         """Short human-friendly string representation of categorical data object."""
-        return "<katfile.CategoricalData events=%d values=%d type='%s' at 0x%x>" % \
+        return "<katdal.CategoricalData events=%d values=%d type='%s' at 0x%x>" % \
                (len(self.indices), len(self.unique_values), self.unique_values.dtype, id(self))
 
     def __str__(self):

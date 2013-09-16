@@ -1,4 +1,3 @@
-
 """Data accessor class for HDF5 files produced by Fringe Finder correlator."""
 
 import logging
@@ -15,7 +14,7 @@ from .categorical import CategoricalData
 from .lazy_indexer import LazyIndexer, LazyTransform
 from .concatdata import ConcatenatedLazyIndexer
 
-logger = logging.getLogger('katfile.h5datav1')
+logger = logging.getLogger('katdal.h5datav1')
 
 def _labels_to_state(scan_label, compscan_label):
     """Use scan and compscan labels to derive basic state of antenna."""

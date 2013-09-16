@@ -12,7 +12,7 @@ import time
 
 import matplotlib.pyplot as plt
 import numpy as np
-import katfile
+import katdal
 
 
 class ResampledImage(object):
@@ -103,7 +103,7 @@ parser.add_option('-s', '--autoscale', action='store_true', default=False,
 if len(args) == 0:
     print 'Please specify at least one HDF5 file to load'
 else:
-    d = katfile.open(args)
+    d = katdal.open(args)
     ant = opts.ant if opts.ant is not None else d.ref_ant
     d.select(ant=ant, pol=opts.pol)
 

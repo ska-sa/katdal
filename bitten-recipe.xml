@@ -39,7 +39,7 @@
     />
     <python:unittest file="build/test-results.xml"/>
     <python:figleaf summary="build/test-coverage.txt" 
-        include="katfile/*" exclude="*/test/*"/>
+        include="katdal/*" exclude="*/test/*"/>
   </step>
 
   <step id="lint" description="Analyse source code" onerror="continue">
@@ -49,7 +49,7 @@
                ret = call([&quot;pylint&quot;,
                            &quot;--output-format=parseable&quot;,
                            &quot;--rcfile=tools/svnds-code.pylintrc&quot;,
-                           &quot;katfile&quot;]);
+                           &quot;katdal&quot;]);
                sys.exit(ret if (ret &gt; 31 or ret &lt; 0) else 0);'"
      output="build/pylint.out"/>
     <python:pylint file="build/pylint.out"/>

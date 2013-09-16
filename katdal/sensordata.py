@@ -8,7 +8,7 @@ import katpoint
 
 from .categorical import sensor_to_categorical
 
-logger = logging.getLogger("katfile.sensordata")
+logger = logging.getLogger("katdal.sensordata")
 
 # This is needed for tab completion, but is ignored if no IPython is installed
 try:
@@ -76,7 +76,7 @@ class SensorData(object):
 
     def __repr__(self):
         """Short human-friendly string representation of sensor data object."""
-        return "<katfile.%s '%s' len=%d type='%s' at 0x%x>" % \
+        return "<katdal.%s '%s' len=%d type='%s' at 0x%x>" % \
                (self.__class__.__name__, self.name, len(self), self.dtype, id(self))
 
 #--------------------------------------------------------------------------------------------------
@@ -108,7 +108,7 @@ def _linear_interp(xi, yi, x):
     Notes
     -----
     This is lifted from scikits.fitting.poly as it is the only part of the
-    package that is typically required. This weens katfile off SciPy too.
+    package that is typically required. This weens katdal off SciPy too.
 
     """
     # Find lowest xi value >= x (end of segment containing x)
@@ -307,7 +307,7 @@ class SensorCache(dict):
     def __repr__(self):
         """Short human-friendly string representation of sensor cache object."""
         sensor_data = [self.get(name, extract=False) for name in self.iterkeys()]
-        return "<katfile.%s sensors=%d cached=%d at 0x%x>" % \
+        return "<katdal.%s sensors=%d cached=%d at 0x%x>" % \
                (self.__class__.__name__, len(sensor_data),
                 np.sum([not isinstance(data, SensorData) for data in sensor_data]), id(self))
 

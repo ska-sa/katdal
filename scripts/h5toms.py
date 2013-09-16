@@ -13,9 +13,9 @@ import time
 import numpy as np
 
 import katpoint
-import katfile
-from katfile import averager
-from katfile import ms_extra
+import katdal
+from katdal import averager
+from katdal import ms_extra
 
  # NOTE: This should be checked before running (only for w stopping) to see how up to date the cable delays are !!!
 delays = {}
@@ -104,8 +104,8 @@ else: print "\n#### Producing a two polarisation MS (HH, VV) ####\n"
 
 # Open HDF5 file
 if len(args) == 1: args = args[0]
-h5 = katfile.open(args, ref_ant=options.ref_ant)
- # katfile can handle a list of files, which get virtually concatenated internally
+h5 = katdal.open(args, ref_ant=options.ref_ant)
+ # katdal can handle a list of files, which get virtually concatenated internally
 
 # if fringe stopping is requested, check that it has not already been done in hardware
 if options.stop_w:

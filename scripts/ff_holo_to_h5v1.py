@@ -92,7 +92,7 @@ corr_group.attrs['dump_rate_hz'] /= 128
 channel_bw = corr_group.attrs['channel_bandwidth_hz']
 # The center frequency is set to the middle of channel 256 according
 # to the frequency formula in Section 4.1 in Holography Manual SET/TM/001/E
-# However, since katfile does not yet support USB mixing as in the holo downconverter,
+# However, since katdal does not yet support USB mixing as in the holo downconverter,
 # kludge this to channel 494 as the satellite RF signal is around channels 375-377
 center_freq_hz = (375 - 256 + 375) * channel_bw + 10510e6 + lo_freq_hz + 56e6
 corr_group.attrs['center_frequency_hz'] = center_freq_hz

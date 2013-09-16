@@ -2,9 +2,9 @@
 from setuptools import setup, find_packages
 
 setup (
-    name = "katfile",
+    name = "katdal",
     version = "trunk",
-    description = "Karoo Array Telescope library to interact with HDF5 and MS files",
+    description = "Karoo Array Telescope data access library to interact with HDF5 and MS files",
     author = "Ludwig Schwardt",
     author_email = "ludwig@ska.ac.za",
     packages = find_packages(),
@@ -27,5 +27,5 @@ setup (
     keywords="kat kat7 ska",
     zip_safe = False,
     # Bitten Test Suite
-    test_suite = "katfile.test.suite",
+    test_suite = "katdal.test.suite",
 )

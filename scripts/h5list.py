@@ -11,7 +11,7 @@ import optparse
 import glob
 import logging
 
-import katfile
+import katdal
 
 # See warnings while loading files (will appear *above* the relevant file)
 # logging.basicConfig(format='%(levelname)s %(name)s %(message)s')
@@ -36,7 +36,7 @@ for arg in args:
 print "Name          Ver Observer   StartTimeSAST       Shape               SizeGB DumpHz SPW CFreqMHz Ants    Tgts Scans Description"
 for f in files:
     try:
-        d = katfile.open(f, quicklook=True)
+        d = katdal.open(f, quicklook=True)
     except Exception, e:
         print '%s %s - %s' % (f, e.__class__.__name__, e)
         continue

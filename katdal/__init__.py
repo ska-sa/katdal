@@ -14,14 +14,14 @@ Quick Tutorial
 
 Open any HDF5 file through a single function to obtain a data set object::
 
-  import katfile
-  d = katfile.open('1234567890.h5')
+  import katdal
+  d = katdal.open('1234567890.h5')
 
 This automatically determines whether it is a version 1 (FF) or version 2
 (KAT-7) file. Multiple files (even of different versions) may also be
 concatenated together (as long as they have the same dump rate)::
 
-  d = katfile.open(['1234567890.h5', '1234567891.h5'])
+  d = katdal.open(['1234567890.h5', '1234567891.h5'])
 
 Inspect the contents of the file by printing the object::
 
@@ -171,7 +171,7 @@ Other useful attributes include *ra*, *dec*, *lst*, *mjd*, *u*, *v*, *w*,
 *target_x* and *target_y*. These are all one-dimensional NumPy arrays that
 dynamically change length depending on the active selection.
 
-As in the original katfile package there is a :meth:`DataSet.scans` generator
+As in katdal's predecessor (scape) there is a :meth:`DataSet.scans` generator
 that allows you to step through the scans in the data set. It returns the
 scan index, scan state and target object on each iteration, and updates
 the active selection on the data set to include only the current scan.
@@ -229,13 +229,13 @@ if _ip is not None:
 class _NullHandler(_logging.Handler):
     def emit(self, record):
         pass
-logger = _logging.getLogger("katfile")
+logger = _logging.getLogger("katdal")
 logger.addHandler(_NullHandler())
 
 # Attempt to determine installed package version
 try:
     import pkg_resources as _pkg_resources
-    _dist = _pkg_resources.get_distribution("katfile")
+    _dist = _pkg_resources.get_distribution("katdal")
     # ver needs to be a list since tuples in Python <= 2.5 don't have
     # a .index method.
     _ver = list(_dist.parsed_version)
