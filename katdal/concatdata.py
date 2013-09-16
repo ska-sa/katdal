@@ -399,7 +399,7 @@ class ConcatenatedDataSet(DataSet):
         dump_periods = unique_in_order([d.dump_period for d in datasets])
         if len(dump_periods) > 1:
             raise ConcatenationError('Data sets cannot be concatenated because of differing dump periods: ' +
-                                     ', '.join(dump_periods))
+                                     ', '.join([('%g' % (dp,)) for dp in dump_periods]))
         self.dump_period = dump_periods[0]
         self._segments = np.cumsum([0] + [len(d.sensor.timestamps) for d in datasets])
         # Keep main time selection mask at top level and ensure that underlying datasets use slice views of main one
