@@ -562,11 +562,11 @@ class DataSet(object):
         time_selectors = ['dumps', 'timerange', 'scans', 'compscans', 'targets']
         freq_selectors = ['channels', 'freqrange']
         corrprod_selectors = ['corrprods', 'ants', 'inputs', 'pol']
-        # Check if keywords are valid
+        # Check if keywords are valid but don't raise exception if invalid as kwargs may arrive from strange places
         valid_kwargs = time_selectors + freq_selectors + corrprod_selectors + ['spw', 'subarray', 'reset']
         if set(kwargs.keys()) - set(valid_kwargs):
-            raise TypeError("select() got unexpected keyword argument(s) %s, valid ones are %s" %
-                            (list(set(kwargs.keys()) - set(valid_kwargs)), valid_kwargs))
+            logger.warning("select() got unexpected keyword argument(s) %s, valid ones are %s" %
+                           (list(set(kwargs.keys()) - set(valid_kwargs)), valid_kwargs))
         # If select() is called without arguments, reset all selections
         reset = 'TFB' if not kwargs else kwargs.pop('reset', 'auto')
         kwargs['spw'] = spw = kwargs.get('spw', self.spw)
