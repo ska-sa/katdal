@@ -280,6 +280,8 @@ class DataSet(object):
     experiment_id : string
         Experiment ID, a unique string used to link the data files of an
         experiment together with blog entries, etc.
+    obs_params : dict mapping string to string or list of strings
+        Observation parameters, typically set in observation script
 
     subarrays : list of :class:`SubArray` objects
         List of all subarrays in data set
@@ -338,6 +340,7 @@ class DataSet(object):
         self.observer = ''
         self.description = ''
         self.experiment_id = ''
+        self.obs_params = {}
 
         self.subarrays = []
         self.subarray = -1

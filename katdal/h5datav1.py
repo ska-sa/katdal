@@ -82,10 +82,10 @@ class H5DataV1(DataSet):
 
         # Load main HDF5 groups
         ants_group, corr_group, data_group = f['Antennas'], f['Correlator'], f['Scans']
-        # Get observation script attributes, with defaults
-        self.observer = f.attrs.get('observer', '')
-        self.description = f.attrs.get('description', '')
-        self.experiment_id = f.attrs.get('experiment_id', '')
+        # Get observation script parameters, with defaults
+        self.observer = self.obs_params['observer'] = f.attrs.get('observer', '')
+        self.description = self.obs_params['description'] = f.attrs.get('description', '')
+        self.experiment_id = self.obs_params['experiment_id'] = f.attrs.get('experiment_id', '')
 
         # Collect all groups below data group that fit the description of a scan group
         scan_groups = []
