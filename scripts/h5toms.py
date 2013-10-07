@@ -241,10 +241,7 @@ for scan_ind, scan_state, target in h5.scans():
                 continue
             polprods = [("%s%s" % (ant1.name,p[0].lower()), "%s%s" % (ant2.name,p[1].lower())) for p in pols_to_use]
 
-            if options.model_data:
-               pol_data,pol_model_data,pol_corrected_data,flag_pol_data,weight_pol_data = [],[],[],[],[]
-            else:
-               pol_data,flag_pol_data,weight_pol_data = [],[],[]
+            pol_data,flag_pol_data,weight_pol_data = [],[],[]
 
             for p in polprods:
                 cable_delay = delays[p[1][-1]][ant2.name] - delays[p[0][-1]][ant1.name]
@@ -268,19 +265,16 @@ for scan_ind, scan_state, target in h5.scans():
                 weight_pol_data.append(weight_data)
                 flag_pol_data.append(flag_data)
 
-                if options.model_data:
-                    # make unity intensity zero phase model and corrected data sets, same shape as vis_data
-                    pol_model_data.append(np.ones(vis_data.shape, dtype=np.complex64))
-                    pol_corrected_data.append(np.ones(vis_data.shape, dtype=np.complex64))
- 
             vis_data = np.dstack(pol_data)
             weight_data = np.dstack(weight_pol_data)
             flag_data = np.dstack(flag_pol_data)
 
+            model_data = None
+            corrected_data = None
             if options.model_data:
             # make unity intensity zero phase model and corrected data sets, same shape as vis_data
-                model_data = np.dstack(pol_model_data)
-                corrected_data = np.dstack(pol_corrected_data)
+                model_data = np.ones(vis_data.shape, dtype=np.complex64)
+                corrected_data = np.ones(vis_data.shape, dtype=np.complex64)
             
             uvw_coordinates = np.array(target.uvw(ant2, timestamp=out_utc, antenna=ant1))
             
@@ -297,10 +291,7 @@ for scan_ind, scan_state, target in h5.scans():
                 sz_mb += corrected_data.dtype.itemsize * corrected_data.size / (1024.0 * 1024.0)                
             
             #write the data to the ms.
-            if options.model_data:
-                ms_extra.write_rows(main_table, ms_extra.populate_main_dict(uvw_coordinates, vis_data, flag_data, out_mjd, ant1_index, ant2_index, dump_time_width, field_id, scan_itr, model_data, corrected_data), verbose=options.verbose)
-            else:
-                ms_extra.write_rows(main_table, ms_extra.populate_main_dict(uvw_coordinates, vis_data, flag_data, out_mjd, ant1_index, ant2_index, dump_time_width, field_id, scan_itr), verbose=options.verbose)
+            ms_extra.write_rows(main_table, ms_extra.populate_main_dict(uvw_coordinates, vis_data, flag_data, out_mjd, ant1_index, ant2_index, dump_time_width, field_id, scan_itr, model_data, corrected_data), verbose=options.verbose)
 
     s1 = time.time() - s
     if average_data and np.shape(utc_seconds)[0]!=np.shape(out_utc)[0]:
