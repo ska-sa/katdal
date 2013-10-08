@@ -229,7 +229,7 @@ else:
 # -------- Routines that create MS data structures in dictionaries -----------
 
 def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna1_index,
-                       antenna2_index, integrate_length, field_id=0, scan_number=0):
+                       antenna2_index, integrate_length, field_id=0, scan_number=0, model_data=None, corrected_data=None):
     """Construct a dictionary containing the columns of the MAIN table.
 
     The MAIN table contains the visibility data itself. The vis data has shape
@@ -256,6 +256,10 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
         The field ID (pointing) associated with this data
     scan_number : int or array of int, shape (num_vis_samples,), optional
         The scan index (compound scan index in the case of KAT-7)
+    model_data : array of complex, shape (num_vis_samples, num_channels, num_pols)
+        Array containing complex visibility data in Janskys
+    corrected_data : array of complex, shape (num_vis_samples, num_channels, num_pols)
+        Array containing complex visibility data in Janskys
 
     Returns
     -------
@@ -299,7 +303,7 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
     # ID of array or subarray (integer)
     main_dict['ARRAY_ID'] = np.zeros(num_vis_samples, dtype=np.int32)
     # The corrected data column (complex, 3-dim)
-    #main_dict['CORRECTED_DATA'] = vis_data
+    if corrected_data is not None: main_dict['CORRECTED_DATA'] = corrected_data
     # The data column (complex, 3-dim)
     main_dict['DATA'] = vis_data
     # The data description table index (integer)
@@ -323,7 +327,7 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
     # The sampling interval (double)
     main_dict['INTERVAL'] = integrate_length * np.ones(num_vis_samples)
     # The model data column (complex, 3-dim)
-    #main_dict['MODEL_DATA'] = vis_data
+    if model_data is not None: main_dict['MODEL_DATA'] = model_data
     # ID for this observation, index in OBSERVATION table (integer)
     main_dict['OBSERVATION_ID'] = np.zeros(num_vis_samples, dtype=np.int32)
     # Id for backend processor, index in PROCESSOR table (integer)

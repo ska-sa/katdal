@@ -37,6 +37,7 @@ parser.add_option("-u", "--uvfits", action="store_true", default=False, help="Pr
 parser.add_option("-a", "--no-auto", action="store_true", default=False, help="MeasurementSet will exclude autocorrelation data")
 parser.add_option("-C", "--channel-range", help="Range of frequency channels to keep (zero-based inclusive 'first_chan,last_chan', default is all channels)")
 parser.add_option("-e", "--elevation-range", help="Flag elevations outside the range 'lowest_elevation,highest_elevation'")
+parser.add_option("-m", "--model-data", action="store_true", default=False, help="Add MODEL_DATA and CORRECTED_DATA columns to the MS. MODEL_DATA initialised to unity amplitude zero phase, CORRECTED_DATA initialised to DATA.")
 parser.add_option("--flags", help="List of online flags to apply (from 'static,cam,detected_rfi,predicted_rfi', default is all flags, '' will apply no flags)")
 parser.add_option("--dumptime", type=float, default=0.0, help="Output time averaging interval in seconds, default is no averaging.")
 parser.add_option("--chanbin", type=int, default=0, help="Bin width for channel averaging in channels, default is no averaging.")
@@ -239,7 +240,9 @@ for scan_ind, scan_state, target in h5.scans():
             if options.no_auto and (ant2_index == ant1_index):
                 continue
             polprods = [("%s%s" % (ant1.name,p[0].lower()), "%s%s" % (ant2.name,p[1].lower())) for p in pols_to_use]
+
             pol_data,flag_pol_data,weight_pol_data = [],[],[]
+
             for p in polprods:
                 cable_delay = delays[p[1][-1]][ant2.name] - delays[p[0][-1]][ant1.name]
                 # cable delays specific to pol type
@@ -257,15 +260,22 @@ for scan_ind, scan_state, target in h5.scans():
                 
                 # Overwrite the input visibilities with averaged visibilities,flags,weights,timestamps,channel freqs
                 if average_data: vis_data,weight_data,flag_data,out_utc,out_freqs=averager.average_visibilities(vis_data, weight_data, flag_data, out_utc, out_freqs,timeav=dump_av,chanav=chan_av,flagav=options.flagav)
-                    
                 
                 pol_data.append(vis_data)
                 weight_pol_data.append(weight_data)
                 flag_pol_data.append(flag_data)
- 
+
             vis_data = np.dstack(pol_data)
             weight_data = np.dstack(weight_pol_data)
             flag_data = np.dstack(flag_pol_data)
+
+            model_data = None
+            corrected_data = None
+            if options.model_data:
+                # unity intensity zero phase model data set, same shape as vis_data
+                model_data = np.ones(vis_data.shape, dtype=np.complex64)
+                # corrected data set copied from vis_data
+                corrected_data = vis_data
             
             uvw_coordinates = np.array(target.uvw(ant2, timestamp=out_utc, antenna=ant1))
             
@@ -276,9 +286,13 @@ for scan_ind, scan_state, target in h5.scans():
             sz_mb += vis_data.dtype.itemsize * vis_data.size / (1024.0 * 1024.0)
             sz_mb += weight_data.dtype.itemsize * weight_data.size / (1024.0 * 1024.0)
             sz_mb += flag_data.dtype.itemsize * flag_data.size / (1024.0 * 1024.0)
+
+            if options.model_data:
+                sz_mb += model_data.dtype.itemsize * model_data.size / (1024.0 * 1024.0)
+                sz_mb += corrected_data.dtype.itemsize * corrected_data.size / (1024.0 * 1024.0)                
             
             #write the data to the ms.
-            ms_extra.write_rows(main_table, ms_extra.populate_main_dict(uvw_coordinates, vis_data, flag_data, out_mjd, ant1_index, ant2_index, dump_time_width, field_id, scan_itr), verbose=options.verbose)
+            ms_extra.write_rows(main_table, ms_extra.populate_main_dict(uvw_coordinates, vis_data, flag_data, out_mjd, ant1_index, ant2_index, dump_time_width, field_id, scan_itr, model_data, corrected_data), verbose=options.verbose)
 
     s1 = time.time() - s
     if average_data and np.shape(utc_seconds)[0]!=np.shape(out_utc)[0]:
