@@ -274,7 +274,7 @@ for scan_ind, scan_state, target in h5.scans():
             if options.model_data:
             # make unity intensity zero phase model and corrected data sets, same shape as vis_data
                 model_data = np.ones(vis_data.shape, dtype=np.complex64)
-                corrected_data = np.ones(vis_data.shape, dtype=np.complex64)
+                corrected_data = vis_data
             
             uvw_coordinates = np.array(target.uvw(ant2, timestamp=out_utc, antenna=ant1))
             
