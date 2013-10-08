@@ -257,9 +257,9 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
     scan_number : int or array of int, shape (num_vis_samples,), optional
         The scan index (compound scan index in the case of KAT-7)
     model_data : array of complex, shape (num_vis_samples, num_channels, num_pols)
-        Array containing complex visibility data in Janskys, initialised to unity
+        Array containing complex visibility data in Janskys
     corrected_data : array of complex, shape (num_vis_samples, num_channels, num_pols)
-        Array containing complex visibility data in Janskys, initialised to unity
+        Array containing complex visibility data in Janskys
 
     Returns
     -------

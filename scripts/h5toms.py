@@ -37,7 +37,7 @@ parser.add_option("-u", "--uvfits", action="store_true", default=False, help="Pr
 parser.add_option("-a", "--no-auto", action="store_true", default=False, help="MeasurementSet will exclude autocorrelation data")
 parser.add_option("-C", "--channel-range", help="Range of frequency channels to keep (zero-based inclusive 'first_chan,last_chan', default is all channels)")
 parser.add_option("-e", "--elevation-range", help="Flag elevations outside the range 'lowest_elevation,highest_elevation'")
-parser.add_option("-m", "--model-data", action="store_true", default=False, help="Add MODEL_DATA and CORRECTED_DATA columns to the MS. Initialised to unity amplitude zero phase.")
+parser.add_option("-m", "--model-data", action="store_true", default=False, help="Add MODEL_DATA and CORRECTED_DATA columns to the MS. MODEL_DATA initialised to unity amplitude zero phase, CORRECTED_DATA initialised to DATA.")
 parser.add_option("--flags", help="List of online flags to apply (from 'static,cam,detected_rfi,predicted_rfi', default is all flags, '' will apply no flags)")
 parser.add_option("--dumptime", type=float, default=0.0, help="Output time averaging interval in seconds, default is no averaging.")
 parser.add_option("--chanbin", type=int, default=0, help="Bin width for channel averaging in channels, default is no averaging.")
