@@ -8,7 +8,7 @@ import numpy as np
 import katpoint
 from katpoint import is_iterable
 
-logger = logging.getLogger("katdal.dataset")
+logger = logging.getLogger(__name__)
 
 #--------------------------------------------------------------------------------------------------
 #--- CLASS :  Helper classes

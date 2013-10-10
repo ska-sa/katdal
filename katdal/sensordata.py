@@ -8,7 +8,7 @@ import katpoint
 
 from .categorical import sensor_to_categorical
 
-logger = logging.getLogger("katdal.sensordata")
+logger = logging.getLogger(__name__)
 
 # This is needed for tab completion, but is ignored if no IPython is installed
 try:

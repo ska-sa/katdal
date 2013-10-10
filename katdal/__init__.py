@@ -229,7 +229,7 @@ if _ip is not None:
 class _NullHandler(_logging.Handler):
     def emit(self, record):
         pass
-logger = _logging.getLogger("katdal")
+logger = _logging.getLogger(__name__)
 logger.addHandler(_NullHandler())
 
 # Attempt to determine installed package version
