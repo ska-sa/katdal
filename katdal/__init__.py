@@ -231,6 +231,9 @@ class _NullHandler(_logging.Handler):
         pass
 logger = _logging.getLogger(__name__)
 logger.addHandler(_NullHandler())
+if not _logging.root.handlers:
+    print "Python logging has not been configured yet! All warnings and errors will be"
+    print "silently ignored. A simple fix is to do 'import logging; logging.basicConfig()'"
 
 # Attempt to determine installed package version
 try:
