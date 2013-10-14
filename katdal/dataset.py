@@ -484,7 +484,7 @@ class DataSet(object):
         if corrprod_keep is not None:
             self._corrprod_keep = corrprod_keep
 
-    def select(self, **kwargs):
+    def select(self, strict=True, **kwargs):
         """Select subset of data, based on time / frequency / corrprod filters.
 
         This applies a set of selection criteria to the data set, which updates
@@ -519,6 +519,9 @@ class DataSet(object):
 
         Parameters
         ----------
+        strict : {True, False}, optional
+            True if select() raises TypeError if it encounters an unknown kwarg
+
         dumps : int or slice or sequence of ints or sequence of bools, optional
             Select dumps by index, slice or boolean mask of length *T*
             (keep dumps where mask is True)
@@ -532,6 +535,7 @@ class DataSet(object):
         targets : int or string or :class:`katpoint.Target` object or sequence,
                   optional
             Select targets by index or name or description or object
+
         spw : int, optional
             Select spectral window by index (only one may be active)
         channels : int or slice or sequence of ints or sequence of bools, optional
@@ -539,6 +543,7 @@ class DataSet(object):
             *F* (keep channels where mask is True)
         freqrange : sequence of 2 floats, optional
             Select range of frequencies between start and end frequencies, in Hz
+
         subarray : int, optional
             Select subarray by index (only one may be active)
         corrprods : int or slice or sequence of ints or sequence of bools or
@@ -553,6 +558,7 @@ class DataSet(object):
             Select inputs by label
         pol : {'H', 'V', 'HH', 'VV', 'HV', 'VH'}, optional
             Select polarisation term
+
         reset : {'auto', '', 'T', 'F', 'B', 'TF', 'TB', 'FB', 'TFB'}, optional
             Remove existing selections on specified dimensions before applying
             the new selections. The default 'auto' option clears those dimensions
@@ -561,15 +567,22 @@ class DataSet(object):
             any parameters, in which case all selections are cleared. By setting
             reset to '', new selections apply on top of existing selections.
 
+        Raises
+        ------
+        TypeError
+            If a keyword argument is unknown and strict_select is enabled
+        IndexError
+            If *spw* or *subarray* is out of range
+
         """
         time_selectors = ['dumps', 'timerange', 'scans', 'compscans', 'targets']
         freq_selectors = ['channels', 'freqrange']
         corrprod_selectors = ['corrprods', 'ants', 'inputs', 'pol']
-        # Check if keywords are valid but don't raise exception if invalid as kwargs may arrive from strange places
+        # Check if keywords are valid and raise exception only if this is explicitly enabled
         valid_kwargs = time_selectors + freq_selectors + corrprod_selectors + ['spw', 'subarray', 'reset']
-        if set(kwargs.keys()) - set(valid_kwargs):
-            logger.warning("select() got unexpected keyword argument(s) %s, valid ones are %s" %
-                           (list(set(kwargs.keys()) - set(valid_kwargs)), valid_kwargs))
+        if strict and set(kwargs.keys()) - set(valid_kwargs):
+            raise TypeError("select() got unexpected keyword argument(s) %s, valid ones are %s" %
+                            (list(set(kwargs.keys()) - set(valid_kwargs)), valid_kwargs))
         # If select() is called without arguments, reset all selections
         reset = 'TFB' if not kwargs else kwargs.pop('reset', 'auto')
         kwargs['spw'] = spw = kwargs.get('spw', self.spw)
