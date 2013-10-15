@@ -14,7 +14,7 @@ from .categorical import CategoricalData
 from .lazy_indexer import LazyIndexer, LazyTransform
 from .concatdata import ConcatenatedLazyIndexer
 
-logger = logging.getLogger('katdal.h5datav1')
+logger = logging.getLogger(__name__)
 
 def _labels_to_state(scan_label, compscan_label):
     """Use scan and compscan labels to derive basic state of antenna."""

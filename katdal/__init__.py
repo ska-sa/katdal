@@ -229,8 +229,11 @@ if _ip is not None:
 class _NullHandler(_logging.Handler):
     def emit(self, record):
         pass
-logger = _logging.getLogger("katdal")
+logger = _logging.getLogger(__name__)
 logger.addHandler(_NullHandler())
+if not _logging.root.handlers:
+    print "Python logging has not been configured yet! All warnings and errors will be"
+    print "silently ignored. A simple fix is to do 'import logging; logging.basicConfig()'"
 
 # Attempt to determine installed package version
 try:

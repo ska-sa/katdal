@@ -12,7 +12,7 @@ from .sensordata import SensorData, SensorCache
 from .categorical import CategoricalData, sensor_to_categorical
 from .lazy_indexer import LazyIndexer, LazyTransform
 
-logger = logging.getLogger('katdal.h5datav2')
+logger = logging.getLogger(__name__)
 
 # Simplify the scan activities to derive the basic state of the antenna (slewing, scanning, tracking, stopped)
 SIMPLIFY_STATE = {'scan_ready': 'slew', 'scan': 'scan', 'scan_complete': 'scan', 'track': 'track', 'slew': 'slew'}
