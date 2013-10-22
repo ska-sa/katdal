@@ -225,15 +225,16 @@ if _ip is not None:
     _ip.set_hook('complete_command', _sensor_completer, re_key=r"(?:.*\=)?(.+?)\[")
 
 
-# Setup library logger, and suppress spurious logger messages via a null handler
-class _NullHandler(_logging.Handler):
-    def emit(self, record):
-        pass
+# Setup library logger and add a print-like handler used when no logging is configured
+class _NoConfigFilter(_logging.Filter):
+    """Filter which only allows event if top-level logging is not configured."""
+    def filter(self, record):
+        return 1 if not _logging.root.handlers else 0
+_no_config_handler = _logging.StreamHandler()
+_no_config_handler.setFormatter(_logging.Formatter(_logging.BASIC_FORMAT))
+_no_config_handler.addFilter(_NoConfigFilter())
 logger = _logging.getLogger(__name__)
-logger.addHandler(_NullHandler())
-if not _logging.root.handlers:
-    print "Python logging has not been configured yet! All warnings and errors will be"
-    print "silently ignored. A simple fix is to do 'import logging; logging.basicConfig()'"
+logger.addHandler(_no_config_handler)
 
 # Attempt to determine installed package version
 try:
