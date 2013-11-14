@@ -202,12 +202,14 @@ from .lazy_indexer import LazyTransform
 from .concatdata import ConcatenatedDataSet
 from .h5datav1 import H5DataV1
 from .h5datav2 import H5DataV2
+from .h5datav3 import H5DataV3
 from .sensordata import _sensor_completer
 
 # Clean up top-level namespace a bit
-_dataset, _concatdata, _h5datav1, _h5datav2, _sensordata = dataset, concatdata, h5datav1, h5datav2, sensordata
+_dataset, _concatdata, _sensordata = dataset, concatdata, sensordata
+_h5datav1, _h5datav2, _h5datav3 = h5datav1, h5datav2, h5datav3
 _categorical, _lazy_indexer = categorical, lazy_indexer
-del dataset, concatdata, h5datav1, h5datav2, sensordata, categorical, lazy_indexer
+del dataset, concatdata, h5datav1, h5datav2, h5datav3, sensordata, categorical, lazy_indexer
 
 # Attempt to register custom IPython tab completer for sensor cache name lookups
 try:
@@ -251,8 +253,7 @@ except (ImportError, _pkg_resources.DistributionNotFound, ValueError, IndexError
 #--- FUNCTION :  open
 #--------------------------------------------------------------------------------------------------
 
-formats = [H5DataV2, H5DataV1]
-
+formats = [H5DataV3, H5DataV2, H5DataV1]
 
 def open(filename, ref_ant='', time_offset=0.0, **kwargs):
     """Open data file(s) with loader of the appropriate version.
