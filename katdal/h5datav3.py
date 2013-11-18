@@ -235,7 +235,7 @@ class H5DataV3(DataSet):
             """A sensor is defined as a non-empty dataset with expected dtype."""
             if isinstance(obj, h5py.Dataset) and obj.shape != () and obj.dtype.names == ('timestamp', 'value', 'status'):
                 # Put antenna sensors in virtual Antenna group
-                name = ('Antennas/' + name) if tm_group[name].attrs.get('class') == 'AntennaPositioner' else name
+                name = ('Antennas/' + name) if tm_group[name.split('/')[0]].attrs.get('class') == 'AntennaPositioner' else name
                 cache[name] = SensorData(obj, name)
         tm_group.visititems(register_sensor)
         # Use estimated data timestamps for now, to speed up data segmentation
@@ -300,7 +300,7 @@ class H5DataV3(DataSet):
         # ------ Extract scans / compound scans / targets ------
 
         # Use the activity sensor of reference antenna to partition the data set into scans (and to set their states)
-        scan = self.sensor.get('%s/activity' % (self.ref_ant,))
+        scan = self.sensor.get('Antennas/%s/activity' % (self.ref_ant,))
         # If the antenna starts slewing on the second dump, incorporate the first dump into the slew too.
         # This scenario typically occurs when the first target is only set after the first dump is received.
         # The workaround avoids putting the first dump in a scan by itself, typically with an irrelevant target.
@@ -328,7 +328,7 @@ class H5DataV3(DataSet):
         self.sensor['Observation/label'] = label
         self.sensor['Observation/compscan_index'] = CategoricalData(range(len(label)), label.events)
         # Use the target sensor of reference antenna to set the target for each scan
-        target = self.sensor.get('%s/target' % (self.ref_ant,))
+        target = self.sensor.get('Antennas/%s/target' % (self.ref_ant,))
         # Move target events onto the nearest scan start
         # ASSUMPTION: Number of targets <= number of scans (i.e. only a single target allowed per scan)
         target.align(scan.events)
@@ -336,7 +336,7 @@ class H5DataV3(DataSet):
         self.sensor['Observation/target_index'] = CategoricalData(target.indices, target.events)
         # Set up catalogue containing all targets in file, with reference antenna as default antenna
         self.catalogue.add(target.unique_values)
-        self.catalogue.antenna = 'Antennas/%s' % (self.ref_ant,)
+        self.catalogue.antenna = 'Antennas/%s' % (self.ref_ant,)[0]
 
         # Avoid storing reference to self in transform closure below, as this hinders garbage collection
         dump_period, time_offset = self.dump_period, self.time_offset
