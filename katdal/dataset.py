@@ -484,7 +484,7 @@ class DataSet(object):
         if corrprod_keep is not None:
             self._corrprod_keep = corrprod_keep
 
-    def select(self, strict=True, **kwargs):
+    def select(self, **kwargs):
         """Select subset of data, based on time / frequency / corrprod filters.
 
         This applies a set of selection criteria to the data set, which updates
@@ -579,7 +579,9 @@ class DataSet(object):
         freq_selectors = ['channels', 'freqrange']
         corrprod_selectors = ['corrprods', 'ants', 'inputs', 'pol']
         # Check if keywords are valid and raise exception only if this is explicitly enabled
-        valid_kwargs = time_selectors + freq_selectors + corrprod_selectors + ['spw', 'subarray', 'reset']
+        valid_kwargs = time_selectors + freq_selectors + corrprod_selectors + ['spw', 'subarray', 'reset', 'strict']
+        # Check for definition of strict
+        strict = kwargs.get('strict', True)
         if strict and set(kwargs.keys()) - set(valid_kwargs):
             raise TypeError("select() got unexpected keyword argument(s) %s, valid ones are %s" %
                             (list(set(kwargs.keys()) - set(valid_kwargs)), valid_kwargs))
