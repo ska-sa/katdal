@@ -279,6 +279,7 @@ class H5DataV3(DataSet):
 
         # ------ Extract spectral windows / frequencies ------
 
+        # The centre frequency is now in the domain of the CBF
         centre_freq = get_single_value(tm_group['cbf'], 'center_freq')
         num_chans = get_single_value(tm_group['cbf'], 'n_chans')
         if num_chans != self._vis.shape[1]:
@@ -287,18 +288,14 @@ class H5DataV3(DataSet):
         bandwidth = get_single_value(tm_group['cbf'], 'bandwidth')
         channel_width = bandwidth / num_chans
 
-        # mode sensor should only contain one value
-        mode = get_single_value(tm_group['cbf'], 'dbe_mode')[-2]
+        # Mode sensor should only contain one value
+        mode = self.sensor.get('CorrelatorBeamformer/dbe_mode').unique_values[0]
 
-        print 'fix when we have centre_freqs in the file'
-        #self.spectral_windows = [SpectralWindow(spw_centre, channel_width, num_chans, mode)
-        #                         for spw_centre in centre_freq.unique_values]
-        self.spectral_windows = [SpectralWindow(spw_centre, channel_width, num_chans, mode)
-                                 for spw_centre in [centre_freq]]
-        #self.sensor['Observation/spw'] = CategoricalData(self.spectral_windows, centre_freq.events)
-        #self.sensor['Observation/spw_index'] = CategoricalData(centre_freq.indices, centre_freq.events)
+        # We only expect a single spectral window within a single v3 file,
+        # as changing the centre freq is like changing the CBF mode 
+        self.spectral_windows = [SpectralWindow(centre_freq, channel_width, num_chans, mode)]
         self.sensor['Observation/spw'] = CategoricalData(self.spectral_windows, [0, len(data_timestamps)])
-        self.sensor['Observation/spw_index'] = CategoricalData(0, [0, len(data_timestamps)])
+        self.sensor['Observation/spw_index'] = CategoricalData([0], [0, len(data_timestamps)])
 
         # ------ Extract scans / compound scans / targets ------
 
