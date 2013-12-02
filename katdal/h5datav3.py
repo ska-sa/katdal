@@ -244,7 +244,7 @@ class H5DataV3(DataSet):
 
         # We only expect a single spectral window within a single v3 file,
         # as changing the centre freq is like changing the CBF mode 
-        self.spectral_windows = [SpectralWindow(centre_freq, channel_width, num_chans, mode)]
+        self.spectral_windows = [SpectralWindow(centre_freq, channel_width, num_chans, mode, sideband=1)]
         self.sensor['Observation/spw'] = CategoricalData(self.spectral_windows, [0, num_dumps])
         self.sensor['Observation/spw_index'] = CategoricalData([0], [0, num_dumps])
 

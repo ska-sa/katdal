@@ -93,8 +93,9 @@ class SpectralWindow(object):
     A spectral window is determined by the number of frequency channels produced
     by the correlator and their corresponding centre frequencies, as well as the
     channel width. The channels are assumed to be regularly spaced and to be the
-    result of lower-sideband downconversion (resulting in channel frequencies
-    decreasing with channel index).
+    result of either lower-sideband downconversion (channel frequencies
+    decreasing with channel index) or upper-sideband downconversion (frequencies
+    increasing with index).
 
     Parameters
     ----------
@@ -106,6 +107,8 @@ class SpectralWindow(object):
         Number of frequency channels
     mode : string, optional
         DBE (correlator) mode
+    sideband : {-1, +1}, optional
+        Type of downconversion (-1 => lower sideband, +1 => upper sideband)
 
     Attributes
     ----------
@@ -113,14 +116,13 @@ class SpectralWindow(object):
         Centre frequency of each frequency channel (assuming LSB mixing), in Hz
 
     """
-    def __init__(self, centre_freq, channel_width, num_chans, mode=None):
+    def __init__(self, centre_freq, channel_width, num_chans, mode=None, sideband=-1):
         self.centre_freq = centre_freq
         self.channel_width = channel_width
         self.num_chans = num_chans
         self.mode = mode if mode is not None else ''
-        # Assume that lower-sideband downconversion has been used, which flips frequency axis
         # Don't subtract half a channel width as channel 0 is centred on 0 Hz in baseband
-        self.channel_freqs = centre_freq - channel_width * (np.arange(num_chans) - num_chans / 2)
+        self.channel_freqs = centre_freq + sideband * channel_width * (np.arange(num_chans) - num_chans / 2)
 
     def __repr__(self):
         """Short human-friendly string representation of spectral window object."""
