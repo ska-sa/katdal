@@ -22,17 +22,9 @@ SENSOR_PROPS.update({
     '*activity': {'greedy_values': ('slew', 'stop'), 'initial_value': 'slew',
                    'transform': lambda act: SIMPLIFY_STATE.get(act, 'stop')},
     '*target': {'initial_value': '', 'transform': _robust_target},
-    # These float sensors are actually categorical by nature as they represent user settings
-    'RFE/center-frequency-hz': {'categorical': True},
-    'RFE/rfe7.lo1.frequency': {'categorical': True},
-    '*attenuation' : {'categorical': True},
-    '*attenuator.horizontal' : {'categorical': True},
-    '*attenuator.vertical' : {'categorical': True},
 })
 
 SENSOR_ALIASES = {
-    'nd_coupler': 'rfe3.rfe15.noise.coupler.on',
-    'nd_pin': 'rfe3.rfe15.noise.pin.on',
 }
 
 
@@ -212,16 +204,16 @@ class H5DataV3(DataSet):
                 if tm_group[name].attrs.get('class') == 'AntennaPositioner']
         all_ants = [ant.name for ant in ants]
         # By default, only pick antennas that were in use by the script
-        script_ants = self.obs_params.get('ants')
-        script_ants = script_ants.split(',') if script_ants else all_ants
-        self.ref_ant = script_ants[0] if not ref_ant else ref_ant
+        obs_ants = self.obs_params.get('ants')
+        obs_ants = obs_ants.split(',') if obs_ants else all_ants
+        self.ref_ant = obs_ants[0] if not ref_ant else ref_ant
 
         # Original list of correlation products as pairs of input labels
         corrprods = cbf_group.attrs['bls_ordering']
         
         if len(corrprods) != self._vis.shape[2]:
             # Apply k7_capture baseline mask after the fact, in the hope that it fixes correlation product mislabelling
-            corrprods = np.array([cp for cp in corrprods if cp[0][:-1] in script_ants and cp[1][:-1] in script_ants])
+            corrprods = np.array([cp for cp in corrprods if cp[0][:-1] in obs_ants and cp[1][:-1] in obs_ants])
             # If there is still a mismatch between labels and data shape, file is considered broken (maybe bad labels?)
             if len(corrprods) != self._vis.shape[2]:
                 raise BrokenFile('Number of baseline labels (containing expected antenna names) '
@@ -299,7 +291,7 @@ class H5DataV3(DataSet):
         # Avoid storing reference to self in transform closure below, as this hinders garbage collection
         dump_period, time_offset = self.dump_period, self.time_offset
         # Apply default selection and initialise all members that depend on selection in the process
-        self.select(spw=0, subarray=0, ants=script_ants)
+        self.select(spw=0, subarray=0, ants=obs_ants)
 
     def __str__(self):
         """Verbose human-friendly string representation of data set."""
