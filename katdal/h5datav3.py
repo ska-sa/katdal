@@ -103,10 +103,6 @@ class H5DataV3(DataSet):
         (default is first antenna in use)
     time_offset : float, optional
         Offset to add to all correlator timestamps, in seconds
-    quicklook : {False, True}
-        True if synthesised timestamps should be used to partition data set even
-        if real timestamps are irregular, thereby avoiding the slow loading of
-        real timestamps at the cost of slightly inaccurate label borders
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
 
@@ -116,7 +112,7 @@ class H5DataV3(DataSet):
         Underlying HDF5 file, exposed via :mod:`h5py` interface
 
     """
-    def __init__(self, filename, ref_ant='', time_offset=0.0, quicklook=False, **kwargs):
+    def __init__(self, filename, ref_ant='', time_offset=0.0, **kwargs):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file
@@ -132,45 +128,34 @@ class H5DataV3(DataSet):
         markup_group = f['Markup']
         cbf_group = tm_group['cbf']
 
-        # ------ Extract timestamps ------
+        # ------ Extract vis and timestamps ------
 
         self.dump_period = cbf_group.attrs['int_time']
-        # Obtain visibility data and timestamps
+        # Obtain visibilities and timestamps (load the latter explicitly, but obviously not the former...)
         self._vis = data_group['correlator_data']
-        self._timestamps = data_group['timestamps']
+        self._timestamps = data_group['timestamps'][:]
         num_dumps = len(self._timestamps)
         if num_dumps != self._vis.shape[0]:
             raise BrokenFile('Number of timestamps received from ingest '
                              '(%d) differs from number of dumps in data (%d)' % (num_dumps, self._vis.shape[0]))
         # Discard the last sample if the timestamp is a duplicate (caused by stop packet in k7_capture)
         num_dumps = (num_dumps - 1) if num_dumps > 1 and (self._timestamps[-1] == self._timestamps[-2]) else num_dumps
-        # Do quick test for uniform spacing of timestamps (necessary but not sufficient)
-        expected_dumps = (self._timestamps[num_dumps - 1] - self._timestamps[0]) / self.dump_period + 1
+        self._timestamps = self._timestamps[:num_dumps]
         # The expected_dumps should always be an integer (like num_dumps), unless the timestamps and/or dump period
         # are messed up in the file, so the threshold of this test is a bit arbitrary (e.g. could use > 0.5)
-        irregular = abs(expected_dumps - num_dumps) >= 0.01
-        if irregular:
+        expected_dumps = (self._timestamps[-1] - self._timestamps[0]) / self.dump_period + 1
+        if abs(expected_dumps - num_dumps) >= 0.01:
             # Warn the user, as this is anomalous
             logger.warning(("Irregular timestamps detected in file '%s': "
                            "expected %.3f dumps based on dump period and start/end times, got %d instead") %
                            (filename, expected_dumps, num_dumps))
-            if quicklook:
-                logger.warning("Quicklook option selected - partitioning data based on synthesised timestamps instead")
-        if not irregular or quicklook:
-            # Estimate timestamps by assuming they are uniformly spaced (much quicker than loading them from file).
-            # This is useful for the purpose of segmenting data set, where accurate timestamps are not that crucial.
-            # The real timestamps are still loaded when the user explicitly asks for them.
-            data_timestamps = self._timestamps[0] + self.dump_period * np.arange(num_dumps)
-        else:
-            # Load the real timestamps instead (could take several seconds on a large data set)
-            data_timestamps = self._timestamps[:num_dumps]
         # Move timestamps from start of each dump to the middle of the dump
-        data_timestamps += 0.5 * self.dump_period + self.time_offset
-        if data_timestamps[0] < 1e9:
-            logger.warning("File '%s' has invalid first correlator timestamp (%f)" % (filename, data_timestamps[0],))
+        self._timestamps += 0.5 * self.dump_period + self.time_offset
+        if self._timestamps[0] < 1e9:
+            logger.warning("File '%s' has invalid first correlator timestamp (%f)" % (filename, self._timestamps[0],))
         self._time_keep = np.ones(num_dumps, dtype=np.bool)
-        self.start_time = katpoint.Timestamp(data_timestamps[0] - 0.5 * self.dump_period)
-        self.end_time = katpoint.Timestamp(data_timestamps[-1] + 0.5 * self.dump_period)
+        self.start_time = katpoint.Timestamp(self._timestamps[0] - 0.5 * self.dump_period)
+        self.end_time = katpoint.Timestamp(self._timestamps[-1] + 0.5 * self.dump_period)
 
         # ------ Extract flags ------
 
@@ -204,8 +189,7 @@ class H5DataV3(DataSet):
                 name = '/'.join((group_name, sensor_name))
                 cache[name] = SensorData(obj, name)
         tm_group.visititems(register_sensor)
-        # Use estimated data timestamps for now, to speed up data segmentation
-        self.sensor = SensorCache(cache, data_timestamps, self.dump_period, keep=self._time_keep,
+        self.sensor = SensorCache(cache, self._timestamps, self.dump_period, keep=self._time_keep,
                                   props=SENSOR_PROPS, virtual=VIRTUAL_SENSORS, aliases=SENSOR_ALIASES)
 
         # ------ Extract observation parameters ------
@@ -246,11 +230,11 @@ class H5DataV3(DataSet):
             else:
                 logger.warning('Reapplied k7_capture baseline mask to fix unexpected number of baseline labels')
         self.subarrays = [Subarray(ants, corrprods)]
-        self.sensor['Observation/subarray'] = CategoricalData(self.subarrays, [0, len(data_timestamps)])
-        self.sensor['Observation/subarray_index'] = CategoricalData([0], [0, len(data_timestamps)])
+        self.sensor['Observation/subarray'] = CategoricalData(self.subarrays, [0, num_dumps])
+        self.sensor['Observation/subarray_index'] = CategoricalData([0], [0, num_dumps])
         # Store antenna objects in sensor cache too, for use in virtual sensor calculations
         for ant in ants:
-            self.sensor['Antennas/%s/antenna' % (ant.name,)] = CategoricalData([ant], [0, len(data_timestamps)])
+            self.sensor['Antennas/%s/antenna' % (ant.name,)] = CategoricalData([ant], [0, num_dumps])
 
         # ------ Extract spectral windows / frequencies ------
 
@@ -269,8 +253,8 @@ class H5DataV3(DataSet):
         # We only expect a single spectral window within a single v3 file,
         # as changing the centre freq is like changing the CBF mode 
         self.spectral_windows = [SpectralWindow(centre_freq, channel_width, num_chans, mode)]
-        self.sensor['Observation/spw'] = CategoricalData(self.spectral_windows, [0, len(data_timestamps)])
-        self.sensor['Observation/spw_index'] = CategoricalData([0], [0, len(data_timestamps)])
+        self.sensor['Observation/spw'] = CategoricalData(self.spectral_windows, [0, num_dumps])
+        self.sensor['Observation/spw_index'] = CategoricalData([0], [0, num_dumps])
 
         # ------ Extract scans / compound scans / targets ------
 
@@ -314,12 +298,8 @@ class H5DataV3(DataSet):
 
         # Avoid storing reference to self in transform closure below, as this hinders garbage collection
         dump_period, time_offset = self.dump_period, self.time_offset
-        # Restore original (slow) timestamps so that subsequent sensors (e.g. pointing) will have accurate values
-        extract_time = LazyTransform('extract_time', lambda t, keep: t + 0.5 * dump_period + time_offset)
-        self.sensor.timestamps = LazyIndexer(self._timestamps, keep=slice(num_dumps), transforms=[extract_time])
         # Apply default selection and initialise all members that depend on selection in the process
         self.select(spw=0, subarray=0, ants=script_ants)
-
 
     def __str__(self):
         """Verbose human-friendly string representation of data set."""
@@ -339,16 +319,12 @@ class H5DataV3(DataSet):
     def timestamps(self):
         """Visibility timestamps in UTC seconds since Unix epoch.
 
-        The timestamps are returned as an array indexer of float64, shape (*T*,),
+        The timestamps are returned as an array of float64, shape (*T*,),
         with one timestamp per integration aligned with the integration
-        *midpoint*. To get the data array itself from the indexer `x`, do `x[:]`
-        or perform any other form of indexing on it.
+        *midpoint*.
 
         """
-        # Avoid storing reference to self in transform closure below, as this hinders garbage collection
-        dump_period, time_offset = self.dump_period, self.time_offset
-        extract_time = LazyTransform('extract_time', lambda t, keep: t + 0.5 * dump_period + time_offset)
-        return LazyIndexer(self._timestamps, keep=self._time_keep, transforms=[extract_time])
+        return self._timestamps[self._time_keep]
 
     @property
     def vis(self):
