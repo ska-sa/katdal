@@ -56,31 +56,6 @@ WEIGHT_DESCRIPTIONS = ('visibility precision (inverse variance, i.e. 1 / sigma^2
 #--- Utility functions
 #--------------------------------------------------------------------------------------------------
 
-def get_single_value(group, name):
-    """Return single value from attribute or dataset with given name in group.
-
-    If `name` is an attribute of the HDF5 group `group`, it is returned,
-    otherwise it is interpreted as an HDF5 dataset of `group` and the last value
-    of `name` is returned. This is meant to retrieve static configuration values
-    that potentially get set more than once during capture initialisation, but
-    then does not change during actual capturing.
-
-    Parameters
-    ----------
-    group : :class:`h5py.Group` object
-        HDF5 group to query
-    name : string
-        Name of HDF5 attribute or dataset to query
-
-    Returns
-    -------
-    value : object
-        Attribute or last value of dataset
-
-    """
-    return group.attrs[name] if name in group.attrs else group[name][-1]
-
-
 def dummy_dataset(name, shape, dtype, value):
     """Dummy HDF5 dataset containing a single value.
 
@@ -156,10 +131,11 @@ class H5DataV3(DataSet):
         # Load main HDF5 groups
         data_group, tm_group = f['Data'], f['TelescopeModel']
         markup_group = f['Markup']
+        cbf_group = tm_group['cbf']
 
         # ------ Extract timestamps ------
 
-        self.dump_period = get_single_value(tm_group['cbf'], 'int_time')
+        self.dump_period = cbf_group.attrs['int_time']
         # Obtain visibility data and timestamps
         self._vis = data_group['correlator_data']
         self._timestamps = data_group['timestamps']
@@ -258,7 +234,7 @@ class H5DataV3(DataSet):
         self.ref_ant = script_ants[0] if not ref_ant else ref_ant
 
         # Original list of correlation products as pairs of input labels
-        corrprods = get_single_value(tm_group['cbf'], 'bls_ordering')
+        corrprods = cbf_group.attrs['bls_ordering']
         
         if len(corrprods) != self._vis.shape[2]:
             # Apply k7_capture baseline mask after the fact, in the hope that it fixes correlation product mislabelling
@@ -280,12 +256,12 @@ class H5DataV3(DataSet):
         # ------ Extract spectral windows / frequencies ------
 
         # The centre frequency is now in the domain of the CBF
-        centre_freq = get_single_value(tm_group['cbf'], 'center_freq')
-        num_chans = get_single_value(tm_group['cbf'], 'n_chans')
+        centre_freq = cbf_group.attrs['center_freq']
+        num_chans = cbf_group.attrs['n_chans']
         if num_chans != self._vis.shape[1]:
             raise BrokenFile('Number of channels received from correlator '
                              '(%d) differs from number of channels in data (%d)' % (num_chans, self._vis.shape[1]))
-        bandwidth = get_single_value(tm_group['cbf'], 'bandwidth')
+        bandwidth = cbf_group.attrs['bandwidth']
         channel_width = bandwidth / num_chans
 
         # Mode sensor should only contain one value
