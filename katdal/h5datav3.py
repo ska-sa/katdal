@@ -122,9 +122,8 @@ class H5DataV3(DataSet):
         # Load file
         self.file = f = h5py.File(filename, 'r')
 
-        # Only continue if file is correct version and has been properly augmented
-        # The current v3 has version as float - convert to string for now
-        self.version = str(f.attrs.get('version', '1.x'))
+        # Only continue if file is correct version
+        self.version = f.attrs.get('version', '1.x')
         if not self.version.startswith('3.'):
             raise WrongVersion("Attempting to load version '%s' file with version 3 loader" % (self.version,))
 
