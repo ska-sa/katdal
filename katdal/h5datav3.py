@@ -237,9 +237,9 @@ class H5DataV3(DataSet):
 
         self.obs_params = {}
         # Replay obs_params sensor and update obs_params dict accordingly
-        params_sensor = self.sensor.get('Observation/params')
-        for ind in params_sensor.indices:
-            key, val = params_sensor.unique_values[ind].split(' ', 1)
+        obs_params = self.sensor.get('Observation/params', extract=False)['value']
+        for obs_param in obs_params:
+            key, val = obs_param.split(' ', 1)
             self.obs_params[key] = val
         # Get observation script parameters, with defaults
         self.observer = self.obs_params.get('observer', '')
@@ -289,7 +289,7 @@ class H5DataV3(DataSet):
         channel_width = bandwidth / num_chans
 
         # Mode sensor should only contain one value
-        mode = self.sensor.get('CorrelatorBeamformer/dbe_mode').unique_values[0]
+        mode = self.sensor.get('CorrelatorBeamformer/dbe_mode', extract=False)['value'][0]
 
         # We only expect a single spectral window within a single v3 file,
         # as changing the centre freq is like changing the CBF mode 
