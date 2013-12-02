@@ -1,4 +1,4 @@
-"""Data accessor class for HDF5 files produced by KAT-7 correlator."""
+"""Data accessor class for HDF5 files produced by RTS correlator."""
 
 import logging
 
@@ -115,7 +115,7 @@ def dummy_dataset(name, shape, dtype, value):
 #--------------------------------------------------------------------------------------------------
 
 class H5DataV3(DataSet):
-    """Load HDF5 format version 3 file produced by RTSs correlator.
+    """Load HDF5 format version 3 file produced by RTS correlator.
 
     For more information on attributes, see the :class:`DataSet` docstring.
 
@@ -148,8 +148,7 @@ class H5DataV3(DataSet):
         self.file = f = h5py.File(filename, 'r')
 
         # Only continue if file is correct version and has been properly augmented
-        # converted to srting for v3, where the version is sent as a float
-        # potentially remove the strong conversion later if v3 version becomes a string
+        # The current v3 has version as float - convert to string for now
         self.version = str(f.attrs.get('version', '1.x'))
         if not self.version.startswith('3.'):
             raise WrongVersion("Attempting to load version '%s' file with version 3 loader" % (self.version,))
@@ -157,19 +156,6 @@ class H5DataV3(DataSet):
         # Load main HDF5 groups
         data_group, tm_group = f['Data'], f['TelescopeModel']
         markup_group = f['Markup']
-
-        # Get observation script parameters, with defaults
-        print "fix when we have obs params in the h5 file"
-#        for k, v in config_group['Observation'].attrs.iteritems():
-#            # For KAT-7 (v2.1) data, strip the 'script_' prefix from most parameters
-#            k = k if self.version > '2.1' or k in ('script_name', 'script_arguments') else k[7:]
-#            self.obs_params[str(k)] = v
-#        self.observer = self.obs_params.get('observer', '')
-#        self.description = self.obs_params.get('description', '')
-#        self.experiment_id = self.obs_params.get('experiment_id', '')
-        self.observer = 'ted'
-        self.description = 'teds observation'
-        self.experiment_id = 'teds id'
 
         # ------ Extract timestamps ------
 
@@ -234,21 +220,41 @@ class H5DataV3(DataSet):
         def register_sensor(name, obj):
             """A sensor is defined as a non-empty dataset with expected dtype."""
             if isinstance(obj, h5py.Dataset) and obj.shape != () and obj.dtype.names == ('timestamp', 'value', 'status'):
-                # Put antenna sensors in virtual Antenna group
-                name = ('Antennas/' + name) if tm_group[name.split('/')[0]].attrs.get('class') == 'AntennaPositioner' else name
+                comp_name, sensor_name = name.split('/', 1)
+                comp_type = tm_group[comp_name].attrs.get('class')
+                # Mapping from specific components to generic sensor groups
+                # Put antenna sensors in virtual Antenna group, the rest according to component type
+                group_lookup = {'AntennaPositioner' : 'Antennas/' + comp_name}
+                group_name = group_lookup.get(comp_type, comp_type) if comp_type else comp_name
+                name = '/'.join((group_name, sensor_name))
                 cache[name] = SensorData(obj, name)
         tm_group.visititems(register_sensor)
         # Use estimated data timestamps for now, to speed up data segmentation
         self.sensor = SensorCache(cache, data_timestamps, self.dump_period, keep=self._time_keep,
                                   props=SENSOR_PROPS, virtual=VIRTUAL_SENSORS, aliases=SENSOR_ALIASES)
 
+        # ------ Extract observation parameters ------
+
+        self.obs_params = {}
+        # Replay obs_params sensor and update obs_params dict accordingly
+        params_sensor = self.sensor.get('Observation/params')
+        for ind in params_sensor.indices:
+            key, val = params_sensor.unique_values[ind].split(' ', 1)
+            self.obs_params[key] = val
+        # Get observation script parameters, with defaults
+        self.observer = self.obs_params.get('observer', '')
+        self.description = self.obs_params.get('description', '')
+        self.experiment_id = self.obs_params.get('experiment_id', '')
+
         # ------ Extract subarrays ------
 
+        # All antennas in configuration as katpoint Antenna objects
+        ants = [katpoint.Antenna(tm_group[name].attrs['description']) for name in tm_group
+                if tm_group[name].attrs.get('class') == 'AntennaPositioner']
+        all_ants = [ant.name for ant in ants]
         # By default, only pick antennas that were in use by the script
-        print "fix when we have obs params in the h5 file"
-        #script_ants = config_group['Observation'].attrs['script_ants'].split(',')
-        #self.ref_ant = script_ants[0] if not ref_ant else ref_ant
-        script_ants = ['m062','m063']
+        script_ants = self.obs_params.get('ants')
+        script_ants = script_ants.split(',') if script_ants else all_ants
         self.ref_ant = script_ants[0] if not ref_ant else ref_ant
 
         # Original list of correlation products as pairs of input labels
@@ -264,9 +270,6 @@ class H5DataV3(DataSet):
                                  (len(corrprods), self._vis.shape[2]))
             else:
                 logger.warning('Reapplied k7_capture baseline mask to fix unexpected number of baseline labels')
-        # All antennas in configuration as katpoint Antenna objects
-        ants = [katpoint.Antenna(tm_group[name].attrs['description']) for name in tm_group if 
-               tm_group[name].attrs.get('class') == 'AntennaPositioner']
         self.subarrays = [Subarray(ants, corrprods)]
         self.sensor['Observation/subarray'] = CategoricalData(self.subarrays, [0, len(data_timestamps)])
         self.sensor['Observation/subarray_index'] = CategoricalData([0], [0, len(data_timestamps)])
@@ -308,8 +311,7 @@ class H5DataV3(DataSet):
             scan.events, scan.indices = scan.events[1:], scan.indices[1:]
             scan.events[0] = 0
         # Use labels to partition the data set into compound scans
-        label = sensor_to_categorical(markup_group['labels']['timestamp'], markup_group['labels']['label'],
-                                      data_timestamps, self.dump_period, **SENSOR_PROPS['Observation/label'])
+        label = self.sensor.get('Observation/label')
         # Discard empty labels (typically found in raster scans, where first scan has proper label and rest are empty)
         # However, if all labels are empty, keep them, otherwise whole data set will be one pathological compscan...
         if len(label.unique_values) > 1:
