@@ -117,7 +117,6 @@ class H5DataV3(DataSet):
 
         # Load main HDF5 groups
         data_group, tm_group = f['Data'], f['TelescopeModel']
-        markup_group = f['Markup']
         cbf_group = tm_group['cbf']
 
         # ------ Extract vis and timestamps ------
@@ -152,16 +151,16 @@ class H5DataV3(DataSet):
         # ------ Extract flags ------
 
         # Check if flag group is present, else use dummy flag data
-        self._flags = markup_group['flags'] if 'flags' in markup_group else \
+        self._flags = data_group['flags'] if 'flags' in data_group else \
                       dummy_dataset('dummy_flags', shape=self._vis.shape[:-1], dtype=np.uint8, value=0)
         # Obtain flag descriptions from file or recreate default flag description table
-        self._flags_description = markup_group['flags_description'] if 'flags_description' in markup_group else \
+        self._flags_description = data_group['flags_description'] if 'flags_description' in data_group else \
                                   np.array(zip(FLAG_NAMES, FLAG_DESCRIPTIONS))
 
         # ------ Extract weights ------
 
         # check if weight group present, else use dummy weight data
-        self._weights = markup_group['weights'] if 'weights' in markup_group else \
+        self._weights = data_group['weights'] if 'weights' in data_group else \
                         dummy_dataset('dummy_weights', shape=self._vis.shape[:-1] + (1,), dtype=np.float32, value=1.0)
         self._weights_description = np.array(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS))
 
