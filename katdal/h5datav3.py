@@ -22,23 +22,15 @@ SENSOR_PROPS.update({
     '*activity': {'greedy_values': ('slew', 'stop'), 'initial_value': 'slew',
                    'transform': lambda act: SIMPLIFY_STATE.get(act, 'stop')},
     '*target': {'initial_value': '', 'transform': _robust_target},
-    # These float sensors are actually categorical by nature as they represent user settings
-    'RFE/center-frequency-hz': {'categorical': True},
-    'RFE/rfe7.lo1.frequency': {'categorical': True},
-    '*attenuation' : {'categorical': True},
-    '*attenuator.horizontal' : {'categorical': True},
-    '*attenuator.vertical' : {'categorical': True},
 })
 
 SENSOR_ALIASES = {
-    'nd_coupler': 'rfe3.rfe15.noise.coupler.on',
-    'nd_pin': 'rfe3.rfe15.noise.pin.on',
 }
 
 
 def _calc_azel(cache, name, ant):
     """Calculate virtual (az, el) sensors from actual ones in sensor cache."""
-    real_sensor = 'Antennas/%s/%s' % (ant, 'pos.actual-scan-azim' if name.endswith('az') else 'pos.actual-scan-elev')
+    real_sensor = 'Antennas/%s/%s' % (ant, 'pos_actual_scan_azim' if name.endswith('az') else 'pos_actual_scan_elev')
     cache[name] = sensor_data = katpoint.deg2rad(cache.get(real_sensor))
     return sensor_data
 
@@ -55,31 +47,6 @@ WEIGHT_DESCRIPTIONS = ('visibility precision (inverse variance, i.e. 1 / sigma^2
 #--------------------------------------------------------------------------------------------------
 #--- Utility functions
 #--------------------------------------------------------------------------------------------------
-
-def get_single_value(group, name):
-    """Return single value from attribute or dataset with given name in group.
-
-    If `name` is an attribute of the HDF5 group `group`, it is returned,
-    otherwise it is interpreted as an HDF5 dataset of `group` and the last value
-    of `name` is returned. This is meant to retrieve static configuration values
-    that potentially get set more than once during capture initialisation, but
-    then does not change during actual capturing.
-
-    Parameters
-    ----------
-    group : :class:`h5py.Group` object
-        HDF5 group to query
-    name : string
-        Name of HDF5 attribute or dataset to query
-
-    Returns
-    -------
-    value : object
-        Attribute or last value of dataset
-
-    """
-    return group.attrs[name] if name in group.attrs else group[name][-1]
-
 
 def dummy_dataset(name, shape, dtype, value):
     """Dummy HDF5 dataset containing a single value.
@@ -128,10 +95,6 @@ class H5DataV3(DataSet):
         (default is first antenna in use)
     time_offset : float, optional
         Offset to add to all correlator timestamps, in seconds
-    quicklook : {False, True}
-        True if synthesised timestamps should be used to partition data set even
-        if real timestamps are irregular, thereby avoiding the slow loading of
-        real timestamps at the cost of slightly inaccurate label borders
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
 
@@ -141,75 +104,63 @@ class H5DataV3(DataSet):
         Underlying HDF5 file, exposed via :mod:`h5py` interface
 
     """
-    def __init__(self, filename, ref_ant='', time_offset=0.0, quicklook=False, **kwargs):
+    def __init__(self, filename, ref_ant='', time_offset=0.0, **kwargs):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file
         self.file = f = h5py.File(filename, 'r')
 
-        # Only continue if file is correct version and has been properly augmented
-        # The current v3 has version as float - convert to string for now
-        self.version = str(f.attrs.get('version', '1.x'))
+        # Only continue if file is correct version
+        self.version = f.attrs.get('version', '1.x')
         if not self.version.startswith('3.'):
             raise WrongVersion("Attempting to load version '%s' file with version 3 loader" % (self.version,))
 
         # Load main HDF5 groups
         data_group, tm_group = f['Data'], f['TelescopeModel']
-        markup_group = f['Markup']
+        cbf_group = tm_group['cbf']
 
-        # ------ Extract timestamps ------
+        # ------ Extract vis and timestamps ------
 
-        self.dump_period = get_single_value(tm_group['cbf'], 'int_time')
-        # Obtain visibility data and timestamps
+        self.dump_period = cbf_group.attrs['int_time']
+        # Obtain visibilities and timestamps (load the latter explicitly, but obviously not the former...)
         self._vis = data_group['correlator_data']
-        self._timestamps = data_group['timestamps']
+        self._timestamps = data_group['timestamps'][:]
         num_dumps = len(self._timestamps)
         if num_dumps != self._vis.shape[0]:
             raise BrokenFile('Number of timestamps received from ingest '
                              '(%d) differs from number of dumps in data (%d)' % (num_dumps, self._vis.shape[0]))
         # Discard the last sample if the timestamp is a duplicate (caused by stop packet in k7_capture)
         num_dumps = (num_dumps - 1) if num_dumps > 1 and (self._timestamps[-1] == self._timestamps[-2]) else num_dumps
-        # Do quick test for uniform spacing of timestamps (necessary but not sufficient)
-        expected_dumps = (self._timestamps[num_dumps - 1] - self._timestamps[0]) / self.dump_period + 1
+        self._timestamps = self._timestamps[:num_dumps]
         # The expected_dumps should always be an integer (like num_dumps), unless the timestamps and/or dump period
         # are messed up in the file, so the threshold of this test is a bit arbitrary (e.g. could use > 0.5)
-        irregular = abs(expected_dumps - num_dumps) >= 0.01
-        if irregular:
+        expected_dumps = (self._timestamps[-1] - self._timestamps[0]) / self.dump_period + 1
+        if abs(expected_dumps - num_dumps) >= 0.01:
             # Warn the user, as this is anomalous
             logger.warning(("Irregular timestamps detected in file '%s': "
                            "expected %.3f dumps based on dump period and start/end times, got %d instead") %
                            (filename, expected_dumps, num_dumps))
-            if quicklook:
-                logger.warning("Quicklook option selected - partitioning data based on synthesised timestamps instead")
-        if not irregular or quicklook:
-            # Estimate timestamps by assuming they are uniformly spaced (much quicker than loading them from file).
-            # This is useful for the purpose of segmenting data set, where accurate timestamps are not that crucial.
-            # The real timestamps are still loaded when the user explicitly asks for them.
-            data_timestamps = self._timestamps[0] + self.dump_period * np.arange(num_dumps)
-        else:
-            # Load the real timestamps instead (could take several seconds on a large data set)
-            data_timestamps = self._timestamps[:num_dumps]
         # Move timestamps from start of each dump to the middle of the dump
-        data_timestamps += 0.5 * self.dump_period + self.time_offset
-        if data_timestamps[0] < 1e9:
-            logger.warning("File '%s' has invalid first correlator timestamp (%f)" % (filename, data_timestamps[0],))
+        self._timestamps += 0.5 * self.dump_period + self.time_offset
+        if self._timestamps[0] < 1e9:
+            logger.warning("File '%s' has invalid first correlator timestamp (%f)" % (filename, self._timestamps[0],))
         self._time_keep = np.ones(num_dumps, dtype=np.bool)
-        self.start_time = katpoint.Timestamp(data_timestamps[0] - 0.5 * self.dump_period)
-        self.end_time = katpoint.Timestamp(data_timestamps[-1] + 0.5 * self.dump_period)
+        self.start_time = katpoint.Timestamp(self._timestamps[0] - 0.5 * self.dump_period)
+        self.end_time = katpoint.Timestamp(self._timestamps[-1] + 0.5 * self.dump_period)
 
         # ------ Extract flags ------
 
         # Check if flag group is present, else use dummy flag data
-        self._flags = markup_group['flags'] if 'flags' in markup_group else \
+        self._flags = data_group['flags'] if 'flags' in data_group else \
                       dummy_dataset('dummy_flags', shape=self._vis.shape[:-1], dtype=np.uint8, value=0)
         # Obtain flag descriptions from file or recreate default flag description table
-        self._flags_description = markup_group['flags_description'] if 'flags_description' in markup_group else \
+        self._flags_description = data_group['flags_description'] if 'flags_description' in data_group else \
                                   np.array(zip(FLAG_NAMES, FLAG_DESCRIPTIONS))
 
         # ------ Extract weights ------
 
         # check if weight group present, else use dummy weight data
-        self._weights = markup_group['weights'] if 'weights' in markup_group else \
+        self._weights = data_group['weights'] if 'weights' in data_group else \
                         dummy_dataset('dummy_weights', shape=self._vis.shape[:-1] + (1,), dtype=np.float32, value=1.0)
         self._weights_description = np.array(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS))
 
@@ -229,17 +180,16 @@ class H5DataV3(DataSet):
                 name = '/'.join((group_name, sensor_name))
                 cache[name] = SensorData(obj, name)
         tm_group.visititems(register_sensor)
-        # Use estimated data timestamps for now, to speed up data segmentation
-        self.sensor = SensorCache(cache, data_timestamps, self.dump_period, keep=self._time_keep,
+        self.sensor = SensorCache(cache, self._timestamps, self.dump_period, keep=self._time_keep,
                                   props=SENSOR_PROPS, virtual=VIRTUAL_SENSORS, aliases=SENSOR_ALIASES)
 
         # ------ Extract observation parameters ------
 
         self.obs_params = {}
         # Replay obs_params sensor and update obs_params dict accordingly
-        params_sensor = self.sensor.get('Observation/params')
-        for ind in params_sensor.indices:
-            key, val = params_sensor.unique_values[ind].split(' ', 1)
+        obs_params = self.sensor.get('Observation/params', extract=False)['value']
+        for obs_param in obs_params:
+            key, val = obs_param.split(' ', 1)
             self.obs_params[key] = val
         # Get observation script parameters, with defaults
         self.observer = self.obs_params.get('observer', '')
@@ -253,16 +203,16 @@ class H5DataV3(DataSet):
                 if tm_group[name].attrs.get('class') == 'AntennaPositioner']
         all_ants = [ant.name for ant in ants]
         # By default, only pick antennas that were in use by the script
-        script_ants = self.obs_params.get('ants')
-        script_ants = script_ants.split(',') if script_ants else all_ants
-        self.ref_ant = script_ants[0] if not ref_ant else ref_ant
+        obs_ants = self.obs_params.get('ants')
+        obs_ants = obs_ants.split(',') if obs_ants else all_ants
+        self.ref_ant = obs_ants[0] if not ref_ant else ref_ant
 
         # Original list of correlation products as pairs of input labels
-        corrprods = get_single_value(tm_group['cbf'], 'bls_ordering')
+        corrprods = cbf_group.attrs['bls_ordering']
         
         if len(corrprods) != self._vis.shape[2]:
             # Apply k7_capture baseline mask after the fact, in the hope that it fixes correlation product mislabelling
-            corrprods = np.array([cp for cp in corrprods if cp[0][:-1] in script_ants and cp[1][:-1] in script_ants])
+            corrprods = np.array([cp for cp in corrprods if cp[0][:-1] in obs_ants and cp[1][:-1] in obs_ants])
             # If there is still a mismatch between labels and data shape, file is considered broken (maybe bad labels?)
             if len(corrprods) != self._vis.shape[2]:
                 raise BrokenFile('Number of baseline labels (containing expected antenna names) '
@@ -271,31 +221,31 @@ class H5DataV3(DataSet):
             else:
                 logger.warning('Reapplied k7_capture baseline mask to fix unexpected number of baseline labels')
         self.subarrays = [Subarray(ants, corrprods)]
-        self.sensor['Observation/subarray'] = CategoricalData(self.subarrays, [0, len(data_timestamps)])
-        self.sensor['Observation/subarray_index'] = CategoricalData([0], [0, len(data_timestamps)])
+        self.sensor['Observation/subarray'] = CategoricalData(self.subarrays, [0, num_dumps])
+        self.sensor['Observation/subarray_index'] = CategoricalData([0], [0, num_dumps])
         # Store antenna objects in sensor cache too, for use in virtual sensor calculations
         for ant in ants:
-            self.sensor['Antennas/%s/antenna' % (ant.name,)] = CategoricalData([ant], [0, len(data_timestamps)])
+            self.sensor['Antennas/%s/antenna' % (ant.name,)] = CategoricalData([ant], [0, num_dumps])
 
         # ------ Extract spectral windows / frequencies ------
 
         # The centre frequency is now in the domain of the CBF
-        centre_freq = get_single_value(tm_group['cbf'], 'center_freq')
-        num_chans = get_single_value(tm_group['cbf'], 'n_chans')
+        centre_freq = cbf_group.attrs['center_freq']
+        num_chans = cbf_group.attrs['n_chans']
         if num_chans != self._vis.shape[1]:
             raise BrokenFile('Number of channels received from correlator '
                              '(%d) differs from number of channels in data (%d)' % (num_chans, self._vis.shape[1]))
-        bandwidth = get_single_value(tm_group['cbf'], 'bandwidth')
+        bandwidth = cbf_group.attrs['bandwidth']
         channel_width = bandwidth / num_chans
 
         # Mode sensor should only contain one value
-        mode = self.sensor.get('CorrelatorBeamformer/dbe_mode').unique_values[0]
+        mode = self.sensor.get('CorrelatorBeamformer/dbe_mode', extract=False)['value'][0]
 
         # We only expect a single spectral window within a single v3 file,
         # as changing the centre freq is like changing the CBF mode 
-        self.spectral_windows = [SpectralWindow(centre_freq, channel_width, num_chans, mode)]
-        self.sensor['Observation/spw'] = CategoricalData(self.spectral_windows, [0, len(data_timestamps)])
-        self.sensor['Observation/spw_index'] = CategoricalData([0], [0, len(data_timestamps)])
+        self.spectral_windows = [SpectralWindow(centre_freq, channel_width, num_chans, mode, sideband=1)]
+        self.sensor['Observation/spw'] = CategoricalData(self.spectral_windows, [0, num_dumps])
+        self.sensor['Observation/spw_index'] = CategoricalData([0], [0, num_dumps])
 
         # ------ Extract scans / compound scans / targets ------
 
@@ -339,12 +289,8 @@ class H5DataV3(DataSet):
 
         # Avoid storing reference to self in transform closure below, as this hinders garbage collection
         dump_period, time_offset = self.dump_period, self.time_offset
-        # Restore original (slow) timestamps so that subsequent sensors (e.g. pointing) will have accurate values
-        extract_time = LazyTransform('extract_time', lambda t, keep: t + 0.5 * dump_period + time_offset)
-        self.sensor.timestamps = LazyIndexer(self._timestamps, keep=slice(num_dumps), transforms=[extract_time])
         # Apply default selection and initialise all members that depend on selection in the process
-        self.select(spw=0, subarray=0, ants=script_ants)
-
+        self.select(spw=0, subarray=0, ants=obs_ants)
 
     def __str__(self):
         """Verbose human-friendly string representation of data set."""
@@ -364,16 +310,12 @@ class H5DataV3(DataSet):
     def timestamps(self):
         """Visibility timestamps in UTC seconds since Unix epoch.
 
-        The timestamps are returned as an array indexer of float64, shape (*T*,),
+        The timestamps are returned as an array of float64, shape (*T*,),
         with one timestamp per integration aligned with the integration
-        *midpoint*. To get the data array itself from the indexer `x`, do `x[:]`
-        or perform any other form of indexing on it.
+        *midpoint*.
 
         """
-        # Avoid storing reference to self in transform closure below, as this hinders garbage collection
-        dump_period, time_offset = self.dump_period, self.time_offset
-        extract_time = LazyTransform('extract_time', lambda t, keep: t + 0.5 * dump_period + time_offset)
-        return LazyIndexer(self._timestamps, keep=self._time_keep, transforms=[extract_time])
+        return self._timestamps[self._time_keep]
 
     @property
     def vis(self):
