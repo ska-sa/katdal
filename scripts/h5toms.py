@@ -23,6 +23,8 @@ delays['h'] = {'ant1': 2.32205060e-05, 'ant2': 2.32842541e-05, 'ant3': 2.3409376
 delays['v'] = {'ant1': 2.32319854e-05, 'ant2': 2.32902574e-05, 'ant3': 2.34050180e-05, 'ant4': 2.35194585e-05, 'ant5': 2.36741915e-05, 'ant6': 2.37882216e-05, 'ant7': 2.40424086e-05}
  #updated by mattieu 21 Oct 2011 (for all antennas - previously antennas 2 and 4 not updated)
 
+tag_to_intent = {'gaincal':'CALIBRATE_PHASE,CALIBRATE_AMPLI', 'bpcal':'CALIBRATE_BANDPASS,CALIBRATE_FLUX', 'target':'TARGET'}
+
 parser = optparse.OptionParser(usage="%prog [options] <filename.h5> [<filename2.h5>]*", description='Convert HDF5 file(s) to MeasurementSet')
 parser.add_option("-b", "--blank-ms", default="/var/kat/static/blank.ms", help="Blank MS used as template (default=%default)")
 parser.add_option("-c", "--circular", action="store_true", default=False, help="Produce quad circular polarisation. (RR, RL, LR, LL) *** Currently just relabels the linear pols ****")
@@ -42,6 +44,7 @@ parser.add_option("--flags", help="List of online flags to apply (from 'static,c
 parser.add_option("--dumptime", type=float, default=0.0, help="Output time averaging interval in seconds, default is no averaging.")
 parser.add_option("--chanbin", type=int, default=0, help="Bin width for channel averaging in channels, default is no averaging.")
 parser.add_option("--flagav", action="store_true", default=False, help="If a single element in an averaging bin is flagged, flag the averaged bin.")
+parser.add_option("-p", "--pipeline", action="store_true", default=False, help="Create MS file compatible with the EVLA pipeline.")
 
 (options, args) = parser.parse_args()
 
@@ -195,6 +198,7 @@ main_table = ms_extra.open_main(ms_name, verbose=options.verbose)
  # prepare to write main dict
 corrprod_to_index = dict([(tuple(cp), ind) for cp, ind in zip(h5.corr_products, range(len(h5.corr_products)))])
 field_names, field_centers, field_times = [], [], []
+obs_modes = ['UNKNOWN']
 
 for scan_ind, scan_state, target in h5.scans():
     s = time.time()
@@ -233,6 +237,19 @@ for scan_ind, scan_state, target in h5.scans():
         field_times.append(katpoint.Timestamp(utc_seconds[0]).to_mjd() * 60 * 60 * 24)
         if options.verbose: print "Added new field %d: '%s' %s %s" % (len(field_names) - 1, target.name, ra, dec)
     field_id = field_names.index(target.name)
+
+    # Determine the observation tag for this scan
+    obs_tag = []
+    for tag in target.tags:
+        if tag in tag_to_intent:
+            obs_tag.append(tag_to_intent[tag])
+    obs_tag = ','.join(obs_tag)
+    # add tag to obs_modes list
+    if obs_tag and obs_tag not in obs_modes:
+        obs_modes.append(obs_tag)
+    # get state_id from obs_modes list if it is in the list, else 0 'UNKNOWN'
+    state_id = obs_modes.index(obs_tag) if obs_tag in obs_modes else 0
+
     for ant1_index, ant1 in enumerate(h5.ants):
         for ant2_index, ant2 in enumerate(h5.ants):
             if ant2_index < ant1_index:
@@ -292,7 +309,7 @@ for scan_ind, scan_state, target in h5.scans():
                 sz_mb += corrected_data.dtype.itemsize * corrected_data.size / (1024.0 * 1024.0)                
             
             #write the data to the ms.
-            ms_extra.write_rows(main_table, ms_extra.populate_main_dict(uvw_coordinates, vis_data, flag_data, out_mjd, ant1_index, ant2_index, dump_time_width, field_id, scan_itr, model_data, corrected_data), verbose=options.verbose)
+            ms_extra.write_rows(main_table, ms_extra.populate_main_dict(uvw_coordinates, vis_data, flag_data, out_mjd, ant1_index, ant2_index, dump_time_width, field_id, state_id, scan_itr, model_data, corrected_data), verbose=options.verbose)
 
     s1 = time.time() - s
     if average_data and np.shape(utc_seconds)[0]!=np.shape(out_utc)[0]:
@@ -305,6 +322,7 @@ main_table.close()
 ms_dict = {}
 ms_dict['SPECTRAL_WINDOW'] = ms_extra.populate_spectral_window_dict(out_freqs, channel_freq_width * np.ones(len(out_freqs)))
 ms_dict['FIELD'] = ms_extra.populate_field_dict(field_centers, field_times, field_names)
+ms_dict['STATE'] = ms_extra.populate_state_dict(obs_modes)
 ms_dict['SOURCE'] = ms_extra.populate_source_dict(field_centers, field_times, out_freqs, field_names)
 
 print "\nWriting dynamic fields to disk....\n"
