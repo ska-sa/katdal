@@ -44,7 +44,6 @@ parser.add_option("--flags", help="List of online flags to apply (from 'static,c
 parser.add_option("--dumptime", type=float, default=0.0, help="Output time averaging interval in seconds, default is no averaging.")
 parser.add_option("--chanbin", type=int, default=0, help="Bin width for channel averaging in channels, default is no averaging.")
 parser.add_option("--flagav", action="store_true", default=False, help="If a single element in an averaging bin is flagged, flag the averaged bin.")
-parser.add_option("-p", "--pipeline", action="store_true", default=False, help="Create MS file compatible with the EVLA pipeline.")
 
 (options, args) = parser.parse_args()
 
