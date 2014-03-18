@@ -183,6 +183,16 @@ ms_desc['FIELD'] = {
     'TIME': std_scalar('Time origin for direction and rate', 'double'),
 }
 
+ms_desc['STATE'] = {
+    'SIG': std_scalar('True if the source signal is being observed.'),
+    'REF': std_scalar('True for a reference phase.'),
+    'CAL': std_scalar('Noise calibration temperature (zero if not added).'),
+    'LOAD': std_scalar('Load temperature (zero if no load).'),
+    'SUB_SCAN': std_scalar('Sub-scan number, relative to the SCAN_NUMBER in MAIN.'),
+    'OBS_MODE': std_scalar('Observing mode, defined by a set of reserved keywords.'),
+    'FLAG_ROW': std_scalar('Row Flag', 'boolean'),
+}
+
 ms_desc['SOURCE'] = {
     'DIRECTION': std_array('Source direction at specified time', 'double', 2),
     'PROPER_MOTION': std_array('Source proper motion at specified time', 'double', 2),
@@ -229,7 +239,8 @@ else:
 # -------- Routines that create MS data structures in dictionaries -----------
 
 def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna1_index,
-                       antenna2_index, integrate_length, field_id=0, scan_number=0, model_data=None, corrected_data=None):
+                       antenna2_index, integrate_length, field_id=0, state_id=1,
+                       scan_number=0, model_data=None, corrected_data=None):
     """Construct a dictionary containing the columns of the MAIN table.
 
     The MAIN table contains the visibility data itself. The vis data has shape
@@ -254,6 +265,8 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
         The integration time (one over dump rate), in seconds
     field_id : int or array of int, shape (num_vis_samples,), optional
         The field ID (pointing) associated with this data
+    state_id : int or array of int, shape (num_vis_samples,), optional
+        The state ID (observation intent) associated with this data
     scan_number : int or array of int, shape (num_vis_samples,), optional
         The scan index (compound scan index in the case of KAT-7)
     model_data : array of complex, shape (num_vis_samples, num_channels, num_pols)
@@ -289,6 +302,11 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
     except ValueError:
         raise ValueError("Length of 'field_id' should be 1 or %d, is %d instead" %
                          (num_vis_samples, len(field_id)))
+    try:
+        state_id, t = np.broadcast_arrays(np.asarray(state_id, np.int32), timestamps)
+    except ValueError:
+        raise ValueError("Length of 'state_id' should be 1 or %d, is %d instead" %
+                         (num_vis_samples, len(state_id)))                         
     try:
         scan_number, t = np.broadcast_arrays(np.asarray(scan_number, np.int32), timestamps)
     except ValueError:
@@ -337,7 +355,7 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
     # Estimated rms noise for channel with unity bandpass response (float, 1-dim)
     main_dict['SIGMA'] = np.ones((num_vis_samples, num_pols), dtype=np.float32)
     # ID for this observing state (integer)
-    main_dict['STATE_ID'] = - np.ones(num_vis_samples, dtype=np.int32)
+    main_dict['STATE_ID'] = state_id
     # Modified Julian Dates in seconds (double)
     main_dict['TIME'] = timestamps
     # Modified Julian Dates in seconds (double)
@@ -679,6 +697,42 @@ def populate_field_dict(phase_centers, time_origins, field_names=None):
     return field_dict
 
 
+def populate_state_dict(obs_modes=['UNKNOWN']):
+    """Construct a dictionary containing the columns of the STATE subtable.
+
+    The STATE subtable describes observing modes.
+    It has one row per observing modes.
+
+    Parameters
+    ----------
+    obs_modes : array of string
+        Observing modes, used to define the schedule strategy.
+
+    Returns
+    -------
+    state_dict : dict
+        Dictionary containing columns of STATE subtable
+
+    """
+    num_states = len(obs_modes)
+    state_dict = {}
+    # Signal (boolean)
+    state_dict['SIG'] = np.ones(num_states, dtype=np.uint8)
+    # Reference (boolean)
+    state_dict['REF'] = np.zeros(num_states, dtype=np.uint8)
+    # Noise calibration temperature (double)
+    state_dict['CAL'] = np.zeros(num_states, dtype=np.float64)
+    # Load temperature (double)
+    state_dict['LOAD'] = np.zeros(num_states, dtype=np.float64)
+    # Sub-scan number (int)
+    state_dict['SUB_SCAN'] = np.zeros(num_states, dtype=np.int32)
+    # Observing mode (string)
+    state_dict['OBS_MODE'] = np.atleast_1d(obs_modes)
+    # Row flag (boolean)
+    state_dict['FLAG_ROW'] = np.zeros(num_states, dtype=np.uint8)
+    return state_dict
+
+
 def populate_pointing_dict(num_antennas, observation_duration, start_time, phase_center, pointing_name='default'):
     """Construct a dictionary containing the columns of the POINTING subtable.
 
@@ -731,7 +785,7 @@ def populate_ms_dict(uvw_coordinates, vis_data, timestamps, antenna1_index, ante
                      integrate_length, center_frequencies, channel_bandwidths,
                      antenna_names, antenna_positions, antenna_diameter,
                      num_receptors_per_feed, start_time, end_time,
-                     telescope_name, observer_name, project_name, phase_center):
+                     telescope_name, observer_name, project_name, phase_center, obs_modes):
     """Construct a dictionary containing all the tables in a MeasurementSet.
 
     Parameters
@@ -772,6 +826,8 @@ def populate_ms_dict(uvw_coordinates, vis_data, timestamps, antenna1_index, ante
         Description of project
     phase_center : array of float, shape (2,)
         Direction of phase center, in ra-dec coordinates as 2-element array
+    obs_modes: array of strings
+        Observing modes
 
     Returns
     -------
@@ -790,6 +846,7 @@ def populate_ms_dict(uvw_coordinates, vis_data, timestamps, antenna1_index, ante
                                                        telescope_name, observer_name, project_name)
     ms_dict['SPECTRAL_WINDOW'] = populate_spectral_window_dict(center_frequencies, channel_bandwidths)
     ms_dict['FIELD'] = populate_field_dict(phase_center, start_time)
+    ms_dict['STATE'] = populate_state_dict(obs_modes)
     ms_dict['SOURCE'] = populate_source_dict(phase_center)
     return ms_dict
 
