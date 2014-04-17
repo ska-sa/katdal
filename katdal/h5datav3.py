@@ -190,7 +190,8 @@ class H5DataV3(DataSet):
         obs_params = self.sensor.get('Observation/params', extract=False)['value']
         for obs_param in obs_params:
             key, val = obs_param.split(' ', 1)
-            self.obs_params[key] = val
+            # Oh my goodness, use eval (at least suppress any context!)
+            self.obs_params[key] = eval(val, {})
         # Get observation script parameters, with defaults
         self.observer = self.obs_params.get('observer', '')
         self.description = self.obs_params.get('description', '')
