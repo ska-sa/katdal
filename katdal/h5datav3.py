@@ -237,13 +237,12 @@ class H5DataV3(DataSet):
                              '(%d) differs from number of channels in data (%d)' % (num_chans, self._vis.shape[1]))
         bandwidth = cbf_group.attrs['bandwidth']
         channel_width = bandwidth / num_chans
-
-        # Mode sensor should only contain one value
-        mode = self.sensor.get('CorrelatorBeamformer/dbe_mode', extract=False)['value'][0]
+        # The data product is set by the script or passed to it via schedule block
+        product = self.obs_params.get('product', 'unknown')
 
         # We only expect a single spectral window within a single v3 file,
         # as changing the centre freq is like changing the CBF mode 
-        self.spectral_windows = [SpectralWindow(centre_freq, channel_width, num_chans, mode, sideband=1)]
+        self.spectral_windows = [SpectralWindow(centre_freq, channel_width, num_chans, product, sideband=1)]
         self.sensor['Observation/spw'] = CategoricalData(self.spectral_windows, [0, num_dumps])
         self.sensor['Observation/spw_index'] = CategoricalData([0], [0, num_dumps])
 

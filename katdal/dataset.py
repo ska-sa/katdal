@@ -105,8 +105,8 @@ class SpectralWindow(object):
         Bandwidth of each frequency channel, in Hz
     num_chans : int
         Number of frequency channels
-    mode : string, optional
-        DBE (correlator) mode
+    product : string, optional
+        Data product / correlator mode
     sideband : {-1, +1}, optional
         Type of downconversion (-1 => lower sideband, +1 => upper sideband)
 
@@ -116,22 +116,23 @@ class SpectralWindow(object):
         Centre frequency of each frequency channel (assuming LSB mixing), in Hz
 
     """
-    def __init__(self, centre_freq, channel_width, num_chans, mode=None, sideband=-1):
+    def __init__(self, centre_freq, channel_width, num_chans, product=None, sideband=-1):
         self.centre_freq = centre_freq
         self.channel_width = channel_width
         self.num_chans = num_chans
-        self.mode = mode if mode is not None else ''
+        self.product = product if product is not None else ''
         # Don't subtract half a channel width as channel 0 is centred on 0 Hz in baseband
         self.channel_freqs = centre_freq + sideband * channel_width * (np.arange(num_chans) - num_chans / 2)
 
     def __repr__(self):
         """Short human-friendly string representation of spectral window object."""
-        return "<katdal.SpectralWindow mode='%s' centre=%.3f MHz bandwidth=%.3f MHz channels=%d at 0x%x>" % \
-              (self.mode, self.centre_freq / 1e6, self.num_chans * self.channel_width / 1e6, self.num_chans, id(self))
+        return "<katdal.SpectralWindow product='%s' centre=%.3f MHz bandwidth=%.3f MHz channels=%d at 0x%x>" % \
+              (self.product, self.centre_freq / 1e6,
+               self.num_chans * self.channel_width / 1e6, self.num_chans, id(self))
 
     def __eq__(self, other):
         """Equality comparison operator."""
-        return isinstance(other, SpectralWindow) and self.mode == other.mode and \
+        return isinstance(other, SpectralWindow) and self.product == other.product and \
                array_equal(self.centre_freq, other.centre_freq) and \
                array_equal(self.channel_width, other.channel_width) and \
                array_equal(self.num_chans, other.num_chans) and \
@@ -396,10 +397,10 @@ class DataSet(object):
             descr.append('  %2d  %28s  %2d      %3d' %
                          (n, ant_names.ljust(7 * 4 + 6), len(sub.inputs), len(sub.corr_products)))
         descr += ['Spectral Windows: %d' % (len(self.spectral_windows),),
-                  '  ID  Mode       CentreFreq(MHz)  Bandwidth(MHz)  Channels  ChannelWidth(kHz)']
+                  '  ID  Product    CentreFreq(MHz)  Bandwidth(MHz)  Channels  ChannelWidth(kHz)']
         for n, spw in enumerate(self.spectral_windows):
             descr.append('  %2d  %-11s %8.3f         %7.3f         %5d     %8.3f' %
-                         (n, spw.mode, spw.centre_freq / 1e6, spw.channel_width / 1e6 * spw.num_chans,
+                         (n, spw.product, spw.centre_freq / 1e6, spw.channel_width / 1e6 * spw.num_chans,
                           spw.num_chans, spw.channel_width / 1e3))
         # Now add dynamic information, which depends on the current selection criteria
         descr += ['-------------------------------------------------------------------------------',
