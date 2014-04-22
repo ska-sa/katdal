@@ -37,6 +37,7 @@ parser.add_option("-x", "--HH", action="store_true", default=False, help="Produc
 parser.add_option("-y", "--VV", action="store_true", default=False, help="Produce a Stokes I MeasurementSet using only VV")
 parser.add_option("-u", "--uvfits", action="store_true", default=False, help="Produce uvfits and casa MeasurementSets")
 parser.add_option("-a", "--no-auto", action="store_true", default=False, help="MeasurementSet will exclude autocorrelation data")
+parser.add_option("-s", "--keep-spaces", action="store_true", default=False, help="Keep spaces in source names, default removes spaces")
 parser.add_option("-C", "--channel-range", help="Range of frequency channels to keep (zero-based inclusive 'first_chan,last_chan', default is all channels)")
 parser.add_option("-e", "--elevation-range", help="Flag elevations outside the range 'lowest_elevation,highest_elevation'")
 parser.add_option("-m", "--model-data", action="store_true", default=False, help="Add MODEL_DATA and CORRECTED_DATA columns to the MS. MODEL_DATA initialised to unity amplitude zero phase, CORRECTED_DATA initialised to DATA.")
@@ -317,6 +318,9 @@ for scan_ind, scan_state, target in h5.scans():
     scan_itr+=1
 main_table.close()
 # done writing main table
+
+# Remove spaces from source names, unless otherwise specified
+field_names = [f.replace(' ','') for f in field_names] if not options.keep_spaces else field_names
 
 ms_dict = {}
 ms_dict['SPECTRAL_WINDOW'] = ms_extra.populate_spectral_window_dict(out_freqs, channel_freq_width * np.ones(len(out_freqs)))
