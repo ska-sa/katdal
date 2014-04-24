@@ -185,8 +185,8 @@ be used together to traverse the data set structure::
       for scan, state, target in d.scans():
           if state in ('scan', 'track'):
               plt.plot(d.ra, d.dec, 'o')
-      plt.xlabel('Right ascension (hours)')
-      plt.ylabel('Declination (degrees)')
+      plt.xlabel('Right ascension (J2000 degrees)')
+      plt.ylabel('Declination (J2000 degrees)')
       plt.title(target.name)
 
 Finally, all the targets (or fields) in the data set are stored in a catalogue
