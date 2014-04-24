@@ -925,12 +925,12 @@ class DataSet(object):
 
     @property
     def ra(self):
-        """Right ascension of the actual pointing of each dish in J2000 hours.
+        """Right ascension of the actual pointing of each dish in J2000 degrees.
 
         The right ascensions are returned in an array of float, shape (*T*, *A*).
 
         """
-        return np.column_stack([self.sensor['Antennas/%s/ra' % ant.name] * (12 / np.pi) for ant in self.ants])
+        return np.column_stack([katpoint.rad2deg(self.sensor['Antennas/%s/ra' % ant.name]) for ant in self.ants])
 
     @property
     def dec(self):
