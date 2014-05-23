@@ -205,6 +205,9 @@ from .h5datav2 import H5DataV2
 from .h5datav3 import H5DataV3
 from .sensordata import _sensor_completer
 
+import katpoint
+import h5py
+
 # Clean up top-level namespace a bit
 _dataset, _concatdata, _sensordata = dataset, concatdata, sensordata
 _h5datav1, _h5datav2, _h5datav3 = h5datav1, h5datav2, h5datav3
@@ -292,3 +295,40 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
         else:
             raise WrongVersion("File '%s' has unknown data file format or version" % (f,))
     return datasets[0] if isinstance(filename, basestring) else ConcatenatedDataSet(datasets)
+
+def get_ants(filename):
+  """Quick look function to get a list of antennas in a file.
+  Parameters
+  ----------
+  filename : string or sequence of strings
+      Data file name or list of file names
+
+  Returns
+  -------
+  antennas : list of :class:'katpoint.Antenna' objects
+  """
+
+  # Open the file in h5py
+  f = h5py.File(filename, 'r')
+
+  #Check which version and load antennas appropriately
+  version = f.attrs.get('version', '0.0')
+
+  if version.startswith('1.'):
+    ants_group = f['Antennas']
+    antennas = [katpoint.Antenna(ants_group[group].attrs['description']) 
+                for group in ants_group]
+  elif version.startswith('2.'):
+    config_group = f['MetaData/Configuration']
+    antennas = [katpoint.Antenna(config_group['Antennas'][name].attrs['description'])
+                for name in config_group['Antennas']]
+  elif version.startswith('3.'):
+    # Get telescope model group
+    tm_group = f['TelescopeModel']
+    antennas = [katpoint.Antenna(tm_group[name].attrs['description']) for name in tm_group
+                if tm_group[name].attrs.get('class') == 'AntennaPositioner']
+  else:
+    raise WrongVersion('Version %s files are not supported.' % (version,))
+
+  return antennas
+
