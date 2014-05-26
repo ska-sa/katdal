@@ -487,3 +487,34 @@ class H5DataV2(DataSet):
         extract_flags = LazyTransform('extract_flags', _extract_flags, dtype=np.bool)
         return LazyIndexer(self._flags, (self._time_keep, self._freq_keep, self._corrprod_keep),
                            transforms=[extract_flags])
+
+    @staticmethod
+    def _get_ants(filename):
+        """Quick look function to get a list of antennas in a file. 
+        This is intended to be called without createing a full katdal object.
+  
+        Parameters
+        ----------
+        filename : string
+            Data file name or list of file names
+
+        Returns
+        -------
+            antennas : list of :class:'katpoint.Antenna' objects
+        """
+
+        # Open the file in h5py
+        f = h5py.File(filename, 'r')
+
+        # Only continue if file is correct version and has been properly augmented
+        version = f.attrs.get('version', '1.x')
+        if not version.startswith('2.'):
+            raise WrongVersion("Attempting to load version '%s' file with version 2 loader" % (self.version,))
+        if not 'augment_ts' in f.attrs:
+            raise BrokenFile('HDF5 file not augmented - please run k7_augment.py (provided by katcapture package)')
+
+        config_group = f['MetaData/Configuration']
+        antennas = [katpoint.Antenna(config_group['Antennas'][name].attrs['description'])
+                        for name in config_group['Antennas']]
+
+        return antennas

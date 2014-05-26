@@ -205,9 +205,6 @@ from .h5datav2 import H5DataV2
 from .h5datav3 import H5DataV3
 from .sensordata import _sensor_completer
 
-import katpoint
-import h5py
-
 # Clean up top-level namespace a bit
 _dataset, _concatdata, _sensordata = dataset, concatdata, sensordata
 _h5datav1, _h5datav2, _h5datav3 = h5datav1, h5datav2, h5datav3
@@ -298,37 +295,50 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
 
 def get_ants(filename):
   """Quick look function to get a list of antennas in a file.
+  
   Parameters
   ----------
-  filename : string or sequence of strings
-      Data file name or list of file names
+  filename : string
+      Data file name
 
   Returns
   -------
   antennas : list of :class:'katpoint.Antenna' objects
   """
 
-  # Open the file in h5py
-  f = h5py.File(filename, 'r')
-
-  #Check which version and load antennas appropriately
-  version = f.attrs.get('version', '0.0')
-
-  if version.startswith('1.'):
-    ants_group = f['Antennas']
-    antennas = [katpoint.Antenna(ants_group[group].attrs['description']) 
-                for group in ants_group]
-  elif version.startswith('2.'):
-    config_group = f['MetaData/Configuration']
-    antennas = [katpoint.Antenna(config_group['Antennas'][name].attrs['description'])
-                for name in config_group['Antennas']]
-  elif version.startswith('3.'):
-    # Get telescope model group
-    tm_group = f['TelescopeModel']
-    antennas = [katpoint.Antenna(tm_group[name].attrs['description']) for name in tm_group
-                if tm_group[name].attrs.get('class') == 'AntennaPositioner']
-  else:
-    raise WrongVersion('Version %s files are not supported.' % (version,))
-
+  for format in formats:
+    try:
+        antennas = format._get_ants(filename)
+        break
+    except WrongVersion:
+        continue
+    else:
+        raise WrongVersion("File '%s' has unknown data file format or version" % (filename,))
   return antennas
 
+
+def get_targets(filename):
+  """Quick look function to get a list of targets in a file.
+
+  Parameters
+  ----------
+  filename : string
+      Data file name
+
+  Returns
+  -------
+  targets : list of :class:'katpoint.Target' objects
+  """
+
+  for format in formats:
+    try:
+        antennas = format._get_targets(filename)
+        break
+    except WrongVersion:
+        continue
+    else:
+        raise WrongVersion("File '%s' has unknown data file format or version" % (filename,))
+  return antennas
+
+
+  return targets

@@ -436,3 +436,33 @@ class H5DataV3(DataSet):
         extract_flags = LazyTransform('extract_flags', _extract_flags, dtype=np.bool)
         return LazyIndexer(self._flags, (self._time_keep, self._freq_keep, self._corrprod_keep),
                            transforms=[extract_flags])
+
+    @staticmethod
+    def _get_ants(filename):
+        """Quick look function to get a list of antennas in a file. 
+        This is intended to be called without createing a full katdal object.
+  
+        Parameters
+        ----------
+        filename : string
+            Data file name or list of file names
+
+        Returns
+        -------
+            antennas : list of :class:'katpoint.Antenna' objects
+        """
+
+        # Open the file in h5py
+        f = h5py.File(filename, 'r')
+
+        # Only continue if file is correct version
+        version = f.attrs.get('version', '1.x')
+        if not version.startswith('3.'):
+            raise WrongVersion("Attempting to load version '%s' file with version 3 loader" % (self.version,))
+
+        # Get telescope model group
+        tm_group = f['TelescopeModel']
+        antennas = [katpoint.Antenna(tm_group[name].attrs['description']) for name in tm_group
+                    if tm_group[name].attrs.get('class') == 'AntennaPositioner']
+
+        return antennas
