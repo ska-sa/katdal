@@ -336,7 +336,7 @@ class H5DataV1(DataSet):
     @staticmethod
     def _get_ants(filename):
         """Quick look function to get a list of antennas in a file. 
-        This is intended to be called without createing a full katdal object.
+        This is intended to be called without creating a full katdal object.
   
         Parameters
         ----------
@@ -352,9 +352,9 @@ class H5DataV1(DataSet):
         f = h5py.File(filename, 'r')
 
         # Only continue if file is correct version and has been properly augmented
-        version = f.attrs.get('version', '0.x')
+        version = f.attrs.get('version', '1.x')
         if not version.startswith('1.'):
-            raise WrongVersion("Attempting to load version '%s' file with version 1 loader" % (self.version,))
+            raise WrongVersion("Attempting to load version '%s' file with version 1 loader" % (version,))
         if not 'augment' in f.attrs:
             raise BrokenFile('HDF5 file not augmented - please run augment4.py (provided by k7augment package)')
 
@@ -363,3 +363,35 @@ class H5DataV1(DataSet):
                     for group in ants_group]
 
         return antennas
+
+    @staticmethod
+    def _get_targs(filename):
+        """Quick look function to get a list of targets in a file. 
+        This is intended to be called without creating a full katdal object.
+  
+        Parameters
+        ----------
+        filename : string
+            Data file name or list of file names
+
+        Returns
+        -------
+            targets : list of :class:'katpoint.Target' objects
+        """
+
+        # Open the file in h5py
+        f = h5py.File(filename, 'r')
+
+        # Only continue if file is correct version and has been properly augmented
+        version = f.attrs.get('version', '1.x')
+        print version
+        if not version.startswith('1.'):
+            raise WrongVersion("Attempting to load version '%s' file with version 1 loader" % (version,))
+        if not 'augment' in f.attrs:
+            raise BrokenFile('HDF5 file not augmented - please run augment4.py (provided by k7augment package)')
+
+        compound_scans = f['Scans']
+        all_target_strings = [compound_scans[group].attrs['target'] for group in compound_scans]
+        targets = [katpoint.Target(target_string) for target_string in np.unique(all_target_strings)]
+
+        return targets       

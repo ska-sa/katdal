@@ -294,51 +294,48 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
     return datasets[0] if isinstance(filename, basestring) else ConcatenatedDataSet(datasets)
 
 def get_ants(filename):
-  """Quick look function to get a list of antennas in a file.
+    """Quick look function to get a list of antennas in a file.
   
-  Parameters
-  ----------
-  filename : string
-      Data file name
+    Parameters
+    ----------
+    filename : string
+        Data file name
 
-  Returns
-  -------
-  antennas : list of :class:'katpoint.Antenna' objects
-  """
+    Returns
+    -------
+    antennas : list of :class:'katpoint.Antenna' objects
+    """
 
-  for format in formats:
-    try:
-        antennas = format._get_ants(filename)
-        break
-    except WrongVersion:
-        continue
+    for format in formats:
+        try:
+            antennas = format._get_ants(filename)
+            break
+        except WrongVersion:
+            continue
     else:
         raise WrongVersion("File '%s' has unknown data file format or version" % (filename,))
-  return antennas
+    return antennas
 
 
-def get_targets(filename):
-  """Quick look function to get a list of targets in a file.
+def get_targs(filename):
+    """Quick look function to get a list of targets in a file.
 
-  Parameters
-  ----------
-  filename : string
-      Data file name
+    Parameters
+    ----------
+    filename : string
+        Data file name
 
-  Returns
-  -------
-  targets : list of :class:'katpoint.Target' objects
-  """
+    Returns
+    -------
+    targets : list of :class:'katpoint.Target' objects
+    """
 
-  for format in formats:
-    try:
-        antennas = format._get_targets(filename)
-        break
-    except WrongVersion:
-        continue
+    for format in formats:
+        try:
+            targets = format._get_targs(filename)
+            break
+        except WrongVersion:
+            continue
     else:
         raise WrongVersion("File '%s' has unknown data file format or version" % (filename,))
-  return antennas
-
-
-  return targets
+    return targets

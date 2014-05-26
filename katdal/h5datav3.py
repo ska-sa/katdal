@@ -440,7 +440,7 @@ class H5DataV3(DataSet):
     @staticmethod
     def _get_ants(filename):
         """Quick look function to get a list of antennas in a file. 
-        This is intended to be called without createing a full katdal object.
+        This is intended to be called without creating a complete katdal object.
   
         Parameters
         ----------
@@ -458,7 +458,7 @@ class H5DataV3(DataSet):
         # Only continue if file is correct version
         version = f.attrs.get('version', '1.x')
         if not version.startswith('3.'):
-            raise WrongVersion("Attempting to load version '%s' file with version 3 loader" % (self.version,))
+            raise WrongVersion("Attempting to load version '%s' file with version 3 loader" % (version,))
 
         # Get telescope model group
         tm_group = f['TelescopeModel']
@@ -466,3 +466,33 @@ class H5DataV3(DataSet):
                     if tm_group[name].attrs.get('class') == 'AntennaPositioner']
 
         return antennas
+
+    @staticmethod
+    def _get_targs(filename):
+        """Quick look function to get a list of targets in a file. 
+        This is intended to be called without creating a complete katdal object.
+  
+        Parameters
+        ----------
+        filename : string
+            Data file name or list of file names
+
+        Returns
+        -------
+            targets : list of :class:'katpoint.Target' objects
+        """
+
+        # Open the file in h5py
+        f = h5py.File(filename, 'r')
+
+        # Only continue if file is correct version
+        version = f.attrs.get('version', '1.x')
+        if not version.startswith('3.'):
+            raise WrongVersion("Attempting to load version '%s' file with version 3 loader" % (version,))
+
+        # Get telescope model group
+        target_list = f['TelescopeModel/cbf/target']
+        all_target_strings = [target_data[1] for target_data in target_list]
+        targets = [katpoint.Target(target_string) for target_string in np.unique(all_target_strings)]
+
+        return targets
