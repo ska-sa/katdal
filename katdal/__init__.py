@@ -317,7 +317,7 @@ def get_ants(filename):
     return antennas
 
 
-def get_targs(filename):
+def get_targets(filename):
     """Quick look function to get a list of targets in a file.
 
     Parameters
@@ -332,7 +332,7 @@ def get_targs(filename):
 
     for format in formats:
         try:
-            targets = format._get_targs(filename)
+            targets = format._get_targets(filename)
             break
         except WrongVersion:
             continue

@@ -520,14 +520,14 @@ class H5DataV2(DataSet):
         return antennas
 
     @staticmethod
-    def _get_targs(filename):
+    def _get_targets(filename):
         """Quick look function to get a list of targets in a file. 
         This is intended to be called without createing a full katdal object.
   
         Parameters
         ----------
         filename : string
-            Data file name or list of file names
+            Data file name.
 
         Returns
         -------
