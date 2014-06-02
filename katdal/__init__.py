@@ -344,7 +344,8 @@ def get_targets(filename):
 
     Returns
     -------
-    targets : list of :class:'katpoint.Target' objects
+    targets : :class:'katpoint.Catalogue' object
+        All targets in file
 
     """
     return _file_action('_get_targets', filename)

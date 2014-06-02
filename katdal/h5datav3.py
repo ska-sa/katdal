@@ -333,15 +333,14 @@ class H5DataV3(DataSet):
 
         Returns
         -------
-        targets : list of :class:'katpoint.Target' objects
+        targets : :class:'katpoint.Catalogue' object
+            All targets in file
 
         """
         f, version = H5DataV3._open(filename)
         target_list = f['TelescopeModel/cbf/target']
         all_target_strings = [target_data[1] for target_data in target_list]
-        targets = [katpoint.Target(target_string)
-                   for target_string in np.unique(all_target_strings)]
-        return targets
+        return katpoint.Catalogue(np.unique(all_target_strings))
 
     def __str__(self):
         """Verbose human-friendly string representation of data set."""

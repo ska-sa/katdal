@@ -258,16 +258,15 @@ class H5DataV1(DataSet):
 
         Returns
         -------
-        targets : list of :class:'katpoint.Target' objects
+        targets : :class:'katpoint.Catalogue' object
+            All targets in file
 
         """
         f, version = H5DataV1._open(filename)
         compound_scans = f['Scans']
         all_target_strings = [compound_scans[group].attrs['target']
                               for group in compound_scans]
-        targets = [katpoint.Target(target_string)
-                   for target_string in np.unique(all_target_strings)]
-        return targets
+        return katpoint.Catalogue(np.unique(all_target_strings))
 
     @property
     def timestamps(self):
