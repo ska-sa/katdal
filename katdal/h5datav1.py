@@ -223,6 +223,52 @@ class H5DataV1(DataSet):
                              'augment4.py (provided by k7augment package)')
         return f, version
 
+    @staticmethod
+    def _get_ants(filename):
+        """Quick look function to get the list of antennas in a data file.
+
+        This is intended to be called without creating a full katdal object.
+
+        Parameters
+        ----------
+        filename : string
+            Data file name
+
+        Returns
+        -------
+        antennas : list of :class:'katpoint.Antenna' objects
+
+        """
+        f, version = H5DataV1._open(filename)
+        ants_group = f['Antennas']
+        antennas = [katpoint.Antenna(ants_group[group].attrs['description']) 
+                    for group in ants_group]
+        return antennas
+
+    @staticmethod
+    def _get_targets(filename):
+        """Quick look function to get the list of targets in a data file.
+
+        This is intended to be called without creating a full katdal object.
+
+        Parameters
+        ----------
+        filename : string
+            Data file name
+
+        Returns
+        -------
+        targets : list of :class:'katpoint.Target' objects
+
+        """
+        f, version = H5DataV1._open(filename)
+        compound_scans = f['Scans']
+        all_target_strings = [compound_scans[group].attrs['target']
+                              for group in compound_scans]
+        targets = [katpoint.Target(target_string)
+                   for target_string in np.unique(all_target_strings)]
+        return targets
+
     @property
     def timestamps(self):
         """Visibility timestamps in UTC seconds since Unix epoch.
@@ -338,49 +384,3 @@ class H5DataV1(DataSet):
         logger.warning("No flags in v1 h5 data files, returning array of zero flags")
         falses = LazyTransform('falses', lambda data, keep: np.zeros_like(data, dtype=np.bool), dtype=np.bool)
         return ConcatenatedLazyIndexer(self._vis_indexers(), transforms=[falses])
-
-    @staticmethod
-    def _get_ants(filename):
-        """Quick look function to get a list of antennas in a file.
-
-        This is intended to be called without creating a full katdal object.
-
-        Parameters
-        ----------
-        filename : string
-            Data file name
-
-        Returns
-        -------
-        antennas : list of :class:'katpoint.Antenna' objects
-
-        """
-        f, version = H5DataV1._open(filename)
-        ants_group = f['Antennas']
-        antennas = [katpoint.Antenna(ants_group[group].attrs['description']) 
-                    for group in ants_group]
-        return antennas
-
-    @staticmethod
-    def _get_targets(filename):
-        """Quick look function to get a list of targets in a file.
-
-        This is intended to be called without creating a full katdal object.
-
-        Parameters
-        ----------
-        filename : string
-            Data file name
-
-        Returns
-        -------
-        targets : list of :class:'katpoint.Target' objects
-
-        """
-        f, version = H5DataV1._open(filename)
-        compound_scans = f['Scans']
-        all_target_strings = [compound_scans[group].attrs['target']
-                              for group in compound_scans]
-        targets = [katpoint.Target(target_string)
-                   for target_string in np.unique(all_target_strings)]
-        return targets

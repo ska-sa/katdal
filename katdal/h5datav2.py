@@ -333,6 +333,69 @@ class H5DataV2(DataSet):
         # Apply default selection and initialise all members that depend on selection in the process
         self.select(spw=0, subarray=0, ants=script_ants)
 
+    @staticmethod
+    def _open(filename):
+        """Open file and do basic version and augmentation sanity check."""
+        f = h5py.File(filename, 'r')
+        version = f.attrs.get('version', '1.x')
+        if not version.startswith('2.'):
+            raise WrongVersion("Attempting to load version '%s' file with version 2 loader" % (version,))
+        if not 'augment_ts' in f.attrs:
+            raise BrokenFile('HDF5 file not augmented - please run '
+                             'k7_augment.py (provided by katcapture package)')
+        return f, version
+
+    @staticmethod
+    def _get_ants(filename):
+        """Quick look function to get the list of antennas in a data file.
+
+        This is intended to be called without createing a full katdal object.
+
+        Parameters
+        ----------
+        filename : string
+            Data file name
+
+        Returns
+        -------
+        antennas : list of :class:'katpoint.Antenna' objects
+
+        """
+        f, version = H5DataV2._open(filename)
+        config_group = f['MetaData/Configuration']
+        antennas = [katpoint.Antenna(config_group['Antennas'][name].attrs['description'])
+                    for name in config_group['Antennas']]
+        return antennas
+
+    @staticmethod
+    def _get_targets(filename):
+        """Quick look function to get the list of targets in a data file.
+
+        This is intended to be called without createing a full katdal object.
+
+        Parameters
+        ----------
+        filename : string
+            Data file name
+
+        Returns
+        -------
+        targets : list of :class:'katpoint.Target' objects
+
+        """
+        f, version = H5DataV2._open(filename)
+        # Use the delay-tracking centre as the one and only target
+        # Try two different sensors for the DBE target
+        try:
+            target_list = f['MetaData/Sensors/DBE/target']
+        except Exception:
+            # Since h5py errors have varied over the years, we need Exception
+            target_list = f['MetaData/Sensors/Beams/Beam0/target']
+        all_target_strings = [target_data[1] for target_data in target_list]
+        targets = [katpoint.Target(target_string)
+                   for target_string in np.unique(all_target_strings)]
+        return targets
+
     def __str__(self):
         """Verbose human-friendly string representation of data set."""
         descr = [super(H5DataV2, self).__str__()]
@@ -346,18 +409,6 @@ class H5DataV2(DataSet):
                     param_list += '  %s' % param
                 descr.append(param_list)
         return '\n'.join(descr)
-
-    @staticmethod
-    def _open(filename):
-        """Open file and do basic version and augmentation sanity check."""
-        f = h5py.File(filename, 'r')
-        version = f.attrs.get('version', '1.x')
-        if not version.startswith('2.'):
-            raise WrongVersion("Attempting to load version '%s' file with version 2 loader" % (version,))
-        if not 'augment_ts' in f.attrs:
-            raise BrokenFile('HDF5 file not augmented - please run '
-                             'k7_augment.py (provided by katcapture package)')
-        return f, version
 
     @property
     def timestamps(self):
@@ -493,54 +544,3 @@ class H5DataV2(DataSet):
         extract_flags = LazyTransform('extract_flags', _extract_flags, dtype=np.bool)
         return LazyIndexer(self._flags, (self._time_keep, self._freq_keep, self._corrprod_keep),
                            transforms=[extract_flags])
-
-    @staticmethod
-    def _get_ants(filename):
-        """Quick look function to get a list of antennas in a file.
-
-        This is intended to be called without createing a full katdal object.
-
-        Parameters
-        ----------
-        filename : string
-            Data file name
-
-        Returns
-        -------
-        antennas : list of :class:'katpoint.Antenna' objects
-
-        """
-        f, version = H5DataV2._open(filename)
-        config_group = f['MetaData/Configuration']
-        antennas = [katpoint.Antenna(config_group['Antennas'][name].attrs['description'])
-                    for name in config_group['Antennas']]
-        return antennas
-
-    @staticmethod
-    def _get_targets(filename):
-        """Quick look function to get a list of targets in a file.
-
-        This is intended to be called without createing a full katdal object.
-
-        Parameters
-        ----------
-        filename : string
-            Data file name
-
-        Returns
-        -------
-        targets : list of :class:'katpoint.Target' objects
-
-        """
-        f, version = H5DataV2._open(filename)
-        # Use the delay-tracking centre as the one and only target
-        # Try two different sensors for the DBE target
-        try:
-            target_list = f['MetaData/Sensors/DBE/target']
-        except Exception:
-            # Since h5py errors have varied over the years, we need Exception
-            target_list = f['MetaData/Sensors/Beams/Beam0/target']
-        all_target_strings = [target_data[1] for target_data in target_list]
-        targets = [katpoint.Target(target_string)
-                   for target_string in np.unique(all_target_strings)]
-        return targets
