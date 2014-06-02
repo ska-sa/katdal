@@ -145,14 +145,8 @@ class H5DataV2(DataSet):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file
-        self.file = f = h5py.File(filename, 'r')
-
-        # Only continue if file is correct version and has been properly augmented
-        self.version = f.attrs.get('version', '1.x')
-        if not self.version.startswith('2.'):
-            raise WrongVersion("Attempting to load version '%s' file with version 2 loader" % (self.version,))
-        if not 'augment_ts' in f.attrs:
-            raise BrokenFile('HDF5 file not augmented - please run k7_augment.py (provided by katcapture package)')
+        self.file, self.version = H5DataV2._open(filename)
+        f = self.file
 
         # Load main HDF5 groups
         data_group, sensors_group, config_group = f['Data'], f['MetaData/Sensors'], f['MetaData/Configuration']
@@ -353,6 +347,18 @@ class H5DataV2(DataSet):
                 descr.append(param_list)
         return '\n'.join(descr)
 
+    @staticmethod
+    def _open(filename):
+        """Open file and do basic version and augmentation sanity check."""
+        f = h5py.File(filename, 'r')
+        version = f.attrs.get('version', '1.x')
+        if not version.startswith('2.'):
+            raise WrongVersion("Attempting to load version '%s' file with version 2 loader" % (version,))
+        if not 'augment_ts' in f.attrs:
+            raise BrokenFile('HDF5 file not augmented - please run '
+                             'k7_augment.py (provided by katcapture package)')
+        return f, version
+
     @property
     def timestamps(self):
         """Visibility timestamps in UTC seconds since Unix epoch.
@@ -490,63 +496,51 @@ class H5DataV2(DataSet):
 
     @staticmethod
     def _get_ants(filename):
-        """Quick look function to get a list of antennas in a file. 
+        """Quick look function to get a list of antennas in a file.
+
         This is intended to be called without createing a full katdal object.
-  
+
         Parameters
         ----------
         filename : string
-            Data file name or list of file names
+            Data file name
 
         Returns
         -------
-            antennas : list of :class:'katpoint.Antenna' objects
+        antennas : list of :class:'katpoint.Antenna' objects
+
         """
-
-        # Open the file in h5py
-        f = h5py.File(filename, 'r')
-
-        # Only continue if file is correct version and has been properly augmented
-        version = f.attrs.get('version', '1.x')
-        if not version.startswith('2.'):
-            raise WrongVersion("Attempting to load version '%s' file with version 2 loader" % (version,))
-        if not 'augment_ts' in f.attrs:
-            raise BrokenFile('HDF5 file not augmented - please run k7_augment.py (provided by katcapture package)')
-
+        f, version = H5DataV2._open(filename)
         config_group = f['MetaData/Configuration']
         antennas = [katpoint.Antenna(config_group['Antennas'][name].attrs['description'])
-                        for name in config_group['Antennas']]
-
+                    for name in config_group['Antennas']]
         return antennas
 
     @staticmethod
     def _get_targets(filename):
-        """Quick look function to get a list of targets in a file. 
+        """Quick look function to get a list of targets in a file.
+
         This is intended to be called without createing a full katdal object.
-  
+
         Parameters
         ----------
         filename : string
-            Data file name.
+            Data file name
 
         Returns
         -------
-            targets : list of :class:'katpoint.Target' objects
+        targets : list of :class:'katpoint.Target' objects
+
         """
-
-        # Open the file in h5py
-        f = h5py.File(filename, 'r')
-
-        # Only continue if file is correct version and has been properly augmented
-        version = f.attrs.get('version', '1.x')
-        if not version.startswith('2.'):
-            raise WrongVersion("Attempting to load version '%s' file with version 2 loader" % (version,))
-        if not 'augment_ts' in f.attrs:
-            raise BrokenFile('HDF5 file not augmented - please run k7_augment.py (provided by katcapture package)')
-
-        target_list = f['MetaData/Sensors/DBE/target']
+        f, version = H5DataV2._open(filename)
+        # Use the delay-tracking centre as the one and only target
+        # Try two different sensors for the DBE target
+        try:
+            target_list = f['MetaData/Sensors/DBE/target']
+        except Exception:
+            # Since h5py errors have varied over the years, we need Exception
+            target_list = f['MetaData/Sensors/Beams/Beam0/target']
         all_target_strings = [target_data[1] for target_data in target_list]
-        targets = [katpoint.Target(target_string) for target_string in np.unique(all_target_strings)]
-
+        targets = [katpoint.Target(target_string)
+                   for target_string in np.unique(all_target_strings)]
         return targets
-

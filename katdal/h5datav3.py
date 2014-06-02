@@ -108,12 +108,8 @@ class H5DataV3(DataSet):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file
-        self.file = f = h5py.File(filename, 'r')
-
-        # Only continue if file is correct version
-        self.version = f.attrs.get('version', '1.x')
-        if not self.version.startswith('3.'):
-            raise WrongVersion("Attempting to load version '%s' file with version 3 loader" % (self.version,))
+        self.file, self.version = H5DataV3._open(filename)
+        f = self.file
 
         # Load main HDF5 groups
         data_group, tm_group = f['Data'], f['TelescopeModel']
@@ -306,6 +302,15 @@ class H5DataV3(DataSet):
                 descr.append(param_list)
         return '\n'.join(descr)
 
+    @staticmethod
+    def _open(filename):
+        """Open file and do basic version sanity check."""
+        f = h5py.File(filename, 'r')
+        version = f.attrs.get('version', '1.x')
+        if not version.startswith('3.'):
+            raise WrongVersion("Attempting to load version '%s' file with version 3 loader" % (version,))
+        return f, version
+
     @property
     def timestamps(self):
         """Visibility timestamps in UTC seconds since Unix epoch.
@@ -439,39 +444,10 @@ class H5DataV3(DataSet):
 
     @staticmethod
     def _get_ants(filename):
-        """Quick look function to get a list of antennas in a file. 
+        """Quick look function to get a list of antennas in a file.
+
         This is intended to be called without creating a complete katdal object.
-  
-        Parameters
-        ----------
-        filename : string
-            Data file name or list of file names
 
-        Returns
-        -------
-            antennas : list of :class:'katpoint.Antenna' objects
-        """
-
-        # Open the file in h5py
-        f = h5py.File(filename, 'r')
-
-        # Only continue if file is correct version
-        version = f.attrs.get('version', '1.x')
-        if not version.startswith('3.'):
-            raise WrongVersion("Attempting to load version '%s' file with version 3 loader" % (version,))
-
-        # Get telescope model group
-        tm_group = f['TelescopeModel']
-        antennas = [katpoint.Antenna(tm_group[name].attrs['description']) for name in tm_group
-                    if tm_group[name].attrs.get('class') == 'AntennaPositioner']
-
-        return antennas
-
-    @staticmethod
-    def _get_targets(filename):
-        """Quick look function to get a list of targets in a file. 
-        This is intended to be called without creating a complete katdal object.
-  
         Parameters
         ----------
         filename : string
@@ -479,20 +455,35 @@ class H5DataV3(DataSet):
 
         Returns
         -------
-            targets : list of :class:'katpoint.Target' objects
+        antennas : list of :class:'katpoint.Antenna' objects
+
         """
+        f, version = H5DataV3._open(filename)
+        tm_group = f['TelescopeModel']
+        antennas = [katpoint.Antenna(tm_group[name].attrs['description'])
+                    for name in tm_group
+                    if tm_group[name].attrs.get('class') == 'AntennaPositioner']
+        return antennas
 
-        # Open the file in h5py
-        f = h5py.File(filename, 'r')
+    @staticmethod
+    def _get_targets(filename):
+        """Quick look function to get a list of targets in a file.
 
-        # Only continue if file is correct version
-        version = f.attrs.get('version', '1.x')
-        if not version.startswith('3.'):
-            raise WrongVersion("Attempting to load version '%s' file with version 3 loader" % (version,))
+        This is intended to be called without creating a complete katdal object.
 
-        # Get telescope model group
+        Parameters
+        ----------
+        filename : string
+            Data file name
+
+        Returns
+        -------
+        targets : list of :class:'katpoint.Target' objects
+
+        """
+        f, version = H5DataV3._open(filename)
         target_list = f['TelescopeModel/cbf/target']
         all_target_strings = [target_data[1] for target_data in target_list]
-        targets = [katpoint.Target(target_string) for target_string in np.unique(all_target_strings)]
-
+        targets = [katpoint.Target(target_string)
+                   for target_string in np.unique(all_target_strings)]
         return targets
