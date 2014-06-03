@@ -71,14 +71,8 @@ class H5DataV1(DataSet):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file
-        self.file = f = h5py.File(filename, 'r')
-
-        # Only continue if file is correct version and has been properly augmented
-        self.version = f.attrs.get('version', '1.x')
-        if not self.version.startswith('1.'):
-            raise WrongVersion("Attempting to load version '%s' file with version 1 loader" % (self.version,))
-        if not 'augment' in f.attrs:
-            raise BrokenFile('HDF5 file not augmented - please run augment4.py (provided by k7augment package)')
+        self.file, self.version = H5DataV1._open(filename)
+        f = self.file
 
         # Load main HDF5 groups
         ants_group, corr_group, data_group = f['Antennas'], f['Correlator'], f['Scans']
@@ -216,6 +210,63 @@ class H5DataV1(DataSet):
         self.sensor.timestamps = self.timestamps
         # Apply default selection and initialise all members that depend on selection in the process
         self.select(spw=0, subarray=0)
+
+    @staticmethod
+    def _open(filename):
+        """Open file and do basic version and augmentation sanity check."""
+        f = h5py.File(filename, 'r')
+        version = f.attrs.get('version', '1.x')
+        if not version.startswith('1.'):
+            raise WrongVersion("Attempting to load version '%s' file with version 1 loader" % (version,))
+        if not 'augment' in f.attrs:
+            raise BrokenFile('HDF5 file not augmented - please run '
+                             'augment4.py (provided by k7augment package)')
+        return f, version
+
+    @staticmethod
+    def _get_ants(filename):
+        """Quick look function to get the list of antennas in a data file.
+
+        This is intended to be called without creating a full katdal object.
+
+        Parameters
+        ----------
+        filename : string
+            Data file name
+
+        Returns
+        -------
+        antennas : list of :class:'katpoint.Antenna' objects
+
+        """
+        f, version = H5DataV1._open(filename)
+        ants_group = f['Antennas']
+        antennas = [katpoint.Antenna(ants_group[group].attrs['description']) 
+                    for group in ants_group]
+        return antennas
+
+    @staticmethod
+    def _get_targets(filename):
+        """Quick look function to get the list of targets in a data file.
+
+        This is intended to be called without creating a full katdal object.
+
+        Parameters
+        ----------
+        filename : string
+            Data file name
+
+        Returns
+        -------
+        targets : :class:'katpoint.Catalogue' object
+            All targets in file
+
+        """
+        f, version = H5DataV1._open(filename)
+        compound_scans = f['Scans']
+        all_target_strings = [compound_scans[group].attrs['target']
+                              for group in compound_scans]
+        return katpoint.Catalogue(np.unique(all_target_strings))
 
     @property
     def timestamps(self):

@@ -108,12 +108,8 @@ class H5DataV3(DataSet):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file
-        self.file = f = h5py.File(filename, 'r')
-
-        # Only continue if file is correct version
-        self.version = f.attrs.get('version', '1.x')
-        if not self.version.startswith('3.'):
-            raise WrongVersion("Attempting to load version '%s' file with version 3 loader" % (self.version,))
+        self.file, self.version = H5DataV3._open(filename)
+        f = self.file
 
         # Load main HDF5 groups
         data_group, tm_group = f['Data'], f['TelescopeModel']
@@ -291,6 +287,60 @@ class H5DataV3(DataSet):
         dump_period, time_offset = self.dump_period, self.time_offset
         # Apply default selection and initialise all members that depend on selection in the process
         self.select(spw=0, subarray=0, ants=obs_ants)
+
+    @staticmethod
+    def _open(filename):
+        """Open file and do basic version sanity check."""
+        f = h5py.File(filename, 'r')
+        version = f.attrs.get('version', '1.x')
+        if not version.startswith('3.'):
+            raise WrongVersion("Attempting to load version '%s' file with version 3 loader" % (version,))
+        return f, version
+
+    @staticmethod
+    def _get_ants(filename):
+        """Quick look function to get the list of antennas in a data file.
+
+        This is intended to be called without creating a complete katdal object.
+
+        Parameters
+        ----------
+        filename : string
+            Data file name
+
+        Returns
+        -------
+        antennas : list of :class:'katpoint.Antenna' objects
+
+        """
+        f, version = H5DataV3._open(filename)
+        tm_group = f['TelescopeModel']
+        antennas = [katpoint.Antenna(tm_group[name].attrs['description'])
+                    for name in tm_group
+                    if tm_group[name].attrs.get('class') == 'AntennaPositioner']
+        return antennas
+
+    @staticmethod
+    def _get_targets(filename):
+        """Quick look function to get the list of targets in a data file.
+
+        This is intended to be called without creating a complete katdal object.
+
+        Parameters
+        ----------
+        filename : string
+            Data file name
+
+        Returns
+        -------
+        targets : :class:'katpoint.Catalogue' object
+            All targets in file
+
+        """
+        f, version = H5DataV3._open(filename)
+        target_list = f['TelescopeModel/cbf/target']
+        all_target_strings = [target_data[1] for target_data in target_list]
+        return katpoint.Catalogue(np.unique(all_target_strings))
 
     def __str__(self):
         """Verbose human-friendly string representation of data set."""

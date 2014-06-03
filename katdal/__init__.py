@@ -249,11 +249,40 @@ try:
 except (ImportError, _pkg_resources.DistributionNotFound, ValueError, IndexError, TypeError):
     __version__ = "unknown"
 
-#--------------------------------------------------------------------------------------------------
-#--- FUNCTION :  open
-#--------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
+#--- Top-level functions passed on to the appropriate format handler
+#------------------------------------------------------------------------------
 
 formats = [H5DataV3, H5DataV2, H5DataV1]
+
+def _file_action(action, filename, *args, **kwargs):
+    """Perform action on data file using the appropriate format class.
+
+    Parameters
+    ----------
+    action : string
+        Name of method to call on format class
+    filename : string
+        Data file name
+    args, kwargs : extra parameters to method (optional)
+
+    Returns
+    -------
+    result : object
+        Result of action
+
+    """
+    for format in formats:
+        try:
+            result = getattr(format, action)(filename, *args, **kwargs)
+            break
+        except WrongVersion:
+            continue
+    else:
+        raise WrongVersion("File '%s' has unknown data file format or version"
+                           % (filename,))
+    return result
+
 
 def open(filename, ref_ant='', time_offset=0.0, **kwargs):
     """Open data file(s) with loader of the appropriate version.
@@ -271,8 +300,8 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
         quicklook : {False, True}
             [H5DataV2] True if synthesised timestamps should be used to
             partition data set even if real timestamps are irregular, thereby
-            avoiding the slow loading of real timestamps at the cost of slightly
-            inaccurate label borders
+            avoiding the slow loading of real timestamps at the cost of
+            slightly inaccurate label borders
 
     Returns
     -------
@@ -283,12 +312,40 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
     filenames = [filename] if isinstance(filename, basestring) else filename
     datasets = []
     for f in filenames:
-        for format in formats:
-            try:
-                datasets.append(format(f, ref_ant, time_offset, **kwargs))
-                break
-            except WrongVersion:
-                continue
-        else:
-            raise WrongVersion("File '%s' has unknown data file format or version" % (f,))
-    return datasets[0] if isinstance(filename, basestring) else ConcatenatedDataSet(datasets)
+        dataset = _file_action('__call__', f, ref_ant, time_offset, **kwargs)
+        datasets.append(dataset)
+    return datasets[0] if isinstance(filename, basestring) else \
+           ConcatenatedDataSet(datasets)
+
+
+def get_ants(filename):
+    """Quick look function to get the list of antennas in a data file.
+  
+    Parameters
+    ----------
+    filename : string
+        Data file name
+
+    Returns
+    -------
+    antennas : list of :class:'katpoint.Antenna' objects
+
+    """
+    return _file_action('_get_ants', filename)
+
+
+def get_targets(filename):
+    """Quick look function to get the list of targets in a data file.
+
+    Parameters
+    ----------
+    filename : string
+        Data file name
+
+    Returns
+    -------
+    targets : :class:'katpoint.Catalogue' object
+        All targets in file
+
+    """
+    return _file_action('_get_targets', filename)
