@@ -314,11 +314,17 @@ class H5DataV3(DataSet):
 
         """
         f, version = H5DataV3._open(filename)
+        obs_params = {}
         tm_group = f['TelescopeModel']
-        antennas = [katpoint.Antenna(tm_group[name].attrs['description'])
-                    for name in tm_group
-                    if tm_group[name].attrs.get('class') == 'AntennaPositioner']
-        return antennas
+        all_ants = [ant for ant in tm_group if tm_group[ant].attrs.get('class') == 'AntennaPositioner']
+        tm_params = tm_group['obs/params']
+        for obs_param in tm_params['value']:
+            key, val = obs_param.split(' ', 1)
+            obs_params[key] = eval(val, {})
+        obs_ants = obs_params.get('ants')
+        # By default, only pick antennas that were in use by the script
+        obs_ants = obs_ants.split(',') if obs_ants else all_ants
+        return [katpoint.Antenna(tm_group[ant].attrs['description']) for ant in obs_ants if ant in all_ants]
 
     @staticmethod
     def _get_targets(filename):

@@ -363,9 +363,10 @@ class H5DataV2(DataSet):
         """
         f, version = H5DataV2._open(filename)
         config_group = f['MetaData/Configuration']
-        antennas = [katpoint.Antenna(config_group['Antennas'][name].attrs['description'])
-                    for name in config_group['Antennas']]
-        return antennas
+        all_ants = [ant for ant in config_group['Antennas']]
+        script_ants = config_group['Observation'].attrs.get('script_ants')
+        script_ants = script_ants.split(',') if script_ants else all_ants
+        return [katpoint.Antenna(config_group['Antennas'][ant].attrs['description']) for ant in script_ants if ant in all_ants]
 
     @staticmethod
     def _get_targets(filename):
