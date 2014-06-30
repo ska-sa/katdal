@@ -182,6 +182,11 @@ class LazyIndexer(object):
         """Length operator."""
         return self.shape[0]
 
+    def __iter__(self):
+        """Iterator."""
+        for index in range(len(self)):
+            yield self[index]
+
     def __getitem__(self, keep):
         """Extract a selected array from the underlying dataset.
 
