@@ -183,7 +183,7 @@ class LazyIndexer(object):
         return self.shape[0]
 
     def __iter__(self):
-        """Iterator """
+        """Iterator."""
         for index in range(len(self)):
             yield self[index]
 
