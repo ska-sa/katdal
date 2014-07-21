@@ -462,6 +462,28 @@ class DataSet(object):
                           self.shape[0], self.target_indices[0], target.name))
         return '\n'.join(descr)
 
+    def _fix_flux_freq_range(self):
+        """Ensure that target flux density models are valid on data frequencies."""
+        # Pad the minimum and maximum channel freqs with a few extra channels
+        min_freq = min((spw.channel_freqs.min() - 2 * spw.channel_width) / 1e6
+                       for spw in self.spectral_windows)
+        max_freq = max((spw.channel_freqs.max() + 2 * spw.channel_width) / 1e6
+                       for spw in self.spectral_windows)
+        for target in self.catalogue:
+            model = target.flux_model
+            if not model:
+                continue
+            if min_freq < model.min_freq_MHz and min_freq > 0.6 * model.min_freq_MHz or
+               max_freq > model.max_freq_MHz and max_freq < 1.6 * model.max_freq_MHz:
+                new_min_freq = min(min_freq, model.min_freq_MHz)
+                new_max_freq = max(max_freq, model.max_freq_MHz)
+                logger.warn('Extending flux density model frequency range of '
+                            '%r from %d-%d MHz to %d-%d MHz' % (target.name,
+                            model.min_freq_MHz, model.max_freq_MHz,
+                            new_min_freq, new_max_freq))
+                model.min_freq_MHz = new_min_freq
+                model.max_freq_MHz = new_max_freq
+
     def _set_keep(self, time_keep=None, freq_keep=None, corrprod_keep=None):
         """Set time, frequency and/or correlation product selection masks.
 
