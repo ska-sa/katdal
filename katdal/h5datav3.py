@@ -113,7 +113,10 @@ class H5DataV3(DataSet):
 
         # Load main HDF5 groups
         data_group, tm_group = f['Data'], f['TelescopeModel']
-        cbf_group = tm_group['cbf']
+        # Pick first group with appropriate class as CBF
+        cbfs = [comp for comp in tm_group
+                if tm_group[comp].attrs.get('class') == 'CorrelatorBeamformer']
+        cbf_group = tm_group[cbfs[0]]
 
         # ------ Extract vis and timestamps ------
 
