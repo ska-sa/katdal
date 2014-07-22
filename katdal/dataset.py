@@ -473,8 +473,10 @@ class DataSet(object):
             model = target.flux_model
             if not model:
                 continue
-            if min_freq < model.min_freq_MHz and min_freq > 0.6 * model.min_freq_MHz or
-               max_freq > model.max_freq_MHz and max_freq < 1.6 * model.max_freq_MHz:
+            if min_freq < model.min_freq_MHz and \
+               min_freq > 0.6 * model.min_freq_MHz or \
+               max_freq > model.max_freq_MHz and \
+               max_freq < 1.6 * model.max_freq_MHz:
                 new_min_freq = min(min_freq, model.min_freq_MHz)
                 new_max_freq = max(max_freq, model.max_freq_MHz)
                 logger.warn('Extending flux density model frequency range of '
