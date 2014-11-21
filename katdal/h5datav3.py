@@ -104,7 +104,8 @@ class H5DataV3(DataSet):
         Underlying HDF5 file, exposed via :mod:`h5py` interface
 
     """
-    def __init__(self, filename, ref_ant='', time_offset=0.0, **kwargs):
+    def __init__(self, filename, ref_ant='', time_offset=0.0,
+                 time_scale=None, time_origin=None, **kwargs):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file
@@ -124,6 +125,15 @@ class H5DataV3(DataSet):
         # Obtain visibilities and timestamps (load the latter explicitly, but obviously not the former...)
         self._vis = data_group['correlator_data']
         self._timestamps = data_group['timestamps'][:]
+        # Resynthesise timestamps from sample counter based on a different scale factor
+        if time_scale or time_origin:
+            old_scale = cbf_group.attrs['scale_factor_timestamp']
+            old_origin = cbf_group.attrs['sync_time']
+            time_scale = old_scale if time_scale is None else time_scale
+            time_origin = old_origin if time_origin is None else time_origin
+            samples = old_scale * (self._timestamps - old_origin)
+            self._timestamps = samples / time_scale + time_origin
+
         num_dumps = len(self._timestamps)
         if num_dumps != self._vis.shape[0]:
             raise BrokenFile('Number of timestamps received from ingest '
