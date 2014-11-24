@@ -4,7 +4,6 @@
 # using the casacore table tools in the ms_extra module (or pyrap if casacore not available)
 
 import os
-import sys
 import shutil
 import tarfile
 import optparse
@@ -49,27 +48,23 @@ parser.add_option("--flagav", action="store_true", default=False, help="If a sin
 (options, args) = parser.parse_args()
 
 if len(args) < 1 or not args[0].endswith(".h5"):
-    print "Please provide one or more HDF5 filenames as arguments"
-    sys.exit(1)
+    parser.print_help()
+    raise RuntimeError("Please provide one or more HDF5 filenames as arguments")
 
 if options.HH and options.VV:
-    print "You cannot include both HH and VV in the production of Stokes I (i.e. you specified --HH and --VV)."
-    sys.exit(1)
+    raise RuntimeError("You cannot include both HH and VV in the production of Stokes I (i.e. you specified --HH and --VV).")
 
 if options.full_pol and (options.HH or options.VV):
-    print "You have specified a full pol MS but also chosen to produce Stokes I (either HH or VV). Choose one or the other."
-    sys.exit(1)
+    raise RuntimeError("You have specified a full pol MS but also chosen to produce Stokes I (either HH or VV). Choose one or the other.")
 
 if options.elevation_range and len(options.elevation_range.split(',')) < 2:
-    print "You have selected elevation flagging. Please provide elevation limits in the form 'lowest_elevation,highest_elevation'."
-    sys.exit(1)
+    raise RuntimeError("You have selected elevation flagging. Please provide elevation limits in the form 'lowest_elevation,highest_elevation'.")
 
 if len(args) > 1:
     print "Concatenating multiple h5 files into single MS."
 
 if not ms_extra.casacore_binding:
-    print "Failed to find casacore binding. You need to install both casacore and pyrap, or run the script from within a modified casapy containing h5py and katpoint."
-    sys.exit(1)
+    raise RuntimeError("Failed to find casacore binding. You need to install both casacore and pyrap, or run the script from within a modified casapy containing h5py and katpoint.")
 else:
     print "Using '%s' casacore binding to produce MS" % (ms_extra.casacore_binding,)
 
@@ -80,13 +75,11 @@ ms_name = os.path.splitext(args[0])[0] + ("." if len(args) == 1 else ".et_al.") 
 
 # The first step is to copy the blank template MS to our desired output (making sure it's not already there)
 if os.path.exists(ms_name):
-    print "MS '%s' already exists - please remove it before running this script" % (ms_name,)
-    sys.exit(0)
+    raise RuntimeError("MS '%s' already exists - please remove it before running this script" % (ms_name,))
 try:
     shutil.copytree(options.blank_ms, ms_name)
 except OSError:
-    print "Failed to copy blank MS from %s to %s - please check presence of blank MS and/or permissions" % (options.blank_ms, ms_name)
-    sys.exit(1)
+    raise RuntimeError("Failed to copy blank MS from %s to %s - please check presence of blank MS and/or permissions" % (options.blank_ms, ms_name))
 
 print "Will create MS output in", ms_name
 
@@ -126,8 +119,7 @@ if options.channel_range is not None:
     first_chan, last_chan = channel_range[0], channel_range[1]
 
     if (first_chan < 0) or (last_chan >= h5.shape[1]):
-        print "Requested channel range outside data set boundaries. Set channels in the range [0,%s]" % (h5.shape[1]-1,)
-        sys.exit(1)
+        raise RuntimeError("Requested channel range outside data set boundaries. Set channels in the range [0,%s]" % (h5.shape[1]-1,))
 
     chan_range = slice(first_chan, last_chan + 1)
     print "\nChannel range %s through %s." % (first_chan, last_chan)
@@ -149,7 +141,7 @@ if options.chanbin > 1:
 else:
     # No averaging in channel
     chan_av = 1
-    
+
 # Get the frequency increment per averaged channel
 channel_freq_width = h5.channel_width * chan_av
 
@@ -220,7 +212,7 @@ for scan_ind, scan_state, target in h5.scans():
     scan_weight_data = h5.weights()[:]
     # load flags selected from 'options.flags' for this scan
     scan_flag_data = h5.flags(options.flags)[:]
- 
+
     # Get the average dump time for this scan (equal to scan length if the dump period is longer than a scan)
     dump_time_width = min(time_av,scan_len*h5.dump_period)
 
@@ -271,13 +263,13 @@ for scan_ind, scan_state, target in h5.scans():
                     # Result of delay model in turns of phase. This is now frequency dependent so has shape (tstamps, channels)
                     turns = np.outer((h5.w[:, cp_index] / katpoint.lightspeed) - cable_delay, h5.channel_freqs)
                     vis_data *= np.exp(-2j * np.pi * turns)
-                
+
                 out_utc = utc_seconds
                 out_freqs = h5.channel_freqs
-                
+
                 # Overwrite the input visibilities with averaged visibilities,flags,weights,timestamps,channel freqs
                 if average_data: vis_data,weight_data,flag_data,out_utc,out_freqs=averager.average_visibilities(vis_data, weight_data, flag_data, out_utc, out_freqs,timeav=dump_av,chanav=chan_av,flagav=options.flagav)
-                
+
                 pol_data.append(vis_data)
                 weight_pol_data.append(weight_data)
                 flag_pol_data.append(flag_data)
@@ -293,12 +285,12 @@ for scan_ind, scan_state, target in h5.scans():
                 model_data = np.ones(vis_data.shape, dtype=np.complex64)
                 # corrected data set copied from vis_data
                 corrected_data = vis_data
-            
+
             uvw_coordinates = np.array(target.uvw(ant2, timestamp=out_utc, antenna=ant1))
-            
+
             #Convert averaged UTC timestamps to MJD seconds.
             out_mjd  =  [katpoint.Timestamp(time_utc).to_mjd() * 24 * 60 * 60 for time_utc in out_utc]
-            
+
             #Increment the filesize.
             sz_mb += vis_data.dtype.itemsize * vis_data.size / (1024.0 * 1024.0)
             sz_mb += weight_data.dtype.itemsize * weight_data.size / (1024.0 * 1024.0)
@@ -307,7 +299,7 @@ for scan_ind, scan_state, target in h5.scans():
             if options.model_data:
                 sz_mb += model_data.dtype.itemsize * model_data.size / (1024.0 * 1024.0)
                 sz_mb += corrected_data.dtype.itemsize * corrected_data.size / (1024.0 * 1024.0)                
-            
+
             #write the data to the ms.
             ms_extra.write_rows(main_table, ms_extra.populate_main_dict(uvw_coordinates, vis_data, flag_data, out_mjd, ant1_index, ant2_index, dump_time_width, field_id, state_id, scan_itr, model_data, corrected_data), verbose=options.verbose)
 
