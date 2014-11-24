@@ -281,7 +281,8 @@ class H5DataV2(DataSet):
             mode = 'wbc' if num_chans <= 1024 else 'wbc8k' if bandwidth > 200e6 else 'nbc'
         self.spectral_windows = [SpectralWindow(spw_centre, channel_width, num_chans, mode)
                                  for spw_centre in centre_freq.unique_values]
-        self.sensor['Observation/spw'] = CategoricalData(self.spectral_windows, centre_freq.events)
+        self.sensor['Observation/spw'] = CategoricalData([self.spectral_windows[idx] for idx in centre_freq.indices],
+                                                         centre_freq.events)
         self.sensor['Observation/spw_index'] = CategoricalData(centre_freq.indices, centre_freq.events)
 
         # ------ Extract scans / compound scans / targets ------
