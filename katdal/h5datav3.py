@@ -95,6 +95,10 @@ class H5DataV3(DataSet):
         (default is first antenna in use)
     time_offset : float, optional
         Offset to add to all correlator timestamps, in seconds
+    time_scale : float or None, optional
+        Resynthesise timestamps using this scale factor
+    time_origin : float or None, optional
+        Resynthesise timestamps using this sync time / epoch
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
 
@@ -102,6 +106,14 @@ class H5DataV3(DataSet):
     ----------
     file : :class:`h5py.File` object
         Underlying HDF5 file, exposed via :mod:`h5py` interface
+
+    Notes
+    -----
+    The timestamps can be resynchronised from the original sample counter
+    values by specifying *time_scale* and/or *time_origin*. The basic formula
+    is given by::
+
+      timestamp = sample_counter / time_scale + time_origin
 
     """
     def __init__(self, filename, ref_ant='', time_offset=0.0,
