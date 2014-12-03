@@ -99,7 +99,7 @@ class H5DataV3(DataSet):
         Resynthesise timestamps using this scale factor
     time_origin : float or None, optional
         Resynthesise timestamps using this sync time / epoch
-    rotate_bls : {True, False}, optional
+    rotate_bls : {False, True}, optional
         Rotate baseline label list to work around early RTS correlator bug
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
@@ -119,7 +119,7 @@ class H5DataV3(DataSet):
 
     """
     def __init__(self, filename, ref_ant='', time_offset=0.0,
-                 time_scale=1712e6, time_origin=None, rotate_bls=True,
+                 time_scale=None, time_origin=None, rotate_bls=False,
                  **kwargs):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
