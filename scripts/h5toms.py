@@ -176,7 +176,7 @@ for win in range(len(h5.spectral_windows)):
         dump_av = 1
         time_av = h5.dump_period
 
-    # Print a message if extending flags to averageing bins.
+    # Print a message if extending flags to averaging bins.
     if average_data and options.flagav and options.flags!='': print "Extending flags to averaging bins."
 
 
@@ -346,6 +346,4 @@ for win in range(len(h5.spectral_windows)):
         tar = tarfile.open('%s.tar' % (ms_name,), 'w')
         tar.add(ms_name, arcname=os.path.basename(ms_name))
         tar.close()
-
-
 
