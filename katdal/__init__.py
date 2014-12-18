@@ -250,6 +250,7 @@ else:
         # a .index method.
         ver = list(dist.parsed_version)
         __version__ = "r%d" % int(ver[ver.index("*r") + 1])
+        del dist, ver
     except (_pkg_resources.DistributionNotFound, ValueError, IndexError, TypeError):
         __version__ = "unknown"
 
