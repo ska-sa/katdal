@@ -25,6 +25,7 @@ SENSOR_PROPS.update({
 })
 
 SENSOR_ALIASES = {
+    'nd_coupler': 'dig.noise-diode',
 }
 
 
