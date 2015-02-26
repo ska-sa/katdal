@@ -139,7 +139,10 @@ class H5DataV3(DataSet):
 
         self.dump_period = cbf_group.attrs['int_time']
         # Obtain visibilities and timestamps (load the latter explicitly, but obviously not the former...)
-        self._vis = data_group['correlator_data']
+        if 'correlator_data' in data_group:
+            self._vis = data_group['correlator_data']
+        else:
+            raise BrokenFile('File contains no visibility data')
         self._timestamps = data_group['timestamps'][:]
         # Resynthesise timestamps from sample counter based on a different scale factor
         if time_scale or time_origin:
