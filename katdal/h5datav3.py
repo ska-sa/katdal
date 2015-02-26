@@ -137,6 +137,8 @@ class H5DataV3(DataSet):
 
         # ------ Extract vis and timestamps ------
 
+        if cbf_group.attrs.keys() == ['class']:
+            raise BrokenFile('File contains no correlator metadata')
         self.dump_period = cbf_group.attrs['int_time']
         # Obtain visibilities and timestamps (load the latter explicitly, but obviously not the former...)
         if 'correlator_data' in data_group:
