@@ -125,21 +125,23 @@ def _linear_interp(xi, yi, x):
     return (1.0 - end_weight) * yi[start] + end_weight * yi[end]
 
 
-def dummy_sensor_data(name, dtype, timestamp=0.0):
+def dummy_sensor_data(name, value=None, dtype=np.float64, timestamp=0.0):
     """Create a SensorData object with a single default value based on type.
 
-    This creates a dummy :class:`SensorData` object based on its type, for use
-    when no sensor data are available, but filler data are required (e.g. when
-    concatenating sensors from different datasets and one dataset lacks the
-    sensor). The dummy dataset contains a single data point with the filler
-    value and a configurable timestamp (defaulting to way back).
+    This creates a dummy :class:`SensorData` object based on a default value
+    or a type, for use when no sensor data are available, but filler data are
+    required (e.g. when concatenating sensors from different datasets and one
+    dataset lacks the sensor). The dummy dataset contains a single data point
+    with the filler value and a configurable timestamp (defaulting to way back).
 
     Parameters
     ----------
     name : string
         Sensor name
-    dtype : :class:`numpy.dtype` object or equivalent
-        Desired sensor data type
+    value : object, optional
+        Filler value (default is None, meaning *dtype* will be used instead)
+    dtype : :class:`numpy.dtype` object or equivalent, optional
+        Desired sensor data type, used if no explicit value is given
     timestamp : float, optional
         Time when dummy value occurred (default is way back)
 
@@ -149,17 +151,18 @@ def dummy_sensor_data(name, dtype, timestamp=0.0):
         Dummy sensor data object
 
     """
-    if np.issubdtype(dtype, np.float):
-        value = np.nan
-    elif np.issubdtype(dtype, np.int):
-        value = -1
-    elif np.issubdtype(dtype, np.str):
-        # Order is important here, because np.str is a subtype of np.bool, but not the other way around...
-        value = ''
-    elif np.issubdtype(dtype, np.bool):
-        value = False
+    if value is None:
+        if np.issubdtype(dtype, np.float):
+            value = np.nan
+        elif np.issubdtype(dtype, np.int):
+            value = -1
+        elif np.issubdtype(dtype, np.str):
+            # Order is important here, because np.str is a subtype of np.bool, but not the other way around...
+            value = ''
+        elif np.issubdtype(dtype, np.bool):
+            value = False
     else:
-        value = None
+        dtype = np.array(value).dtype
     data = np.rec.fromarrays([[timestamp], [value], ['nominal']],
                              dtype=[('timestamp', np.float64), ('value', dtype), ('status', '|S7')])
     return SensorData(data, name)
@@ -407,14 +410,6 @@ class SensorCache(dict):
                 raise KeyError("Unknown sensor '%s' (does not match actual name or virtual template)" % (name,))
         # If this is the first time this sensor is accessed, extract its data and store it in cache, if enabled
         if isinstance(sensor_data, SensorData) and extract:
-            if len(sensor_data) > 0:
-                # Sort sensor events in chronological order and discard duplicates and unreadable sensor values
-                sensor_data = remove_duplicates(sensor_data)
-                # Explicitly cast status to string type, as k7_augment produced sensors with integer statuses
-                sensor_data.data = np.atleast_1d(sensor_data[sensor_data['status'].astype('|S7') != 'failure'])
-            if len(sensor_data) == 0:
-                sensor_data = dummy_sensor_data(name, sensor_data.dtype)
-                logger.warning("No usable data found for sensor '%s' - replaced with dummy data" % (name,))
             # Look up properties associated with this specific sensor
             self.props[name] = props = self.props.get(name, {})
             # Look up properties associated with this class of sensor
@@ -423,6 +418,16 @@ class SensorCache(dict):
                     props.update(val)
             # Any properties passed directly to this method takes precedence
             props.update(kwargs)
+            # Clean up sensor data if non-empty
+            if len(sensor_data) > 0:
+                # Sort sensor events in chronological order and discard duplicates and unreadable sensor values
+                sensor_data = remove_duplicates(sensor_data)
+                # Explicitly cast status to string type, as k7_augment produced sensors with integer statuses
+                sensor_data.data = np.atleast_1d(sensor_data[sensor_data['status'].astype('|S7') != 'failure'])
+            if len(sensor_data) == 0:
+                sensor_data = dummy_sensor_data(name, value=props.get('initial_value'), dtype=sensor_data.dtype)
+                logger.warning("No usable data found for sensor '%s' - replaced with dummy data (%r)" %
+                               (name, sensor_data['value'][0]))
             # If this is the first time any sensor is accessed, obtain all data timestamps via indexer
             self.timestamps = self.timestamps[:] if not isinstance(self.timestamps, np.ndarray) else self.timestamps
             # Determine if sensor produces categorical or numerical data (by default, float data are non-categorical)
