@@ -160,9 +160,9 @@ def _robust_target(description):
 
 DEFAULT_SENSOR_PROPS = {
     '*nd_coupler': {'categorical': True, 'greedy_values': (True,), 'initial_value': '0',
-                    'transform': lambda x: x in ('1', 'True', 1)},
+                    'transform': lambda x: x not in ('0', 'False', 0)},
     '*nd_pin': {'categorical': True, 'greedy_values': (True,), 'initial_value': '0',
-                'transform': lambda x: x in ('1', 'True', 1)},
+                'transform': lambda x: x not in ('0', 'False', 0)},
     'Observation/label': {'initial_value': '', 'transform': str, 'allow_repeats': True},
     'Observation/scan_state': {'allow_repeats': True},
 }
