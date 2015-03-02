@@ -205,6 +205,8 @@ class H5DataV1(DataSet):
         # Set up catalogue containing all targets in file, with reference antenna as default antenna
         self.catalogue.add(target.unique_values)
         self.catalogue.antenna = self.sensor['Antennas/%s/antenna' % (self.ref_ant,)][0]
+        # Ensure that each target flux model spans all frequencies in data set if possible
+        self._fix_flux_freq_range()
 
         # Restore original (slow) timestamps so that subsequent sensors (e.g. pointing) will have accurate values
         self.sensor.timestamps = self.timestamps
