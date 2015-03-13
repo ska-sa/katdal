@@ -354,7 +354,7 @@ class H5DataV3(DataSet):
         """Verbose human-friendly string representation of data set."""
         descr = [super(H5DataV3, self).__str__()]
         # append the process_log, if it exists, for non-concatenated h5 files
-        if 'process_log' in self.file['History']:
+        if 'History' in self.file and 'process_log' in self.file['History']:
             descr.append('-------------------------------------------------------------------------------')
             descr.append('Process log:')
             for proc in self.file['History']['process_log']:
