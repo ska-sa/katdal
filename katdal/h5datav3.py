@@ -311,6 +311,10 @@ class H5DataV3(DataSet):
         self.sensor['Observation/compscan_index'] = CategoricalData(range(len(label)), label.events)
         # Use the target sensor of reference antenna to set the target for each scan
         target = self.sensor.get('Antennas/%s/target' % (self.ref_ant,))
+        # RTS workaround: Remove an initial blank target (typically because the antenna is stopped at the start)
+        if len(target) > 1 and target[0] == 'Nothing, special':
+            target.events, target.indices = target.events[1:], target.indices[1:]
+            target.events[0] = 0
         # Move target events onto the nearest scan start
         # ASSUMPTION: Number of targets <= number of scans (i.e. only a single target allowed per scan)
         target.align(scan.events)
