@@ -255,7 +255,7 @@ class ConcatenatedSensorCache(SensorCache):
         # Pad out actual sensors on each cache (replace with default sensor values where missing)
         for name, dtype in actual.iteritems():
             if name not in cache:
-                cache[name] = dummy_sensor_data(name, dtype)
+                cache[name] = dummy_sensor_data(name, dtype=dtype)
         # Pad out virtual sensors with default functions (nans)
         for name in virtual:
             if name not in cache.virtual:

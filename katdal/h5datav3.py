@@ -25,6 +25,7 @@ SENSOR_PROPS.update({
 })
 
 SENSOR_ALIASES = {
+    'nd_coupler': 'dig_noise_diode',
 }
 
 
@@ -95,6 +96,12 @@ class H5DataV3(DataSet):
         (default is first antenna in use)
     time_offset : float, optional
         Offset to add to all correlator timestamps, in seconds
+    time_scale : float or None, optional
+        Resynthesise timestamps using this scale factor
+    time_origin : float or None, optional
+        Resynthesise timestamps using this sync time / epoch
+    rotate_bls : {False, True}, optional
+        Rotate baseline label list to work around early RTS correlator bug
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
 
@@ -103,8 +110,18 @@ class H5DataV3(DataSet):
     file : :class:`h5py.File` object
         Underlying HDF5 file, exposed via :mod:`h5py` interface
 
+    Notes
+    -----
+    The timestamps can be resynchronised from the original sample counter
+    values by specifying *time_scale* and/or *time_origin*. The basic formula
+    is given by::
+
+      timestamp = sample_counter / time_scale + time_origin
+
     """
-    def __init__(self, filename, ref_ant='', time_offset=0.0, **kwargs):
+    def __init__(self, filename, ref_ant='', time_offset=0.0,
+                 time_scale=None, time_origin=None, rotate_bls=False,
+                 **kwargs):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file
@@ -113,14 +130,31 @@ class H5DataV3(DataSet):
 
         # Load main HDF5 groups
         data_group, tm_group = f['Data'], f['TelescopeModel']
-        cbf_group = tm_group['cbf']
+        # Pick first group with appropriate class as CBF
+        cbfs = [comp for comp in tm_group
+                if tm_group[comp].attrs.get('class') == 'CorrelatorBeamformer']
+        cbf_group = tm_group[cbfs[0]]
 
         # ------ Extract vis and timestamps ------
 
+        if cbf_group.attrs.keys() == ['class']:
+            raise BrokenFile('File contains no correlator metadata')
         self.dump_period = cbf_group.attrs['int_time']
         # Obtain visibilities and timestamps (load the latter explicitly, but obviously not the former...)
-        self._vis = data_group['correlator_data']
+        if 'correlator_data' in data_group:
+            self._vis = data_group['correlator_data']
+        else:
+            raise BrokenFile('File contains no visibility data')
         self._timestamps = data_group['timestamps'][:]
+        # Resynthesise timestamps from sample counter based on a different scale factor
+        if time_scale or time_origin:
+            old_scale = cbf_group.attrs['scale_factor_timestamp']
+            old_origin = cbf_group.attrs['sync_time']
+            time_scale = old_scale if time_scale is None else time_scale
+            time_origin = old_origin if time_origin is None else time_origin
+            samples = old_scale * (self._timestamps - old_origin)
+            self._timestamps = samples / time_scale + time_origin
+
         num_dumps = len(self._timestamps)
         if num_dumps != self._vis.shape[0]:
             raise BrokenFile('Number of timestamps received from ingest '
@@ -206,6 +240,9 @@ class H5DataV3(DataSet):
 
         # Original list of correlation products as pairs of input labels
         corrprods = cbf_group.attrs['bls_ordering']
+        # Work around early RTS correlator bug by re-ordering labels
+        if rotate_bls:
+            corrprods = corrprods[range(1, len(corrprods)) + [0]]
         
         if len(corrprods) != self._vis.shape[2]:
             # Apply k7_capture baseline mask after the fact, in the hope that it fixes correlation product mislabelling
@@ -274,6 +311,10 @@ class H5DataV3(DataSet):
         self.sensor['Observation/compscan_index'] = CategoricalData(range(len(label)), label.events)
         # Use the target sensor of reference antenna to set the target for each scan
         target = self.sensor.get('Antennas/%s/target' % (self.ref_ant,))
+        # RTS workaround: Remove an initial blank target (typically because the antenna is stopped at the start)
+        if len(target) > 1 and target[0] == 'Nothing, special':
+            target.events, target.indices = target.events[1:], target.indices[1:]
+            target.events[0] = 0
         # Move target events onto the nearest scan start
         # ASSUMPTION: Number of targets <= number of scans (i.e. only a single target allowed per scan)
         target.align(scan.events)
