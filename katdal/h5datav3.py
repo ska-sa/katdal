@@ -322,7 +322,7 @@ class H5DataV3(DataSet):
         self.sensor['Observation/target_index'] = CategoricalData(target.indices, target.events)
         # Set up catalogue containing all targets in file, with reference antenna as default antenna
         self.catalogue.add(target.unique_values)
-        self.catalogue.antenna = 'Antennas/%s' % (self.ref_ant,)[0]
+        self.catalogue.antenna = self.sensor['Antennas/%s/antenna' % (self.ref_ant,)][0]
         # Ensure that each target flux model spans all frequencies in data set if possible
         self._fix_flux_freq_range()
 
