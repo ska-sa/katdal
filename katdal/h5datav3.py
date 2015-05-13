@@ -135,6 +135,23 @@ class H5DataV3(DataSet):
                 if tm_group[comp].attrs.get('class') == 'CorrelatorBeamformer']
         cbf_group = tm_group[cbfs[0]]
 
+        # ------ Extract sensors ------
+
+        # Populate sensor cache with all HDF5 datasets below TelescopeModel group that fit the description of a sensor
+        cache = {}
+        def register_sensor(name, obj):
+            """A sensor is defined as a non-empty dataset with expected dtype."""
+            if isinstance(obj, h5py.Dataset) and obj.shape != () and obj.dtype.names == ('timestamp', 'value', 'status'):
+                comp_name, sensor_name = name.split('/', 1)
+                comp_type = tm_group[comp_name].attrs.get('class')
+                # Mapping from specific components to generic sensor groups
+                # Put antenna sensors in virtual Antenna group, the rest according to component type
+                group_lookup = {'AntennaPositioner' : 'Antennas/' + comp_name}
+                group_name = group_lookup.get(comp_type, comp_type) if comp_type else comp_name
+                name = '/'.join((group_name, sensor_name))
+                cache[name] = SensorData(obj, name)
+        tm_group.visititems(register_sensor)
+
         # ------ Extract vis and timestamps ------
 
         if cbf_group.attrs.keys() == ['class']:
@@ -177,6 +194,9 @@ class H5DataV3(DataSet):
         self._time_keep = np.ones(num_dumps, dtype=np.bool)
         self.start_time = katpoint.Timestamp(self._timestamps[0] - 0.5 * self.dump_period)
         self.end_time = katpoint.Timestamp(self._timestamps[-1] + 0.5 * self.dump_period)
+        # Populate sensor cache with all HDF5 datasets below TelescopeModel group that fit the description of a sensor
+        self.sensor = SensorCache(cache, self._timestamps, self.dump_period, keep=self._time_keep,
+                                  props=SENSOR_PROPS, virtual=VIRTUAL_SENSORS, aliases=SENSOR_ALIASES)
 
         # ------ Extract flags ------
 
@@ -193,25 +213,6 @@ class H5DataV3(DataSet):
         self._weights = data_group['weights'] if 'weights' in data_group else \
                         dummy_dataset('dummy_weights', shape=self._vis.shape[:-1] + (1,), dtype=np.float32, value=1.0)
         self._weights_description = np.array(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS))
-
-        # ------ Extract sensors ------
-
-        # Populate sensor cache with all HDF5 datasets below TelescopeModel group that fit the description of a sensor
-        cache = {}
-        def register_sensor(name, obj):
-            """A sensor is defined as a non-empty dataset with expected dtype."""
-            if isinstance(obj, h5py.Dataset) and obj.shape != () and obj.dtype.names == ('timestamp', 'value', 'status'):
-                comp_name, sensor_name = name.split('/', 1)
-                comp_type = tm_group[comp_name].attrs.get('class')
-                # Mapping from specific components to generic sensor groups
-                # Put antenna sensors in virtual Antenna group, the rest according to component type
-                group_lookup = {'AntennaPositioner' : 'Antennas/' + comp_name}
-                group_name = group_lookup.get(comp_type, comp_type) if comp_type else comp_name
-                name = '/'.join((group_name, sensor_name))
-                cache[name] = SensorData(obj, name)
-        tm_group.visititems(register_sensor)
-        self.sensor = SensorCache(cache, self._timestamps, self.dump_period, keep=self._time_keep,
-                                  props=SENSOR_PROPS, virtual=VIRTUAL_SENSORS, aliases=SENSOR_ALIASES)
 
         # ------ Extract observation parameters ------
 
