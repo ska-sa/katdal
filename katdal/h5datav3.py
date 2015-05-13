@@ -45,6 +45,9 @@ FLAG_DESCRIPTIONS = ('reserved - bit 0', 'predefined static flag list', 'flag ba
 WEIGHT_NAMES = ('precision',)
 WEIGHT_DESCRIPTIONS = ('visibility precision (inverse variance, i.e. 1 / sigma^2)',)
 
+# Number of bits in ADC sample counter, used to timestamp correlator data in original SPEAD stream
+ADC_COUNTER_BITS = 48
+
 #--------------------------------------------------------------------------------------------------
 #--- Utility functions
 #--------------------------------------------------------------------------------------------------
@@ -163,15 +166,49 @@ class H5DataV3(DataSet):
         else:
             raise BrokenFile('File contains no visibility data')
         self._timestamps = data_group['timestamps'][:]
-        # Resynthesise timestamps from sample counter based on a different scale factor
-        if time_scale or time_origin:
-            old_scale = cbf_group.attrs['scale_factor_timestamp']
-            old_origin = cbf_group.attrs['sync_time']
-            time_scale = old_scale if time_scale is None else time_scale
-            time_origin = old_origin if time_origin is None else time_origin
-            samples = old_scale * (self._timestamps - old_origin)
-            self._timestamps = samples / time_scale + time_origin
 
+        # Resynthesise timestamps from sample counter based on a different scale factor or origin
+        old_scale = cbf_group.attrs['scale_factor_timestamp']
+        old_origin = cbf_group.attrs['sync_time']
+        # If no new scale factor or origin is given, just use old ones - timestamps should be identical
+        time_scale = old_scale if time_scale is None else time_scale
+        time_origin = old_origin if time_origin is None else time_origin
+        # Work around wraps in ADC sample counter
+        adc_wrap_period = 2 ** ADC_COUNTER_BITS / time_scale
+        # Get second opinion of the observation start time from periodic sensors
+        periodic_sensors = ('air_temperature', 'air_relative_humidity', 'air_pressure',
+                            'pos_actual_scan_azim', 'pos_actual_scan_elev')
+        data_duration = self._timestamps[-1] + self.dump_period - self._timestamps[0]
+        sensor_start_time = 0.0
+        # Pick first periodic sensor with data record of similar duration as data
+        for sensor_name, sensor_data in cache.iteritems():
+            if sensor_name.endswith(periodic_sensors):
+                proposed_sensor_start_time = sensor_data[0]['timestamp']
+                sensor_duration = sensor_data[-1]['timestamp'] - proposed_sensor_start_time
+                if abs(data_duration - sensor_duration) < 10.:
+                    sensor_start_time = proposed_sensor_start_time
+                    break
+        # If CBF sync time was too long ago, move it forward in steps of wrap period
+        while sensor_start_time - time_origin > adc_wrap_period:
+            time_origin += adc_wrap_period
+        if time_origin != old_origin:
+            logger.warning("CBF sync time overridden or moved forward to avoid sample counter wrapping")
+            logger.warning("Old sync time: %s UTC" % (katpoint.Timestamp(old_origin)))
+            logger.warning("New sync time: %s UTC" % (katpoint.Timestamp(time_origin)))
+        # Resynthesise the timestamps using the final scale and origin = 0
+        self._timestamps = old_scale * (self._timestamps - old_origin) / time_scale
+        # Now remove any time wraps within the observation
+        time_deltas = np.diff(self._timestamps)
+        # Assume that any decrease in timestamp is due to wrapping of ADC sample counter
+        time_wraps = np.nonzero(time_deltas < 0.0)[0]
+        if time_wraps:
+            time_deltas[time_wraps] += adc_wrap_period
+            self._timestamps = np.cumsum(time_deltas)
+        self._timestamps += time_origin
+        for wrap in time_wraps:
+            logger.warning('Time wrap found and corrected at: %s UTC' % (katpoint.Timestamp(self._timestamps[wrap])))
+
+        # Check dimensions of timestamps vs those of visibility data
         num_dumps = len(self._timestamps)
         if num_dumps != self._vis.shape[0]:
             raise BrokenFile('Number of timestamps received from ingest '
