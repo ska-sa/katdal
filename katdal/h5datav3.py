@@ -203,7 +203,7 @@ class H5DataV3(DataSet):
         time_wraps = np.nonzero(time_deltas < 0.0)[0]
         if time_wraps:
             time_deltas[time_wraps] += adc_wrap_period
-            self._timestamps = np.cumsum(time_deltas)
+            self._timestamps = np.cumsum(np.r_[self._timestamps[0], time_deltas])
         self._timestamps += time_origin
         for wrap in time_wraps:
             logger.warning('Time wrap found and corrected at: %s UTC' % (katpoint.Timestamp(self._timestamps[wrap])))
