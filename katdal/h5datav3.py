@@ -193,10 +193,12 @@ class H5DataV3(DataSet):
             time_origin += adc_wrap_period
         if time_origin != old_origin:
             logger.warning("CBF sync time overridden or moved forward to avoid sample counter wrapping")
-            logger.warning("Old sync time: %s UTC" % (katpoint.Timestamp(old_origin)))
-            logger.warning("New sync time: %s UTC" % (katpoint.Timestamp(time_origin)))
-        # Resynthesise the timestamps using the final scale and origin = 0
-        self._timestamps = old_scale * (self._timestamps - old_origin) / time_scale
+            logger.warning("Sync time changed from %s to %s (UTC)" %
+                           (katpoint.Timestamp(old_origin), katpoint.Timestamp(time_origin)))
+            logger.warning("THE DATA MAY BE CORRUPTED with e.g. delay tracking errors - proceed at own risk!")
+        # Resynthesise the timestamps using the final scale and origin
+        samples = old_scale * (self._timestamps - old_origin)
+        self._timestamps = samples / time_scale + time_origin
         # Now remove any time wraps within the observation
         time_deltas = np.diff(self._timestamps)
         # Assume that any decrease in timestamp is due to wrapping of ADC sample counter
@@ -204,9 +206,9 @@ class H5DataV3(DataSet):
         if time_wraps:
             time_deltas[time_wraps] += adc_wrap_period
             self._timestamps = np.cumsum(np.r_[self._timestamps[0], time_deltas])
-        self._timestamps += time_origin
-        for wrap in time_wraps:
-            logger.warning('Time wrap found and corrected at: %s UTC' % (katpoint.Timestamp(self._timestamps[wrap])))
+            for wrap in time_wraps:
+                logger.warning('Time wrap found and corrected at: %s UTC' % (katpoint.Timestamp(self._timestamps[wrap])))
+            logger.warning("THE DATA MAY BE CORRUPTED with e.g. delay tracking errors - proceed at own risk!")
 
         # Check dimensions of timestamps vs those of visibility data
         num_dumps = len(self._timestamps)
