@@ -1,7 +1,6 @@
 """Class for concatenating visibility data sets."""
 
 import os.path
-import itertools
 
 import numpy as np
 
@@ -389,15 +388,6 @@ class ConcatenatedDataSet(DataSet):
         decorated_datasets.sort()
         self.datasets = datasets = [d[-1] for d in decorated_datasets]
 
-        def unique(values):
-            """List of unique objects in *values*.
-
-            Get the unique objects in a sequence without requiring that they
-            are hashable (needed for the more obvious `set(values)` to work).
-
-            """
-            return [k for k, v in itertools.groupby(sorted(values))]
-
         # Merge high-level metadata
         names = unique_in_order([d.name for d in datasets])
         self.name = ','.join([os.path.basename(name) for name in names])
@@ -408,7 +398,7 @@ class ConcatenatedDataSet(DataSet):
         obs_params = unique_in_order(reduce(lambda x, y: x + y, [d.obs_params.keys() for d in datasets]))
         for param in obs_params:
             values = [d.obs_params.get(param, '') for d in datasets]
-            self.obs_params[param] = values[0] if len(unique(values)) == 1 else values
+            self.obs_params[param] = values[0] if len(unique_in_order(values)) == 1 else values
 
         dump_periods = unique_in_order([d.dump_period for d in datasets])
         if len(dump_periods) > 1:
