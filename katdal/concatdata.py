@@ -1,6 +1,7 @@
 """Class for concatenating visibility data sets."""
 
 import os.path
+import itertools
 
 import numpy as np
 
@@ -398,7 +399,9 @@ class ConcatenatedDataSet(DataSet):
         obs_params = unique_in_order(reduce(lambda x, y: x + y, [d.obs_params.keys() for d in datasets]))
         for param in obs_params:
             values = [d.obs_params.get(param, '') for d in datasets]
-            self.obs_params[param] = values[0] if len(unique_in_order(values)) == 1 else values
+            # If all values are the same, extract the unique value from the list; otherwise keep the list
+            # The itertools.groupby function should work on any value, even unhashable and unorderable ones
+            self.obs_params[param] = values[0] if len([k for k in itertools.groupby(values)]) == 1 else values
 
         dump_periods = unique_in_order([d.dump_period for d in datasets])
         if len(dump_periods) > 1:
