@@ -45,6 +45,9 @@ FLAG_DESCRIPTIONS = ('reserved - bit 0', 'predefined static flag list', 'flag ba
 WEIGHT_NAMES = ('precision',)
 WEIGHT_DESCRIPTIONS = ('visibility precision (inverse variance, i.e. 1 / sigma^2)',)
 
+# Number of bits in ADC sample counter, used to timestamp correlator data in original SPEAD stream
+ADC_COUNTER_BITS = 48
+
 #--------------------------------------------------------------------------------------------------
 #--- Utility functions
 #--------------------------------------------------------------------------------------------------
@@ -135,6 +138,23 @@ class H5DataV3(DataSet):
                 if tm_group[comp].attrs.get('class') == 'CorrelatorBeamformer']
         cbf_group = tm_group[cbfs[0]]
 
+        # ------ Extract sensors ------
+
+        # Populate sensor cache with all HDF5 datasets below TelescopeModel group that fit the description of a sensor
+        cache = {}
+        def register_sensor(name, obj):
+            """A sensor is defined as a non-empty dataset with expected dtype."""
+            if isinstance(obj, h5py.Dataset) and obj.shape != () and obj.dtype.names == ('timestamp', 'value', 'status'):
+                comp_name, sensor_name = name.split('/', 1)
+                comp_type = tm_group[comp_name].attrs.get('class')
+                # Mapping from specific components to generic sensor groups
+                # Put antenna sensors in virtual Antenna group, the rest according to component type
+                group_lookup = {'AntennaPositioner' : 'Antennas/' + comp_name}
+                group_name = group_lookup.get(comp_type, comp_type) if comp_type else comp_name
+                name = '/'.join((group_name, sensor_name))
+                cache[name] = SensorData(obj, name)
+        tm_group.visititems(register_sensor)
+
         # ------ Extract vis and timestamps ------
 
         if cbf_group.attrs.keys() == ['class']:
@@ -146,15 +166,51 @@ class H5DataV3(DataSet):
         else:
             raise BrokenFile('File contains no visibility data')
         self._timestamps = data_group['timestamps'][:]
-        # Resynthesise timestamps from sample counter based on a different scale factor
-        if time_scale or time_origin:
-            old_scale = cbf_group.attrs['scale_factor_timestamp']
-            old_origin = cbf_group.attrs['sync_time']
-            time_scale = old_scale if time_scale is None else time_scale
-            time_origin = old_origin if time_origin is None else time_origin
-            samples = old_scale * (self._timestamps - old_origin)
-            self._timestamps = samples / time_scale + time_origin
 
+        # Resynthesise timestamps from sample counter based on a different scale factor or origin
+        old_scale = cbf_group.attrs['scale_factor_timestamp']
+        old_origin = cbf_group.attrs['sync_time']
+        # If no new scale factor or origin is given, just use old ones - timestamps should be identical
+        time_scale = old_scale if time_scale is None else time_scale
+        time_origin = old_origin if time_origin is None else time_origin
+        # Work around wraps in ADC sample counter
+        adc_wrap_period = 2 ** ADC_COUNTER_BITS / time_scale
+        # Get second opinion of the observation start time from periodic sensors
+        periodic_sensors = ('air_temperature', 'air_relative_humidity', 'air_pressure',
+                            'pos_actual_scan_azim', 'pos_actual_scan_elev')
+        data_duration = self._timestamps[-1] + self.dump_period - self._timestamps[0]
+        sensor_start_time = 0.0
+        # Pick first periodic sensor with data record of similar duration as data
+        for sensor_name, sensor_data in cache.iteritems():
+            if sensor_name.endswith(periodic_sensors):
+                proposed_sensor_start_time = sensor_data[0]['timestamp']
+                sensor_duration = sensor_data[-1]['timestamp'] - proposed_sensor_start_time
+                if abs(data_duration - sensor_duration) < 10.:
+                    sensor_start_time = proposed_sensor_start_time
+                    break
+        # If CBF sync time was too long ago, move it forward in steps of wrap period
+        while sensor_start_time - time_origin > adc_wrap_period:
+            time_origin += adc_wrap_period
+        if time_origin != old_origin:
+            logger.warning("CBF sync time overridden or moved forward to avoid sample counter wrapping")
+            logger.warning("Sync time changed from %s to %s (UTC)" %
+                           (katpoint.Timestamp(old_origin), katpoint.Timestamp(time_origin)))
+            logger.warning("THE DATA MAY BE CORRUPTED with e.g. delay tracking errors - proceed at own risk!")
+        # Resynthesise the timestamps using the final scale and origin
+        samples = old_scale * (self._timestamps - old_origin)
+        self._timestamps = samples / time_scale + time_origin
+        # Now remove any time wraps within the observation
+        time_deltas = np.diff(self._timestamps)
+        # Assume that any decrease in timestamp is due to wrapping of ADC sample counter
+        time_wraps = np.nonzero(time_deltas < 0.0)[0]
+        if time_wraps:
+            time_deltas[time_wraps] += adc_wrap_period
+            self._timestamps = np.cumsum(np.r_[self._timestamps[0], time_deltas])
+            for wrap in time_wraps:
+                logger.warning('Time wrap found and corrected at: %s UTC' % (katpoint.Timestamp(self._timestamps[wrap])))
+            logger.warning("THE DATA MAY BE CORRUPTED with e.g. delay tracking errors - proceed at own risk!")
+
+        # Check dimensions of timestamps vs those of visibility data
         num_dumps = len(self._timestamps)
         if num_dumps != self._vis.shape[0]:
             raise BrokenFile('Number of timestamps received from ingest '
@@ -177,6 +233,9 @@ class H5DataV3(DataSet):
         self._time_keep = np.ones(num_dumps, dtype=np.bool)
         self.start_time = katpoint.Timestamp(self._timestamps[0] - 0.5 * self.dump_period)
         self.end_time = katpoint.Timestamp(self._timestamps[-1] + 0.5 * self.dump_period)
+        # Populate sensor cache with all HDF5 datasets below TelescopeModel group that fit the description of a sensor
+        self.sensor = SensorCache(cache, self._timestamps, self.dump_period, keep=self._time_keep,
+                                  props=SENSOR_PROPS, virtual=VIRTUAL_SENSORS, aliases=SENSOR_ALIASES)
 
         # ------ Extract flags ------
 
@@ -193,25 +252,6 @@ class H5DataV3(DataSet):
         self._weights = data_group['weights'] if 'weights' in data_group else \
                         dummy_dataset('dummy_weights', shape=self._vis.shape[:-1] + (1,), dtype=np.float32, value=1.0)
         self._weights_description = np.array(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS))
-
-        # ------ Extract sensors ------
-
-        # Populate sensor cache with all HDF5 datasets below TelescopeModel group that fit the description of a sensor
-        cache = {}
-        def register_sensor(name, obj):
-            """A sensor is defined as a non-empty dataset with expected dtype."""
-            if isinstance(obj, h5py.Dataset) and obj.shape != () and obj.dtype.names == ('timestamp', 'value', 'status'):
-                comp_name, sensor_name = name.split('/', 1)
-                comp_type = tm_group[comp_name].attrs.get('class')
-                # Mapping from specific components to generic sensor groups
-                # Put antenna sensors in virtual Antenna group, the rest according to component type
-                group_lookup = {'AntennaPositioner' : 'Antennas/' + comp_name}
-                group_name = group_lookup.get(comp_type, comp_type) if comp_type else comp_name
-                name = '/'.join((group_name, sensor_name))
-                cache[name] = SensorData(obj, name)
-        tm_group.visititems(register_sensor)
-        self.sensor = SensorCache(cache, self._timestamps, self.dump_period, keep=self._time_keep,
-                                  props=SENSOR_PROPS, virtual=VIRTUAL_SENSORS, aliases=SENSOR_ALIASES)
 
         # ------ Extract observation parameters ------
 
