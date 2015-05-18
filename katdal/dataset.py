@@ -271,6 +271,8 @@ class DataSet(object):
         (default is first antenna in use by script)
     time_offset : float, optional
         Offset to add to all correlator timestamps, in seconds
+    mode : string, optional
+        File opening mode. Default 'r'. Use 'r+' to open file in write mode
 
     Attributes
     ----------
@@ -335,10 +337,11 @@ class DataSet(object):
         Size of selected visibility data array, in bytes
 
     """
-    def __init__(self, name, ref_ant='', time_offset=0.0):
+    def __init__(self, name, ref_ant='', time_offset=0.0, mode='r'):
         self.name = name
         self.ref_ant = ref_ant
         self.time_offset = time_offset
+        self.mode = mode
         self.version = ''
         self.observer = ''
         self.description = ''

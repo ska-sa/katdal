@@ -128,6 +128,8 @@ class H5DataV2(DataSet):
         (default is first antenna in use)
     time_offset : float, optional
         Offset to add to all correlator timestamps, in seconds
+    mode : string, optional
+        File opening mode. Default 'r'. Use 'r+' to open file in write mode
     quicklook : {False, True}
         True if synthesised timestamps should be used to partition data set even
         if real timestamps are irregular, thereby avoiding the slow loading of
@@ -141,11 +143,11 @@ class H5DataV2(DataSet):
         Underlying HDF5 file, exposed via :mod:`h5py` interface
 
     """
-    def __init__(self, filename, ref_ant='', time_offset=0.0, quicklook=False, **kwargs):
-        DataSet.__init__(self, filename, ref_ant, time_offset)
+    def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r', quicklook=False, **kwargs):
+        DataSet.__init__(self, filename, ref_ant, time_offset, mode)
 
         # Load file
-        self.file, self.version = H5DataV2._open(filename)
+        self.file, self.version = H5DataV2._open(filename, mode)
         f = self.file
 
         # Load main HDF5 groups
@@ -337,9 +339,9 @@ class H5DataV2(DataSet):
         self.select(spw=0, subarray=0, ants=script_ants)
 
     @staticmethod
-    def _open(filename):
+    def _open(filename, mode='r'):
         """Open file and do basic version and augmentation sanity check."""
-        f = h5py.File(filename, 'r')
+        f = h5py.File(filename, mode)
         version = f.attrs.get('version', '1.x')
         if not version.startswith('2.'):
             raise WrongVersion("Attempting to load version '%s' file with version 2 loader" % (version,))

@@ -381,7 +381,7 @@ class ConcatenatedDataSet(DataSet):
 
     """
     def __init__(self, datasets):
-        DataSet.__init__(self, '', datasets[0].ref_ant, datasets[0].time_offset)
+        DataSet.__init__(self, '', datasets[0].ref_ant, datasets[0].time_offset, datasets[0].mode)
 
         # Sort data sets in chronological order via 'decorate-sort-undecorate' (DSU) idiom
         decorated_datasets = [(d.start_time, d) for d in datasets]
