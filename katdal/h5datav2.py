@@ -144,7 +144,7 @@ class H5DataV2(DataSet):
 
     """
     def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r', quicklook=False, **kwargs):
-        DataSet.__init__(self, filename, ref_ant, time_offset, mode)
+        DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file
         self.file, self.version = H5DataV2._open(filename, mode)
@@ -341,6 +341,7 @@ class H5DataV2(DataSet):
     @staticmethod
     def _open(filename, mode='r'):
         """Open file and do basic version and augmentation sanity check."""
+        print '*', mode
         f = h5py.File(filename, mode)
         version = f.attrs.get('version', '1.x')
         if not version.startswith('2.'):

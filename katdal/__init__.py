@@ -289,7 +289,7 @@ def _file_action(action, filename, *args, **kwargs):
     return result
 
 
-def open(filename, ref_ant='', time_offset=0.0, mode='r', **kwargs):
+def open(filename, ref_ant='', time_offset=0.0, **kwargs):
     """Open data file(s) with loader of the appropriate version.
 
     Parameters
@@ -300,8 +300,6 @@ def open(filename, ref_ant='', time_offset=0.0, mode='r', **kwargs):
         Name of reference antenna (default is first antenna in use)
     time_offset : float, optional
         Offset to add to all timestamps, in second
-    mode : string, optional
-        File opening mode. Use 'r+' to open file in write mode 
     kwargs : dict, optional
         Extra keyword arguments are passed on to underlying accessor class:
         quicklook : {False, True}
@@ -319,7 +317,7 @@ def open(filename, ref_ant='', time_offset=0.0, mode='r', **kwargs):
     filenames = [filename] if isinstance(filename, basestring) else filename
     datasets = []
     for f in filenames:
-        dataset = _file_action('__call__', f, ref_ant, time_offset, mode, **kwargs)
+        dataset = _file_action('__call__', f, ref_ant, time_offset, **kwargs)
         datasets.append(dataset)
     return datasets[0] if isinstance(filename, basestring) else \
            ConcatenatedDataSet(datasets)

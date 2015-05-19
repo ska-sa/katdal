@@ -70,7 +70,7 @@ class H5DataV1(DataSet):
 
     """
     def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r', **kwargs):
-        DataSet.__init__(self, filename, ref_ant, time_offset, mode)
+        DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file
         self.file, self.version = H5DataV1._open(filename, mode)
