@@ -341,7 +341,6 @@ class DataSet(object):
         self.name = name
         self.ref_ant = ref_ant
         self.time_offset = time_offset
-        self.mode = mode
         self.version = ''
         self.observer = ''
         self.description = ''
