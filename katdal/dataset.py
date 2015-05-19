@@ -272,7 +272,7 @@ class DataSet(object):
     time_offset : float, optional
         Offset to add to all correlator timestamps, in seconds
     mode : string, optional
-        File opening mode. Default 'r'. Use 'r+' to open file in write mode
+        File opening mode. Use 'r+' to open file in write mode
 
     Attributes
     ----------

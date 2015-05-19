@@ -301,7 +301,7 @@ def open(filename, ref_ant='', time_offset=0.0, mode='r', **kwargs):
     time_offset : float, optional
         Offset to add to all timestamps, in second
     mode : string, optional
-        File opening mode. Default 'r'. Use 'r+' to open file in write mode 
+        File opening mode. Use 'r+' to open file in write mode 
     kwargs : dict, optional
         Extra keyword arguments are passed on to underlying accessor class:
         quicklook : {False, True}

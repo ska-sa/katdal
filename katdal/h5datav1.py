@@ -59,7 +59,7 @@ class H5DataV1(DataSet):
     time_offset : float, optional
         Offset to add to all correlator timestamps, in seconds
     mode : string, optional
-        File opening mode. Default 'r'. Use 'r+' to open file in write mode
+        File opening mode. Use 'r+' to open file in write mode
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
 

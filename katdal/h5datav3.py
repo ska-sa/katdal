@@ -100,7 +100,7 @@ class H5DataV3(DataSet):
     time_offset : float, optional
         Offset to add to all correlator timestamps, in seconds
     mode : string, optional
-        File opening mode. Default 'r'. Use 'r+' to open file in write mode
+        File opening mode. Use 'r+' to open file in write mode
     time_scale : float or None, optional
         Resynthesise timestamps using this scale factor
     time_origin : float or None, optional

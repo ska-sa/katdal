@@ -129,7 +129,7 @@ class H5DataV2(DataSet):
     time_offset : float, optional
         Offset to add to all correlator timestamps, in seconds
     mode : string, optional
-        File opening mode. Default 'r'. Use 'r+' to open file in write mode
+        File opening mode. Use 'r+' to open file in write mode
     quicklook : {False, True}
         True if synthesised timestamps should be used to partition data set even
         if real timestamps are irregular, thereby avoiding the slow loading of
