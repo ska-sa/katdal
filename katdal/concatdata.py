@@ -29,8 +29,8 @@ class ConcatenatedLazyIndexer(LazyIndexer):
 
     Parameters
     ----------
-    indexers : sequence of :class:`LazyIndexer` objects
-        Sequence of indexers to be concatenated
+    indexers : sequence of :class:`LazyIndexer` objects and/or arrays
+        Sequence of indexers or raw arrays to be concatenated
     transforms : list of :class:`LazyTransform` objects or None, optional
         Extra chain of transforms to be applied to data after final indexing
 
@@ -50,6 +50,9 @@ class ConcatenatedLazyIndexer(LazyIndexer):
         self.indexers = [indexer for indexer in indexers if indexer.shape[0]]
         if not self.indexers:
             self.indexers = indexers[:1]
+        # Wrap any raw array in the sequence in a LazyIndexer (slower but more compatible)
+        for n, indexer in enumerate(self.indexers):
+            self.indexers[n] = indexer if isinstance(indexer, LazyIndexer) else LazyIndexer(indexer)
         self.transforms = [] if transforms is None else transforms
         # Pick the first non-empty indexer name as overall name, or failing that, an empty string
         names = unique_in_order([indexer.name for indexer in self.indexers if indexer.name])
