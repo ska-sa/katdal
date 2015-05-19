@@ -299,9 +299,11 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
     ref_ant : string, optional
         Name of reference antenna (default is first antenna in use)
     time_offset : float, optional
-        Offset to add to all timestamps, in second
+        Offset to add to all timestamps, in seconds
     kwargs : dict, optional
         Extra keyword arguments are passed on to underlying accessor class:
+        mode : string, optional
+            [H5DataV*] File opening mode (e.g. 'r+' to open file in write mode)
         quicklook : {False, True}
             [H5DataV2] True if synthesised timestamps should be used to
             partition data set even if real timestamps are irregular, thereby

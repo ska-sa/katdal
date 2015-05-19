@@ -100,7 +100,7 @@ class H5DataV3(DataSet):
     time_offset : float, optional
         Offset to add to all correlator timestamps, in seconds
     mode : string, optional
-        File opening mode. Use 'r+' to open file in write mode
+        HDF5 file opening mode (e.g. 'r+' to open file in write mode)
     time_scale : float or None, optional
         Resynthesise timestamps using this scale factor
     time_origin : float or None, optional
@@ -113,7 +113,7 @@ class H5DataV3(DataSet):
     Attributes
     ----------
     file : :class:`h5py.File` object
-        Underlying HDF5 file, exposed via :mod:`h5py` interface.
+        Underlying HDF5 file, exposed via :mod:`h5py` interface
 
     Notes
     -----
