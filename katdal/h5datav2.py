@@ -341,7 +341,6 @@ class H5DataV2(DataSet):
     @staticmethod
     def _open(filename, mode='r'):
         """Open file and do basic version and augmentation sanity check."""
-        print '*', mode
         f = h5py.File(filename, mode)
         version = f.attrs.get('version', '1.x')
         if not version.startswith('2.'):
