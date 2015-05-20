@@ -58,6 +58,8 @@ class H5DataV1(DataSet):
         (default is first antenna in use)
     time_offset : float, optional
         Offset to add to all correlator timestamps, in seconds
+    mode : string, optional
+        HDF5 file opening mode (e.g. 'r+' to open file in write mode)
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
 
@@ -67,11 +69,11 @@ class H5DataV1(DataSet):
         Underlying HDF5 file, exposed via :mod:`h5py` interface
 
     """
-    def __init__(self, filename, ref_ant='', time_offset=0.0, **kwargs):
+    def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r', **kwargs):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file
-        self.file, self.version = H5DataV1._open(filename)
+        self.file, self.version = H5DataV1._open(filename, mode)
         f = self.file
 
         # Load main HDF5 groups
@@ -214,9 +216,9 @@ class H5DataV1(DataSet):
         self.select(spw=0, subarray=0)
 
     @staticmethod
-    def _open(filename):
+    def _open(filename, mode='r'):
         """Open file and do basic version and augmentation sanity check."""
-        f = h5py.File(filename, 'r')
+        f = h5py.File(filename, mode)
         version = f.attrs.get('version', '1.x')
         if not version.startswith('1.'):
             raise WrongVersion("Attempting to load version '%s' file with version 1 loader" % (version,))
