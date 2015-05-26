@@ -297,6 +297,8 @@ class DataSet(object):
     corr_products : array of strings, shape (*B*, 2)
         Array of selected correlation products as pairs of input labels
         (e.g. [('ant1h', 'ant1h'), ('ant1h', 'ant2h')])
+    receivers : dict mapping string to string or list of strings
+        Identifier of the active receiver on each antenna
 
     spectral_windows : list of :class:`SpectralWindow` objects
         List of all spectral windows in data set
@@ -350,6 +352,7 @@ class DataSet(object):
         self.ants = []
         self.inputs = []
         self.corr_products = np.empty(shape=(0, 2), dtype='|S5')
+        self.receivers = {}
 
         self.spectral_windows = []
         self.spw = -1

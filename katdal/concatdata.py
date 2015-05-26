@@ -405,6 +405,10 @@ class ConcatenatedDataSet(DataSet):
             # If all values are the same, extract the unique value from the list; otherwise keep the list
             # The itertools.groupby function should work on any value, even unhashable and unorderable ones
             self.obs_params[param] = values[0] if len([k for k in itertools.groupby(values)]) == 1 else values
+        rx_ants = unique_in_order(reduce(lambda x, y: x + y, [d.receivers.keys() for d in datasets]))
+        for ant in rx_ants:
+            rx = [d.receivers.get(ant, '') for d in datasets]
+            self.receivers[ant] = rx[0] if len([k for k in itertools.groupby(rx)]) == 1 else rx
 
         dump_periods = unique_in_order([d.dump_period for d in datasets])
         if len(dump_periods) > 1:
