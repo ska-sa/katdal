@@ -1,6 +1,7 @@
 """Class for concatenating visibility data sets."""
 
 import os.path
+import itertools
 
 import numpy as np
 
@@ -28,8 +29,8 @@ class ConcatenatedLazyIndexer(LazyIndexer):
 
     Parameters
     ----------
-    indexers : sequence of :class:`LazyIndexer` objects
-        Sequence of indexers to be concatenated
+    indexers : sequence of :class:`LazyIndexer` objects and/or arrays
+        Sequence of indexers or raw arrays to be concatenated
     transforms : list of :class:`LazyTransform` objects or None, optional
         Extra chain of transforms to be applied to data after final indexing
 
@@ -49,6 +50,9 @@ class ConcatenatedLazyIndexer(LazyIndexer):
         self.indexers = [indexer for indexer in indexers if indexer.shape[0]]
         if not self.indexers:
             self.indexers = indexers[:1]
+        # Wrap any raw array in the sequence in a LazyIndexer (slower but more compatible)
+        for n, indexer in enumerate(self.indexers):
+            self.indexers[n] = indexer if isinstance(indexer, LazyIndexer) else LazyIndexer(indexer)
         self.transforms = [] if transforms is None else transforms
         # Pick the first non-empty indexer name as overall name, or failing that, an empty string
         names = unique_in_order([indexer.name for indexer in self.indexers if indexer.name])
@@ -398,7 +402,9 @@ class ConcatenatedDataSet(DataSet):
         obs_params = unique_in_order(reduce(lambda x, y: x + y, [d.obs_params.keys() for d in datasets]))
         for param in obs_params:
             values = [d.obs_params.get(param, '') for d in datasets]
-            self.obs_params[param] = values[0] if len(set(values)) == 1 else values
+            # If all values are the same, extract the unique value from the list; otherwise keep the list
+            # The itertools.groupby function should work on any value, even unhashable and unorderable ones
+            self.obs_params[param] = values[0] if len([k for k in itertools.groupby(values)]) == 1 else values
 
         dump_periods = unique_in_order([d.dump_period for d in datasets])
         if len(dump_periods) > 1:
