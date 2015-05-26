@@ -282,17 +282,13 @@ class H5DataV3(DataSet):
         # Populate antenna -> receiver mapping
         for ant in all_ants:
             try:
-                band_sensor = self.sensor.get('Antennas/%s/ap_indexer_position' % (ant,))
+                band = self.sensor['Antennas/%s/ap_indexer_position' % (ant,)][0]
             except KeyError:
                 band = ''
-            else:
-                band = band_sensor.unique_values[0]
             try:
-                serial_sensor = self.sensor.get('Antennas/%s/rsc_rx%s_serial_number' % (ant, band))
+                rx_serial = self.sensor['Antennas/%s/rsc_rx%s_serial_number' % (ant, band)][0]
             except KeyError:
                 rx_serial = 0
-            else:
-                rx_serial = serial_sensor.unique_values[0]
             if band and rx_serial:
                 self.receivers[ant] = '%s.%d' % (band, rx_serial)
         # Original list of correlation products as pairs of input labels
