@@ -305,8 +305,8 @@ class H5DataV3(DataSet):
 
         # ------ Extract spectral windows / frequencies ------
 
-        # The centre frequency is now in the domain of the CBF
-        centre_freq = cbf_group.attrs['center_freq']
+        # The centre frequency will always be set by the script (and available in data proxy)
+        centre_freq = self.obs_params.get('centre_freq', np.nan) * 1e6
         num_chans = cbf_group.attrs['n_chans']
         if num_chans != self._vis.shape[1]:
             raise BrokenFile('Number of channels received from correlator '
