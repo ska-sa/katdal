@@ -279,7 +279,18 @@ class H5DataV3(DataSet):
         obs_ants = self.obs_params.get('ants')
         obs_ants = obs_ants.split(',') if obs_ants else all_ants
         self.ref_ant = obs_ants[0] if not ref_ant else ref_ant
-
+        # Populate antenna -> receiver mapping
+        for ant in all_ants:
+            try:
+                band = self.sensor['Antennas/%s/ap_indexer_position' % (ant,)][0]
+            except KeyError:
+                band = ''
+            try:
+                rx_serial = self.sensor['Antennas/%s/rsc_rx%s_serial_number' % (ant, band)][0]
+            except KeyError:
+                rx_serial = 0
+            if band and rx_serial:
+                self.receivers[ant] = '%s.%d' % (band, rx_serial)
         # Original list of correlation products as pairs of input labels
         corrprods = cbf_group.attrs['bls_ordering']
         # Work around early RTS correlator bug by re-ordering labels
