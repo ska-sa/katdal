@@ -107,6 +107,8 @@ class H5DataV3(DataSet):
         Resynthesise timestamps using this sync time / epoch
     rotate_bls : {False, True}, optional
         Rotate baseline label list to work around early RTS correlator bug
+    centre_freq : float or None, optional
+        Override centre frequency if provided, in Hz
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
 
@@ -126,7 +128,7 @@ class H5DataV3(DataSet):
     """
     def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r',
                  time_scale=None, time_origin=None, rotate_bls=False,
-                 **kwargs):
+                 centre_freq=None, **kwargs):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file
@@ -316,8 +318,9 @@ class H5DataV3(DataSet):
 
         # ------ Extract spectral windows / frequencies ------
 
-        # The centre frequency will always be set by the script (and available in data proxy)
-        centre_freq = self.obs_params.get('centre_freq', np.nan) * 1e6
+        # The centre frequency is now in the domain of the CBF but can be overridden
+        # XXX Cater for other bands / receivers, as well as future narrowband mode, at some stage
+        centre_freq = cbf_group.attrs['center_freq'] if centre_freq is None else centre_freq
         num_chans = cbf_group.attrs['n_chans']
         if num_chans != self._vis.shape[1]:
             raise BrokenFile('Number of channels received from correlator '
