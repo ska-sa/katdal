@@ -321,6 +321,8 @@ class DataSet(object):
         Timestamp of start of first sample in file, in UT seconds since Unix epoch
     end_time : :class:`katpoint.Timestamp` object
         Timestamp of end of last sample in file, in UT seconds since Unix epoch
+    dumps : array of int, shape (*T*,)
+        Original dump indices of selected dumps
     scan_indices : list of int
         List of currently selected scans as indices
     compscan_indices : list of int
@@ -365,6 +367,7 @@ class DataSet(object):
         self.catalogue = katpoint.Catalogue()
         self.start_time = katpoint.Timestamp(0.0)
         self.end_time = katpoint.Timestamp(0.0)
+        self.dumps = np.empty(0, dtype=np.int)
         self.scan_indices = []
         self.compscan_indices = []
         self.target_indices = []
@@ -757,6 +760,7 @@ class DataSet(object):
         if not self.size:
             logger.warning('The selection criteria resulted in an empty data set')
         # This is quicker than indexing np.arange()
+        self.dumps = self._time_keep.nonzero()[0]
         self.channels = self._freq_keep.nonzero()[0]
         self.freqs = self.channel_freqs = self.spectral_windows[self.spw].channel_freqs[self._freq_keep]
         self.channel_width = self.spectral_windows[self.spw].channel_width
