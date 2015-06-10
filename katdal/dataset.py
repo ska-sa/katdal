@@ -306,7 +306,7 @@ class DataSet(object):
         Index of currently selected spectral window
     channel_width : float
         Channel bandwidth of selected spectral window, in Hz
-    channel_freqs : array of float, shape (*F*,)
+    freqs / channel_freqs : array of float, shape (*F*,)
         Centre frequency of each selected channel, in Hz
     channels : array of int, shape (*F*,)
         Original channel indices of selected channels
@@ -321,6 +321,8 @@ class DataSet(object):
         Timestamp of start of first sample in file, in UT seconds since Unix epoch
     end_time : :class:`katpoint.Timestamp` object
         Timestamp of end of last sample in file, in UT seconds since Unix epoch
+    dumps : array of int, shape (*T*,)
+        Original dump indices of selected dumps
     scan_indices : list of int
         List of currently selected scans as indices
     compscan_indices : list of int
@@ -357,7 +359,7 @@ class DataSet(object):
         self.spectral_windows = []
         self.spw = -1
         self.channel_width = 0.0
-        self.channel_freqs = np.empty(0)
+        self.freqs = self.channel_freqs = np.empty(0)
         self.channels = np.empty(0, dtype=np.int)
 
         self.dump_period = 0.0
@@ -365,6 +367,7 @@ class DataSet(object):
         self.catalogue = katpoint.Catalogue()
         self.start_time = katpoint.Timestamp(0.0)
         self.end_time = katpoint.Timestamp(0.0)
+        self.dumps = np.empty(0, dtype=np.int)
         self.scan_indices = []
         self.compscan_indices = []
         self.target_indices = []
@@ -422,7 +425,7 @@ class DataSet(object):
         chan_min, chan_max = self.channels.argmin(), self.channels.argmax()
         descr.append('Channels: %d (index %d - %d, %8.3f MHz - %8.3f MHz), each %7.3f kHz wide' %
                      (len(self.channels), self.channels[chan_min], self.channels[chan_max],
-                     self.channel_freqs[chan_min] / 1e6, self.channel_freqs[chan_max] / 1e6, self.channel_width / 1e3))
+                     self.freqs[chan_min] / 1e6, self.freqs[chan_max] / 1e6, self.channel_width / 1e3))
         # Discover maximum name and tag string lengths for targets beforehand
         name_len, tag_len = 4, 4
         for n in self.target_indices:
@@ -438,7 +441,7 @@ class DataSet(object):
             tags = ' '.join(target.tags[1:] if target.body_type != 'xephem' else target.tags[2:])
             ra, dec = target.radec() if target_type == 'radec' else ('-', '-')
             # Calculate average target flux over selected frequency band
-            flux_spectrum = target.flux_density(self.channel_freqs / 1e6)
+            flux_spectrum = target.flux_density(self.freqs / 1e6)
             flux_valid = ~np.isnan(flux_spectrum)
             flux = ('%9.2f' % (flux_spectrum[flux_valid].mean(),)) if np.any(flux_valid) else ''
             target_dumps = ((self.sensor.get('Observation/target_index') == n) & self._time_keep).sum()
@@ -751,12 +754,15 @@ class DataSet(object):
         # Ensure that updated selections make their way to sensor cache and potentially underlying datasets
         self._set_keep(self._time_keep, self._freq_keep, self._corrprod_keep)
         # Update the relevant data members based on selection made
+        # These would all be more efficient as properties, but at the expense of extra lines of code...
         self.shape = (self._time_keep.sum(), self._freq_keep.sum(), self._corrprod_keep.sum())
         self.size = np.prod(self.shape, dtype=np.int64) * np.dtype('complex64').itemsize
         if not self.size:
             logger.warning('The selection criteria resulted in an empty data set')
-        self.channels = np.arange(self.spectral_windows[self.spw].num_chans)[self._freq_keep]
-        self.channel_freqs = self.spectral_windows[self.spw].channel_freqs[self._freq_keep]
+        # This is quicker than indexing np.arange()
+        self.dumps = self._time_keep.nonzero()[0]
+        self.channels = self._freq_keep.nonzero()[0]
+        self.freqs = self.channel_freqs = self.spectral_windows[self.spw].channel_freqs[self._freq_keep]
         self.channel_width = self.spectral_windows[self.spw].channel_width
         self.corr_products = self.subarrays[self.subarray].corr_products[self._corrprod_keep]
         self.inputs = sorted(set(np.ravel(self.corr_products)))
