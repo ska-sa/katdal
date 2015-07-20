@@ -22,6 +22,8 @@ SENSOR_PROPS.update({
     '*activity': {'greedy_values': ('slew', 'stop'), 'initial_value': 'slew',
                    'transform': lambda act: SIMPLIFY_STATE.get(act, 'stop')},
     '*target': {'initial_value': '', 'transform': _robust_target},
+    '*ap_indexer_position': {'initial_value': ''},
+    '*_serial_number': {'initial_value': 0}
 })
 
 SENSOR_ALIASES = {
