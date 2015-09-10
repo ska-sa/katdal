@@ -266,8 +266,7 @@ class H5DataV3(DataSet):
         obs_params = self.sensor.get('Observation/params', extract=False)['value']
         for obs_param in obs_params:
             key, val = obs_param.split(' ', 1)
-            # Oh my goodness, use eval (at least suppress any context!)
-            self.obs_params[key] = eval(val, {})
+            self.obs_params[key] = np.lib.utils.safe_eval(val)
         # Get observation script parameters, with defaults
         self.observer = self.obs_params.get('observer', '')
         self.description = self.obs_params.get('description', '')
@@ -417,7 +416,7 @@ class H5DataV3(DataSet):
         tm_params = tm_group['obs/params']
         for obs_param in tm_params['value']:
             key, val = obs_param.split(' ', 1)
-            obs_params[key] = eval(val, {})
+            obs_params[key] = np.lib.utils.safe_eval(val)
         obs_ants = obs_params.get('ants')
         # By default, only pick antennas that were in use by the script
         obs_ants = obs_ants.split(',') if obs_ants else all_ants
