@@ -492,7 +492,12 @@ class H5DataV3(DataSet):
 
         """
         # Create first-stage index from dataset selectors
-        stage1 = (self._time_keep, self._freq_keep, self._corrprod_keep)
+        time_keep = self._time_keep
+        # If there is a duplicate final dump, these lengths don't match -> ignore last dump in file
+        if len(time_keep) == len(dataset) - 1:
+            time_keep = np.zeros(len(dataset), dtype=np.bool)
+            time_keep[:len(self._time_keep)] = self._time_keep
+        stage1 = (time_keep, self._freq_keep, self._corrprod_keep)
         def _force_3dim(data, keep):
             """Keep singleton dimensions in stage 2 (i.e. final) indexing."""
             # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
