@@ -111,6 +111,8 @@ class H5DataV3(DataSet):
         Rotate baseline label list to work around early RTS correlator bug
     centre_freq : float or None, optional
         Override centre frequency if provided, in Hz
+    squeeze : {False, True}, optional
+        Don't force vis / weights / flags to be 3-dimensional
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
 
@@ -130,7 +132,7 @@ class H5DataV3(DataSet):
     """
     def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r',
                  time_scale=None, time_origin=None, rotate_bls=False,
-                 centre_freq=None, **kwargs):
+                 centre_freq=None, squeeze=False, **kwargs):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file
@@ -172,6 +174,7 @@ class H5DataV3(DataSet):
         else:
             raise BrokenFile('File contains no visibility data')
         self._timestamps = data_group['timestamps'][:]
+        self._squeeze = squeeze
 
         # Resynthesise timestamps from sample counter based on a different scale factor or origin
         old_scale = cbf_group.attrs['scale_factor_timestamp']
@@ -507,7 +510,8 @@ class H5DataV3(DataSet):
                             for dim_keep in keep]
             return data[tuple(keep_singles)]
         force_3dim = LazyTransform('force_3dim', _force_3dim)
-        return LazyIndexer(dataset, stage1, transforms=[extractor, force_3dim])
+        transforms = [extractor] if self._squeeze else [extractor, force_3dim]
+        return LazyIndexer(dataset, stage1, transforms)
 
     @property
     def vis(self):
