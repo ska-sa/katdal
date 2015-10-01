@@ -111,6 +111,8 @@ class H5DataV3(DataSet):
         Rotate baseline label list to work around early RTS correlator bug
     centre_freq : float or None, optional
         Override centre frequency if provided, in Hz
+    squeeze : {False, True}, optional
+        Don't force vis / weights / flags to be 3-dimensional
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
 
@@ -130,7 +132,7 @@ class H5DataV3(DataSet):
     """
     def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r',
                  time_scale=None, time_origin=None, rotate_bls=False,
-                 centre_freq=None, **kwargs):
+                 centre_freq=None, squeeze=False, **kwargs):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file
@@ -172,6 +174,7 @@ class H5DataV3(DataSet):
         else:
             raise BrokenFile('File contains no visibility data')
         self._timestamps = data_group['timestamps'][:]
+        self._squeeze = squeeze
 
         # Resynthesise timestamps from sample counter based on a different scale factor or origin
         old_scale = cbf_group.attrs['scale_factor_timestamp']
@@ -469,6 +472,47 @@ class H5DataV3(DataSet):
         """
         return self._timestamps[self._time_keep]
 
+    def _vislike_indexer(self, dataset, extractor):
+        """Lazy indexer for vis-like datasets (vis / weights / flags).
+
+        This operates on datasets with shape (*T*, *F*, *B*) and potentially
+        different dtypes. The data type conversions are all left to the provided
+        extractor transform, while this method takes care of the common
+        selection issues, such as preserving singleton dimensions and dealing
+        with duplicate final dumps.
+
+        Parameters
+        ----------
+        dataset : :class:`h5py.Dataset` object or equivalent
+            Underlying vis-like dataset on which lazy indexing will be done
+        extractor : function, signature ``data = f(data, keep)``
+            Transform to apply to data (`keep` is user-provided 2nd-stage index)
+
+        Returns
+        -------
+        indexer : :class:`LazyIndexer` object
+            Lazy indexer with appropriate selectors and transforms included
+
+        """
+        # Create first-stage index from dataset selectors
+        time_keep = self._time_keep
+        # If there is a duplicate final dump, these lengths don't match -> ignore last dump in file
+        if len(time_keep) == len(dataset) - 1:
+            time_keep = np.zeros(len(dataset), dtype=np.bool)
+            time_keep[:len(self._time_keep)] = self._time_keep
+        stage1 = (time_keep, self._freq_keep, self._corrprod_keep)
+        def _force_3dim(data, keep):
+            """Keep singleton dimensions in stage 2 (i.e. final) indexing."""
+            # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
+            keep = keep[:3] + (slice(None),) * (3 - len(keep))
+            # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
+            keep_singles = [(np.newaxis if np.isscalar(dim_keep) else slice(None))
+                            for dim_keep in keep]
+            return data[tuple(keep_singles)]
+        force_3dim = LazyTransform('force_3dim', _force_3dim)
+        transforms = [extractor] if self._squeeze else [extractor, force_3dim]
+        return LazyIndexer(dataset, stage1, transforms)
+
     @property
     def vis(self):
         """Complex visibility data as a function of time, frequency and baseline.
@@ -485,16 +529,11 @@ class H5DataV3(DataSet):
         form of indexing on it. Only then will data be loaded into memory.
 
         """
-        def _extract_vis(vis, keep):
-            # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
-            keep = keep[:3] + (slice(None),) * (3 - len(keep))
-            # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
-            # Discard the 4th / last dimension, however, as this is subsumed in the complex view of the data
-            force_3dim = tuple([(np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep] + [0])
-            return vis.view(np.complex64)[force_3dim]
-        extract_vis = LazyTransform('extract_vis', _extract_vis, lambda shape: shape[:-1], np.complex64)
-        return LazyIndexer(self._vis, (self._time_keep, self._freq_keep, self._corrprod_keep),
-                           transforms=[extract_vis])
+        extract = LazyTransform('extract_vis',
+                                # Discard the 4th / last dimension as this is subsumed in complex view
+                                lambda vis, keep: vis.view(np.complex64)[..., 0],
+                                lambda shape: shape[:-1], np.complex64)
+        return self._vislike_indexer(self._vis, extract)
 
     def weights(self, names=None):
         """Visibility weights as a function of time, frequency and baseline.
@@ -528,18 +567,13 @@ class H5DataV3(DataSet):
         if not selection:
             logger.warning('No valid weights were selected - setting all weights to 1.0 by default')
 
-        def _extract_weights(weights, keep):
-            # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
-            keep = keep[:3] + (slice(None),) * (3 - len(keep))
-            # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
-            force_3dim = tuple([(np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep])
-            # Multiply selected weights together (or select lone weight)
-            # Strangely enough, if selection is [], prod produces the expected weights of 1.0 instead of an empty array
-            return weights[force_3dim][:, :, :, selection[0]] if len(selection) == 1 else \
-                   weights[force_3dim][:, :, :, selection].prod(axis=-1)
-        extract_weights = LazyTransform('extract_weights', _extract_weights, lambda shape: shape[:-1], np.float32)
-        return LazyIndexer(self._weights, (self._time_keep, self._freq_keep, self._corrprod_keep),
-                           transforms=[extract_weights])
+        # Multiply selected weights together (or select lone weight)
+        # Strangely enough, if selection is [], prod produces the expected weights of 1.0 instead of an empty array
+        extract = LazyTransform('extract_weights',
+                                lambda weights, keep: weights[..., selection[0]] if len(selection) == 1 else
+                                                      weights[..., selection].prod(axis=-1),
+                                lambda shape: shape[:-1], np.float32)
+        return self._vislike_indexer(self._weights, extract)
 
     def flags(self, names=None):
         """Flags as a function of time, frequency and baseline.
@@ -575,16 +609,9 @@ class H5DataV3(DataSet):
         if not flagmask:
             logger.warning('No valid flags were selected - setting all flags to False by default')
 
-        def _extract_flags(flags, keep):
-            # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
-            keep = keep[:3] + (slice(None),) * (3 - len(keep))
-            # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
-            force_3dim = tuple([(np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep])
-            flags_3dim = flags[force_3dim]
-            # Use flagmask to blank out the flags we don't want
-            total_flags = np.bitwise_and(flagmask, flags_3dim)
-            # Convert uint8 to bool: if any flag bits set, flag is set
-            return np.bool_(total_flags)
-        extract_flags = LazyTransform('extract_flags', _extract_flags, dtype=np.bool)
-        return LazyIndexer(self._flags, (self._time_keep, self._freq_keep, self._corrprod_keep),
-                           transforms=[extract_flags])
+        extract = LazyTransform('extract_flags',
+                                # Use flagmask to blank out the flags we don't want
+                                # Then convert uint8 to bool -> if any flag bits set, flag is set
+                                lambda flags, keep: np.bool_(np.bitwise_and(flagmask, flags)),
+                                dtype=np.bool)
+        return self._vislike_indexer(self._flags, extract)
