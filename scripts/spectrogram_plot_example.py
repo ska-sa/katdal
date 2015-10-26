@@ -105,7 +105,7 @@ if len(args) == 0:
 else:
     d = katdal.open(args)
     ant = opts.ant if opts.ant is not None else d.ref_ant
-    d.select(ant=ant, pol=opts.pol)
+    d.select(ants=ant, pol=opts.pol)
 
     plt.figure(1)
     plt.clf()
