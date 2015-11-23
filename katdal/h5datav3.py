@@ -287,21 +287,24 @@ class H5DataV3(DataSet):
             except KeyError:
                 ant_description = tm_group[name].attrs['description']
             ants.append(katpoint.Antenna(ant_description))
-        all_ants = [ant.name for ant in ants]
+        cam_ants = set(ant.name for ant in ants)
+        # Original list of correlation products as pairs of input labels
+        corrprods = cbf_group.attrs['bls_ordering']
+        # Find names of all antennas with associated correlator data
+        cbf_ants = set([cp[0][:-1] for cp in corrprods] + [cp[1][:-1] for cp in corrprods])
         # By default, only pick antennas that were in use by the script
         obs_ants = self.obs_params.get('ants')
-        obs_ants = obs_ants.split(',') if obs_ants else all_ants
+        # Otherwise fall back to the list of antennas common to CAM and CBF
+        obs_ants = obs_ants.split(',') if obs_ants else list(cam_ants & cbf_ants)
         self.ref_ant = obs_ants[0] if not ref_ant else ref_ant
         # Populate antenna -> receiver mapping
-        for ant in all_ants:
+        for ant in cam_ants:
             band_sensor = 'Antennas/%s/ap_indexer_position' % (ant,)
             band = self.sensor[band_sensor][0] if band_sensor in self.sensor else ''
             rx_sensor = 'Antennas/%s/rsc_rx%s_serial_number' % (ant, band)
             rx_serial = self.sensor[rx_sensor][0] if rx_sensor in self.sensor else 0
             if band:
                 self.receivers[ant] = '%s.%d' % (band, rx_serial)
-        # Original list of correlation products as pairs of input labels
-        corrprods = cbf_group.attrs['bls_ordering']
         # Work around early RTS correlator bug by re-ordering labels
         if rotate_bls:
             corrprods = corrprods[range(1, len(corrprods)) + [0]]
