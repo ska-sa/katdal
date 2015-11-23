@@ -278,8 +278,15 @@ class H5DataV3(DataSet):
         # ------ Extract subarrays ------
 
         # All antennas in configuration as katpoint Antenna objects
-        ants = [katpoint.Antenna(tm_group[name].attrs['description']) for name in tm_group
-                if tm_group[name].attrs.get('class') == 'AntennaPositioner']
+        ants = []
+        for name in tm_group:
+            if tm_group[name].attrs.get('class') != 'AntennaPositioner':
+                continue
+            try:
+                ant_description = tm_group[name].attrs['observer']
+            except KeyError:
+                ant_description = tm_group[name].attrs['description']
+            ants.append(katpoint.Antenna(ant_description))
         all_ants = [ant.name for ant in ants]
         # By default, only pick antennas that were in use by the script
         obs_ants = self.obs_params.get('ants')
