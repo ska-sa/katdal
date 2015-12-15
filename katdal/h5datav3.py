@@ -283,9 +283,12 @@ class H5DataV3(DataSet):
             if tm_group[name].attrs.get('class') != 'AntennaPositioner':
                 continue
             try:
-                ant_description = tm_group[name].attrs['observer']
+                ant_description = self.sensor['Antennas/%s/observer' % (name,)][0]
             except KeyError:
-                ant_description = tm_group[name].attrs['description']
+                try:
+                    ant_description = tm_group[name].attrs['observer']
+                except KeyError:
+                    ant_description = tm_group[name].attrs['description']
             ants.append(katpoint.Antenna(ant_description))
         cam_ants = set(ant.name for ant in ants)
         # Original list of correlation products as pairs of input labels
