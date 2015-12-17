@@ -428,15 +428,36 @@ class H5DataV3(DataSet):
         f, version = H5DataV3._open(filename)
         obs_params = {}
         tm_group = f['TelescopeModel']
-        all_ants = [ant for ant in tm_group if tm_group[ant].attrs.get('class') == 'AntennaPositioner']
+        # Pick first group with appropriate class as CBF
+        cbfs = [comp for comp in tm_group
+                if tm_group[comp].attrs.get('class') == 'CorrelatorBeamformer']
+        cbf_group = tm_group[cbfs[0]]
+        ants = []
+        for name in tm_group:
+            if tm_group[name].attrs.get('class') != 'AntennaPositioner':
+                continue
+            try:
+                ant_description = tm_group[name]['observer']['value'][0]
+            except KeyError:
+                try:
+                    ant_description = tm_group[name].attrs['observer']
+                except KeyError:
+                    ant_description = tm_group[name].attrs['description']
+            ants.append(katpoint.Antenna(ant_description))
+        cam_ants = set(ant.name for ant in ants)
+        # Original list of correlation products as pairs of input labels
+        corrprods = cbf_group.attrs['bls_ordering']
+        # Find names of all antennas with associated correlator data
+        cbf_ants = set([cp[0][:-1] for cp in corrprods] + [cp[1][:-1] for cp in corrprods])
+        # By default, only pick antennas that were in use by the script
         tm_params = tm_group['obs/params']
         for obs_param in tm_params['value']:
             key, val = obs_param.split(' ', 1)
             obs_params[key] = np.lib.utils.safe_eval(val)
         obs_ants = obs_params.get('ants')
-        # By default, only pick antennas that were in use by the script
-        obs_ants = obs_ants.split(',') if obs_ants else all_ants
-        return [katpoint.Antenna(tm_group[ant].attrs['description']) for ant in obs_ants if ant in all_ants]
+        # Otherwise fall back to the list of antennas common to CAM and CBF
+        obs_ants = obs_ants.split(',') if obs_ants else list(cam_ants & cbf_ants)
+        return [ant for ant in ants if ant.name in obs_ants]
 
     @staticmethod
     def _get_targets(filename):
