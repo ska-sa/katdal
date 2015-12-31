@@ -265,8 +265,11 @@ class H5DataV3(DataSet):
         # ------ Extract observation parameters ------
 
         self.obs_params = {}
-        # Replay obs_params sensor and update obs_params dict accordingly
-        obs_params = self.sensor.get('Observation/params', extract=False)['value']
+        # Replay obs_params sensor if available and update obs_params dict accordingly
+        try:
+            obs_params = self.sensor.get('Observation/params', extract=False)['value']
+        except KeyError:
+            obs_params = []
         for obs_param in obs_params:
             key, val = obs_param.split(' ', 1)
             self.obs_params[key] = np.lib.utils.safe_eval(val)
@@ -360,7 +363,10 @@ class H5DataV3(DataSet):
             scan.events, scan.indices = scan.events[1:], scan.indices[1:]
             scan.events[0] = 0
         # Use labels to partition the data set into compound scans
-        label = self.sensor.get('Observation/label')
+        try:
+            label = self.sensor.get('Observation/label')
+        except KeyError:
+            label = CategoricalData([''], [0, num_dumps])
         # Discard empty labels (typically found in raster scans, where first scan has proper label and rest are empty)
         # However, if all labels are empty, keep them, otherwise whole data set will be one pathological compscan...
         if len(label.unique_values) > 1:
