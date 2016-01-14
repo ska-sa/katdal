@@ -271,8 +271,9 @@ class H5DataV3(DataSet):
         except KeyError:
             obs_params = []
         for obs_param in obs_params:
-            key, val = obs_param.split(' ', 1)
-            self.obs_params[key] = np.lib.utils.safe_eval(val)
+            if obs_param:
+                key, val = obs_param.split(' ', 1)
+                self.obs_params[key] = np.lib.utils.safe_eval(val)
         # Get observation script parameters, with defaults
         self.observer = self.obs_params.get('observer', '')
         self.description = self.obs_params.get('description', '')
@@ -458,8 +459,9 @@ class H5DataV3(DataSet):
         # By default, only pick antennas that were in use by the script
         tm_params = tm_group['obs/params']
         for obs_param in tm_params['value']:
-            key, val = obs_param.split(' ', 1)
-            obs_params[key] = np.lib.utils.safe_eval(val)
+            if obs_param:
+                key, val = obs_param.split(' ', 1)
+                obs_params[key] = np.lib.utils.safe_eval(val)
         obs_ants = obs_params.get('ants')
         # Otherwise fall back to the list of antennas common to CAM and CBF
         obs_ants = obs_ants.split(',') if obs_ants else list(cam_ants & cbf_ants)
