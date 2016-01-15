@@ -9,7 +9,7 @@ import katpoint
 from .dataset import DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow, \
                      DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target
 from .sensordata import SensorData, SensorCache
-from .categorical import CategoricalData, sensor_to_categorical
+from .categorical import CategoricalData
 from .lazy_indexer import LazyIndexer, LazyTransform
 
 logger = logging.getLogger(__name__)
@@ -405,8 +405,6 @@ class H5DataV3(DataSet):
         # Ensure that each target flux model spans all frequencies in data set if possible
         self._fix_flux_freq_range()
 
-        # Avoid storing reference to self in transform closure below, as this hinders garbage collection
-        dump_period, time_offset = self.dump_period, self.time_offset
         # Apply default selection and initialise all members that depend on selection in the process
         self.select(spw=0, subarray=0, ants=obs_ants)
 

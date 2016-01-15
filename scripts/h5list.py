@@ -9,7 +9,6 @@
 import os
 import optparse
 import glob
-import logging
 
 import katdal
 

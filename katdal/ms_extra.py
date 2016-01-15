@@ -8,6 +8,7 @@ This can use either casapy (the default) or pyrap to create the MS.
 # 25 March 2008
 #
 
+import sys
 import os.path
 
 import numpy as np
