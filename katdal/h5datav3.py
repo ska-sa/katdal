@@ -20,7 +20,7 @@ SIMPLIFY_STATE = {'scan_ready': 'slew', 'scan': 'scan', 'scan_complete': 'scan',
 SENSOR_PROPS = dict(DEFAULT_SENSOR_PROPS)
 SENSOR_PROPS.update({
     '*activity': {'greedy_values': ('slew', 'stop'), 'initial_value': 'slew',
-                   'transform': lambda act: SIMPLIFY_STATE.get(act, 'stop')},
+                  'transform': lambda act: SIMPLIFY_STATE.get(act, 'stop')},
     '*target': {'initial_value': '', 'transform': _robust_target},
     '*ap_indexer_position': {'initial_value': ''},
     '*_serial_number': {'initial_value': 0}
@@ -50,9 +50,9 @@ WEIGHT_DESCRIPTIONS = ('visibility precision (inverse variance, i.e. 1 / sigma^2
 # Number of bits in ADC sample counter, used to timestamp correlator data in original SPEAD stream
 ADC_COUNTER_BITS = 48
 
-#--------------------------------------------------------------------------------------------------
-#--- Utility functions
-#--------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
+# --- Utility functions
+# -------------------------------------------------------------------------------------------------
 
 def dummy_dataset(name, shape, dtype, value):
     """Dummy HDF5 dataset containing a single value.
@@ -81,11 +81,12 @@ def dummy_dataset(name, shape, dtype, value):
     # Without this randomness katdal can only open one file requiring a dummy dataset
     random_string = ''.join(['%02x' % (x,) for x in np.random.randint(256, size=8)])
     dummy_file = h5py.File('%s_%s.h5' % (name, random_string), driver='core', backing_store=False)
-    return dummy_file.create_dataset(name, shape=shape, maxshape=shape, dtype=dtype, fillvalue=value, compression='gzip')
+    return dummy_file.create_dataset(name, shape=shape, maxshape=shape,
+                                     dtype=dtype, fillvalue=value, compression='gzip')
 
-#--------------------------------------------------------------------------------------------------
-#--- CLASS :  H5DataV3
-#--------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
+# -- CLASS :  H5DataV3
+# -------------------------------------------------------------------------------------------------
 
 class H5DataV3(DataSet):
     """Load HDF5 format version 3 file produced by RTS correlator.
@@ -157,7 +158,7 @@ class H5DataV3(DataSet):
                 comp_type = tm_group[comp_name].attrs.get('class')
                 # Mapping from specific components to generic sensor groups
                 # Put antenna sensors in virtual Antenna group, the rest according to component type
-                group_lookup = {'AntennaPositioner' : 'Antennas/' + comp_name}
+                group_lookup = {'AntennaPositioner': 'Antennas/' + comp_name}
                 group_name = group_lookup.get(comp_type, comp_type) if comp_type else comp_name
                 name = '/'.join((group_name, sensor_name))
                 cache[name] = SensorData(obj, name)
@@ -351,7 +352,7 @@ class H5DataV3(DataSet):
         product = self.obs_params.get('product', 'unknown')
 
         # We only expect a single spectral window within a single v3 file,
-        # as changing the centre freq is like changing the CBF mode 
+        # as changing the centre freq is like changing the CBF mode
         self.spectral_windows = [SpectralWindow(centre_freq, channel_width, num_chans, product, sideband=1)]
         self.sensor['Observation/spw'] = CategoricalData(self.spectral_windows, [0, num_dumps])
         self.sensor['Observation/spw_index'] = CategoricalData([0], [0, num_dumps])

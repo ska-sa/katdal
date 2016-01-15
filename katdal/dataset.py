@@ -10,9 +10,9 @@ from katpoint import is_iterable
 
 logger = logging.getLogger(__name__)
 
-#--------------------------------------------------------------------------------------------------
-#--- CLASS :  Helper classes
-#--------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
+# -- CLASS :  Helper classes
+# -------------------------------------------------------------------------------------------------
 
 class WrongVersion(Exception):
     """Trying to access data using accessor class with the wrong version."""
@@ -167,9 +167,9 @@ DEFAULT_SENSOR_PROPS = {
     'Observation/scan_state': {'allow_repeats': True},
 }
 
-#--------------------------------------------------------------------------------------------------
-#--- FUNCTION :  Virtual sensor calculations
-#--------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
+# -- FUNCTION :  Virtual sensor calculations
+# -------------------------------------------------------------------------------------------------
 
 def _calc_mjd(cache, name):
     """Calculate Modified Julian Day (MJD) timestamps using sensor cache contents."""
@@ -249,9 +249,9 @@ DEFAULT_VIRTUAL_SENSORS = {
     'Antennas/{antA}/[uvw]_{antB}': _calc_uvw,
 }
 
-#--------------------------------------------------------------------------------------------------
-#--- CLASS :  DataSet
-#--------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
+# -- CLASS :  DataSet
+# -------------------------------------------------------------------------------------------------
 
 class DataSet(object):
     """Base class for accessing a visibility data set.
@@ -851,7 +851,7 @@ class DataSet(object):
         # Restore original selection more thoroughly
         self.select(**preselection)
 
-    #- - - - - - - - - - - - - - - Format-specific properties - - - - - - - - - - - - - - - - - -
+    # - - - - - - - - - - - - - - Format-specific properties - - - - - - - - - - - - - - - - - -
 
     @property
     def timestamps(self):
@@ -917,7 +917,7 @@ class DataSet(object):
         """
         raise NotImplementedError
 
-    #- - - - - - - - - - - - - Virtual sensors exposed as properties - - - - - - - - - - - - - - -
+    # - - - - - - - - - - - - Virtual sensors exposed as properties - - - - - - - - - - - - - - -
 
     @property
     def mjd(self):

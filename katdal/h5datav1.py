@@ -40,9 +40,9 @@ def _calc_azel(cache, name, ant):
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel, 'Antennas/{ant}/el': _calc_azel})
 
-#--------------------------------------------------------------------------------------------------
-#--- CLASS :  H5DataV1
-#--------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
+# -- CLASS :  H5DataV1
+# -------------------------------------------------------------------------------------------------
 
 class H5DataV1(DataSet):
     """Load HDF5 format version 1 file produced by Fringe Finder correlator.
@@ -222,7 +222,7 @@ class H5DataV1(DataSet):
         version = f.attrs.get('version', '1.x')
         if not version.startswith('1.'):
             raise WrongVersion("Attempting to load version '%s' file with version 1 loader" % (version,))
-        if not 'augment' in f.attrs:
+        if 'augment' not in f.attrs:
             raise BrokenFile('HDF5 file not augmented - please run '
                              'augment4.py (provided by k7augment package)')
         return f, version

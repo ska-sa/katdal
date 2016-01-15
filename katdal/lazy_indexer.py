@@ -4,9 +4,9 @@ import numpy as np
 
 #TODO support advanced integer indexing with non-strictly increasing indices (i.e. out-of-order and duplicates)
 
-#--------------------------------------------------------------------------------------------------
-#--- CLASS :  LazyTransform
-#--------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
+# -- CLASS :  LazyTransform
+# -------------------------------------------------------------------------------------------------
 
 class InvalidTransform(Exception):
     """Transform changes data shape in unallowed way."""
@@ -58,9 +58,9 @@ class LazyTransform(object):
         """Transform data (`keep` is user-specified second-stage index)."""
         return self.transform(data, keep)
 
-#--------------------------------------------------------------------------------------------------
-#--- CLASS :  LazyIndexer
-#--------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
+# -- CLASS :  LazyIndexer
+# -------------------------------------------------------------------------------------------------
 
 class LazyIndexer(object):
     """Two-stage deferred indexer for objects with expensive __getitem__ calls.
