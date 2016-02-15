@@ -12,7 +12,7 @@ setup (
         "scripts/h5toms.py",
         "scripts/fix_ant_positions.py",
     ],
-    url='http://ska.ac.za/',
+    url='https://github.com/ska-sa/katdal',
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Intended Audience :: Developers",
@@ -23,10 +23,9 @@ setup (
         "Topic :: Scientific/Engineering :: Astronomy",
     ],
     platforms = [ "OS Independent" ],
-    keywords="kat kat7 ska",
+    keywords="meerkat ska",
     zip_safe = False,
     setup_requires=['katversion'],
     use_katversion=True,
-    # Bitten Test Suite
-    test_suite = "katdal.test.suite",
+    test_suite = "nose.collector",
 )
