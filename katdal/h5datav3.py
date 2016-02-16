@@ -210,8 +210,8 @@ class H5DataV3(DataSet):
         self._timestamps = samples / time_scale + time_origin
         # Now remove any time wraps within the observation
         time_deltas = np.diff(self._timestamps)
-        # Assume that any decrease in timestamp is due to wrapping of ADC sample counter
-        time_wraps = np.nonzero(time_deltas < 0.0)[0]
+        # Assume that a large decrease in timestamp is due to wrapping of ADC sample counter
+        time_wraps = np.nonzero(time_deltas < -adc_wrap_period / 2.)[0]
         if time_wraps:
             time_deltas[time_wraps] += adc_wrap_period
             self._timestamps = np.cumsum(np.r_[self._timestamps[0], time_deltas])
