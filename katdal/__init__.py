@@ -238,21 +238,16 @@ _no_config_handler.addFilter(_NoConfigFilter())
 logger = _logging.getLogger(__name__)
 logger.addHandler(_no_config_handler)
 
-# Attempt to determine installed package version
+# BEGIN VERSION CHECK
+# Get package version when locally imported from repo or via -e develop install
 try:
-    import pkg_resources as _pkg_resources
+    import katversion as _katversion
 except ImportError:
-    __version__ = "unknown"
+    import time as _time
+    __version__ = "0.0+unknown.{}".format(_time.strftime('%Y%m%d%H%M'))
 else:
-    try:
-        dist = _pkg_resources.get_distribution("katdal")
-        # ver needs to be a list since tuples in Python <= 2.5 don't have
-        # a .index method.
-        ver = list(dist.parsed_version)
-        __version__ = "r%d" % int(ver[ver.index("*r") + 1])
-        del dist, ver
-    except (_pkg_resources.DistributionNotFound, ValueError, IndexError, TypeError):
-        __version__ = "unknown"
+    __version__ = _katversion.get_version(__path__[0])
+# END VERSION CHECK
 
 #------------------------------------------------------------------------------
 #--- Top-level functions passed on to the appropriate format handler
