@@ -380,7 +380,7 @@ class CategoricalData(object):
         segments_with_event = np.abs(self.events[np.newaxis, :] - segments[:, np.newaxis]).argmin(axis=0)
         events = segments[segments_with_event]
         # When multiple sensor events are associated with the same segment, only keep the final one
-        final = (np.diff(events) > 0)
+        final = np.nonzero(np.diff(events) > 0)[0]
         subset, self.indices = unique(self.indices[final], return_inverse=True)
         self.unique_values = self.unique_values[subset]
         self.events = np.r_[events[final], events[-1]]
@@ -530,7 +530,7 @@ def sensor_to_categorical(sensor_timestamps, sensor_values, dump_midtimes, dump_
     events = np.r_[dump_midtimes.searchsorted(sensor_timestamps - 0.5 * dump_period), len(dump_midtimes)]
     # Cull any empty segments (i.e. when multiple sensor events occur within a single dump, only keep last one)
     # This also gets rid of excess events before the first dump and after the last dump
-    non_empty = (np.diff(events) > 0)
+    non_empty = np.nonzero(np.diff(events) > 0)[0]
     sensor_values, events = sensor_values[non_empty], np.r_[events[non_empty], len(dump_midtimes)]
     # Force first dump to have valid sensor value (use initial value or first proper value advanced to start)
     if events[0] != 0 and initial_value is not None:
