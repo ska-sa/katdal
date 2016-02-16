@@ -184,17 +184,17 @@ class H5DataV3(DataSet):
         time_origin = old_origin if time_origin is None else time_origin
         # Work around wraps in ADC sample counter
         adc_wrap_period = 2 ** ADC_COUNTER_BITS / time_scale
-        # Get second opinion of the observation start time from periodic sensors
-        periodic_sensors = ('air_temperature', 'air_relative_humidity', 'air_pressure',
-                            'pos_actual_scan_azim', 'pos_actual_scan_elev')
+        # Get second opinion of the observation start time from regular sensors
+        regular_sensors = ('air_temperature', 'air_relative_humidity', 'air_pressure',
+                           'pos_actual_scan_azim', 'pos_actual_scan_elev', 'script_log')
         data_duration = self._timestamps[-1] + self.dump_period - self._timestamps[0]
         sensor_start_time = 0.0
-        # Pick first periodic sensor with data record of similar duration as data
+        # Pick first regular sensor with longer data record than data (hopefully straddling it)
         for sensor_name, sensor_data in cache.iteritems():
-            if sensor_name.endswith(periodic_sensors):
+            if sensor_name.endswith(regular_sensors):
                 proposed_sensor_start_time = sensor_data[0]['timestamp']
                 sensor_duration = sensor_data[-1]['timestamp'] - proposed_sensor_start_time
-                if abs(data_duration - sensor_duration) < 10.:
+                if sensor_duration > data_duration:
                     sensor_start_time = proposed_sensor_start_time
                     break
         # If CBF sync time was too long ago, move it forward in steps of wrap period
