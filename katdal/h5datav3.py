@@ -191,7 +191,7 @@ class H5DataV3(DataSet):
         sensor_start_time = 0.0
         # Pick first regular sensor with longer data record than data (hopefully straddling it)
         for sensor_name, sensor_data in cache.iteritems():
-            if sensor_name.endswith(regular_sensors):
+            if sensor_name.endswith(regular_sensors) and len(sensor_data):
                 proposed_sensor_start_time = sensor_data[0]['timestamp']
                 sensor_duration = sensor_data[-1]['timestamp'] - proposed_sensor_start_time
                 if sensor_duration > data_duration:
