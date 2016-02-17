@@ -205,6 +205,7 @@ from .h5datav2 import H5DataV2
 from .h5datav3 import H5DataV3
 from .sensordata import _sensor_completer
 
+
 # Clean up top-level namespace a bit
 _dataset, _concatdata, _sensordata = dataset, concatdata, sensordata
 _h5datav1, _h5datav2, _h5datav3 = h5datav1, h5datav2, h5datav3
@@ -249,11 +250,12 @@ else:
     __version__ = _katversion.get_version(__path__[0])
 # END VERSION CHECK
 
-#------------------------------------------------------------------------------
-#--- Top-level functions passed on to the appropriate format handler
-#------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# -- Top-level functions passed on to the appropriate format handler
+# -----------------------------------------------------------------------------
 
 formats = [H5DataV3, H5DataV2, H5DataV1]
+
 
 def _file_action(action, filename, *args, **kwargs):
     """Perform action on data file using the appropriate format class.
@@ -322,7 +324,7 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
 
 def get_ants(filename):
     """Quick look function to get the list of antennas in a data file.
-  
+
     Parameters
     ----------
     filename : string

@@ -118,9 +118,9 @@ def unique_in_order(elements, return_inverse=False):
     return (unique_elements[original_order], original_order.argsort()[indices]) \
            if return_inverse else unique_elements[original_order]
 
-#--------------------------------------------------------------------------------------------------
-#--- CLASS :  CategoricalData
-#--------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
+# -- CLASS :  CategoricalData
+# -------------------------------------------------------------------------------------------------
 
 class CategoricalData(object):
     """Container for categorical (i.e. non-numerical) sensor data.
@@ -433,9 +433,9 @@ class CategoricalData(object):
         self.indices = self.indices[changes]
         self.events = np.r_[self.events[changes], self.events[-1]]
 
-#--------------------------------------------------------------------------------------------------
-#--- Utility functions
-#--------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
+# -- Utility functions
+# -------------------------------------------------------------------------------------------------
 
 def concatenate_categorical(split_data, **kwargs):
     """Concatenate multiple categorical datasets into one along time axis.

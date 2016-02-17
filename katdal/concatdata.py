@@ -15,9 +15,9 @@ class ConcatenationError(Exception):
     """Sequence of objects could not be concatenated due to incompatibility."""
     pass
 
-#--------------------------------------------------------------------------------------------------
-#--- CLASS :  ConcatenatedLazyIndexer
-#--------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
+# -- CLASS :  ConcatenatedLazyIndexer
+# -------------------------------------------------------------------------------------------------
 
 class ConcatenatedLazyIndexer(LazyIndexer):
     """Two-stage deferred indexer that concatenates multiple indexers.
@@ -178,9 +178,9 @@ class ConcatenatedLazyIndexer(LazyIndexer):
             raise ConcatenationError("Incompatible dtypes among sub-indexers making up indexer '%s':\n%s" %
                                      (self.name, '\n'.join([repr(indexer) for indexer in self.indexers])))
 
-#--------------------------------------------------------------------------------------------------
-#--- CLASS :  ConcatenatedSensorData
-#--------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
+# -- CLASS :  ConcatenatedSensorData
+# -------------------------------------------------------------------------------------------------
 
 class ConcatenatedSensorData(SensorData):
     """The concatenation of multiple raw (uncached) sensor data sets.
@@ -227,9 +227,9 @@ def _calc_dummy(cache, name):
     cache[name] = sensor_data = np.nan * np.ones(len(cache.timestamps))
     return sensor_data
 
-#--------------------------------------------------------------------------------------------------
-#--- CLASS :  ConcatenatedSensorCache
-#--------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
+# -- CLASS :  ConcatenatedSensorCache
+# -------------------------------------------------------------------------------------------------
 
 class ConcatenatedSensorCache(SensorCache):
     """Sensor cache that is a concatenation of multiple underlying caches.
@@ -366,9 +366,9 @@ class ConcatenatedSensorCache(SensorCache):
         # Run through first cache's keys, as they should all be identical
         return self.caches[0].iterkeys()
 
-#--------------------------------------------------------------------------------------------------
-#--- CLASS :  ConcatenatedDataSet
-#--------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
+# -- CLASS :  ConcatenatedDataSet
+# -------------------------------------------------------------------------------------------------
 
 class ConcatenatedDataSet(DataSet):
     """Class that concatenates existing visibility data sets.

@@ -52,9 +52,9 @@ FLAG_DESCRIPTIONS = ('reserved - bit 0', 'predefined static flag list', 'flag ba
 WEIGHT_NAMES = ('precision',)
 WEIGHT_DESCRIPTIONS = ('visibility precision (inverse variance, i.e. 1 / sigma^2)',)
 
-#--------------------------------------------------------------------------------------------------
-#--- Utility functions
-#--------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
+# -- Utility functions
+# -------------------------------------------------------------------------------------------------
 
 def get_single_value(group, name):
     """Return single value from attribute or dataset with given name in group.
@@ -110,9 +110,9 @@ def dummy_dataset(name, shape, dtype, value):
     dummy_file = h5py.File('%s_%s.h5' % (name, random_string), driver='core', backing_store=False)
     return dummy_file.create_dataset(name, shape=shape, maxshape=shape, dtype=dtype, fillvalue=value, compression='gzip')
 
-#--------------------------------------------------------------------------------------------------
-#--- CLASS :  H5DataV2
-#--------------------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------------------
+# -- CLASS :  H5DataV2
+# -------------------------------------------------------------------------------------------------
 
 class H5DataV2(DataSet):
     """Load HDF5 format version 2 file produced by KAT-7 correlator.
@@ -278,7 +278,7 @@ class H5DataV2(DataSet):
         channel_width = bandwidth / num_chans
         try:
             mode = self.sensor.get('DBE/dbe.mode').unique_values[0]
-        except KeyError, IndexError:
+        except (KeyError, IndexError):
             # Guess the mode for version 2.0 files that haven't been re-augmented
             mode = 'wbc' if num_chans <= 1024 else 'wbc8k' if bandwidth > 200e6 else 'nbc'
         self.spectral_windows = [SpectralWindow(spw_centre, channel_width, num_chans, mode)
@@ -345,7 +345,7 @@ class H5DataV2(DataSet):
         version = f.attrs.get('version', '1.x')
         if not version.startswith('2.'):
             raise WrongVersion("Attempting to load version '%s' file with version 2 loader" % (version,))
-        if not 'augment_ts' in f.attrs:
+        if 'augment_ts' not in f.attrs:
             raise BrokenFile('HDF5 file not augmented - please run '
                              'k7_augment.py (provided by katcapture package)')
         return f, version
