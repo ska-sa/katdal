@@ -216,8 +216,14 @@ class H5DataV3(DataSet):
             time_deltas[time_wraps] += adc_wrap_period
             self._timestamps = np.cumsum(np.r_[self._timestamps[0], time_deltas])
             for wrap in time_wraps:
-                logger.warning('Time wrap found and corrected at: %s UTC' % (katpoint.Timestamp(self._timestamps[wrap])))
+                logger.warning('Time wrap found and corrected at: %s UTC' %
+                               (katpoint.Timestamp(self._timestamps[wrap])))
             logger.warning("THE DATA MAY BE CORRUPTED with e.g. delay tracking errors - proceed at own risk!")
+        # Warn if there are any remaining decreases in timestamps not associated with wraps
+        backward_jumps = np.nonzero(time_deltas < 0.0)[0]
+        for jump in backward_jumps:
+            logger.warning('CBF timestamps going backward at: %s UTC (%g seconds)' %
+                           (katpoint.Timestamp(self._timestamps[jump]), time_deltas[jump]))
 
         # Check dimensions of timestamps vs those of visibility data
         num_dumps = len(self._timestamps)
@@ -348,7 +354,7 @@ class H5DataV3(DataSet):
         product = self.obs_params.get('product', 'unknown')
 
         # We only expect a single spectral window within a single v3 file,
-        # as changing the centre freq is like changing the CBF mode 
+        # as changing the centre freq is like changing the CBF mode
         self.spectral_windows = [SpectralWindow(centre_freq, channel_width, num_chans, product, sideband=1)]
         self.sensor['Observation/spw'] = CategoricalData(self.spectral_windows, [0, num_dumps])
         self.sensor['Observation/spw_index'] = CategoricalData([0], [0, num_dumps])
