@@ -188,17 +188,17 @@ class H5DataV3(DataSet):
         time_origin = old_origin if time_origin is None else time_origin
         # Work around wraps in ADC sample counter
         adc_wrap_period = 2 ** ADC_COUNTER_BITS / time_scale
-        # Get second opinion of the observation start time from periodic sensors
-        periodic_sensors = ('air_temperature', 'air_relative_humidity', 'air_pressure',
-                            'pos_actual_scan_azim', 'pos_actual_scan_elev')
+        # Get second opinion of the observation start time from regular sensors
+        regular_sensors = ('air_temperature', 'air_relative_humidity', 'air_pressure',
+                           'pos_actual_scan_azim', 'pos_actual_scan_elev', 'script_log')
         data_duration = self._timestamps[-1] + self.dump_period - self._timestamps[0]
         sensor_start_time = 0.0
-        # Pick first periodic sensor with data record of similar duration as data
+        # Pick first regular sensor with longer data record than data (hopefully straddling it)
         for sensor_name, sensor_data in cache.iteritems():
-            if sensor_name.endswith(periodic_sensors):
+            if sensor_name.endswith(regular_sensors) and len(sensor_data):
                 proposed_sensor_start_time = sensor_data[0]['timestamp']
                 sensor_duration = sensor_data[-1]['timestamp'] - proposed_sensor_start_time
-                if abs(data_duration - sensor_duration) < 10.:
+                if sensor_duration > data_duration:
                     sensor_start_time = proposed_sensor_start_time
                     break
         # If CBF sync time was too long ago, move it forward in steps of wrap period
@@ -214,14 +214,20 @@ class H5DataV3(DataSet):
         self._timestamps = samples / time_scale + time_origin
         # Now remove any time wraps within the observation
         time_deltas = np.diff(self._timestamps)
-        # Assume that any decrease in timestamp is due to wrapping of ADC sample counter
-        time_wraps = np.nonzero(time_deltas < 0.0)[0]
+        # Assume that a large decrease in timestamp is due to wrapping of ADC sample counter
+        time_wraps = np.nonzero(time_deltas < -adc_wrap_period / 2.)[0]
         if time_wraps:
             time_deltas[time_wraps] += adc_wrap_period
             self._timestamps = np.cumsum(np.r_[self._timestamps[0], time_deltas])
             for wrap in time_wraps:
-                logger.warning('Time wrap found and corrected at: %s UTC' % (katpoint.Timestamp(self._timestamps[wrap])))
+                logger.warning('Time wrap found and corrected at: %s UTC' %
+                               (katpoint.Timestamp(self._timestamps[wrap])))
             logger.warning("THE DATA MAY BE CORRUPTED with e.g. delay tracking errors - proceed at own risk!")
+        # Warn if there are any remaining decreases in timestamps not associated with wraps
+        backward_jumps = np.nonzero(time_deltas < 0.0)[0]
+        for jump in backward_jumps:
+            logger.warning('CBF timestamps going backward at: %s UTC (%g seconds)' %
+                           (katpoint.Timestamp(self._timestamps[jump]), time_deltas[jump]))
 
         # Check dimensions of timestamps vs those of visibility data
         num_dumps = len(self._timestamps)
