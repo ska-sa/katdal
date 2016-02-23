@@ -112,6 +112,8 @@ class H5DataV3(DataSet):
         Rotate baseline label list to work around early RTS correlator bug
     centre_freq : float or None, optional
         Override centre frequency if provided, in Hz
+    band : string or None, optional
+        Override receiver band if provided (e.g. 'l') - used to find ND models
     squeeze : {False, True}, optional
         Don't force vis / weights / flags to be 3-dimensional
     kwargs : dict, optional
@@ -133,7 +135,7 @@ class H5DataV3(DataSet):
     """
     def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r',
                  time_scale=None, time_origin=None, rotate_bls=False,
-                 centre_freq=None, squeeze=False, **kwargs):
+                 centre_freq=None, band=None, squeeze=False, **kwargs):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file
@@ -315,9 +317,11 @@ class H5DataV3(DataSet):
         obs_ants = obs_ants.split(',') if obs_ants else list(cam_ants & cbf_ants)
         self.ref_ant = obs_ants[0] if not ref_ant else ref_ant
         # Populate antenna -> receiver mapping
+        band_override = band
         for ant in cam_ants:
-            band_sensor = 'Antennas/%s/ap_indexer_position' % (ant,)
-            band = self.sensor[band_sensor][0] if band_sensor in self.sensor else ''
+            if band_override is None:
+                band_sensor = 'Antennas/%s/ap_indexer_position' % (ant,)
+                band = self.sensor[band_sensor][0] if band_sensor in self.sensor else ''
             rx_sensor = 'Antennas/%s/rsc_rx%s_serial_number' % (ant, band)
             rx_serial = self.sensor[rx_sensor][0] if rx_sensor in self.sensor else 0
             if band:
