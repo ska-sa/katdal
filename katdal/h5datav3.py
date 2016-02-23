@@ -40,10 +40,10 @@ def _calc_azel(cache, name, ant):
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel, 'Antennas/{ant}/el': _calc_azel})
 
-FLAG_NAMES = ('reserved0', 'static', 'cam', 'reserved3', 'detected_rfi', 'predicted_rfi', 'reserved6', 'reserved7')
+FLAG_NAMES = ('reserved0', 'static', 'cam', 'reserved3', 'ingest_rfi', 'predicted_rfi', 'cal_rfi', 'reserved7')
 FLAG_DESCRIPTIONS = ('reserved - bit 0', 'predefined static flag list', 'flag based on live CAM information',
-                     'reserved - bit 3', 'RFI detected in the online system', 'RFI predicted from space based pollutants',
-                     'reserved - bit 6', 'reserved - bit 7')
+                     'reserved - bit 3', 'RFI detected in ingest', 'RFI predicted from space based pollutants',
+                     'RFI detected in calibration', 'reserved - bit 7')
 WEIGHT_NAMES = ('precision',)
 WEIGHT_DESCRIPTIONS = ('visibility precision (inverse variance, i.e. 1 / sigma^2)',)
 
@@ -648,11 +648,13 @@ class H5DataV3(DataSet):
             Only then will data be loaded into memory.
 
         """
-        names = names.split(',') if isinstance(names, basestring) else FLAG_NAMES if names is None else names
+
+        known_flags = [row[0] for row in self._flags_description]
+
+        names = names.split(',') if isinstance(names, basestring) else known_flags if names is None else names
 
         # Create index list for desired flags
         flagmask = np.zeros(8, dtype=np.int)
-        known_flags = [row[0] for row in self._flags_description]
         for name in names:
             try:
                 flagmask[known_flags.index(name)] = 1
