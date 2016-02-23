@@ -44,6 +44,7 @@ parser.add_option("--flags", help="List of online flags to apply (from 'static,c
 parser.add_option("--dumptime", type=float, default=0.0, help="Output time averaging interval in seconds, default is no averaging.")
 parser.add_option("--chanbin", type=int, default=0, help="Bin width for channel averaging in channels, default is no averaging.")
 parser.add_option("--flagav", action="store_true", default=False, help="If a single element in an averaging bin is flagged, flag the averaged bin.")
+parser.add_option("--flag-u", type=float, default=-1.0, help="Flag points with a u coordinate that is less the given value in kilo-lamba,  A negitive value implies no flagging (default=%default)  .")
 
 (options, args) = parser.parse_args()
 
@@ -231,7 +232,10 @@ for win in range(len(h5.spectral_windows)):
         scan_weight_data = h5.weights()[:]
         # load flags selected from 'options.flags' for this scan
         scan_flag_data = h5.flags(options.flags)[:]
-
+        if options.flag_u >= 0:
+            u = h5.u[:,np.newaxis,:]*(h5.channel_freqs[np.newaxis,:,np.newaxis]/(katpoint.lightspeed*1000. ) )
+            uflags =  options.flag_u  > np.abs(u)
+            scan_flag_data += uflags
         # Get the average dump time for this scan (equal to scan length if the dump period is longer than a scan)
         dump_time_width = min(time_av,scan_len*h5.dump_period)
 
