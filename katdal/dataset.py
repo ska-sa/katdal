@@ -285,6 +285,8 @@ class DataSet(object):
         experiment together with blog entries, etc.
     obs_params : dict mapping string to string or list of strings
         Observation parameters, typically set in observation script
+    obs_script_log : list of strings
+        Observation script output log (useful for debugging)
 
     subarrays : list of :class:`SubArray` objects
         List of all subarrays in data set
@@ -348,6 +350,7 @@ class DataSet(object):
         self.description = ''
         self.experiment_id = ''
         self.obs_params = {}
+        self.obs_script_log = []
 
         self.subarrays = []
         self.subarray = -1

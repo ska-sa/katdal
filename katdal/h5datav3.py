@@ -274,7 +274,7 @@ class H5DataV3(DataSet):
                         dummy_dataset('dummy_weights', shape=self._vis.shape[:-1] + (1,), dtype=np.float32, value=1.0)
         self._weights_description = np.array(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS))
 
-        # ------ Extract observation parameters ------
+        # ------ Extract observation parameters and script log ------
 
         self.obs_params = {}
         # Replay obs_params sensor if available and update obs_params dict accordingly
@@ -290,6 +290,11 @@ class H5DataV3(DataSet):
         self.observer = self.obs_params.get('observer', '')
         self.description = self.obs_params.get('description', '')
         self.experiment_id = self.obs_params.get('experiment_id', '')
+        # Extract script log data verbatim (it is not a standard sensor anyway)
+        try:
+            self.obs_script_log = self.sensor.get('Observation/script_log', extract=False)['value'].tolist()
+        except KeyError:
+            self.obs_script_log = []
 
         # ------ Extract subarrays ------
 
