@@ -481,11 +481,15 @@ def _sensor_completer(context, event):
     if '(' in base:
         raise TryNext
 
-    # Obtain catalogue object from user namespace
+    # Obtain sensor cache object from user namespace
     try:
-        cache = eval(base, context.shell.user_ns)
-    except:
-        raise TryNext
+        cache = eval(base, context.user_ns)
+    except (NameError, AttributeError):
+        try:
+            # IPython version < 1.0
+            cache = eval(base, context.shell.user_ns)
+        except (NameError, AttributeError):
+            raise TryNext
 
     # Only continue if this object is actually a sensor cache
     if not isinstance(cache, SensorCache):

@@ -212,21 +212,15 @@ _h5datav1, _h5datav2, _h5datav3 = h5datav1, h5datav2, h5datav3
 _categorical, _lazy_indexer = categorical, lazy_indexer
 del dataset, concatdata, h5datav1, h5datav2, h5datav3, sensordata, categorical, lazy_indexer
 
-# Attempt to register custom IPython tab completer for sensor cache name lookups
+# Attempt to register custom IPython tab completer for sensor cache name lookups (only when run from IPython shell)
 try:
     # IPython 0.11 and above
-    from IPython.core.interactiveshell import InteractiveShell as _ipshell
-    _ip = _ipshell.instance()
-except ImportError:
-    try:
-        # IPython 0.10 and below
-        import IPython.ipapi as _ipshell
-        _ip = _ipshell.get()
-    except ImportError:
-        _ip = None
+    _ip = get_ipython()
+except NameError:
+    # IPython 0.10 and below (or normal Python shell)
+    _ip = __builtins__.get('__IPYTHON__')
 if _ip is not None:
     _ip.set_hook('complete_command', _sensor_completer, re_key=r"(?:.*\=)?(.+?)\[")
-
 
 # Setup library logger and add a print-like handler used when no logging is configured
 class _NoConfigFilter(_logging.Filter):
