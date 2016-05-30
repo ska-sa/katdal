@@ -171,9 +171,20 @@ class H5DataV3(DataSet):
         if cbf_group.attrs.keys() == ['class']:
             raise BrokenFile('File contains no correlator metadata')
         # Get SDP L0 dump period if available, else fall back to CBF dump period
-        self.dump_period = cbf_group.attrs['int_time']
+        self.dump_period = cbf_dump_period = cbf_group.attrs['int_time']
         if 'sdp' in tm_group:
             self.dump_period = tm_group['sdp'].attrs.get('l0_int_time', self.dump_period)
+        # Determine if timestamps are already aligned with middle of dumps
+        try:
+            ts_ref = data_group['timestamps'].attrs['timestamp_reference']
+            assert ts_ref == 'centroid', "Don't know timestamp reference %r" % (ts_ref,)
+            offset_to_middle_of_dump = 0.0
+        except KeyError:
+            # Two possible cases:
+            #   - RTS: SDP dump = CBF dump, timestamps at start of each dump
+            #   - Early AR1 (before Oct 2015): SDP dump = mean of starts of CBF dumps
+            # Fortunately, both result in the same offset of 1/2 a CBF dump
+            offset_to_middle_of_dump = 0.5 * cbf_dump_period
         # Obtain visibilities and timestamps (load the latter explicitly, but obviously not the former...)
         if 'correlator_data' in data_group:
             self._vis = data_group['correlator_data']
@@ -247,8 +258,8 @@ class H5DataV3(DataSet):
             logger.warning(("Irregular timestamps detected in file '%s': "
                            "expected %.3f dumps based on dump period and start/end times, got %d instead") %
                            (filename, expected_dumps, num_dumps))
-        # Move timestamps from start of each dump to the middle of the dump
-        self._timestamps += 0.5 * self.dump_period + self.time_offset
+        # Ensure timestamps are aligned with the middle of each dump
+        self._timestamps += offset_to_middle_of_dump + self.time_offset
         if self._timestamps[0] < 1e9:
             logger.warning("File '%s' has invalid first correlator timestamp (%f)" % (filename, self._timestamps[0],))
         self._time_keep = np.ones(num_dumps, dtype=np.bool)
