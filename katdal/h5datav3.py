@@ -373,6 +373,9 @@ class H5DataV3(DataSet):
             raise BrokenFile('Number of channels received from correlator '
                              '(%d) differs from number of channels in data (%d)' % (num_chans, self._vis.shape[1]))
         bandwidth = cbf_group.attrs['bandwidth']
+        # Work around a bc856M4k CBF bug active from 2016-04-28 to 2016-06-01 that got the bandwidth wrong
+        if bandwidth == 857152196.0:
+            bandwidth = 856000000.0
         channel_width = bandwidth / num_chans
         # The data product is set by the script or passed to it via schedule block
         product = self.obs_params.get('product', 'unknown')
