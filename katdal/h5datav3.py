@@ -23,7 +23,9 @@ SENSOR_PROPS.update({
                   'transform': lambda act: SIMPLIFY_STATE.get(act, 'stop')},
     '*target': {'initial_value': '', 'transform': _robust_target},
     '*ap_indexer_position': {'initial_value': ''},
-    '*_serial_number': {'initial_value': 0}
+    '*_serial_number': {'initial_value': 0},
+    '*dig_noise_diode': {'categorical': True, 'greedy_values': (True,),
+                         'initial_value': 0.0, 'transform': lambda x: x > 0.0},
 })
 
 SENSOR_ALIASES = {
