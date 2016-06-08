@@ -18,34 +18,57 @@ import katdal
 from katdal import averager
 from katdal import ms_extra
 
- # NOTE: This should be checked before running (only for w stopping) to see how up to date the cable delays are !!!
-delays = {}
-delays['h'] = {'ant1': 2.32205060e-05, 'ant2': 2.32842541e-05, 'ant3': 2.34093761e-05, 'ant4': 2.35162232e-05, 'ant5': 2.36786287e-05, 'ant6': 2.37855760e-05, 'ant7': 2.40479534e-05}
-delays['v'] = {'ant1': 2.32319854e-05, 'ant2': 2.32902574e-05, 'ant3': 2.34050180e-05, 'ant4': 2.35194585e-05, 'ant5': 2.36741915e-05, 'ant6': 2.37882216e-05, 'ant7': 2.40424086e-05}
- #updated by mattieu 21 Oct 2011 (for all antennas - previously antennas 2 and 4 not updated)
 
-tag_to_intent = {'gaincal':'CALIBRATE_PHASE,CALIBRATE_AMPLI', 'bpcal':'CALIBRATE_BANDPASS,CALIBRATE_FLUX', 'target':'TARGET'}
+tag_to_intent = {'gaincal': 'CALIBRATE_PHASE,CALIBRATE_AMPLI',
+                 'bpcal': 'CALIBRATE_BANDPASS,CALIBRATE_FLUX',
+                 'target': 'TARGET'}
 
-parser = optparse.OptionParser(usage="%prog [options] <filename.h5> [<filename2.h5>]*", description='Convert HDF5 file(s) to MeasurementSet')
-parser.add_option("-b", "--blank-ms", default="/var/kat/static/blank.ms", help="Blank MS used as template (default=%default)")
-parser.add_option("-c", "--circular", action="store_true", default=False, help="Produce quad circular polarisation. (RR, RL, LR, LL) *** Currently just relabels the linear pols ****")
-parser.add_option("-r" , "--ref-ant", help="Reference antenna (default is first one used by script)")
-parser.add_option("-t", "--tar", action="store_true", default=False, help="Tar-ball the MS")
-parser.add_option("-f", "--full_pol", action="store_true", default=False, help="Produce a full polarisation MS in CASA canonical order (HH, HV, VH, VV). Default is to produce HH,VV only")
-parser.add_option("-v", "--verbose", action="store_true", default=False, help="More verbose progress information")
-parser.add_option("-w", "--stop-w", action="store_true", default=False, help="Use W term to stop fringes for each baseline")
-parser.add_option("-x", "--HH", action="store_true", default=False, help="Produce a Stokes I MeasurementSet using only HH")
-parser.add_option("-y", "--VV", action="store_true", default=False, help="Produce a Stokes I MeasurementSet using only VV")
-parser.add_option("-u", "--uvfits", action="store_true", default=False, help="Produce uvfits and casa MeasurementSets")
-parser.add_option("-a", "--no-auto", action="store_true", default=False, help="MeasurementSet will exclude autocorrelation data")
-parser.add_option("-s", "--keep-spaces", action="store_true", default=False, help="Keep spaces in source names, default removes spaces")
-parser.add_option("-C", "--channel-range", help="Range of frequency channels to keep (zero-based inclusive 'first_chan,last_chan', default is all channels)")
-parser.add_option("-e", "--elevation-range", help="Flag elevations outside the range 'lowest_elevation,highest_elevation'")
-parser.add_option("-m", "--model-data", action="store_true", default=False, help="Add MODEL_DATA and CORRECTED_DATA columns to the MS. MODEL_DATA initialised to unity amplitude zero phase, CORRECTED_DATA initialised to DATA.")
-parser.add_option("--flags", help="List of online flags to apply (from 'static,cam,detected_rfi,predicted_rfi', default is all flags, '' will apply no flags)")
-parser.add_option("--dumptime", type=float, default=0.0, help="Output time averaging interval in seconds, default is no averaging.")
-parser.add_option("--chanbin", type=int, default=0, help="Bin width for channel averaging in channels, default is no averaging.")
-parser.add_option("--flagav", action="store_true", default=False, help="If a single element in an averaging bin is flagged, flag the averaged bin.")
+parser = optparse.OptionParser(usage="%prog [options] <filename.h5> [<filename2.h5>]*",
+                               description='Convert HDF5 file(s) to MeasurementSet')
+parser.add_option("-b", "--blank-ms", default="/var/kat/static/blank.ms",
+                  help="Blank MS used as template (default=%default)")
+parser.add_option("-c", "--circular", action="store_true", default=False,
+                  help="Produce quad circular polarisation. (RR, RL, LR, LL) "
+                       "*** Currently just relabels the linear pols ****")
+parser.add_option("-r" , "--ref-ant",
+                  help="Reference antenna (default is first one used by script)")
+parser.add_option("-t", "--tar", action="store_true", default=False,
+                  help="Tar-ball the MS")
+parser.add_option("-f", "--full_pol", action="store_true", default=False,
+                  help="Produce a full polarisation MS in CASA canonical order "
+                       "(HH, HV, VH, VV). Default is to produce HH,VV only")
+parser.add_option("-v", "--verbose", action="store_true", default=False,
+                  help="More verbose progress information")
+parser.add_option("-w", "--stop-w", action="store_true", default=False,
+                  help="Use W term to stop fringes for each baseline")
+parser.add_option("-x", "--HH", action="store_true", default=False,
+                  help="Produce a Stokes I MeasurementSet using only HH")
+parser.add_option("-y", "--VV", action="store_true", default=False,
+                  help="Produce a Stokes I MeasurementSet using only VV")
+parser.add_option("-u", "--uvfits", action="store_true", default=False,
+                  help="Produce uvfits and casa MeasurementSets")
+parser.add_option("-a", "--no-auto", action="store_true", default=False,
+                  help="MeasurementSet will exclude autocorrelation data")
+parser.add_option("-s", "--keep-spaces", action="store_true", default=False,
+                  help="Keep spaces in source names, default removes spaces")
+parser.add_option("-C", "--channel-range",
+                  help="Range of frequency channels to keep (zero-based inclusive "
+                       "'first_chan,last_chan', default is all channels)")
+parser.add_option("-e", "--elevation-range",
+                  help="Flag elevations outside the range 'lowest_elevation,highest_elevation'")
+parser.add_option("-m", "--model-data", action="store_true", default=False,
+                  help="Add MODEL_DATA and CORRECTED_DATA columns to the MS. "
+                       "MODEL_DATA initialised to unity amplitude zero phase, "
+                       "CORRECTED_DATA initialised to DATA.")
+parser.add_option("--flags",
+                  help="List of online flags to apply (from 'static,cam,detected_rfi,predicted_rfi', "
+                       "default is all flags, '' will apply no flags)")
+parser.add_option("--dumptime", type=float, default=0.0,
+                  help="Output time averaging interval in seconds, default is no averaging.")
+parser.add_option("--chanbin", type=int, default=0,
+                  help="Bin width for channel averaging in channels, default is no averaging.")
+parser.add_option("--flagav", action="store_true", default=False,
+                  help="If a single element in an averaging bin is flagged, flag the averaged bin.")
 
 (options, args) = parser.parse_args()
 
