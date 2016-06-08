@@ -1,7 +1,9 @@
-#!/usr/bin/python
+#! /usr/bin/env python
 
-# Produces a CASA compatible Measurement Set and/or a miriad importable uvfits from a KAT-7 HDF5 file (versions 1 and 2),
-# using the casacore table tools in the ms_extra module (or pyrap if casacore not available)
+# Produce a CASA compatible Measurement Set and/or a miriad importable uvfits
+# from a KAT-7 HDF5 file (versions 1 and 2) or MeerKAT HDF5 file (version 3)
+# using the casacore table tools in the ms_extra module (or pyrap if
+# casacore is not available).
 
 import os
 import shutil
@@ -272,16 +274,16 @@ for win in range(len(h5.spectral_windows)):
                 pol_data,flag_pol_data,weight_pol_data = [],[],[]
 
                 for p in polprods:
-                    cable_delay = delays[p[1][-1]][ant2.name] - delays[p[0][-1]][ant1.name]
+                    #cable_delay = delays[p[1][-1]][ant2.name] - delays[p[0][-1]][ant1.name]
                     # cable delays specific to pol type
                     cp_index = corrprod_to_index.get(p)
                     vis_data = scan_data[:,:,cp_index] if cp_index is not None else np.zeros(h5.shape[:2], dtype=np.complex64)
                     weight_data = scan_weight_data[:,:,cp_index] if cp_index is not None else np.ones(h5.shape[:2], dtype=np.float32)
                     flag_data = scan_flag_data[:,:,cp_index] if cp_index is not None else np.zeros(h5.shape[:2], dtype=np.bool)
-                    if options.stop_w:
+                    #if options.stop_w:
                         # Result of delay model in turns of phase. This is now frequency dependent so has shape (tstamps, channels)
-                        turns = np.outer((h5.w[:, cp_index] / katpoint.lightspeed) - cable_delay, h5.channel_freqs)
-                        vis_data *= np.exp(-2j * np.pi * turns)
+                    #    turns = np.outer((h5.w[:, cp_index] / katpoint.lightspeed) - cable_delay, h5.channel_freqs)
+                    #    vis_data *= np.exp(-2j * np.pi * turns)
 
                     out_utc = utc_seconds
                     out_freqs = h5.channel_freqs
