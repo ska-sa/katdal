@@ -23,7 +23,9 @@ SENSOR_PROPS.update({
                   'transform': lambda act: SIMPLIFY_STATE.get(act, 'stop')},
     '*target': {'initial_value': '', 'transform': _robust_target},
     '*ap_indexer_position': {'initial_value': ''},
-    '*_serial_number': {'initial_value': 0}
+    '*_serial_number': {'initial_value': 0},
+    '*dig_noise_diode': {'categorical': True, 'greedy_values': (True,),
+                         'initial_value': 0.0, 'transform': lambda x: x > 0.0},
 })
 
 SENSOR_ALIASES = {
@@ -373,6 +375,10 @@ class H5DataV3(DataSet):
             raise BrokenFile('Number of channels received from correlator '
                              '(%d) differs from number of channels in data (%d)' % (num_chans, self._vis.shape[1]))
         bandwidth = cbf_group.attrs['bandwidth']
+        # Work around a bc856M4k CBF bug active from 2016-04-28 to 2016-06-01 that got the bandwidth wrong
+        if bandwidth == 857152196.0:
+            logger.warning('Worked around CBF bandwidth bug (857.152 MHz -> 856.000 MHz)')
+            bandwidth = 856000000.0
         channel_width = bandwidth / num_chans
         # The data product is set by the script or passed to it via schedule block
         product = self.obs_params.get('product', 'unknown')
