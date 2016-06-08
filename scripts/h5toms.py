@@ -191,6 +191,8 @@ for win in range(len(h5.spectral_windows)):
     # MS expects timestamps in MJD seconds
     start_time = h5.start_time.to_mjd() * 24 * 60 * 60
     end_time = h5.end_time.to_mjd() * 24 * 60 * 60
+    # Version 1 and 2 files are KAT-7; the rest are MeerKAT
+    telescope_name = 'KAT-7' if h5.version[0] in '12' else 'MeerKAT'
 
     ms_dict = {}
     ms_dict['ANTENNA'] = ms_extra.populate_antenna_dict([ant.name for ant in h5.ants], [ant.position_ecef for ant in h5.ants],
@@ -198,7 +200,7 @@ for win in range(len(h5.spectral_windows)):
     ms_dict['FEED'] = ms_extra.populate_feed_dict(len(h5.ants), num_receptors_per_feed=2)
     ms_dict['DATA_DESCRIPTION'] = ms_extra.populate_data_description_dict()
     ms_dict['POLARIZATION'] = ms_extra.populate_polarization_dict(ms_pols=pols_to_use,stokes_i=(options.HH or options.VV),circular=options.circular)
-    ms_dict['OBSERVATION'] = ms_extra.populate_observation_dict(start_time, end_time, "KAT-7", h5.observer, h5.experiment_id)
+    ms_dict['OBSERVATION'] = ms_extra.populate_observation_dict(start_time, end_time, telescope_name, h5.observer, h5.experiment_id)
 
     print "Writing static meta data..."
     ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
