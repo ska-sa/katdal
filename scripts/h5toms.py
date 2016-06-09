@@ -1,9 +1,8 @@
 #! /usr/bin/env python
 
-# Produce a CASA compatible Measurement Set and/or a miriad importable uvfits
-# from a KAT-7 HDF5 file (versions 1 and 2) or MeerKAT HDF5 file (version 3)
-# using the casacore table tools in the ms_extra module (or pyrap if
-# casacore is not available).
+# Produce a CASA compatible Measurement Set from a KAT-7 HDF5 file (versions
+# 1 and 2) or MeerKAT HDF5 file (version 3) using the casapy table tools
+# in the ms_extra module (or pyrap/casacore if casapy is not available).
 
 import os
 import shutil
@@ -46,7 +45,7 @@ parser.add_option("-x", "--HH", action="store_true", default=False,
 parser.add_option("-y", "--VV", action="store_true", default=False,
                   help="Produce a Stokes I MeasurementSet using only VV")
 parser.add_option("-u", "--uvfits", action="store_true", default=False,
-                  help="Produce uvfits and casa MeasurementSets")
+                  help="Print command to convert MS to miriad uvfits in casapy")
 parser.add_option("-a", "--no-auto", action="store_true", default=False,
                   help="MeasurementSet will exclude autocorrelation data")
 parser.add_option("-s", "--keep-spaces", action="store_true", default=False,
