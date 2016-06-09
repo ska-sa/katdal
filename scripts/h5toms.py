@@ -1,7 +1,8 @@
-#!/usr/bin/python
+#! /usr/bin/env python
 
-# Produces a CASA compatible Measurement Set and/or a miriad importable uvfits from a KAT-7 HDF5 file (versions 1 and 2),
-# using the casacore table tools in the ms_extra module (or pyrap if casacore not available)
+# Produce a CASA compatible Measurement Set from a KAT-7 HDF5 file (versions
+# 1 and 2) or MeerKAT HDF5 file (version 3) using the casapy table tools
+# in the ms_extra module (or pyrap/casacore if casapy is not available).
 
 import os
 import shutil
@@ -16,34 +17,57 @@ import katdal
 from katdal import averager
 from katdal import ms_extra
 
- # NOTE: This should be checked before running (only for w stopping) to see how up to date the cable delays are !!!
-delays = {}
-delays['h'] = {'ant1': 2.32205060e-05, 'ant2': 2.32842541e-05, 'ant3': 2.34093761e-05, 'ant4': 2.35162232e-05, 'ant5': 2.36786287e-05, 'ant6': 2.37855760e-05, 'ant7': 2.40479534e-05}
-delays['v'] = {'ant1': 2.32319854e-05, 'ant2': 2.32902574e-05, 'ant3': 2.34050180e-05, 'ant4': 2.35194585e-05, 'ant5': 2.36741915e-05, 'ant6': 2.37882216e-05, 'ant7': 2.40424086e-05}
- #updated by mattieu 21 Oct 2011 (for all antennas - previously antennas 2 and 4 not updated)
 
-tag_to_intent = {'gaincal':'CALIBRATE_PHASE,CALIBRATE_AMPLI', 'bpcal':'CALIBRATE_BANDPASS,CALIBRATE_FLUX', 'target':'TARGET'}
+tag_to_intent = {'gaincal': 'CALIBRATE_PHASE,CALIBRATE_AMPLI',
+                 'bpcal': 'CALIBRATE_BANDPASS,CALIBRATE_FLUX',
+                 'target': 'TARGET'}
 
-parser = optparse.OptionParser(usage="%prog [options] <filename.h5> [<filename2.h5>]*", description='Convert HDF5 file(s) to MeasurementSet')
-parser.add_option("-b", "--blank-ms", default="/var/kat/static/blank.ms", help="Blank MS used as template (default=%default)")
-parser.add_option("-c", "--circular", action="store_true", default=False, help="Produce quad circular polarisation. (RR, RL, LR, LL) *** Currently just relabels the linear pols ****")
-parser.add_option("-r" , "--ref-ant", help="Reference antenna (default is first one used by script)")
-parser.add_option("-t", "--tar", action="store_true", default=False, help="Tar-ball the MS")
-parser.add_option("-f", "--full_pol", action="store_true", default=False, help="Produce a full polarisation MS in CASA canonical order (HH, HV, VH, VV). Default is to produce HH,VV only")
-parser.add_option("-v", "--verbose", action="store_true", default=False, help="More verbose progress information")
-parser.add_option("-w", "--stop-w", action="store_true", default=False, help="Use W term to stop fringes for each baseline")
-parser.add_option("-x", "--HH", action="store_true", default=False, help="Produce a Stokes I MeasurementSet using only HH")
-parser.add_option("-y", "--VV", action="store_true", default=False, help="Produce a Stokes I MeasurementSet using only VV")
-parser.add_option("-u", "--uvfits", action="store_true", default=False, help="Produce uvfits and casa MeasurementSets")
-parser.add_option("-a", "--no-auto", action="store_true", default=False, help="MeasurementSet will exclude autocorrelation data")
-parser.add_option("-s", "--keep-spaces", action="store_true", default=False, help="Keep spaces in source names, default removes spaces")
-parser.add_option("-C", "--channel-range", help="Range of frequency channels to keep (zero-based inclusive 'first_chan,last_chan', default is all channels)")
-parser.add_option("-e", "--elevation-range", help="Flag elevations outside the range 'lowest_elevation,highest_elevation'")
-parser.add_option("-m", "--model-data", action="store_true", default=False, help="Add MODEL_DATA and CORRECTED_DATA columns to the MS. MODEL_DATA initialised to unity amplitude zero phase, CORRECTED_DATA initialised to DATA.")
-parser.add_option("--flags", help="List of online flags to apply (from 'static,cam,detected_rfi,predicted_rfi', default is all flags, '' will apply no flags)")
-parser.add_option("--dumptime", type=float, default=0.0, help="Output time averaging interval in seconds, default is no averaging.")
-parser.add_option("--chanbin", type=int, default=0, help="Bin width for channel averaging in channels, default is no averaging.")
-parser.add_option("--flagav", action="store_true", default=False, help="If a single element in an averaging bin is flagged, flag the averaged bin.")
+parser = optparse.OptionParser(usage="%prog [options] <filename.h5> [<filename2.h5>]*",
+                               description='Convert HDF5 file(s) to MeasurementSet')
+parser.add_option("-b", "--blank-ms", default="/var/kat/static/blank.ms",
+                  help="Blank MS used as template (default=%default)")
+parser.add_option("-c", "--circular", action="store_true", default=False,
+                  help="Produce quad circular polarisation. (RR, RL, LR, LL) "
+                       "*** Currently just relabels the linear pols ****")
+parser.add_option("-r" , "--ref-ant",
+                  help="Reference antenna (default is first one used by script)")
+parser.add_option("-t", "--tar", action="store_true", default=False,
+                  help="Tar-ball the MS")
+parser.add_option("-f", "--full_pol", action="store_true", default=False,
+                  help="Produce a full polarisation MS in CASA canonical order "
+                       "(HH, HV, VH, VV). Default is to produce HH,VV only")
+parser.add_option("-v", "--verbose", action="store_true", default=False,
+                  help="More verbose progress information")
+parser.add_option("-w", "--stop-w", action="store_true", default=False,
+                  help="Use W term to stop fringes for each baseline")
+parser.add_option("-x", "--HH", action="store_true", default=False,
+                  help="Produce a Stokes I MeasurementSet using only HH")
+parser.add_option("-y", "--VV", action="store_true", default=False,
+                  help="Produce a Stokes I MeasurementSet using only VV")
+parser.add_option("-u", "--uvfits", action="store_true", default=False,
+                  help="Print command to convert MS to miriad uvfits in casapy")
+parser.add_option("-a", "--no-auto", action="store_true", default=False,
+                  help="MeasurementSet will exclude autocorrelation data")
+parser.add_option("-s", "--keep-spaces", action="store_true", default=False,
+                  help="Keep spaces in source names, default removes spaces")
+parser.add_option("-C", "--channel-range",
+                  help="Range of frequency channels to keep (zero-based inclusive "
+                       "'first_chan,last_chan', default is all channels)")
+parser.add_option("-e", "--elevation-range",
+                  help="Flag elevations outside the range 'lowest_elevation,highest_elevation'")
+parser.add_option("-m", "--model-data", action="store_true", default=False,
+                  help="Add MODEL_DATA and CORRECTED_DATA columns to the MS. "
+                       "MODEL_DATA initialised to unity amplitude zero phase, "
+                       "CORRECTED_DATA initialised to DATA.")
+parser.add_option("--flags",
+                  help="List of online flags to apply (from 'static,cam,detected_rfi,predicted_rfi', "
+                       "default is all flags, '' will apply no flags)")
+parser.add_option("--dumptime", type=float, default=0.0,
+                  help="Output time averaging interval in seconds, default is no averaging.")
+parser.add_option("--chanbin", type=int, default=0,
+                  help="Bin width for channel averaging in channels, default is no averaging.")
+parser.add_option("--flagav", action="store_true", default=False,
+                  help="If a single element in an averaging bin is flagged, flag the averaged bin.")
 
 (options, args) = parser.parse_args()
 
@@ -189,6 +213,8 @@ for win in range(len(h5.spectral_windows)):
     # MS expects timestamps in MJD seconds
     start_time = h5.start_time.to_mjd() * 24 * 60 * 60
     end_time = h5.end_time.to_mjd() * 24 * 60 * 60
+    # Version 1 and 2 files are KAT-7; the rest are MeerKAT
+    telescope_name = 'KAT-7' if h5.version[0] in '12' else 'MeerKAT'
 
     ms_dict = {}
     ms_dict['ANTENNA'] = ms_extra.populate_antenna_dict([ant.name for ant in h5.ants], [ant.position_ecef for ant in h5.ants],
@@ -196,7 +222,7 @@ for win in range(len(h5.spectral_windows)):
     ms_dict['FEED'] = ms_extra.populate_feed_dict(len(h5.ants), num_receptors_per_feed=2)
     ms_dict['DATA_DESCRIPTION'] = ms_extra.populate_data_description_dict()
     ms_dict['POLARIZATION'] = ms_extra.populate_polarization_dict(ms_pols=pols_to_use,stokes_i=(options.HH or options.VV),circular=options.circular)
-    ms_dict['OBSERVATION'] = ms_extra.populate_observation_dict(start_time, end_time, "KAT-7", h5.observer, h5.experiment_id)
+    ms_dict['OBSERVATION'] = ms_extra.populate_observation_dict(start_time, end_time, telescope_name, h5.observer, h5.experiment_id)
 
     print "Writing static meta data..."
     ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
@@ -272,16 +298,16 @@ for win in range(len(h5.spectral_windows)):
                 pol_data,flag_pol_data,weight_pol_data = [],[],[]
 
                 for p in polprods:
-                    cable_delay = delays[p[1][-1]][ant2.name] - delays[p[0][-1]][ant1.name]
+                    #cable_delay = delays[p[1][-1]][ant2.name] - delays[p[0][-1]][ant1.name]
                     # cable delays specific to pol type
                     cp_index = corrprod_to_index.get(p)
                     vis_data = scan_data[:,:,cp_index] if cp_index is not None else np.zeros(h5.shape[:2], dtype=np.complex64)
                     weight_data = scan_weight_data[:,:,cp_index] if cp_index is not None else np.ones(h5.shape[:2], dtype=np.float32)
                     flag_data = scan_flag_data[:,:,cp_index] if cp_index is not None else np.zeros(h5.shape[:2], dtype=np.bool)
-                    if options.stop_w:
+                    #if options.stop_w:
                         # Result of delay model in turns of phase. This is now frequency dependent so has shape (tstamps, channels)
-                        turns = np.outer((h5.w[:, cp_index] / katpoint.lightspeed) - cable_delay, h5.channel_freqs)
-                        vis_data *= np.exp(-2j * np.pi * turns)
+                    #    turns = np.outer((h5.w[:, cp_index] / katpoint.lightspeed) - cable_delay, h5.channel_freqs)
+                    #    vis_data *= np.exp(-2j * np.pi * turns)
 
                     out_utc = utc_seconds
                     out_freqs = h5.channel_freqs
