@@ -672,8 +672,8 @@ class H5DataV3(DataSet):
             Only then will data be loaded into memory.
 
         """
-
-        known_flags = [row[0] for row in self._flags_description]
+        # Reverse flag indices as np.packbits has bit 0 as the MSB (we want LSB)
+        known_flags = [row[0] for row in reversed(self._flags_description)]
 
         names = names.split(',') if isinstance(names, basestring) else known_flags if names is None else names
 
