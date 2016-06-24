@@ -695,3 +695,28 @@ class H5DataV3(DataSet):
                                 lambda flags, keep: np.bool_(np.bitwise_and(flagmask, flags)),
                                 dtype=np.bool)
         return self._vislike_indexer(self._flags, extract)
+
+    @property
+    def temperature(self):
+        """Air temperature in degrees Celsius."""
+        return self.sensor['Enviro/air_temperature']
+
+    @property
+    def pressure(self):
+        """Barometric pressure in millibars."""
+        return self.sensor['Enviro/air_pressure']
+
+    @property
+    def humidity(self):
+        """Relative humidity as a percentage."""
+        return self.sensor['Enviro/air_relative_humidity']
+
+    @property
+    def wind_speed(self):
+        """Wind speed in metres per second."""
+        return self.sensor['Enviro/wind_speed']
+
+    @property
+    def wind_direction(self):
+        """Wind direction as an azimuth angle in degrees."""
+        return self.sensor['Enviro/wind_direction']

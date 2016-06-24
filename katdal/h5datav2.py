@@ -552,3 +552,28 @@ class H5DataV2(DataSet):
         extract_flags = LazyTransform('extract_flags', _extract_flags, dtype=np.bool)
         return LazyIndexer(self._flags, (self._time_keep, self._freq_keep, self._corrprod_keep),
                            transforms=[extract_flags])
+
+    @property
+    def temperature(self):
+        """Air temperature in degrees Celsius."""
+        return self.sensor['Enviro/asc.air.temperature']
+
+    @property
+    def pressure(self):
+        """Barometric pressure in millibars."""
+        return self.sensor['Enviro/asc.air.pressure']
+
+    @property
+    def humidity(self):
+        """Relative humidity as a percentage."""
+        return self.sensor['Enviro/asc.air.relative-humidity']
+
+    @property
+    def wind_speed(self):
+        """Wind speed in metres per second."""
+        return self.sensor['Enviro/asc.wind.speed']
+
+    @property
+    def wind_direction(self):
+        """Wind direction as an azimuth angle in degrees."""
+        return self.sensor['Enviro/asc.wind.direction']
