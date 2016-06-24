@@ -1,6 +1,7 @@
 """Data accessor class for HDF5 files produced by RTS correlator."""
 
 import logging
+import cPickle as pickle
 
 import numpy as np
 import h5py
@@ -8,7 +9,7 @@ import katpoint
 
 from .dataset import DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow, \
                      DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target
-from .sensordata import SensorData, SensorCache
+from .sensordata import SensorData, SensorCache, TelstateSensorData
 from .categorical import CategoricalData
 from .lazy_indexer import LazyIndexer, LazyTransform
 
@@ -167,6 +168,18 @@ class H5DataV3(DataSet):
                 name = '/'.join((group_name, sensor_name))
                 cache[name] = SensorData(obj, name)
         tm_group.visititems(register_sensor)
+        # Also load sensors from TelescopeState for what it's worth
+        if 'TelescopeState' in f.file:
+            def register_telstate_sensor(name, obj):
+                """A sensor is defined as a non-empty dataset with expected dtype."""
+                if isinstance(obj, h5py.Dataset) and obj.shape != () and obj.dtype.names == ('timestamp', 'value'):
+                    name = 'TelescopeState/' + name
+                    # Ignore any corrupted sensors (as produced in the early days)
+                    try:
+                        cache[name] = TelstateSensorData(obj, name)
+                    except (TypeError, pickle.UnpicklingError):
+                        pass
+            f.file['TelescopeState'].visititems(register_telstate_sensor)
 
         # ------ Extract vis and timestamps ------
 
