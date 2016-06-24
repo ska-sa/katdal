@@ -712,24 +712,39 @@ class H5DataV3(DataSet):
     @property
     def temperature(self):
         """Air temperature in degrees Celsius."""
-        return self.sensor['Enviro/air_temperature']
+        try:
+            return self.sensor['Enviro/air_temperature']
+        except KeyError:
+            return self.sensor['TelescopeState/anc_weather_temperature']
 
     @property
     def pressure(self):
         """Barometric pressure in millibars."""
-        return self.sensor['Enviro/air_pressure']
+        try:
+            return self.sensor['Enviro/air_pressure']
+        except KeyError:
+            return self.sensor['TelescopeState/anc_weather_pressure']
 
     @property
     def humidity(self):
         """Relative humidity as a percentage."""
-        return self.sensor['Enviro/air_relative_humidity']
+        try:
+            return self.sensor['Enviro/air_relative_humidity']
+        except KeyError:
+            return self.sensor['TelescopeState/anc_weather_humidity']
 
     @property
     def wind_speed(self):
         """Wind speed in metres per second."""
-        return self.sensor['Enviro/wind_speed']
+        try:
+            return self.sensor['Enviro/wind_speed']
+        except KeyError:
+            return self.sensor['TelescopeState/anc_weather_wind_speed']
 
     @property
     def wind_direction(self):
         """Wind direction as an azimuth angle in degrees."""
-        return self.sensor['Enviro/wind_direction']
+        try:
+            return self.sensor['Enviro/wind_direction']
+        except KeyError:
+            return self.sensor['TelescopeState/anc_weather_wind_direction']
