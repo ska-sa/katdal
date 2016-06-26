@@ -387,3 +387,28 @@ class H5DataV1(DataSet):
         logger.warning("No flags in v1 h5 data files, returning array of zero flags")
         falses = LazyTransform('falses', lambda data, keep: np.zeros_like(data, dtype=np.bool), dtype=np.bool)
         return ConcatenatedLazyIndexer(self._vis_indexers(), transforms=[falses])
+
+    @property
+    def temperature(self):
+        """Air temperature in degrees Celsius."""
+        return self.sensor['Antennas/%s/enviro_air_temperature' % (self.ref_ant,)]
+
+    @property
+    def pressure(self):
+        """Barometric pressure in millibars."""
+        return self.sensor['Antennas/%s/enviro_air_pressure' % (self.ref_ant,)]
+
+    @property
+    def humidity(self):
+        """Relative humidity as a percentage."""
+        return self.sensor['Antennas/%s/enviro_air_relative_humidity' % (self.ref_ant,)]
+
+    @property
+    def wind_speed(self):
+        """Wind speed in metres per second."""
+        return self.sensor['Antennas/%s/enviro_wind_speed' % (self.ref_ant,)]
+
+    @property
+    def wind_direction(self):
+        """Wind direction as an azimuth angle in degrees."""
+        return self.sensor['Antennas/%s/enviro_wind_direction' % (self.ref_ant,)]

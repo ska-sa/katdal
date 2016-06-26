@@ -920,6 +920,31 @@ class DataSet(object):
         """
         raise NotImplementedError
 
+    @property
+    def temperature(self):
+        """Air temperature in degrees Celsius."""
+        raise NotImplementedError
+
+    @property
+    def pressure(self):
+        """Barometric pressure in millibars."""
+        raise NotImplementedError
+
+    @property
+    def humidity(self):
+        """Relative humidity as a percentage."""
+        raise NotImplementedError
+
+    @property
+    def wind_speed(self):
+        """Wind speed in metres per second."""
+        raise NotImplementedError
+
+    @property
+    def wind_direction(self):
+        """Wind direction as an azimuth angle in degrees."""
+        raise NotImplementedError
+
     # - - - - - - - - - - - - Virtual sensors exposed as properties - - - - - - - - - - - - - - -
 
     @property

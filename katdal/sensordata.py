@@ -2,6 +2,7 @@
 
 import logging
 import re
+import cPickle as pickle
 
 import numpy as np
 import katpoint
@@ -78,6 +79,49 @@ class SensorData(object):
         """Short human-friendly string representation of sensor data object."""
         return "<katdal.%s '%s' len=%d type='%s' at 0x%x>" % \
                (self.__class__.__name__, self.name, len(self), self.dtype, id(self))
+
+
+class TelstateSensorData(SensorData):
+    """Raw (uncached) sensor data in TelescopeState record array form.
+
+    This wraps the telstate sensors stored in recent HDF5 files. It differs
+    in two ways from the normal HDF5 sensors: no 'status' column and values
+    stored as pickles.
+
+    TODO: This is a temporary fix to get at missing sensors in telstate and
+    should be replaced by a proper wrapping of any telstate object.
+
+    Parameters
+    ----------
+    data : recarray-like, with fields ('timestamp', 'value')
+        Uncached sensor data as record array or equivalent (such as a
+        :class:`h5py.Dataset`)
+    name : string or None, optional
+        Sensor name (assumed to be data.name by default, if it exists)
+
+    Attributes
+    ----------
+    dtype : :class:`numpy.dtype` object
+        Type of sensor data, as a NumPy dtype
+
+    """
+    def __init__(self, data, name=None):
+        super(TelstateSensorData, self).__init__(data, name)
+        # Unpickle first value to derive dtype (should be simple for sensors)
+        self.dtype = np.array([pickle.loads(data['value'][0])]).dtype
+
+    def __getitem__(self, key):
+        """Extract timestamp, value and status of each sensor data point."""
+        if key == 'value':
+            # Unpickle sensor data upon request
+            return np.array([pickle.loads(pkl) for pkl in self.data[key]])
+        elif key == 'status':
+            # Fake the missing status column
+            return np.repeat('nominal', len(self))
+        else:
+            # WARNING: if key is an index or slice, values will still be pickled
+            # It is safer to extract data explicitly into recarray in __init__
+            return np.asarray(self.data[key])
 
 # -------------------------------------------------------------------------------------------------
 # -- Utility functions
