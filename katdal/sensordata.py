@@ -81,6 +81,21 @@ class SensorData(object):
                (self.__class__.__name__, self.name, len(self), self.dtype, id(self))
 
 
+def _telstate_unpack(s):
+    """This unpacks a telstate value from its string representation."""
+    try:
+        # Since 2016-05-09 the HDF5 TelescopeState contains pickled values
+        return pickle.loads(s)
+    except (pickle.UnpicklingError, ValueError, EOFError):
+        try:
+            # Before 2016-05-09 the telstate values were str() representations
+            # This cannot be unpacked in general but works for numbers at least
+            return np.safe_eval(s)
+        except (ValueError, SyntaxError):
+            # When unsure, return the string itself (correct for string sensors)
+            return s
+
+
 class TelstateSensorData(SensorData):
     """Raw (uncached) sensor data in TelescopeState record array form.
 
@@ -108,13 +123,13 @@ class TelstateSensorData(SensorData):
     def __init__(self, data, name=None):
         super(TelstateSensorData, self).__init__(data, name)
         # Unpickle first value to derive dtype (should be simple for sensors)
-        self.dtype = np.array([pickle.loads(data['value'][0])]).dtype
+        self.dtype = np.array([_telstate_unpack(data['value'][0])]).dtype
 
     def __getitem__(self, key):
         """Extract timestamp, value and status of each sensor data point."""
         if key == 'value':
             # Unpickle sensor data upon request
-            return np.array([pickle.loads(pkl) for pkl in self.data[key]])
+            return np.array([_telstate_unpack(s) for s in self.data[key]])
         elif key == 'status':
             # Fake the missing status column
             return np.repeat('nominal', len(self))
