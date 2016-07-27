@@ -3,7 +3,7 @@
 import logging
 
 import numpy as np
-import h5py
+import h5pyd
 import katpoint
 
 from .dataset import DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow, \
@@ -107,8 +107,9 @@ def dummy_dataset(name, shape, dtype, value):
     # It is important to randomise the filename as h5py does not allow two writable file objects with the same name
     # Without this randomness katdal can only open one file requiring a dummy dataset
     random_string = ''.join(['%02x' % (x,) for x in np.random.randint(256, size=8)])
-    dummy_file = h5py.File('%s_%s.h5' % (name, random_string), driver='core', backing_store=False)
-    return dummy_file.create_dataset(name, shape=shape, maxshape=shape, dtype=dtype, fillvalue=value, compression='gzip')
+    endpoint, fn = name.split('?host=')
+    dummy_file = h5pyd.File('%s_%s' % (random_string,fn), endpoint=endpoint)
+    return dummy_file.create_dataset(fn, shape=shape, maxshape=shape, dtype=dtype, fillvalue=value, compression='gzip')
 
 # -------------------------------------------------------------------------------------------------
 # -- CLASS :  H5DataV2
@@ -149,7 +150,9 @@ class H5DataV2(DataSet):
         # Load file
         self.file, self.version = H5DataV2._open(filename, mode)
         f = self.file
-
+        #capture domain and endpoint for dummy
+        domain = '.' + filename.split('?host=')[1].split('.', 1)[1]
+        endpoint = filename.split('?host=')[0]
         # Load main HDF5 groups
         data_group, sensors_group, config_group = f['Data'], f['MetaData/Sensors'], f['MetaData/Configuration']
         markup_group = f['Markup']
@@ -208,7 +211,7 @@ class H5DataV2(DataSet):
 
         # Check if flag group is present, else use dummy flag data
         self._flags = markup_group['flags'] if 'flags' in markup_group else \
-                      dummy_dataset('dummy_flags', shape=self._vis.shape[:-1], dtype=np.uint8, value=0)
+                      dummy_dataset(endpoint + '?host=' + 'dummy_flags' + domain, shape=self._vis.shape[:-1], dtype=np.uint8, value=0)
         # Obtain flag descriptions from file or recreate default flag description table
         self._flags_description = markup_group['flags_description'] if 'flags_description' in markup_group else \
                                   np.array(zip(FLAG_NAMES, FLAG_DESCRIPTIONS))
@@ -217,7 +220,7 @@ class H5DataV2(DataSet):
 
         # check if weight group present, else use dummy weight data
         self._weights = markup_group['weights'] if 'weights' in markup_group else \
-                        dummy_dataset('dummy_weights', shape=self._vis.shape[:-1] + (1,), dtype=np.float32, value=1.0)
+                        dummy_dataset(endpoint + '?host=' + 'dummy_weights' + domain, shape=self._vis.shape[:-1] + (1,), dtype=np.float32, value=1.0)
         self._weights_description = np.array(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS))
 
         # ------ Extract sensors ------
@@ -226,7 +229,7 @@ class H5DataV2(DataSet):
         cache = {}
         def register_sensor(name, obj):
             """A sensor is defined as a non-empty dataset with expected dtype."""
-            if isinstance(obj, h5py.Dataset) and obj.shape != () and obj.dtype.names == ('timestamp', 'value', 'status'):
+            if isinstance(obj, h5pyd.Dataset) and obj.shape != () and obj.dtype.names == ('timestamp', 'value', 'status'):
                 # Rename pedestal sensors from the old regime to become sensors of the corresponding antenna
                 name = ('Antennas/ant' + name[13:]) if name.startswith('Pedestals/ped') else name
                 cache[name] = SensorData(obj, name)
@@ -343,7 +346,8 @@ class H5DataV2(DataSet):
     @staticmethod
     def _open(filename, mode='r'):
         """Open file and do basic version and augmentation sanity check."""
-        f = h5py.File(filename, mode)
+        endpoint, fn = '?host='.split(filename)
+        f = h5pyd.File(filename, mode, endpoint)
         version = f.attrs.get('version', '1.x')
         if not version.startswith('2.'):
             raise WrongVersion("Attempting to load version '%s' file with version 2 loader" % (version,))

@@ -3,7 +3,7 @@
 import logging
 
 import numpy as np
-import h5py
+import h5pyd
 import katpoint
 
 from .dataset import DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow, \
@@ -82,8 +82,9 @@ def dummy_dataset(name, shape, dtype, value):
     # It is important to randomise the filename as h5py does not allow two writable file objects with the same name
     # Without this randomness katdal can only open one file requiring a dummy dataset
     random_string = ''.join(['%02x' % (x,) for x in np.random.randint(256, size=8)])
-    dummy_file = h5py.File('%s_%s.h5' % (name, random_string), driver='core', backing_store=False)
-    return dummy_file.create_dataset(name, shape=shape, maxshape=shape,
+    endpoint, fn = name.split('?host=')
+    dummy_file = h5pyd.File('%s_%s' % (random_string, fn), endpoint=endpoint, driver='core', backing_store=False)
+    return dummy_file.create_dataset(fn, shape=shape, maxshape=shape,
                                      dtype=dtype, fillvalue=value, compression='gzip')
 
 # -------------------------------------------------------------------------------------------------
@@ -143,7 +144,9 @@ class H5DataV3(DataSet):
         # Load file
         self.file, self.version = H5DataV3._open(filename, mode)
         f = self.file
-
+        #capture domain and endpoint for dummy
+        domain = '.' + filename.split('?host=')[1].split('.', 1)[1]
+        endpoint = filename.split('?host=')[0]
         # Load main HDF5 groups
         data_group, tm_group = f['Data'], f['TelescopeModel']
         # Pick first group with appropriate class as CBF
@@ -157,8 +160,9 @@ class H5DataV3(DataSet):
         cache = {}
         def register_sensor(name, obj):
             """A sensor is defined as a non-empty dataset with expected dtype."""
-            if isinstance(obj, h5py.Dataset) and obj.shape != () and obj.dtype.names == ('timestamp', 'value', 'status'):
-                comp_name, sensor_name = name.split('/', 1)
+            if isinstance(obj, h5pyd.Dataset) and obj.shape != () and obj.dtype.names == ('timestamp', 'value', 'status'):
+                parts = name.split('/')
+                comp_name, sensor_name = parts[-2], parts[-1]
                 comp_type = tm_group[comp_name].attrs.get('class')
                 # Mapping from specific components to generic sensor groups
                 # Put antenna sensors in virtual Antenna group, the rest according to component type
@@ -172,9 +176,10 @@ class H5DataV3(DataSet):
             def register_telstate_sensor(name, obj):
                 """A sensor is defined as a non-empty dataset with expected dtype."""
                 # Before 2016-05-09 the dtype was ('value', 'timestamp')
-                if isinstance(obj, h5py.Dataset) and obj.shape != () and \
+                if isinstance(obj, h5pyd.Dataset) and obj.shape != () and \
                    set(obj.dtype.names) == {'timestamp', 'value'}:
-                    name = 'TelescopeState/' + name
+                    parts = name.split('/')
+                    name = 'TelescopeState/' + parts[-1]
                     cache[name] = TelstateSensorData(obj, name)
             f.file['TelescopeState'].visititems(register_telstate_sensor)
 
@@ -191,11 +196,13 @@ class H5DataV3(DataSet):
             ts_ref = data_group['timestamps'].attrs['timestamp_reference']
             assert ts_ref == 'centroid', "Don't know timestamp reference %r" % (ts_ref,)
             offset_to_middle_of_dump = 0.0
-        except KeyError:
+        except (KeyError, IOError):
             # Two possible cases:
             #   - RTS: SDP dump = CBF dump, timestamps at start of each dump
             #   - Early AR1 (before Oct 2015): SDP dump = mean of starts of CBF dumps
             # Fortunately, both result in the same offset of 1/2 a CBF dump
+            offset_to_middle_of_dump = 0.5 * cbf_dump_period
+        except IOError:
             offset_to_middle_of_dump = 0.5 * cbf_dump_period
         # Obtain visibilities and timestamps (load the latter explicitly, but obviously not the former...)
         if 'correlator_data' in data_group:
@@ -285,7 +292,7 @@ class H5DataV3(DataSet):
 
         # Check if flag group is present, else use dummy flag data
         self._flags = data_group['flags'] if 'flags' in data_group else \
-                      dummy_dataset('dummy_flags', shape=self._vis.shape[:-1], dtype=np.uint8, value=0)
+                      dummy_dataset(endpoint + '?host=' + 'dummy_flags' + domain, shape=self._vis.shape[:-1], dtype=np.uint8, value=0)
         # Obtain flag descriptions from file or recreate default flag description table
         self._flags_description = data_group['flags_description'] if 'flags_description' in data_group else \
                                   np.array(zip(FLAG_NAMES, FLAG_DESCRIPTIONS))
@@ -294,7 +301,7 @@ class H5DataV3(DataSet):
 
         # check if weight group present, else use dummy weight data
         self._weights = data_group['weights'] if 'weights' in data_group else \
-                        dummy_dataset('dummy_weights', shape=self._vis.shape[:-1] + (1,), dtype=np.float32, value=1.0)
+                        dummy_dataset(endpoint + '?host=' + 'dummy_weights' + domain, shape=self._vis.shape[:-1] + (1,), dtype=np.float32, value=1.0)
         self._weights_description = np.array(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS))
 
         # ------ Extract observation parameters and script log ------
@@ -303,7 +310,7 @@ class H5DataV3(DataSet):
         # Replay obs_params sensor if available and update obs_params dict accordingly
         try:
             obs_params = self.sensor.get('Observation/params', extract=False)['value']
-        except KeyError:
+        except (KeyError, IOError):
             obs_params = []
         for obs_param in obs_params:
             if obs_param:
@@ -316,7 +323,7 @@ class H5DataV3(DataSet):
         # Extract script log data verbatim (it is not a standard sensor anyway)
         try:
             self.obs_script_log = self.sensor.get('Observation/script_log', extract=False)['value'].tolist()
-        except KeyError:
+        except (KeyError, IOError):
             self.obs_script_log = []
 
         # ------ Extract subarrays ------
@@ -328,10 +335,10 @@ class H5DataV3(DataSet):
                 continue
             try:
                 ant_description = self.sensor['Antennas/%s/observer' % (name,)][0]
-            except KeyError:
+            except (KeyError, IOError):
                 try:
                     ant_description = tm_group[name].attrs['observer']
-                except KeyError:
+                except (KeyError, IOError):
                     ant_description = tm_group[name].attrs['description']
             ants.append(katpoint.Antenna(ant_description))
         # Keep the basic list sorted as far as possible
@@ -414,7 +421,7 @@ class H5DataV3(DataSet):
         # Use labels to partition the data set into compound scans
         try:
             label = self.sensor.get('Observation/label')
-        except KeyError:
+        except (KeyError, IOError):
             label = CategoricalData([''], [0, num_dumps])
         # Discard empty labels (typically found in raster scans, where first scan has proper label and rest are empty)
         # However, if all labels are empty, keep them, otherwise whole data set will be one pathological compscan...
@@ -456,7 +463,8 @@ class H5DataV3(DataSet):
     @staticmethod
     def _open(filename, mode='r'):
         """Open file and do basic version sanity check."""
-        f = h5py.File(filename, mode)
+        endpoint, fn = filename.split('?host=')
+        f = h5pyd.File(fn, mode, endpoint=endpoint)
         version = f.attrs.get('version', '1.x')
         if not version.startswith('3.'):
             raise WrongVersion("Attempting to load version '%s' file with version 3 loader" % (version,))
@@ -491,10 +499,10 @@ class H5DataV3(DataSet):
                 continue
             try:
                 ant_description = tm_group[name]['observer']['value'][0]
-            except KeyError:
+            except (KeyError, IOError):
                 try:
                     ant_description = tm_group[name].attrs['observer']
-                except KeyError:
+                except (KeyError, IOError):
                     ant_description = tm_group[name].attrs['description']
             ants.append(katpoint.Antenna(ant_description))
         cam_ants = set(ant.name for ant in ants)
@@ -711,7 +719,7 @@ class H5DataV3(DataSet):
         """Air temperature in degrees Celsius."""
         try:
             return self.sensor['Enviro/air_temperature']
-        except KeyError:
+        except (KeyError, IOError):
             return self.sensor['TelescopeState/anc_weather_temperature']
 
     @property
@@ -719,7 +727,7 @@ class H5DataV3(DataSet):
         """Barometric pressure in millibars."""
         try:
             return self.sensor['Enviro/air_pressure']
-        except KeyError:
+        except (KeyError, IOError):
             return self.sensor['TelescopeState/anc_weather_pressure']
 
     @property
@@ -727,7 +735,7 @@ class H5DataV3(DataSet):
         """Relative humidity as a percentage."""
         try:
             return self.sensor['Enviro/air_relative_humidity']
-        except KeyError:
+        except (KeyError, IOError):
             return self.sensor['TelescopeState/anc_weather_humidity']
 
     @property
@@ -735,7 +743,7 @@ class H5DataV3(DataSet):
         """Wind speed in metres per second."""
         try:
             return self.sensor['Enviro/wind_speed']
-        except KeyError:
+        except (KeyError, IOError):
             return self.sensor['TelescopeState/anc_weather_wind_speed']
 
     @property
@@ -743,5 +751,5 @@ class H5DataV3(DataSet):
         """Wind direction as an azimuth angle in degrees."""
         try:
             return self.sensor['Enviro/wind_direction']
-        except KeyError:
+        except (KeyError, IOError):
             return self.sensor['TelescopeState/anc_weather_wind_direction']

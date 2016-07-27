@@ -4,7 +4,7 @@ import logging
 import re
 
 import numpy as np
-import h5py
+import h5pyd
 import katpoint
 
 from .dataset import DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow, \
@@ -87,7 +87,7 @@ class H5DataV1(DataSet):
         scan_groups = []
         def register_scan_group(name, obj):
             """A scan group is defined as a group named 'Scan*' with non-empty timestamps and data."""
-            if isinstance(obj, h5py.Group) and name.split('/')[-1].startswith('Scan') and \
+            if isinstance(obj, h5pyd.Group) and name.split('/')[-1].startswith('Scan') and \
                'data' in obj and 'timestamps' in obj and len(obj['timestamps']) > 0:
                 scan_groups.append(obj)
         data_group.visititems(register_scan_group)
@@ -127,7 +127,7 @@ class H5DataV1(DataSet):
         # Populate sensor cache with all HDF5 datasets below antennas group that fit the description of a sensor
         cache = {}
         def register_sensor(name, obj):
-            if isinstance(obj, h5py.Dataset) and obj.shape != () and obj.dtype.names == ('timestamp', 'value', 'status'):
+            if isinstance(obj, h5pyd.Dataset) and obj.shape != () and obj.dtype.names == ('timestamp', 'value', 'status'):
                 # Assume sensor dataset name is AntennaN/Sensors/dataset and rename it to Antennas/{ant}/dataset
                 ant_name = obj.parent.parent.attrs['description'].split(',')[0]
                 standardised_name = 'Antennas/%s/%s' % (ant_name, name.split('/')[-1])
@@ -218,7 +218,8 @@ class H5DataV1(DataSet):
     @staticmethod
     def _open(filename, mode='r'):
         """Open file and do basic version and augmentation sanity check."""
-        f = h5py.File(filename, mode)
+        endpoint, fn = filename.split('?host=')
+        f = h5pyd.File(fn, mode, endpoint)
         version = f.attrs.get('version', '1.x')
         if not version.startswith('1.'):
             raise WrongVersion("Attempting to load version '%s' file with version 1 loader" % (version,))

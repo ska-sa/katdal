@@ -279,6 +279,27 @@ def _file_action(action, filename, *args, **kwargs):
                            % (filename,))
     return result
 
+def remote_open(domainname, endpoint, ref_ant='', time_offset=0.0, **kwargs):
+    """Open data file(s) remotely. A helper method calling open on remote files.
+
+    Parameters
+    ----------
+    domainname: string os sequence of stings
+        Data domain name or list of fully qualified domain names.
+        E.g. where /data is the root directory on the remote machine:
+        filename   == /data/myfolder/1234567890.h5
+        domainname == 1234567890.myfolder.kat.ac.za
+    endpoint: string
+        URL of the remote machine for sending reqests.
+    ref_ant : string, optional
+        Name of reference antenna (default is first antenna in use)
+    time_offset : float, optional
+        Offset to add to all timestamps, in seconds
+    kwargs : dict, optional
+        See docstring for open method
+    """
+    domainnames = [domainname] if isinstance(domainname, basestring) else domainname
+    return open(['?host='.join([endpoint,d]) for d in domainnames], ref_ant, time_offset, **kwargs)
 
 def open(filename, ref_ant='', time_offset=0.0, **kwargs):
     """Open data file(s) with loader of the appropriate version.
