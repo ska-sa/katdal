@@ -734,9 +734,12 @@ class H5DataV3(DataSet):
     def wind_speed(self):
         """Wind speed in metres per second."""
         try:
-            return self.sensor['Enviro/wind_speed']
+            return self.sensor['Enviro/mean_wind_speed']
         except KeyError:
-            return self.sensor['TelescopeState/anc_weather_wind_speed']
+            try:
+                return self.sensor['Enviro/wind_speed']
+            except KeyError:
+                return self.sensor['TelescopeState/anc_weather_wind_speed']
 
     @property
     def wind_direction(self):
