@@ -709,39 +709,29 @@ class H5DataV3(DataSet):
     @property
     def temperature(self):
         """Air temperature in degrees Celsius."""
-        try:
-            return self.sensor['Enviro/air_temperature']
-        except KeyError:
-            return self.sensor['TelescopeState/anc_weather_temperature']
+        names = ['Enviro/air_temperature', 'TelescopeState/anc_weather_temperature']
+        return self.sensor.get_with_fallback('temperature', names)
 
     @property
     def pressure(self):
         """Barometric pressure in millibars."""
-        try:
-            return self.sensor['Enviro/air_pressure']
-        except KeyError:
-            return self.sensor['TelescopeState/anc_weather_pressure']
+        names = ['Enviro/air_pressure', 'TelescopeState/anc_weather_pressure']
+        return self.sensor.get_with_fallback('pressure', names)
 
     @property
     def humidity(self):
         """Relative humidity as a percentage."""
-        try:
-            return self.sensor['Enviro/air_relative_humidity']
-        except KeyError:
-            return self.sensor['TelescopeState/anc_weather_humidity']
+        names = ['Enviro/air_relative_humidity', 'TelescopeState/anc_weather_humidity']
+        return self.sensor.get_with_fallback('humidity', names)
 
     @property
     def wind_speed(self):
         """Wind speed in metres per second."""
-        try:
-            return self.sensor['Enviro/wind_speed']
-        except KeyError:
-            return self.sensor['TelescopeState/anc_weather_wind_speed']
+        names = ['Enviro/mean_wind_speed', 'Enviro/wind_speed', 'TelescopeState/anc_weather_wind_speed']
+        return self.sensor.get_with_fallback('wind_speed', names)
 
     @property
     def wind_direction(self):
         """Wind direction as an azimuth angle in degrees."""
-        try:
-            return self.sensor['Enviro/wind_direction']
-        except KeyError:
-            return self.sensor['TelescopeState/anc_weather_wind_direction']
+        names = ['Enviro/wind_direction', 'TelescopeState/anc_weather_wind_direction']
+        return self.sensor.get_with_fallback('wind_direction', names)

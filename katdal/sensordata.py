@@ -532,6 +532,38 @@ class SensorCache(dict):
             self[name] = sensor_data
         return sensor_data[self.keep] if select else sensor_data
 
+    def get_with_fallback(self, sensor_type, names):
+        """Sensor values interpolated to correlator data timestamps.
+
+        Get data for a type of sensor that may have one of several names.
+        Try each name in turn until something works, or crash sensibly.
+
+        Parameters
+        ----------
+        sensor_type : string
+            Name of sensor class / type, used for informational purposes only
+        names : sequence of strings
+            Sensor names to try until one of them provides data
+
+        Returns
+        -------
+        sensor_data : array
+           Interpolated sensor data as 1-D array, one value per selected timestamp
+
+        Raises
+        ------
+        KeyError
+            If none of the sensor names were found in the cache
+
+        """
+        for name in names:
+            try:
+                return self.get(name, select=True)
+            except KeyError:
+                logger.debug('Could not find %s sensor with name %r, trying next option' % (sensor_type, name))
+        raise KeyError('Could not find any %s sensor, tried %s' % (sensor_type, names))
+
+
 # -------------------------------------------------------------------------------------------------
 # -- FUNCTION :  _sensor_completer
 # -------------------------------------------------------------------------------------------------
