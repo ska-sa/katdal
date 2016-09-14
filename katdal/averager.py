@@ -17,7 +17,7 @@
 import numpy as np
 
 def block_and_average(vis,weight,flag,avsize,axis=0,flagav=False):
-    
+
     """ 'block_and_average' does the dirty work of averaging for 'average_visibilities'.
     It blocks an input array in its last axis at a list of array indices calculated
     from the input avsize and the shape of the input visibility array.
@@ -33,7 +33,7 @@ def block_and_average(vis,weight,flag,avsize,axis=0,flagav=False):
     avsize: int, The averaging size along the last axis.
     axis: int, The axis along with to perform the averaging
     flagav: bool, (as defined in 'average_visibilities')
-    
+
 
     Outputs
     -------
@@ -52,7 +52,7 @@ def block_and_average(vis,weight,flag,avsize,axis=0,flagav=False):
     weight = np.rollaxis(weight,axis,np.ndim(weight))
     vis    = np.rollaxis(vis,axis,np.ndim(vis))
     flag   = np.rollaxis(flag,axis,np.ndim(flag))
-    
+
     # Block the data at the given indices along the final axis- omit the final
     # element of the blocked array which is the remainder after equal blocks..
     block_weight = np.array(np.split(weight,indices,axis=-1)[:-1])
@@ -72,7 +72,7 @@ def block_and_average(vis,weight,flag,avsize,axis=0,flagav=False):
 
     #And get the final weights
     av_weight = np.sum(block_weight,axis=-1)
-    
+
     #Now do the flags
     if flagav:
         av_flag = np.any(block_flag,axis=-1)
@@ -83,7 +83,7 @@ def block_and_average(vis,weight,flag,avsize,axis=0,flagav=False):
     av_vis = np.rollaxis(av_vis,0,axis+1)
     av_weight = np.rollaxis(av_weight,0,axis+1)
     av_flag = np.rollaxis(av_flag,0,axis+1)
-    
+
     return av_vis,av_weight,av_flag,indices
 
 
@@ -120,7 +120,7 @@ def average_visibilities(vis,weight,flag,timestamps,channel_freqs,timeav=10,chan
     flagav: bool
           Flagged averaged data in when there is a single flag in the bin if true.
           Only flag averaged data when all data in the bin is flagged if false.
-    
+
     Outputs
     -------
     av_vis: array(int(numtimestamps/timeav),int(numchannels/chanav)) of complex64.
@@ -136,7 +136,7 @@ def average_visibilities(vis,weight,flag,timestamps,channel_freqs,timeav=10,chan
 
     # Get the channel averaged visibilities, weights and flags
     av_vis_chan,av_weight_chan,av_flag_chan,chan_inds = block_and_average(vis,weight,flag,chanav,axis=1,flagav=flagav)
-    
+
     # Do the same on the channel averaged data in time
     av_vis,av_weight,av_flag,time_inds = block_and_average(av_vis_chan,av_weight_chan,av_flag_chan,timeav,axis=0,flagav=flagav)
 

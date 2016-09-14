@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#!/usr/bin/env python
 
 ################################################################################
 # Copyright (c) 2011-2016, National Research Foundation (Square Kilometre Array)
@@ -359,7 +359,7 @@ for win in range(len(h5.spectral_windows)):
 
                 if options.model_data:
                     sz_mb += model_data.dtype.itemsize * model_data.size / (1024.0 * 1024.0)
-                    sz_mb += corrected_data.dtype.itemsize * corrected_data.size / (1024.0 * 1024.0)                
+                    sz_mb += corrected_data.dtype.itemsize * corrected_data.size / (1024.0 * 1024.0)
 
                 #write the data to the ms.
                 ms_extra.write_rows(main_table, ms_extra.populate_main_dict(uvw_coordinates, vis_data, flag_data, out_mjd, ant1_index, ant2_index, dump_time_width, field_id, state_id, scan_itr, model_data, corrected_data), verbose=options.verbose)

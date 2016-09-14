@@ -261,7 +261,7 @@ class H5DataV1(DataSet):
         """
         f, version = H5DataV1._open(filename)
         ants_group = f['Antennas']
-        antennas = [katpoint.Antenna(ants_group[group].attrs['description']) 
+        antennas = [katpoint.Antenna(ants_group[group].attrs['description'])
                     for group in ants_group]
         return antennas
 

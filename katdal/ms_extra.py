@@ -323,7 +323,7 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
         state_id, t = np.broadcast_arrays(np.asarray(state_id, np.int32), timestamps)
     except ValueError:
         raise ValueError("Length of 'state_id' should be 1 or %d, is %d instead" %
-                         (num_vis_samples, len(state_id)))                         
+                         (num_vis_samples, len(state_id)))
     try:
         scan_number, t = np.broadcast_arrays(np.asarray(scan_number, np.int32), timestamps)
     except ValueError:
