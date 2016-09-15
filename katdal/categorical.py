@@ -18,6 +18,7 @@
 
 import numpy as np
 
+
 def unique(ar, return_index=False, return_inverse=False):
     """Find the unique elements of an array.
 
@@ -132,11 +133,12 @@ def unique_in_order(elements, return_inverse=False):
     indices_list = indices.tolist()
     original_order = np.argsort([indices_list.index(n) for n in range(len(unique_elements))])
     return (unique_elements[original_order], original_order.argsort()[indices]) \
-           if return_inverse else unique_elements[original_order]
+        if return_inverse else unique_elements[original_order]
 
 # -------------------------------------------------------------------------------------------------
 # -- CLASS :  CategoricalData
 # -------------------------------------------------------------------------------------------------
+
 
 class CategoricalData(object):
     """Container for categorical (i.e. non-numerical) sensor data.
@@ -452,6 +454,7 @@ class CategoricalData(object):
 # -------------------------------------------------------------------------------------------------
 # -- Utility functions
 # -------------------------------------------------------------------------------------------------
+
 
 def concatenate_categorical(split_data, **kwargs):
     """Concatenate multiple categorical datasets into one along time axis.

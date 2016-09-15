@@ -49,7 +49,8 @@ for arg in args:
             files.extend([os.path.join(rootdir, name) for name in dirfiles if name.endswith('.h5')])
 
 # Open each file in turn and print a one-line summary
-print "Name          Ver Observer   StartTimeSAST       Shape               SizeGB DumpHz SPW CFreqMHz Ants    Tgts Scans Description"
+print("Name          Ver Observer   StartTimeSAST       Shape               SizeGB "
+      "DumpHz SPW CFreqMHz Ants    Tgts Scans Description")
 for f in files:
     try:
         d = katdal.open(f, quicklook=True)

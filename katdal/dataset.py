@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 # -- CLASS :  Helper classes
 # -------------------------------------------------------------------------------------------------
 
+
 class WrongVersion(Exception):
     """Trying to access data using accessor class with the wrong version."""
     pass
@@ -38,6 +39,7 @@ class WrongVersion(Exception):
 class BrokenFile(Exception):
     """Data set could not be loaded because file is inconsistent or misses critical bits."""
     pass
+
 
 def array_equal(a1, a2):
     """True if two arrays have the same shape and elements, False otherwise.
@@ -52,6 +54,7 @@ def array_equal(a1, a2):
     except AttributeError:
         a1, a2 = np.asarray(a1), np.asarray(a2)
         return (a1.shape == a2.shape) and np.all(a1 == a2)
+
 
 class Subarray(object):
     """Subarray specification.
@@ -91,7 +94,7 @@ class Subarray(object):
     def __eq__(self, other):
         """Equality comparison operator."""
         return isinstance(other, Subarray) and array_equal(self.corr_products, other.corr_products) and \
-               array_equal(self.inputs, other.inputs) and array_equal(self.ants, other.ants)
+            array_equal(self.inputs, other.inputs) and array_equal(self.ants, other.ants)
 
     def __ne__(self, other):
         """Inequality comparison operator."""
@@ -100,7 +103,7 @@ class Subarray(object):
     def __lt__(self, other):
         """Less-than comparison operator (needed for sorting and np.unique)."""
         return not isinstance(other, Subarray) or \
-               tuple(self.corr_products.ravel()) < tuple(other.corr_products.ravel())
+            tuple(self.corr_products.ravel()) < tuple(other.corr_products.ravel())
 
 
 class SpectralWindow(object):
@@ -143,16 +146,16 @@ class SpectralWindow(object):
     def __repr__(self):
         """Short human-friendly string representation of spectral window object."""
         return "<katdal.SpectralWindow product='%s' centre=%.3f MHz bandwidth=%.3f MHz channels=%d at 0x%x>" % \
-              (self.product, self.centre_freq / 1e6,
-               self.num_chans * self.channel_width / 1e6, self.num_chans, id(self))
+               (self.product, self.centre_freq / 1e6,
+                self.num_chans * self.channel_width / 1e6, self.num_chans, id(self))
 
     def __eq__(self, other):
         """Equality comparison operator."""
         return isinstance(other, SpectralWindow) and self.product == other.product and \
-               array_equal(self.centre_freq, other.centre_freq) and \
-               array_equal(self.channel_width, other.channel_width) and \
-               array_equal(self.num_chans, other.num_chans) and \
-               array_equal(self.channel_freqs, other.channel_freqs)
+            array_equal(self.centre_freq, other.centre_freq) and \
+            array_equal(self.channel_width, other.channel_width) and \
+            array_equal(self.num_chans, other.num_chans) and \
+            array_equal(self.channel_freqs, other.channel_freqs)
 
     def __ne__(self, other):
         """Inequality comparison operator."""
@@ -186,6 +189,7 @@ DEFAULT_SENSOR_PROPS = {
 # -------------------------------------------------------------------------------------------------
 # -- FUNCTION :  Virtual sensor calculations
 # -------------------------------------------------------------------------------------------------
+
 
 def _calc_mjd(cache, name):
     """Calculate Modified Julian Day (MJD) timestamps using sensor cache contents."""
@@ -268,6 +272,7 @@ DEFAULT_VIRTUAL_SENSORS = {
 # -------------------------------------------------------------------------------------------------
 # -- CLASS :  DataSet
 # -------------------------------------------------------------------------------------------------
+
 
 class DataSet(object):
     """Base class for accessing a visibility data set.
@@ -444,7 +449,7 @@ class DataSet(object):
         chan_min, chan_max = self.channels.argmin(), self.channels.argmax()
         descr.append('Channels: %d (index %d - %d, %8.3f MHz - %8.3f MHz), each %7.3f kHz wide' %
                      (len(self.channels), self.channels[chan_min], self.channels[chan_max],
-                     self.freqs[chan_min] / 1e6, self.freqs[chan_max] / 1e6, self.channel_width / 1e3))
+                      self.freqs[chan_min] / 1e6, self.freqs[chan_max] / 1e6, self.channel_width / 1e3))
         # Discover maximum name and tag string lengths for targets beforehand
         name_len, tag_len = 4, 4
         for n in self.target_indices:
@@ -505,9 +510,9 @@ class DataSet(object):
                 new_min_freq = min(min_freq, model.min_freq_MHz)
                 new_max_freq = max(max_freq, model.max_freq_MHz)
                 logger.warn('Extending flux density model frequency range of '
-                            '%r from %d-%d MHz to %d-%d MHz' % (target.name,
+                            '%r from %d-%d MHz to %d-%d MHz', target.name,
                             model.min_freq_MHz, model.max_freq_MHz,
-                            new_min_freq, new_max_freq))
+                            new_min_freq, new_max_freq)
                 model.min_freq_MHz = new_min_freq
                 model.max_freq_MHz = new_max_freq
 

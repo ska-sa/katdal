@@ -238,6 +238,7 @@ except NameError:
 if _ip is not None:
     _ip.set_hook('complete_command', _sensor_completer, re_key=r"(?:.*\=)?(.+?)\[")
 
+
 # Setup library logger and add a print-like handler used when no logging is configured
 class _NoConfigFilter(_logging.Filter):
     """Filter which only allows event if top-level logging is not configured."""
@@ -329,7 +330,7 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
         dataset = _file_action('__call__', f, ref_ant, time_offset, **kwargs)
         datasets.append(dataset)
     return datasets[0] if isinstance(filename, basestring) else \
-           ConcatenatedDataSet(datasets)
+        ConcatenatedDataSet(datasets)
 
 
 def get_ants(filename):

@@ -53,6 +53,7 @@ except ImportError:
 # -- CLASS :  SensorData
 # -------------------------------------------------------------------------------------------------
 
+
 class SensorData(object):
     """Raw (uncached) sensor data in record array form.
 
@@ -157,6 +158,7 @@ class TelstateSensorData(SensorData):
 # -------------------------------------------------------------------------------------------------
 # -- Utility functions
 # -------------------------------------------------------------------------------------------------
+
 
 def _safe_linear_interp(xi, yi, x):
     """Linearly interpolate (xi, yi) values to x positions, safely.
@@ -303,6 +305,7 @@ def remove_duplicates(sensor):
 # -------------------------------------------------------------------------------------------------
 # -- CLASS :  SensorCache
 # -------------------------------------------------------------------------------------------------
+
 
 class SensorCache(dict):
     """Container for sensor data providing name lookup, interpolation and caching.
@@ -585,6 +588,7 @@ class SensorCache(dict):
 # -------------------------------------------------------------------------------------------------
 
 dict_lookup_match = re.compile(r"""(?:.*\=)?(.*)\[(?P<quote>['|"])(?!.*(?P=quote))(.*)$""")
+
 
 def _sensor_completer(context, event):
     """Custom IPython completer for sensor name lookups in sensor cache.

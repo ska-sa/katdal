@@ -55,8 +55,8 @@ class ResampledImage(object):
         self.extract = extract if extract is not None else lambda d, x, y: d[y, x]
         self.autoscale = autoscale
         self.ax = ax if ax is not None else plt.gca()
-        kwargs.update({'aspect' : 'auto', 'origin' : 'lower', 'interpolation' : 'nearest',
-                       'extent' : (-0.5, data.shape[1] - 0.5, -0.5, data.shape[0] - 0.5)})
+        kwargs.update({'aspect': 'auto', 'origin': 'lower', 'interpolation': 'nearest',
+                       'extent': (-0.5, data.shape[1] - 0.5, -0.5, data.shape[0] - 0.5)})
         self.image = self.ax.imshow([[0]], **kwargs)
         self.update()
         # Connect to all events that change the data limits or the number of pixels in image
