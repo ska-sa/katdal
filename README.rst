@@ -1,15 +1,8 @@
 katdal
 ======
 
-The *katdal* package is a data access library for the MeerKAT project,
-providing abstracted access to visibility and sensor data stored in HDF5
-files, as well as conversion to CASA MeasurementSets.
-
-Overview
---------
-
-This module serves as a data access library to the HDF5 files produced by the
-Fringe Finder, KAT-7 and MeerKAT data capturing systems. It uses memory
+This package serves as a data access library to the HDF5 files produced by
+the Fringe Finder, KAT-7 and MeerKAT data capturing systems. It uses memory
 carefully, allowing files to be inspected and partially loaded into memory.
 Data sets may be concatenated and split via a flexible selection mechanism.
 In addition, it provides a script to convert these HDF5 files to CASA
