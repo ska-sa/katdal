@@ -19,9 +19,13 @@
 from setuptools import setup, find_packages
 
 
+with open('README.rst') as readme:
+    long_description = readme.read()
+
 setup(name="katdal",
       description="Karoo Array Telescope data access library "
                   "to interact with HDF5 and MS files",
+      long_description=long_description,
       author="Ludwig Schwardt",
       author_email="ludwig@ska.ac.za",
       packages=find_packages(),
