@@ -1,3 +1,19 @@
+################################################################################
+# Copyright (c) 2011-2016, National Research Foundation (Square Kilometre Array)
+#
+# Licensed under the BSD 3-Clause License (the "License"); you may not use
+# this file except in compliance with the License. You may obtain a copy
+# of the License at
+#
+#   https://opensource.org/licenses/BSD-3-Clause
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+################################################################################
+
 """Data accessor class for HDF5 files produced by RTS correlator."""
 
 import logging
@@ -6,8 +22,8 @@ import numpy as np
 import h5py
 import katpoint
 
-from .dataset import DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow, \
-                     DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target
+from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow,
+                      DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target)
 from .sensordata import SensorData, SensorCache, TelstateSensorData
 from .categorical import CategoricalData
 from .lazy_indexer import LazyIndexer, LazyTransform
@@ -56,6 +72,7 @@ ADC_COUNTER_BITS = 48
 # --- Utility functions
 # -------------------------------------------------------------------------------------------------
 
+
 def dummy_dataset(name, shape, dtype, value):
     """Dummy HDF5 dataset containing a single value.
 
@@ -89,6 +106,7 @@ def dummy_dataset(name, shape, dtype, value):
 # -------------------------------------------------------------------------------------------------
 # -- CLASS :  H5DataV3
 # -------------------------------------------------------------------------------------------------
+
 
 class H5DataV3(DataSet):
     """Load HDF5 format version 3 file produced by RTS correlator.
@@ -155,9 +173,11 @@ class H5DataV3(DataSet):
 
         # Populate sensor cache with all HDF5 datasets below TelescopeModel group that fit the description of a sensor
         cache = {}
+
         def register_sensor(name, obj):
             """A sensor is defined as a non-empty dataset with expected dtype."""
-            if isinstance(obj, h5py.Dataset) and obj.shape != () and obj.dtype.names == ('timestamp', 'value', 'status'):
+            if isinstance(obj, h5py.Dataset) and obj.shape != () and \
+               obj.dtype.names == ('timestamp', 'value', 'status'):
                 comp_name, sensor_name = name.split('/', 1)
                 comp_type = tm_group[comp_name].attrs.get('class')
                 # Mapping from specific components to generic sensor groups
@@ -285,16 +305,16 @@ class H5DataV3(DataSet):
 
         # Check if flag group is present, else use dummy flag data
         self._flags = data_group['flags'] if 'flags' in data_group else \
-                      dummy_dataset('dummy_flags', shape=self._vis.shape[:-1], dtype=np.uint8, value=0)
+            dummy_dataset('dummy_flags', shape=self._vis.shape[:-1], dtype=np.uint8, value=0)
         # Obtain flag descriptions from file or recreate default flag description table
         self._flags_description = data_group['flags_description'] if 'flags_description' in data_group else \
-                                  np.array(zip(FLAG_NAMES, FLAG_DESCRIPTIONS))
+            np.array(zip(FLAG_NAMES, FLAG_DESCRIPTIONS))
 
         # ------ Extract weights ------
 
         # check if weight group present, else use dummy weight data
         self._weights = data_group['weights'] if 'weights' in data_group else \
-                        dummy_dataset('dummy_weights', shape=self._vis.shape[:-1] + (1,), dtype=np.float32, value=1.0)
+            dummy_dataset('dummy_weights', shape=self._vis.shape[:-1] + (1,), dtype=np.float32, value=1.0)
         self._weights_description = np.array(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS))
 
         # ------ Extract observation parameters and script log ------
@@ -589,6 +609,7 @@ class H5DataV3(DataSet):
             time_keep = np.zeros(len(dataset), dtype=np.bool)
             time_keep[:len(self._time_keep)] = self._time_keep
         stage1 = (time_keep, self._freq_keep, self._corrprod_keep)
+
         def _force_3dim(data, keep):
             """Keep singleton dimensions in stage 2 (i.e. final) indexing."""
             # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
@@ -658,8 +679,8 @@ class H5DataV3(DataSet):
         # Multiply selected weights together (or select lone weight)
         # Strangely enough, if selection is [], prod produces the expected weights of 1.0 instead of an empty array
         extract = LazyTransform('extract_weights',
-                                lambda weights, keep: weights[..., selection[0]] if len(selection) == 1 else
-                                                      weights[..., selection].prod(axis=-1),
+                                lambda weights, keep: weights[..., selection[0]]
+                                if len(selection) == 1 else weights[..., selection].prod(axis=-1),
                                 lambda shape: shape[:-1], np.float32)
         return self._vislike_indexer(self._weights, extract)
 

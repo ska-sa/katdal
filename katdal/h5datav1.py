@@ -1,3 +1,19 @@
+################################################################################
+# Copyright (c) 2011-2016, National Research Foundation (Square Kilometre Array)
+#
+# Licensed under the BSD 3-Clause License (the "License"); you may not use
+# this file except in compliance with the License. You may obtain a copy
+# of the License at
+#
+#   https://opensource.org/licenses/BSD-3-Clause
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+################################################################################
+
 """Data accessor class for HDF5 files produced by Fringe Finder correlator."""
 
 import logging
@@ -7,14 +23,15 @@ import numpy as np
 import h5py
 import katpoint
 
-from .dataset import DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow, \
-                     DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target
+from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow,
+                      DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target)
 from .sensordata import SensorData, SensorCache
 from .categorical import CategoricalData
 from .lazy_indexer import LazyIndexer, LazyTransform
 from .concatdata import ConcatenatedLazyIndexer
 
 logger = logging.getLogger(__name__)
+
 
 def _labels_to_state(scan_label, compscan_label):
     """Use scan and compscan labels to derive basic state of antenna."""
@@ -31,6 +48,7 @@ SENSOR_ALIASES = {
     'nd_pin': 'rfe3_rfe15_noise_pin_on',
 }
 
+
 def _calc_azel(cache, name, ant):
     """Calculate virtual (az, el) sensors from actual ones in sensor cache."""
     real_sensor = 'Antennas/%s/%s' % (ant, 'pos_actual_scan_azim' if name.endswith('az') else 'pos_actual_scan_elev')
@@ -43,6 +61,7 @@ VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel, 'Antennas/{ant}/el': _c
 # -------------------------------------------------------------------------------------------------
 # -- CLASS :  H5DataV1
 # -------------------------------------------------------------------------------------------------
+
 
 class H5DataV1(DataSet):
     """Load HDF5 format version 1 file produced by Fringe Finder correlator.
@@ -85,6 +104,7 @@ class H5DataV1(DataSet):
 
         # Collect all groups below data group that fit the description of a scan group
         scan_groups = []
+
         def register_scan_group(name, obj):
             """A scan group is defined as a group named 'Scan*' with non-empty timestamps and data."""
             if isinstance(obj, h5py.Group) and name.split('/')[-1].startswith('Scan') and \
@@ -126,8 +146,10 @@ class H5DataV1(DataSet):
 
         # Populate sensor cache with all HDF5 datasets below antennas group that fit the description of a sensor
         cache = {}
+
         def register_sensor(name, obj):
-            if isinstance(obj, h5py.Dataset) and obj.shape != () and obj.dtype.names == ('timestamp', 'value', 'status'):
+            if isinstance(obj, h5py.Dataset) and obj.shape != () and \
+               obj.dtype.names == ('timestamp', 'value', 'status'):
                 # Assume sensor dataset name is AntennaN/Sensors/dataset and rename it to Antennas/{ant}/dataset
                 ant_name = obj.parent.parent.attrs['description'].split(',')[0]
                 standardised_name = 'Antennas/%s/%s' % (ant_name, name.split('/')[-1])
@@ -245,7 +267,7 @@ class H5DataV1(DataSet):
         """
         f, version = H5DataV1._open(filename)
         ants_group = f['Antennas']
-        antennas = [katpoint.Antenna(ants_group[group].attrs['description']) 
+        antennas = [katpoint.Antenna(ants_group[group].attrs['description'])
                     for group in ants_group]
         return antennas
 
@@ -306,14 +328,15 @@ class H5DataV1(DataSet):
         """
         # Avoid storing reference to self in transform closure below, as this hinders garbage collection
         corrprod_keep = self._corrprod_keep
+
         # Apply both first-stage and second-stage corrprod indexing in the transform
         def index_corrprod(tf, keep):
             # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
             keep = keep[:3] + (slice(None),) * (3 - len(keep))
             # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
             force_3dim = tuple((np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep)
-            return np.dstack([tf[str(corrind)][force_3dim[:2]] for corrind in np.nonzero(corrprod_keep)[0]])\
-                   [:, :, keep[2]][:, :, force_3dim[2]]
+            return np.dstack([tf[str(corrind)][force_3dim[:2]] for corrind in
+                              np.nonzero(corrprod_keep)[0]])[:, :, keep[2]][:, :, force_3dim[2]]
         extract_vis = LazyTransform('extract_vis_v1', index_corrprod,
                                     lambda shape: (shape[0], shape[1], corrprod_keep.sum()), np.complex64)
         indexers = []

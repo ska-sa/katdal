@@ -1,3 +1,19 @@
+################################################################################
+# Copyright (c) 2011-2016, National Research Foundation (Square Kilometre Array)
+#
+# Licensed under the BSD 3-Clause License (the "License"); you may not use
+# this file except in compliance with the License. You may obtain a copy
+# of the License at
+#
+#   https://opensource.org/licenses/BSD-3-Clause
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+################################################################################
+
 """Create MS compatible data and write this data into a template MeasurementSet.
 
 This can use either casapy (the default) or pyrap to create the MS.
@@ -47,15 +63,18 @@ except:
 #   ...
 #
 
+
 def std_scalar(comment, valueType='integer', **kwargs):
     """Description for standard scalar column."""
     return dict(comment=comment, valueType=valueType, dataManagerType='StandardStMan',
                 dataManagerGroup='StandardStMan', option=0, maxlen=0, **kwargs)
 
+
 def std_array(comment, valueType, ndim, **kwargs):
     """Description for standard array column with variable shape (used for smaller arrays)."""
     return dict(comment=comment, valueType=valueType, ndim=ndim, dataManagerType='StandardStMan',
                 dataManagerGroup='StandardStMan', _c_order=True, option=0, maxlen=0, **kwargs)
+
 
 def fixed_array(comment, valueType, shape, **kwargs):
     """Description for direct array column with fixed shape (used for smaller arrays)."""
@@ -63,10 +82,12 @@ def fixed_array(comment, valueType, shape, **kwargs):
                 dataManagerType='StandardStMan', dataManagerGroup='StandardStMan',
                 _c_order=True, option=5, maxlen=0, **kwargs)
 
+
 def tiled_array(comment, valueType, ndim, dataManagerGroup, **kwargs):
     """Description for array column with tiled storage manager (used for bigger arrays)."""
     return dict(comment=comment, valueType=valueType, ndim=ndim, dataManagerType='TiledShapeStMan',
                 dataManagerGroup=dataManagerGroup, _c_order=True, option=0, maxlen=0, **kwargs)
+
 
 def define_hypercolumn(desc):
     """Add hypercolumn definitions to table description."""
@@ -90,7 +111,8 @@ ms_desc['MAIN'] = {
     'FLAG': tiled_array('The data flags, array of bools with same shape as data', 'boolean', 2, 'FlagColumn'),
     'FLAG_CATEGORY': tiled_array('The flag category, NUM_CAT flags for each datum', 'boolean', 3, 'flagHyperColumn'),
     'FLAG_ROW': std_scalar('Row flag - flag all data in this row if True', valueType='boolean'),
-    'IMAGING_WEIGHT': tiled_array('Weight set by imaging task (e.g. uniform weighting)', 'float', 1, 'imWeightHyperColumn'),
+    'IMAGING_WEIGHT': tiled_array('Weight set by imaging task (e.g. uniform weighting)',
+                                  'float', 1, 'imWeightHyperColumn'),
     'INTERVAL': std_scalar('The sampling interval', 'double'),
     'MODEL_DATA': tiled_array('The model data column', 'complex', 2, 'ModelDataColumn'),
     'OBSERVATION_ID': std_scalar('ID for this observation, index in OBSERVATION table'),
@@ -307,7 +329,7 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
         state_id, t = np.broadcast_arrays(np.asarray(state_id, np.int32), timestamps)
     except ValueError:
         raise ValueError("Length of 'state_id' should be 1 or %d, is %d instead" %
-                         (num_vis_samples, len(state_id)))                         
+                         (num_vis_samples, len(state_id)))
     try:
         scan_number, t = np.broadcast_arrays(np.asarray(scan_number, np.int32), timestamps)
     except ValueError:
@@ -322,7 +344,8 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
     # ID of array or subarray (integer)
     main_dict['ARRAY_ID'] = np.zeros(num_vis_samples, dtype=np.int32)
     # The corrected data column (complex, 3-dim)
-    if corrected_data is not None: main_dict['CORRECTED_DATA'] = corrected_data
+    if corrected_data is not None:
+        main_dict['CORRECTED_DATA'] = corrected_data
     # The data column (complex, 3-dim)
     main_dict['DATA'] = vis_data
     # The data description table index (integer)
@@ -342,11 +365,12 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
     # Row flag - flag all data in this row if True (boolean)
     main_dict['FLAG_ROW'] = np.zeros(num_vis_samples, dtype=np.uint8)
     # Weight set by imaging task (e.g. uniform weighting) (float, 1-dim)
-    #main_dict['IMAGING_WEIGHT'] = np.ones((num_vis_samples, 1), dtype=np.float32)
+    # main_dict['IMAGING_WEIGHT'] = np.ones((num_vis_samples, 1), dtype=np.float32)
     # The sampling interval (double)
     main_dict['INTERVAL'] = integrate_length * np.ones(num_vis_samples)
     # The model data column (complex, 3-dim)
-    if model_data is not None: main_dict['MODEL_DATA'] = model_data
+    if model_data is not None:
+        main_dict['MODEL_DATA'] = model_data
     # ID for this observation, index in OBSERVATION table (integer)
     main_dict['OBSERVATION_ID'] = np.zeros(num_vis_samples, dtype=np.int32)
     # Id for backend processor, index in PROCESSOR table (integer)
@@ -503,20 +527,24 @@ def populate_polarization_dict(ms_pols=['HH', 'VV'], stokes_i=False, circular=Fa
 
     """
     pol_num = {'H': 0, 'V': 1}
-    pol_types = {'I': 1, 'Q': 2, 'U': 3, 'V': 4, 'RR': 5, 'RL': 6, 'LR': 7, 'LL': 8, 'HH': 9, 'VV': 12, 'HV': 10, 'VH': 11}
-     # lookups for converting to CASA speak...
+    #  lookups for converting to CASA speak...
+    pol_types = {'I': 1, 'Q': 2, 'U': 3, 'V': 4, 'RR': 5, 'RL': 6, 'LR': 7, 'LL': 8,
+                 'HH': 9, 'VV': 12, 'HV': 10, 'VH': 11}
     if len(ms_pols) > 1 and stokes_i:
-        print "Warning: Polarisation to be marked as stokes, but more than 1 polarisation product specified. Using first specified pol (%s)" % ms_pols[0]
+        print "Warning: Polarisation to be marked as stokes, but more than 1 polarisation " \
+              "product specified. Using first specified pol (%s)" % ms_pols[0]
         ms_pols = [ms_pols[0]]
+    #  Indices describing receptors of feed going into correlation (integer, 2-dim)
     polarization_dict = {}
-     # Indices describing receptors of feed going into correlation (integer, 2-dim)
-    polarization_dict['CORR_PRODUCT'] = np.array([[pol_num[p[0]], pol_num[p[1]]] for p in ms_pols], dtype=np.int32)[np.newaxis, :, :]
-     # The polarisation type for each correlation product, as a Stokes enum (4 integer, 1-dim)
-     # Stokes enum (starting at 1) = {I, Q, U, V, RR, RL, LR, LL, XX, XY, YX, YY, ...}
-     # The native correlator data are in XX, YY, XY, YX for HV pol, XX for H pol and YY for V pol
-    polarization_dict['CORR_TYPE'] = np.array([pol_types[p] - (4 if circular else 0) for p in (['I'] if stokes_i else ms_pols)])[np.newaxis, :]
+    #  The polarisation type for each correlation product, as a Stokes enum (4 integer, 1-dim)
+    #  Stokes enum (starting at 1) = {I, Q, U, V, RR, RL, LR, LL, XX, XY, YX, YY, ...}
+    #  The native correlator data are in XX, YY, XY, YX for HV pol, XX for H pol and YY for V pol
+    polarization_dict['CORR_PRODUCT'] = np.array([[pol_num[p[0]], pol_num[p[1]]]
+                                                  for p in ms_pols], dtype=np.int32)[np.newaxis, :, :]
+    polarization_dict['CORR_TYPE'] = np.array([pol_types[p] - (4 if circular else 0)
+                                               for p in (['I'] if stokes_i else ms_pols)])[np.newaxis, :]
+    #  Number of correlation products (integer)
     polarization_dict['FLAG_ROW'] = np.zeros(1, dtype=np.uint8)
-     # Number of correlation products (integer)
     polarization_dict['NUM_CORR'] = np.array([len(ms_pols)], dtype=np.int32)
     return polarization_dict
 
@@ -646,9 +674,11 @@ def populate_source_dict(phase_centers, time_origins, center_frequencies, field_
     source_dict['NAME'] = np.atleast_1d(field_names)
     source_dict['NUM_LINES'] = np.ones(num_fields)
     source_dict['TIME'] = np.atleast_1d(np.asarray(time_origins, dtype=np.float64))
-    source_dict['REST_FREQUENCY'] = np.tile(np.array([center_frequencies[num_channels // 2]], dtype=np.float64), (num_fields, 1))
+    source_dict['REST_FREQUENCY'] = np.tile(np.array([center_frequencies[num_channels // 2]],
+                                                     dtype=np.float64), (num_fields, 1))
     source_dict['SYSVEL'] = np.ones((num_fields, 1), dtype=np.float64)
     return source_dict
+
 
 def populate_field_dict(phase_centers, time_origins, field_names=None):
     """Construct a dictionary containing the columns of the FIELD subtable.
@@ -853,12 +883,14 @@ def populate_ms_dict(uvw_coordinates, vis_data, timestamps, antenna1_index, ante
 
 # ----------------- Write completed dictionary to MS file --------------------
 
+
 def open_main(ms_name='./blank.ms', verbose=True):
     t = open_table(ms_name, ack=verbose)
     if t is None:
         print "Failed to open main table for writing."
         sys.exit(1)
     return t
+
 
 def write_rows(t, row_dict, verbose=True):
     num_rows = row_dict.values()[0].shape[0]
@@ -887,14 +919,15 @@ def write_dict(ms_dict, ms_name='./blank.ms', verbose=True):
     # Iterate through subtables
     for sub_table_name, sub_dict in ms_dict.iteritems():
         # Allow parsing of single dict and array of dicts in the same fashion
-        if type(sub_dict) == type({}):
+        if isinstance(sub_dict, dict):
             sub_dict = [sub_dict]
         # Iterate through row groups that are separate dicts within the sub_dict array
         for row_dict in sub_dict:
             if verbose:
                 print "Table %s:" % (sub_table_name,)
             # Open table using whichever casacore library was found
-            t = open_table(ms_name, ack=verbose) if sub_table_name == 'MAIN' else open_table(os.path.join(ms_name, sub_table_name))
+            t = open_table(ms_name, ack=verbose) if sub_table_name == 'MAIN' else \
+                open_table(os.path.join(ms_name, sub_table_name))
             if verbose and t is not None:
                 print "  opened successfully"
             if t is None:

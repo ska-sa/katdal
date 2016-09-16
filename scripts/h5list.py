@@ -1,4 +1,21 @@
-#! /usr/bin/env python
+#!/usr/bin/env python
+
+################################################################################
+# Copyright (c) 2011-2016, National Research Foundation (Square Kilometre Array)
+#
+# Licensed under the BSD 3-Clause License (the "License"); you may not use
+# this file except in compliance with the License. You may obtain a copy
+# of the License at
+#
+#   https://opensource.org/licenses/BSD-3-Clause
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+################################################################################
+
 #
 # Print compact one-line descriptions of multiple HDF5 files.
 #
@@ -32,7 +49,8 @@ for arg in args:
             files.extend([os.path.join(rootdir, name) for name in dirfiles if name.endswith('.h5')])
 
 # Open each file in turn and print a one-line summary
-print "Name          Ver Observer   StartTimeSAST       Shape               SizeGB DumpHz SPW CFreqMHz Ants    Tgts Scans Description"
+print("Name          Ver Observer   StartTimeSAST       Shape               SizeGB "
+      "DumpHz SPW CFreqMHz Ants    Tgts Scans Description")
 for f in files:
     try:
         d = katdal.open(f, quicklook=True)

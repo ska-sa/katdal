@@ -1,3 +1,19 @@
+################################################################################
+# Copyright (c) 2011-2016, National Research Foundation (Square Kilometre Array)
+#
+# Licensed under the BSD 3-Clause License (the "License"); you may not use
+# this file except in compliance with the License. You may obtain a copy
+# of the License at
+#
+#   https://opensource.org/licenses/BSD-3-Clause
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+################################################################################
+
 """KAT data access library to interact with HDF5 and MeasurementSet files.
 
 Overview
@@ -222,6 +238,7 @@ except NameError:
 if _ip is not None:
     _ip.set_hook('complete_command', _sensor_completer, re_key=r"(?:.*\=)?(.+?)\[")
 
+
 # Setup library logger and add a print-like handler used when no logging is configured
 class _NoConfigFilter(_logging.Filter):
     """Filter which only allows event if top-level logging is not configured."""
@@ -313,7 +330,7 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
         dataset = _file_action('__call__', f, ref_ant, time_offset, **kwargs)
         datasets.append(dataset)
     return datasets[0] if isinstance(filename, basestring) else \
-           ConcatenatedDataSet(datasets)
+        ConcatenatedDataSet(datasets)
 
 
 def get_ants(filename):

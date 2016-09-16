@@ -1,4 +1,21 @@
 #! /usr/bin/env python
+
+################################################################################
+# Copyright (c) 2011-2016, National Research Foundation (Square Kilometre Array)
+#
+# Licensed under the BSD 3-Clause License (the "License"); you may not use
+# this file except in compliance with the License. You may obtain a copy
+# of the License at
+#
+#   https://opensource.org/licenses/BSD-3-Clause
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+################################################################################
+
 #
 # Plot spectrogram of entire dataset in an efficient way that only loads
 # enough data that will fit onto the screen.
@@ -38,8 +55,8 @@ class ResampledImage(object):
         self.extract = extract if extract is not None else lambda d, x, y: d[y, x]
         self.autoscale = autoscale
         self.ax = ax if ax is not None else plt.gca()
-        kwargs.update({'aspect' : 'auto', 'origin' : 'lower', 'interpolation' : 'nearest',
-                       'extent' : (-0.5, data.shape[1] - 0.5, -0.5, data.shape[0] - 0.5)})
+        kwargs.update({'aspect': 'auto', 'origin': 'lower', 'interpolation': 'nearest',
+                       'extent': (-0.5, data.shape[1] - 0.5, -0.5, data.shape[0] - 0.5)})
         self.image = self.ax.imshow([[0]], **kwargs)
         self.update()
         # Connect to all events that change the data limits or the number of pixels in image

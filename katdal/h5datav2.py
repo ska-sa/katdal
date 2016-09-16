@@ -1,3 +1,19 @@
+################################################################################
+# Copyright (c) 2011-2016, National Research Foundation (Square Kilometre Array)
+#
+# Licensed under the BSD 3-Clause License (the "License"); you may not use
+# this file except in compliance with the License. You may obtain a copy
+# of the License at
+#
+#   https://opensource.org/licenses/BSD-3-Clause
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+################################################################################
+
 """Data accessor class for HDF5 files produced by KAT-7 correlator."""
 
 import logging
@@ -6,8 +22,8 @@ import numpy as np
 import h5py
 import katpoint
 
-from .dataset import DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow, \
-                     DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target
+from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow,
+                      DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target)
 from .sensordata import SensorData, SensorCache
 from .categorical import CategoricalData, sensor_to_categorical
 from .lazy_indexer import LazyIndexer, LazyTransform
@@ -20,14 +36,14 @@ SIMPLIFY_STATE = {'scan_ready': 'slew', 'scan': 'scan', 'scan_complete': 'scan',
 SENSOR_PROPS = dict(DEFAULT_SENSOR_PROPS)
 SENSOR_PROPS.update({
     '*activity': {'greedy_values': ('slew', 'stop'), 'initial_value': 'slew',
-                   'transform': lambda act: SIMPLIFY_STATE.get(act, 'stop')},
+                  'transform': lambda act: SIMPLIFY_STATE.get(act, 'stop')},
     '*target': {'initial_value': '', 'transform': _robust_target},
     # These float sensors are actually categorical by nature as they represent user settings
     'RFE/center-frequency-hz': {'categorical': True},
     'RFE/rfe7.lo1.frequency': {'categorical': True},
-    '*attenuation' : {'categorical': True},
-    '*attenuator.horizontal' : {'categorical': True},
-    '*attenuator.vertical' : {'categorical': True},
+    '*attenuation': {'categorical': True},
+    '*attenuator.horizontal': {'categorical': True},
+    '*attenuator.vertical': {'categorical': True},
 })
 
 SENSOR_ALIASES = {
@@ -45,9 +61,12 @@ def _calc_azel(cache, name, ant):
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel, 'Antennas/{ant}/el': _calc_azel})
 
-FLAG_NAMES = ('reserved0', 'static', 'cam', 'reserved3', 'detected_rfi', 'predicted_rfi', 'reserved6', 'reserved7')
-FLAG_DESCRIPTIONS = ('reserved - bit 0', 'predefined static flag list', 'flag based on live CAM information',
-                     'reserved - bit 3', 'RFI detected in the online system', 'RFI predicted from space based pollutants',
+FLAG_NAMES = ('reserved0', 'static', 'cam', 'reserved3', 'detected_rfi',
+              'predicted_rfi', 'reserved6', 'reserved7')
+FLAG_DESCRIPTIONS = ('reserved - bit 0', 'predefined static flag list',
+                     'flag based on live CAM information',
+                     'reserved - bit 3', 'RFI detected in the online system',
+                     'RFI predicted from space based pollutants',
                      'reserved - bit 6', 'reserved - bit 7')
 WEIGHT_NAMES = ('precision',)
 WEIGHT_DESCRIPTIONS = ('visibility precision (inverse variance, i.e. 1 / sigma^2)',)
@@ -55,6 +74,7 @@ WEIGHT_DESCRIPTIONS = ('visibility precision (inverse variance, i.e. 1 / sigma^2
 # -------------------------------------------------------------------------------------------------
 # -- Utility functions
 # -------------------------------------------------------------------------------------------------
+
 
 def get_single_value(group, name):
     """Return single value from attribute or dataset with given name in group.
@@ -108,11 +128,13 @@ def dummy_dataset(name, shape, dtype, value):
     # Without this randomness katdal can only open one file requiring a dummy dataset
     random_string = ''.join(['%02x' % (x,) for x in np.random.randint(256, size=8)])
     dummy_file = h5py.File('%s_%s.h5' % (name, random_string), driver='core', backing_store=False)
-    return dummy_file.create_dataset(name, shape=shape, maxshape=shape, dtype=dtype, fillvalue=value, compression='gzip')
+    return dummy_file.create_dataset(name, shape=shape, maxshape=shape,
+                                     dtype=dtype, fillvalue=value, compression='gzip')
 
 # -------------------------------------------------------------------------------------------------
 # -- CLASS :  H5DataV2
 # -------------------------------------------------------------------------------------------------
+
 
 class H5DataV2(DataSet):
     """Load HDF5 format version 2 file produced by KAT-7 correlator.
@@ -208,25 +230,27 @@ class H5DataV2(DataSet):
 
         # Check if flag group is present, else use dummy flag data
         self._flags = markup_group['flags'] if 'flags' in markup_group else \
-                      dummy_dataset('dummy_flags', shape=self._vis.shape[:-1], dtype=np.uint8, value=0)
+            dummy_dataset('dummy_flags', shape=self._vis.shape[:-1], dtype=np.uint8, value=0)
         # Obtain flag descriptions from file or recreate default flag description table
         self._flags_description = markup_group['flags_description'] if 'flags_description' in markup_group else \
-                                  np.array(zip(FLAG_NAMES, FLAG_DESCRIPTIONS))
+            np.array(zip(FLAG_NAMES, FLAG_DESCRIPTIONS))
 
         # ------ Extract weights ------
 
         # check if weight group present, else use dummy weight data
         self._weights = markup_group['weights'] if 'weights' in markup_group else \
-                        dummy_dataset('dummy_weights', shape=self._vis.shape[:-1] + (1,), dtype=np.float32, value=1.0)
+            dummy_dataset('dummy_weights', shape=self._vis.shape[:-1] + (1,), dtype=np.float32, value=1.0)
         self._weights_description = np.array(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS))
 
         # ------ Extract sensors ------
 
         # Populate sensor cache with all HDF5 datasets below sensor group that fit the description of a sensor
         cache = {}
+
         def register_sensor(name, obj):
             """A sensor is defined as a non-empty dataset with expected dtype."""
-            if isinstance(obj, h5py.Dataset) and obj.shape != () and obj.dtype.names == ('timestamp', 'value', 'status'):
+            if isinstance(obj, h5py.Dataset) and obj.shape != () and \
+               obj.dtype.names == ('timestamp', 'value', 'status'):
                 # Rename pedestal sensors from the old regime to become sensors of the corresponding antenna
                 name = ('Antennas/ant' + name[13:]) if name.startswith('Pedestals/ped') else name
                 cache[name] = SensorData(obj, name)
@@ -373,7 +397,8 @@ class H5DataV2(DataSet):
         all_ants = [ant for ant in config_group['Antennas']]
         script_ants = config_group['Observation'].attrs.get('script_ants')
         script_ants = script_ants.split(',') if script_ants else all_ants
-        return [katpoint.Antenna(config_group['Antennas'][ant].attrs['description']) for ant in script_ants if ant in all_ants]
+        return [katpoint.Antenna(config_group['Antennas'][ant].attrs['description'])
+                for ant in script_ants if ant in all_ants]
 
     @staticmethod
     def _get_targets(filename):
@@ -499,7 +524,7 @@ class H5DataV2(DataSet):
             # Multiply selected weights together (or select lone weight)
             # Strangely enough, if selection is [], prod produces the expected weights of 1.0 instead of an empty array
             return weights[force_3dim][:, :, :, selection[0]] if len(selection) == 1 else \
-                   weights[force_3dim][:, :, :, selection].prod(axis=-1)
+                weights[force_3dim][:, :, :, selection].prod(axis=-1)
         extract_weights = LazyTransform('extract_weights', _extract_weights, lambda shape: shape[:-1], np.float32)
         return LazyIndexer(self._weights, (self._time_keep, self._freq_keep, self._corrprod_keep),
                            transforms=[extract_weights])

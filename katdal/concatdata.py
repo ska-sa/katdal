@@ -1,3 +1,19 @@
+################################################################################
+# Copyright (c) 2011-2016, National Research Foundation (Square Kilometre Array)
+#
+# Licensed under the BSD 3-Clause License (the "License"); you may not use
+# this file except in compliance with the License. You may obtain a copy
+# of the License at
+#
+#   https://opensource.org/licenses/BSD-3-Clause
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+################################################################################
+
 """Class for concatenating visibility data sets."""
 
 import os.path
@@ -18,6 +34,7 @@ class ConcatenationError(Exception):
 # -------------------------------------------------------------------------------------------------
 # -- CLASS :  ConcatenatedLazyIndexer
 # -------------------------------------------------------------------------------------------------
+
 
 class ConcatenatedLazyIndexer(LazyIndexer):
     """Two-stage deferred indexer that concatenates multiple indexers.
@@ -119,7 +136,7 @@ class ConcatenatedLazyIndexer(LazyIndexer):
             # Step through indexers that overlap with slice (it's guaranteed that some will overlap)
             for ind in range(find_indexer(start), find_indexer(stop) + 1):
                 chunk_start = start - indexer_starts[ind] \
-                              if start >= indexer_starts[ind] else ((start - indexer_starts[ind]) % stride)
+                    if start >= indexer_starts[ind] else ((start - indexer_starts[ind]) % stride)
                 chunk_stop = stop - indexer_starts[ind]
                 # The final .reshape is needed to upgrade any scalar or singleton chunks to full dimension
                 chunks.append(self.indexers[ind][tuple([slice(chunk_start, chunk_stop, stride)] +
@@ -182,6 +199,7 @@ class ConcatenatedLazyIndexer(LazyIndexer):
 # -- CLASS :  ConcatenatedSensorData
 # -------------------------------------------------------------------------------------------------
 
+
 class ConcatenatedSensorData(SensorData):
     """The concatenation of multiple raw (uncached) sensor data sets.
 
@@ -230,6 +248,7 @@ def _calc_dummy(cache, name):
 # -------------------------------------------------------------------------------------------------
 # -- CLASS :  ConcatenatedSensorCache
 # -------------------------------------------------------------------------------------------------
+
 
 class ConcatenatedSensorCache(SensorCache):
     """Sensor cache that is a concatenation of multiple underlying caches.
@@ -369,6 +388,7 @@ class ConcatenatedSensorCache(SensorCache):
 # -------------------------------------------------------------------------------------------------
 # -- CLASS :  ConcatenatedDataSet
 # -------------------------------------------------------------------------------------------------
+
 
 class ConcatenatedDataSet(DataSet):
     """Class that concatenates existing visibility data sets.
