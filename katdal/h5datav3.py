@@ -309,13 +309,17 @@ class H5DataV3(DataSet):
         # Obtain flag descriptions from file or recreate default flag description table
         self._flags_description = data_group['flags_description'] if 'flags_description' in data_group else \
             np.array(zip(FLAG_NAMES, FLAG_DESCRIPTIONS))
+        self._flags_select = np.array([0], dtype=np.uint8)
+        self._flags_keep = 'all'
 
         # ------ Extract weights ------
 
         # Check if weight group present, else use dummy weight data
         self._weights = data_group['weights'] if 'weights' in data_group else \
             dummy_dataset('dummy_weights', shape=self._vis.shape[:-1], dtype=np.float32, value=1.0)
-        self._weights_description = np.array(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS))
+        # Obtain weight descriptions from file or recreate default weight description table
+        self._weights_description = data_group['weights_description'] if 'weights_description' in data_group else \
+            np.array(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS))
         self._weights_select = []
         self._weights_keep = 'all'
 
@@ -595,6 +599,43 @@ class H5DataV3(DataSet):
         self._weights_select = selection
 
     @property
+    def _flags_keep(self):
+        if not hasattr(self, '_flags_description'):
+            return []
+        known_flags = [row[0] for row in self._flags_description]
+        # Reverse flag indices as np.packbits has bit 0 as the MSB (we want LSB)
+        selection = np.flipud(np.unpackbits(self._flags_select))
+        assert len(known_flags) == len(selection), \
+            'Expected %d flag types in file, got %s' % (len(selection), self._flags_description)
+        return [name for name, bit in zip(known_flags, selection) if bit]
+
+    @_flags_keep.setter
+    def _flags_keep(self, names):
+        if not hasattr(self, '_flags_description'):
+            self._flags_select = np.array([0], dtype=np.uint8)
+            return
+        known_flags = [row[0] for row in self._flags_description]
+        # Ensure a sequence of flag names
+        names = known_flags if names == 'all' else \
+            names.split(',') if isinstance(names, basestring) else names
+        # Create boolean list for desired flags
+        selection = np.zeros(8, dtype=np.uint8)
+        assert len(known_flags) == len(selection), \
+            'Expected %d flag types in file, got %d' % (len(selection), self._flags_description)
+        for name in names:
+            try:
+                selection[known_flags.index(name)] = 1
+            except ValueError:
+                logger.warning("%r is not a legitimate flag type for this file, "
+                               "supported ones are %s" % (name, known_flags))
+        # Pack index list into bit mask
+        # Reverse flag indices as np.packbits has bit 0 as the MSB (we want LSB)
+        flagmask = np.packbits(np.flipud(selection))
+        if known_flags and not flagmask:
+            logger.warning('No valid flags were selected - setting all flags to False by default')
+        self._flags_select = flagmask
+
+    @property
     def timestamps(self):
         """Visibility timestamps in UTC seconds since Unix epoch.
 
@@ -691,47 +732,26 @@ class H5DataV3(DataSet):
         extract = LazyTransform('extract_weights', transform, dtype=np.float32)
         return self._vislike_indexer(self._weights, extract)
 
-    def flags(self, names=None):
+    @property
+    def flags(self):
         """Flags as a function of time, frequency and baseline.
 
-        Parameters
-        ----------
-        names : None or string or sequence of strings, optional
-            List of names of flags that will be OR'ed together, as a sequence or
-            a string of comma-separated names (use all flags by default)
-
-        Returns
-        -------
-        flags : :class:`LazyIndexer` object of bool, shape (*T*, *F*, *B*)
-            Array indexer with time along the first dimension, frequency along
-            the second dimension and correlation product ("baseline") index
-            along the third dimension. To get the data array itself from the
-            indexer `x`, do `x[:]` or perform any other form of indexing on it.
-            Only then will data be loaded into memory.
+        The flags data are returned as an array indexer of bool, shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The number of integrations *T* matches the length of
+        :meth:`timestamps`, the number of frequency channels *F* matches the
+        length of :meth:`freqs` and the number of correlation products *B*
+        matches the length of :meth:`corr_products`. To get the data array
+        itself from the indexer `x`, do `x[:]` or perform any other form of
+        indexing on it. Only then will data be loaded into memory.
 
         """
-        # Reverse flag indices as np.packbits has bit 0 as the MSB (we want LSB)
-        known_flags = [row[0] for row in reversed(self._flags_description)]
-
-        names = names.split(',') if isinstance(names, basestring) else known_flags if names is None else names
-
-        # Create index list for desired flags
-        flagmask = np.zeros(8, dtype=np.int)
-        for name in names:
-            try:
-                flagmask[known_flags.index(name)] = 1
-            except ValueError:
-                logger.warning("'%s' is not a legitimate flag type for this file" % (name,))
-        # Pack index list into bit mask
-        flagmask = np.packbits(flagmask)
-        if not flagmask:
-            logger.warning('No valid flags were selected - setting all flags to False by default')
-
-        extract = LazyTransform('extract_flags',
-                                # Use flagmask to blank out the flags we don't want
-                                # Then convert uint8 to bool -> if any flag bits set, flag is set
-                                lambda flags, keep: np.bool_(np.bitwise_and(flagmask, flags)),
-                                dtype=np.bool)
+        def transform(flags, keep):
+            """Use flagmask to blank out the flags we don't want."""
+            # Then convert uint8 to bool -> if any flag bits set, flag is set
+            return np.bool_(np.bitwise_and(self._flags_select, flags))
+        extract = LazyTransform('extract_flags', transform, dtype=np.bool)
         return self._vislike_indexer(self._flags, extract)
 
     @property
