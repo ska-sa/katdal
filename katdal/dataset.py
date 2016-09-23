@@ -404,6 +404,7 @@ class DataSet(object):
         self._time_keep = []
         self._freq_keep = []
         self._corrprod_keep = []
+        self._weights_keep = 'all'
 
     def __repr__(self):
         """Short human-friendly string representation of data set object."""
@@ -616,6 +617,10 @@ class DataSet(object):
         pol : {'H', 'V', 'HH', 'VV', 'HV', 'VH'}, optional
             Select polarisation term
 
+        weights : 'all' or string or sequence of strings, optional
+            List of names of weights to be multiplied together, as a sequence
+            or string of comma-separated names (combine all weights by default)
+
         reset : {'auto', '', 'T', 'F', 'B', 'TF', 'TB', 'FB', 'TFB'}, optional
             Remove existing selections on specified dimensions before applying
             the new selections. The default 'auto' option clears those dimensions
@@ -636,7 +641,8 @@ class DataSet(object):
         freq_selectors = ['channels', 'freqrange']
         corrprod_selectors = ['corrprods', 'ants', 'inputs', 'pol']
         # Check if keywords are valid and raise exception only if this is explicitly enabled
-        valid_kwargs = time_selectors + freq_selectors + corrprod_selectors + ['spw', 'subarray', 'reset', 'strict']
+        valid_kwargs = time_selectors + freq_selectors + corrprod_selectors + \
+            ['spw', 'subarray', 'weights', 'reset', 'strict']
         # Check for definition of strict
         strict = kwargs.get('strict', True)
         if strict and set(kwargs.keys()) - set(valid_kwargs):
@@ -774,6 +780,9 @@ class DataSet(object):
                 polAB = polAB * 2 if polAB in ('h', 'v') else polAB
                 self._corrprod_keep &= [(inpA[-1] == polAB[0] and inpB[-1] == polAB[1])
                                         for inpA, inpB in self.subarrays[self.subarray].corr_products]
+            # Selections that affect weights
+            elif k == 'weights':
+                self._weights_keep = v
 
         # Ensure that updated selections make their way to sensor cache and potentially underlying datasets
         self._set_keep(self._time_keep, self._freq_keep, self._corrprod_keep)

@@ -312,10 +312,12 @@ class H5DataV3(DataSet):
 
         # ------ Extract weights ------
 
-        # check if weight group present, else use dummy weight data
+        # Check if weight group present, else use dummy weight data
         self._weights = data_group['weights'] if 'weights' in data_group else \
-            dummy_dataset('dummy_weights', shape=self._vis.shape[:-1] + (1,), dtype=np.float32, value=1.0)
+            dummy_dataset('dummy_weights', shape=self._vis.shape[:-1], dtype=np.float32, value=1.0)
         self._weights_description = np.array(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS))
+        self._weights_select = []
+        self._weights_keep = 'all'
 
         # ------ Extract observation parameters and script log ------
 
@@ -570,6 +572,29 @@ class H5DataV3(DataSet):
         return '\n'.join(descr)
 
     @property
+    def _weights_keep(self):
+        known_weights = [row[0] for row in getattr(self, '_weights_description', [])]
+        return [known_weights[ind] for ind in self._weights_select]
+
+    @_weights_keep.setter
+    def _weights_keep(self, names):
+        known_weights = [row[0] for row in getattr(self, '_weights_description', [])]
+        # Ensure a sequence of weight names
+        names = known_weights if names == 'all' else \
+            names.split(',') if isinstance(names, basestring) else names
+        # Create index list for desired weights
+        selection = []
+        for name in names:
+            try:
+                selection.append(known_weights.index(name))
+            except ValueError:
+                logger.warning("%r is not a legitimate weight type for this file, "
+                               "supported ones are %s" % (name, known_weights))
+        if known_weights and not selection:
+            logger.warning('No valid weights were selected - setting all weights to 1.0 by default')
+        self._weights_select = selection
+
+    @property
     def timestamps(self):
         """Visibility timestamps in UTC seconds since Unix epoch.
 
@@ -644,44 +669,26 @@ class H5DataV3(DataSet):
                                 lambda shape: shape[:-1], np.complex64)
         return self._vislike_indexer(self._vis, extract)
 
-    def weights(self, names=None):
+    @property
+    def weights(self):
         """Visibility weights as a function of time, frequency and baseline.
 
-        Parameters
-        ----------
-        names : None or string or sequence of strings, optional
-            List of names of weights to be multiplied together, as a sequence
-            or string of comma-separated names (combine all weights by default)
-
-        Returns
-        -------
-        weights : :class:`LazyIndexer` object of float32, shape (*T*, *F*, *B*)
-            Array indexer with time along the first dimension, frequency along
-            the second dimension and correlation product ("baseline") index
-            along the third dimension. To get the data array itself from the
-            indexer `x`, do `x[:]` or perform any other form of indexing on it.
-            Only then will data be loaded into memory.
+        The weights data are returned as an array indexer of float32, shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The number of integrations *T* matches the length of
+        :meth:`timestamps`, the number of frequency channels *F* matches the
+        length of :meth:`freqs` and the number of correlation products *B*
+        matches the length of :meth:`corr_products`. To get the data array
+        itself from the indexer `x`, do `x[:]` or perform any other form of
+        indexing on it. Only then will data be loaded into memory.
 
         """
-        names = names.split(',') if isinstance(names, basestring) else WEIGHT_NAMES if names is None else names
-
-        # Create index list for desired weights
-        selection = []
-        known_weights = [row[0] for row in self._weights_description]
-        for name in names:
-            try:
-                selection.append(known_weights.index(name))
-            except ValueError:
-                logger.warning("'%s' is not a legitimate weight type for this file" % (name,))
-        if not selection:
-            logger.warning('No valid weights were selected - setting all weights to 1.0 by default')
-
-        # Multiply selected weights together (or select lone weight)
-        # Strangely enough, if selection is [], prod produces the expected weights of 1.0 instead of an empty array
-        extract = LazyTransform('extract_weights',
-                                lambda weights, keep: weights[..., selection[0]]
-                                if len(selection) == 1 else weights[..., selection].prod(axis=-1),
-                                lambda shape: shape[:-1], np.float32)
+        # We currently only cater for a single weight type (i.e. either select it or fall back to 1.0)
+        def transform(weights, keep):
+            return weights.astype(np.float32) if self._weights_select else \
+                np.ones_like(weights, dtype=np.float32)
+        extract = LazyTransform('extract_weights', transform, dtype=np.float32)
         return self._vislike_indexer(self._weights, extract)
 
     def flags(self, names=None):
