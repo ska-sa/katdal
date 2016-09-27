@@ -568,3 +568,28 @@ class ConcatenatedDataSet(DataSet):
 
         """
         return ConcatenatedLazyIndexer([d.flags for d in self.datasets])
+
+    @property
+    def temperature(self):
+        """Air temperature in degrees Celsius."""
+        return np.concatenate([d.temperature for d in self.datasets])
+
+    @property
+    def pressure(self):
+        """Barometric pressure in millibars."""
+        return np.concatenate([d.pressure for d in self.datasets])
+
+    @property
+    def humidity(self):
+        """Relative humidity as a percentage."""
+        return np.concatenate([d.humidity for d in self.datasets])
+
+    @property
+    def wind_speed(self):
+        """Wind speed in metres per second."""
+        return np.concatenate([d.wind_speed for d in self.datasets])
+
+    @property
+    def wind_direction(self):
+        """Wind direction as an azimuth angle in degrees."""
+        return np.concatenate([d.wind_direction for d in self.datasets])
