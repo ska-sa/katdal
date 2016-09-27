@@ -518,10 +518,12 @@ class DataSet(object):
                 model.min_freq_MHz = new_min_freq
                 model.max_freq_MHz = new_max_freq
 
-    def _set_keep(self, time_keep=None, freq_keep=None, corrprod_keep=None):
+    def _set_keep(self, time_keep=None, freq_keep=None, corrprod_keep=None,
+                  weights_keep=None, flags_keep=None):
         """Set time, frequency and/or correlation product selection masks.
 
-        Set the selection masks for those parameters that are present.
+        Set the selection masks for those parameters that are present. Also
+        include weights and flags selections as options.
 
         Parameters
         ----------
@@ -531,6 +533,10 @@ class DataSet(object):
             Boolean selection mask with one entry per frequency channel
         corrprod_keep : array of bool, shape (*B*,), optional
             Boolean selection mask with one entry per correlation product
+        weights_keep : 'all' or string or sequence of strings, optional
+            Names of selected weight types (or 'all' for the lot)
+        flags_keep : 'all' or string or sequence of strings, optional
+            Names of selected flag types (or 'all' for the lot)
 
         """
         if time_keep is not None:
@@ -542,6 +548,10 @@ class DataSet(object):
             self._freq_keep = freq_keep
         if corrprod_keep is not None:
             self._corrprod_keep = corrprod_keep
+        if weights_keep is not None:
+            self._weights_keep = weights_keep
+        if flags_keep is not None:
+            self._flags_keep = flags_keep
 
     def select(self, **kwargs):
         """Select subset of data, based on time / frequency / corrprod filters.
@@ -795,7 +805,7 @@ class DataSet(object):
                 self._flags_keep = v
 
         # Ensure that updated selections make their way to sensor cache and potentially underlying datasets
-        self._set_keep(self._time_keep, self._freq_keep, self._corrprod_keep)
+        self._set_keep(self._time_keep, self._freq_keep, self._corrprod_keep, self._weights_keep, self._flags_keep)
         # Update the relevant data members based on selection made
         # These would all be more efficient as properties, but at the expense of extra lines of code...
         self.shape = (self._time_keep.sum(), self._freq_keep.sum(), self._corrprod_keep.sum())

@@ -472,13 +472,15 @@ class ConcatenatedDataSet(DataSet):
         # Apply default selection and initialise all members that depend on selection in the process
         self.select(spw=0, subarray=0)
 
-    def _set_keep(self, time_keep=None, freq_keep=None, corrprod_keep=None):
+    def _set_keep(self, time_keep=None, freq_keep=None, corrprod_keep=None,
+                  weights_keep=None, flags_keep=None):
         """Set time, frequency and/or correlation product selection masks.
 
         Set the selection masks for those parameters that are present. The time
         mask is split into chunks and applied to the underlying datasets and
         sensor caches, while the frequency and corrprod masks are directly
-        applied to the underlying datasets as well.
+        applied to the underlying datasets as well. Also allow for weights
+        and flags selections.
 
         Parameters
         ----------
@@ -488,6 +490,10 @@ class ConcatenatedDataSet(DataSet):
             Boolean selection mask with one entry per frequency channel
         corrprod_keep : array of bool, shape (*B*,), optional
             Boolean selection mask with one entry per correlation product
+        weights_keep : 'all' or string or sequence of strings, optional
+            Names of selected weight types (or 'all' for the lot)
+        flags_keep : 'all' or string or sequence of strings, optional
+            Names of selected flag types (or 'all' for the lot)
 
         """
         if time_keep is not None:
@@ -505,6 +511,14 @@ class ConcatenatedDataSet(DataSet):
             self._corrprod_keep = corrprod_keep
             for n, d in enumerate(self.datasets):
                 d._set_keep(corrprod_keep=self._corrprod_keep)
+        if weights_keep is not None:
+            self._weights_keep = weights_keep
+            for n, d in enumerate(self.datasets):
+                d._set_keep(weights_keep=self._weights_keep)
+        if flags_keep is not None:
+            self._flags_keep = flags_keep
+            for n, d in enumerate(self.datasets):
+                d._set_keep(flags_keep=self._flags_keep)
 
     @property
     def timestamps(self):
