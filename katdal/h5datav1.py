@@ -364,50 +364,43 @@ class H5DataV1(DataSet):
         """
         return ConcatenatedLazyIndexer(self._vis_indexers())
 
-    def weights(self, names=None):
+    @property
+    def weights(self):
         """Visibility weights as a function of time, frequency and baseline.
 
-        Parameters
-        ----------
-        names : None or string or sequence of strings, optional
-            List of names of weights to be multiplied together, as a sequence
-            or string of comma-separated names (combine all weights by default)
-
-        Returns
-        -------
-        weights : :class:`LazyIndexer` object of float32, shape (*T*, *F*, *B*)
-            Array indexer with time along the first dimension, frequency along
-            the second dimension and correlation product ("baseline") index
-            along the third dimension. To get the data array itself from the
-            indexer `x`, do `x[:]` or perform any other form of indexing on it.
-            Only then will data be loaded into memory.
+        The weights data are returned as an array indexer of float32, shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The number of integrations *T* matches the length of
+        :meth:`timestamps`, the number of frequency channels *F* matches the
+        length of :meth:`freqs` and the number of correlation products *B*
+        matches the length of :meth:`corr_products`. To get the data array
+        itself from the indexer `x`, do `x[:]` or perform any other form of
+        indexing on it. Only then will data be loaded into memory.
 
         """
-        # tell the user that there are no weights in the h5 file
-        logger.warning("No weights in v1 h5 data files, returning array of unity weights")
+        # Tell the user that there are no weights in the h5 file
+        logger.warning("No weights in HDF5 v1 data files, returning array of unity weights")
         ones = LazyTransform('ones', lambda data, keep: np.ones_like(data, dtype=np.float32), dtype=np.float32)
         return ConcatenatedLazyIndexer(self._vis_indexers(), transforms=[ones])
 
-    def flags(self, names=None):
-        """Visibility flags as a function of time, frequency and baseline.
+    @property
+    def flags(self):
+        """Flags as a function of time, frequency and baseline.
 
-        Parameters
-        ----------
-        names : None or string or sequence of strings, optional
-            Ignored because HDF5 v1 files do not contain flags
-
-        Returns
-        -------
-        flags : :class:`LazyIndexer` object of bool, shape (*T*, *F*, *B*)
-            Array indexer with time along the first dimension, frequency along
-            the second dimension and correlation product ("baseline") index
-            along the third dimension. To get the data array itself from the
-            indexer `x`, do `x[:]` or perform any other form of indexing on it.
-            Only then will data be loaded into memory.
+        The flags data are returned as an array indexer of bool, shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The number of integrations *T* matches the length of
+        :meth:`timestamps`, the number of frequency channels *F* matches the
+        length of :meth:`freqs` and the number of correlation products *B*
+        matches the length of :meth:`corr_products`. To get the data array
+        itself from the indexer `x`, do `x[:]` or perform any other form of
+        indexing on it. Only then will data be loaded into memory.
 
         """
-        # tell the user that there are no flags in the h5 file
-        logger.warning("No flags in v1 h5 data files, returning array of zero flags")
+        # Tell the user that there are no flags in the h5 file
+        logger.warning("No flags in HDF5 v1 data files, returning array of zero flags")
         falses = LazyTransform('falses', lambda data, keep: np.zeros_like(data, dtype=np.bool), dtype=np.bool)
         return ConcatenatedLazyIndexer(self._vis_indexers(), transforms=[falses])
 

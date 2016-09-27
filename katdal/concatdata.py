@@ -535,44 +535,36 @@ class ConcatenatedDataSet(DataSet):
         """
         return ConcatenatedLazyIndexer([d.vis for d in self.datasets])
 
-    def weights(self, names=None):
+    @property
+    def weights(self):
         """Visibility weights as a function of time, frequency and baseline.
 
-        Parameters
-        ----------
-        names : None or string or sequence of strings, optional
-            List of names of weights to be multiplied together, as a sequence
-            or string of comma-separated names (combine all weights by default)
-
-        Returns
-        -------
-        weights : :class:`LazyIndexer` object of float32, shape (*T*, *F*, *B*)
-            Array indexer with time along the first dimension, frequency along
-            the second dimension and correlation product ("baseline") index
-            along the third dimension. To get the data array itself from the
-            indexer `x`, do `x[:]` or perform any other form of indexing on it.
-            Only then will data be loaded into memory.
+        The weights data are returned as an array indexer of float32, shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The number of integrations *T* matches the length of
+        :meth:`timestamps`, the number of frequency channels *F* matches the
+        length of :meth:`freqs` and the number of correlation products *B*
+        matches the length of :meth:`corr_products`. To get the data array
+        itself from the indexer `x`, do `x[:]` or perform any other form of
+        indexing on it. Only then will data be loaded into memory.
 
         """
-        return ConcatenatedLazyIndexer([d.weights(names) for d in self.datasets])
+        return ConcatenatedLazyIndexer([d.weights for d in self.datasets])
 
-    def flags(self, names=None):
-        """Visibility flags as a function of time, frequency and baseline.
+    @property
+    def flags(self):
+        """Flags as a function of time, frequency and baseline.
 
-        Parameters
-        ----------
-        names : None or string or sequence of strings, optional
-            List of names of flags that will be OR'ed together, as a sequence or
-            a string of comma-separated names (use all flags by default)
-
-        Returns
-        -------
-        flags : :class:`LazyIndexer` object of bool, shape (*T*, *F*, *B*)
-            Array indexer with time along the first dimension, frequency along
-            the second dimension and correlation product ("baseline") index
-            along the third dimension. To get the data array itself from the
-            indexer `x`, do `x[:]` or perform any other form of indexing on it.
-            Only then will data be loaded into memory.
+        The flags data are returned as an array indexer of bool, shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The number of integrations *T* matches the length of
+        :meth:`timestamps`, the number of frequency channels *F* matches the
+        length of :meth:`freqs` and the number of correlation products *B*
+        matches the length of :meth:`corr_products`. To get the data array
+        itself from the indexer `x`, do `x[:]` or perform any other form of
+        indexing on it. Only then will data be loaded into memory.
 
         """
-        return ConcatenatedLazyIndexer([d.flags(names) for d in self.datasets])
+        return ConcatenatedLazyIndexer([d.flags for d in self.datasets])
