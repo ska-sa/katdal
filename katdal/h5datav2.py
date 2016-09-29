@@ -480,8 +480,8 @@ class H5DataV2(DataSet):
         if not hasattr(self, '_flags_description'):
             return []
         known_flags = [row[0] for row in self._flags_description]
-        # Reverse flag indices as np.packbits has bit 0 as the MSB (we want LSB)
-        selection = np.flipud(np.unpackbits(self._flags_select))
+        # The KAT-7 flagger uses the np.packbits convention (bit 0 = MSB) so don't flip
+        selection = np.unpackbits(self._flags_select)
         assert len(known_flags) == len(selection), \
             'Expected %d flag types in file, got %s' % (len(selection), self._flags_description)
         return [name for name, bit in zip(known_flags, selection) if bit]
@@ -506,8 +506,8 @@ class H5DataV2(DataSet):
                 logger.warning("%r is not a legitimate flag type for this file, "
                                "supported ones are %s" % (name, known_flags))
         # Pack index list into bit mask
-        # Reverse flag indices as np.packbits has bit 0 as the MSB (we want LSB)
-        flagmask = np.packbits(np.flipud(selection))
+        # The KAT-7 flagger uses the np.packbits convention (bit 0 = MSB) so don't flip
+        flagmask = np.packbits(selection)
         if known_flags and not flagmask:
             logger.warning('No valid flags were selected - setting all flags to False by default')
         self._flags_select = flagmask
