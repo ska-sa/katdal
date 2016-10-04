@@ -134,8 +134,8 @@ class H5DataV3(DataSet):
         Override centre frequency if provided, in Hz
     band : string or None, optional
         Override receiver band if provided (e.g. 'l') - used to find ND models
-    squeeze : {False, True}, optional
-        Don't force vis / weights / flags to be 3-dimensional
+    keepdims : {False, True}, optional
+        Force vis / weights / flags to be 3-dimensional, regardless of selection
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
 
@@ -155,7 +155,7 @@ class H5DataV3(DataSet):
     """
     def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r',
                  time_scale=None, time_origin=None, rotate_bls=False,
-                 centre_freq=None, band=None, squeeze=False, **kwargs):
+                 centre_freq=None, band=None, keepdims=False, **kwargs):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file
@@ -223,7 +223,7 @@ class H5DataV3(DataSet):
         else:
             raise BrokenFile('File contains no visibility data')
         self._timestamps = data_group['timestamps'][:]
-        self._squeeze = squeeze
+        self._keepdims = keepdims
 
         # Resynthesise timestamps from sample counter based on a different scale factor or origin
         old_scale = cbf_group.attrs['scale_factor_timestamp']
@@ -695,7 +695,7 @@ class H5DataV3(DataSet):
         transforms = []
         if extractor:
             transforms.append(extractor)
-        if self._squeeze:
+        if self._keepdims:
             transforms.append(force_full_dim)
         return LazyIndexer(dataset, stage1, transforms)
 

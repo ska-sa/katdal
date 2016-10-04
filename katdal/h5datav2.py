@@ -156,8 +156,8 @@ class H5DataV2(DataSet):
         True if synthesised timestamps should be used to partition data set even
         if real timestamps are irregular, thereby avoiding the slow loading of
         real timestamps at the cost of slightly inaccurate label borders
-    squeeze : {False, True}, optional
-        Don't force vis / weights / flags to be 3-dimensional
+    keepdims : {False, True}, optional
+        Force vis / weights / flags to be 3-dimensional, regardless of selection
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
 
@@ -168,7 +168,7 @@ class H5DataV2(DataSet):
 
     """
     def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r',
-                 quicklook=False, squeeze=False, **kwargs):
+                 quicklook=False, keepdims=False, **kwargs):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file
@@ -228,7 +228,7 @@ class H5DataV2(DataSet):
         self._time_keep = np.ones(num_dumps, dtype=np.bool)
         self.start_time = katpoint.Timestamp(data_timestamps[0] - 0.5 * self.dump_period)
         self.end_time = katpoint.Timestamp(data_timestamps[-1] + 0.5 * self.dump_period)
-        self._squeeze = squeeze
+        self._keepdims = keepdims
 
         # ------ Extract flags ------
 
@@ -566,7 +566,7 @@ class H5DataV2(DataSet):
                             for dim_keep in keep]
             return data[tuple(keep_singles)]
         force_3dim = LazyTransform('force_3dim', _force_3dim)
-        transforms = [extractor] if self._squeeze else [extractor, force_3dim]
+        transforms = [extractor, force_3dim] if self._keepdims else [extractor]
         return LazyIndexer(dataset, stage1, transforms)
 
     @property
