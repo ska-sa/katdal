@@ -646,21 +646,26 @@ class H5DataV3(DataSet):
         """
         return self._timestamps[self._time_keep]
 
-    def _vislike_indexer(self, dataset, extractor):
+    def _vislike_indexer(self, dataset, extractor=None, dims=3):
         """Lazy indexer for vis-like datasets (vis / weights / flags).
 
         This operates on datasets with shape (*T*, *F*, *B*) and potentially
         different dtypes. The data type conversions are all left to the provided
-        extractor transform, while this method takes care of the common
+        optional extractor transform, while this method takes care of the common
         selection issues, such as preserving singleton dimensions and dealing
-        with duplicate final dumps.
+        with duplicate final dumps. By reducing the *dims* parameter, this
+        method also works for datasets with shape (*T*, *F*) or even (*T*,).
 
         Parameters
         ----------
         dataset : :class:`h5py.Dataset` object or equivalent
             Underlying vis-like dataset on which lazy indexing will be done
-        extractor : function, signature ``data = f(data, keep)``
+        extractor : None or function, signature ``data = f(data, keep)``, optional
             Transform to apply to data (`keep` is user-provided 2nd-stage index)
+            (None means no transform is applied)
+        dims : integer, optional
+            Number of dimensions in dataset (default has all three standard
+            dimensions, while smaller values get rid of trailing dimensions)
 
         Returns
         -------
@@ -674,18 +679,22 @@ class H5DataV3(DataSet):
         if len(time_keep) == len(dataset) - 1:
             time_keep = np.zeros(len(dataset), dtype=np.bool)
             time_keep[:len(self._time_keep)] = self._time_keep
-        stage1 = (time_keep, self._freq_keep, self._corrprod_keep)
+        stage1 = (time_keep, self._freq_keep, self._corrprod_keep)[:dims]
 
-        def _force_3dim(data, keep):
+        def _force_full_dim(data, keep):
             """Keep singleton dimensions in stage 2 (i.e. final) indexing."""
-            # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
-            keep = keep[:3] + (slice(None),) * (3 - len(keep))
-            # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
+            # Ensure that keep tuple has length of dims (truncate or pad with blanket slices as necessary)
+            keep = keep[:dims] + (slice(None),) * (dims - len(keep))
+            # Final indexing ensures that returned data are always dims-dimensional (i.e. keep singleton dimensions)
             keep_singles = [(np.newaxis if np.isscalar(dim_keep) else slice(None))
                             for dim_keep in keep]
             return data[tuple(keep_singles)]
-        force_3dim = LazyTransform('force_3dim', _force_3dim)
-        transforms = [extractor] if self._squeeze else [extractor, force_3dim]
+        force_full_dim = LazyTransform('force_full_dim', _force_full_dim)
+        transforms = []
+        if extractor:
+            transforms.append(extractor)
+        if self._squeeze:
+            transforms.append(force_full_dim)
         return LazyIndexer(dataset, stage1, transforms)
 
     @property
