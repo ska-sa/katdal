@@ -314,9 +314,11 @@ class H5DataV3(DataSet):
 
         # ------ Extract weights ------
 
-        # Check if weight group present, else use dummy weight data
+        # Check if weights and weights_channel datasets are present, else use dummy weight data
         self._weights = data_group['weights'] if 'weights' in data_group else \
             dummy_dataset('dummy_weights', shape=self._vis.shape[:-1], dtype=np.float32, value=1.0)
+        self._weights_channel = data_group['weights_channel'] if 'weights_channel' in data_group else \
+            dummy_dataset('dummy_weights_channel', shape=self._vis.shape[:-2], dtype=np.float32, value=1.0)
         # Obtain weight descriptions from file or recreate default weight description table
         self._weights_description = data_group['weights_description'] if 'weights_description' in data_group else \
             np.array(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS))
@@ -734,12 +736,18 @@ class H5DataV3(DataSet):
         indexing on it. Only then will data be loaded into memory.
 
         """
+        # Build a lazy indexer for high-resolution weights (one per channel)
+        weights_channel = self._vislike_indexer(self._weights_channel, dims=2)
+
         # We currently only cater for a single weight type (i.e. either select it or fall back to 1.0)
         def transform(weights, keep):
-            return weights.astype(np.float32) if self._weights_select else \
+            return weights * weights_channel[keep][..., np.newaxis] if self._weights_select else \
                 np.ones_like(weights, dtype=np.float32)
         extract = LazyTransform('extract_weights', transform, dtype=np.float32)
-        return self._vislike_indexer(self._weights, extract)
+        indexer = self._vislike_indexer(self._weights, extract)
+        if weights_channel.name.find('dummy') < 0:
+            indexer.name += ' * ' + weights_channel.name
+        return indexer
 
     @property
     def flags(self):
