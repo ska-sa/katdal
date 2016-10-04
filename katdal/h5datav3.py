@@ -738,11 +738,18 @@ class H5DataV3(DataSet):
         """
         # Build a lazy indexer for high-resolution weights (one per channel)
         weights_channel = self._vislike_indexer(self._weights_channel, dims=2)
+        # Don't keep singleton dimensions in order to match lo-res weight shape
+        # after second-stage indexing (but before any final keepdims transform)
+        weights_channel.transforms = []
 
         # We currently only cater for a single weight type (i.e. either select it or fall back to 1.0)
-        def transform(weights, keep):
-            return weights * weights_channel[keep][..., np.newaxis] if self._weights_select else \
-                np.ones_like(weights, dtype=np.float32)
+        def transform(lo_res_weights, keep):
+            hi_res_weights = weights_channel[keep]
+            # Add corrprods dimension to hi-res weights to enable broadcasting
+            if lo_res_weights.ndim > hi_res_weights.ndim:
+                hi_res_weights = hi_res_weights[..., np.newaxis]
+            return lo_res_weights * hi_res_weights if self._weights_select else \
+                np.ones_like(lo_res_weights, dtype=np.float32)
         extract = LazyTransform('extract_weights', transform, dtype=np.float32)
         indexer = self._vislike_indexer(self._weights, extract)
         if weights_channel.name.find('dummy') < 0:
