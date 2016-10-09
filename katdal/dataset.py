@@ -404,6 +404,8 @@ class DataSet(object):
         self._time_keep = []
         self._freq_keep = []
         self._corrprod_keep = []
+        self._weights_keep = 'all'
+        self._flags_keep = 'all'
 
     def __repr__(self):
         """Short human-friendly string representation of data set object."""
@@ -516,10 +518,12 @@ class DataSet(object):
                 model.min_freq_MHz = new_min_freq
                 model.max_freq_MHz = new_max_freq
 
-    def _set_keep(self, time_keep=None, freq_keep=None, corrprod_keep=None):
+    def _set_keep(self, time_keep=None, freq_keep=None, corrprod_keep=None,
+                  weights_keep=None, flags_keep=None):
         """Set time, frequency and/or correlation product selection masks.
 
-        Set the selection masks for those parameters that are present.
+        Set the selection masks for those parameters that are present. Also
+        include weights and flags selections as options.
 
         Parameters
         ----------
@@ -529,6 +533,10 @@ class DataSet(object):
             Boolean selection mask with one entry per frequency channel
         corrprod_keep : array of bool, shape (*B*,), optional
             Boolean selection mask with one entry per correlation product
+        weights_keep : 'all' or string or sequence of strings, optional
+            Names of selected weight types (or 'all' for the lot)
+        flags_keep : 'all' or string or sequence of strings, optional
+            Names of selected flag types (or 'all' for the lot)
 
         """
         if time_keep is not None:
@@ -540,6 +548,10 @@ class DataSet(object):
             self._freq_keep = freq_keep
         if corrprod_keep is not None:
             self._corrprod_keep = corrprod_keep
+        if weights_keep is not None:
+            self._weights_keep = weights_keep
+        if flags_keep is not None:
+            self._flags_keep = flags_keep
 
     def select(self, **kwargs):
         """Select subset of data, based on time / frequency / corrprod filters.
@@ -573,6 +585,10 @@ class DataSet(object):
 
         If :meth:`select` is called without any parameters the selection is
         reset to the original data set.
+
+        In addition, the *weights* and *flags* criteria are lists of names that
+        select which weights and flags to include in the corresponding data set
+        property.
 
         Parameters
         ----------
@@ -616,6 +632,13 @@ class DataSet(object):
         pol : {'H', 'V', 'HH', 'VV', 'HV', 'VH'}, optional
             Select polarisation term
 
+        weights : 'all' or string or sequence of strings, optional
+            List of names of weights to be multiplied together, as a sequence
+            or string of comma-separated names (combine all weights by default)
+        flags : 'all' or string or sequence of strings, optional
+            List of names of flags that will be OR'ed together, as a sequence
+            or string of comma-separated names (use all flags by default)
+
         reset : {'auto', '', 'T', 'F', 'B', 'TF', 'TB', 'FB', 'TFB'}, optional
             Remove existing selections on specified dimensions before applying
             the new selections. The default 'auto' option clears those dimensions
@@ -636,7 +659,8 @@ class DataSet(object):
         freq_selectors = ['channels', 'freqrange']
         corrprod_selectors = ['corrprods', 'ants', 'inputs', 'pol']
         # Check if keywords are valid and raise exception only if this is explicitly enabled
-        valid_kwargs = time_selectors + freq_selectors + corrprod_selectors + ['spw', 'subarray', 'reset', 'strict']
+        valid_kwargs = time_selectors + freq_selectors + corrprod_selectors + \
+            ['spw', 'subarray', 'weights', 'flags', 'reset', 'strict']
         # Check for definition of strict
         strict = kwargs.get('strict', True)
         if strict and set(kwargs.keys()) - set(valid_kwargs):
@@ -774,9 +798,14 @@ class DataSet(object):
                 polAB = polAB * 2 if polAB in ('h', 'v') else polAB
                 self._corrprod_keep &= [(inpA[-1] == polAB[0] and inpB[-1] == polAB[1])
                                         for inpA, inpB in self.subarrays[self.subarray].corr_products]
+            # Selections that affect weights and flags
+            elif k == 'weights':
+                self._weights_keep = v
+            elif k == 'flags':
+                self._flags_keep = v
 
         # Ensure that updated selections make their way to sensor cache and potentially underlying datasets
-        self._set_keep(self._time_keep, self._freq_keep, self._corrprod_keep)
+        self._set_keep(self._time_keep, self._freq_keep, self._corrprod_keep, self._weights_keep, self._flags_keep)
         # Update the relevant data members based on selection made
         # These would all be more efficient as properties, but at the expense of extra lines of code...
         self.shape = (self._time_keep.sum(), self._freq_keep.sum(), self._corrprod_keep.sum())
@@ -903,40 +932,32 @@ class DataSet(object):
         """
         raise NotImplementedError
 
-    def weights(self, names=None):
+    @property
+    def weights(self):
         """Visibility weights as a function of time, frequency and baseline.
 
-        Parameters
-        ----------
-        names : None or string or sequence of strings, optional
-            List of names of weights to be multiplied together, as a sequence
-            or string of comma-separated names (combine all weights by default)
-
-        Returns
-        -------
-        weights : array-like of float32, shape (*T*, *F*, *B*)
-            Array of weights with time along the first dimension, frequency along
-            the second dimension and correlation product ("baseline") index
-            along the third dimension
+        The weights data are returned as an array indexer of float32, shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The number of integrations *T* matches the length of
+        :meth:`timestamps`, the number of frequency channels *F* matches the
+        length of :meth:`freqs` and the number of correlation products *B*
+        matches the length of :meth:`corr_products`.
 
         """
         raise NotImplementedError
 
-    def flags(self, names=None):
+    @property
+    def flags(self):
         """Visibility flags as a function of time, frequency and baseline.
 
-        Parameters
-        ----------
-        names : None or string or sequence of strings, optional
-            List of names of flags that will be OR'ed together, as a sequence or
-            a string of comma-separated names (use all flags by default)
-
-        Returns
-        -------
-        flags : array-like of bool, shape (*T*, *F*, *B*)
-            Array of flags with time along the first dimension, frequency along
-            the second dimension and correlation product ("baseline") index
-            along the third dimension
+        The flags data are returned as an array indexer of bool, shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The number of integrations *T* matches the length of
+        :meth:`timestamps`, the number of frequency channels *F* matches the
+        length of :meth:`freqs` and the number of correlation products *B*
+        matches the length of :meth:`corr_products`.
 
         """
         raise NotImplementedError

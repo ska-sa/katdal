@@ -75,8 +75,9 @@ parser.add_option("-m", "--model-data", action="store_true", default=False,
                   help="Add MODEL_DATA and CORRECTED_DATA columns to the MS. "
                        "MODEL_DATA initialised to unity amplitude zero phase, "
                        "CORRECTED_DATA initialised to DATA.")
-parser.add_option("--flags",
-                  help="List of online flags to apply (from 'static,cam,detected_rfi,predicted_rfi', "
+parser.add_option("--flags", default="all",
+                  help="List of online flags to apply "
+                       "(from 'static,cam,data_lost,ingest_rfi,cal_rfi,predicted_rfi', "
                        "default is all flags, '' will apply no flags)")
 parser.add_option("--dumptime", type=float, default=0.0,
                   help="Output time averaging interval in seconds, default is no averaging.")
@@ -140,7 +141,7 @@ for win in range(len(h5.spectral_windows)):
     basename = ('%s_%s' % (os.path.splitext(args[0])[0], cen_freq)) + \
                ("." if len(args) == 1 else ".et_al.") + pol_for_name
 
-    h5.select(spw=win, scans='track')
+    h5.select(spw=win, scans='track', flags=options.flags)
 
     # create MS in current working directory
     ms_name = basename + ".ms"
@@ -300,9 +301,9 @@ for win in range(len(h5.spectral_windows)):
         # load all data for this scan up front, as this improves disk throughput
         scan_data = h5.vis[:]
         # load the weights for this scan.
-        scan_weight_data = h5.weights()[:]
+        scan_weight_data = h5.weights[:]
         # load flags selected from 'options.flags' for this scan
-        scan_flag_data = h5.flags(options.flags)[:]
+        scan_flag_data = h5.flags[:]
 
         # Get the average dump time for this scan (equal to scan length if the dump period is longer than a scan)
         dump_time_width = min(time_av, scan_len * h5.dump_period)

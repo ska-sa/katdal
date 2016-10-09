@@ -472,13 +472,15 @@ class ConcatenatedDataSet(DataSet):
         # Apply default selection and initialise all members that depend on selection in the process
         self.select(spw=0, subarray=0)
 
-    def _set_keep(self, time_keep=None, freq_keep=None, corrprod_keep=None):
+    def _set_keep(self, time_keep=None, freq_keep=None, corrprod_keep=None,
+                  weights_keep=None, flags_keep=None):
         """Set time, frequency and/or correlation product selection masks.
 
         Set the selection masks for those parameters that are present. The time
         mask is split into chunks and applied to the underlying datasets and
         sensor caches, while the frequency and corrprod masks are directly
-        applied to the underlying datasets as well.
+        applied to the underlying datasets as well. Also allow for weights
+        and flags selections.
 
         Parameters
         ----------
@@ -488,6 +490,10 @@ class ConcatenatedDataSet(DataSet):
             Boolean selection mask with one entry per frequency channel
         corrprod_keep : array of bool, shape (*B*,), optional
             Boolean selection mask with one entry per correlation product
+        weights_keep : 'all' or string or sequence of strings, optional
+            Names of selected weight types (or 'all' for the lot)
+        flags_keep : 'all' or string or sequence of strings, optional
+            Names of selected flag types (or 'all' for the lot)
 
         """
         if time_keep is not None:
@@ -505,6 +511,14 @@ class ConcatenatedDataSet(DataSet):
             self._corrprod_keep = corrprod_keep
             for n, d in enumerate(self.datasets):
                 d._set_keep(corrprod_keep=self._corrprod_keep)
+        if weights_keep is not None:
+            self._weights_keep = weights_keep
+            for n, d in enumerate(self.datasets):
+                d._set_keep(weights_keep=self._weights_keep)
+        if flags_keep is not None:
+            self._flags_keep = flags_keep
+            for n, d in enumerate(self.datasets):
+                d._set_keep(flags_keep=self._flags_keep)
 
     @property
     def timestamps(self):
@@ -535,44 +549,61 @@ class ConcatenatedDataSet(DataSet):
         """
         return ConcatenatedLazyIndexer([d.vis for d in self.datasets])
 
-    def weights(self, names=None):
+    @property
+    def weights(self):
         """Visibility weights as a function of time, frequency and baseline.
 
-        Parameters
-        ----------
-        names : None or string or sequence of strings, optional
-            List of names of weights to be multiplied together, as a sequence
-            or string of comma-separated names (combine all weights by default)
-
-        Returns
-        -------
-        weights : :class:`LazyIndexer` object of float32, shape (*T*, *F*, *B*)
-            Array indexer with time along the first dimension, frequency along
-            the second dimension and correlation product ("baseline") index
-            along the third dimension. To get the data array itself from the
-            indexer `x`, do `x[:]` or perform any other form of indexing on it.
-            Only then will data be loaded into memory.
+        The weights data are returned as an array indexer of float32, shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The number of integrations *T* matches the length of
+        :meth:`timestamps`, the number of frequency channels *F* matches the
+        length of :meth:`freqs` and the number of correlation products *B*
+        matches the length of :meth:`corr_products`. To get the data array
+        itself from the indexer `x`, do `x[:]` or perform any other form of
+        indexing on it. Only then will data be loaded into memory.
 
         """
-        return ConcatenatedLazyIndexer([d.weights(names) for d in self.datasets])
+        return ConcatenatedLazyIndexer([d.weights for d in self.datasets])
 
-    def flags(self, names=None):
-        """Visibility flags as a function of time, frequency and baseline.
+    @property
+    def flags(self):
+        """Flags as a function of time, frequency and baseline.
 
-        Parameters
-        ----------
-        names : None or string or sequence of strings, optional
-            List of names of flags that will be OR'ed together, as a sequence or
-            a string of comma-separated names (use all flags by default)
-
-        Returns
-        -------
-        flags : :class:`LazyIndexer` object of bool, shape (*T*, *F*, *B*)
-            Array indexer with time along the first dimension, frequency along
-            the second dimension and correlation product ("baseline") index
-            along the third dimension. To get the data array itself from the
-            indexer `x`, do `x[:]` or perform any other form of indexing on it.
-            Only then will data be loaded into memory.
+        The flags data are returned as an array indexer of bool, shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The number of integrations *T* matches the length of
+        :meth:`timestamps`, the number of frequency channels *F* matches the
+        length of :meth:`freqs` and the number of correlation products *B*
+        matches the length of :meth:`corr_products`. To get the data array
+        itself from the indexer `x`, do `x[:]` or perform any other form of
+        indexing on it. Only then will data be loaded into memory.
 
         """
-        return ConcatenatedLazyIndexer([d.flags(names) for d in self.datasets])
+        return ConcatenatedLazyIndexer([d.flags for d in self.datasets])
+
+    @property
+    def temperature(self):
+        """Air temperature in degrees Celsius."""
+        return np.concatenate([d.temperature for d in self.datasets])
+
+    @property
+    def pressure(self):
+        """Barometric pressure in millibars."""
+        return np.concatenate([d.pressure for d in self.datasets])
+
+    @property
+    def humidity(self):
+        """Relative humidity as a percentage."""
+        return np.concatenate([d.humidity for d in self.datasets])
+
+    @property
+    def wind_speed(self):
+        """Wind speed in metres per second."""
+        return np.concatenate([d.wind_speed for d in self.datasets])
+
+    @property
+    def wind_direction(self):
+        """Wind direction as an azimuth angle in degrees."""
+        return np.concatenate([d.wind_direction for d in self.datasets])

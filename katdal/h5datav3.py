@@ -134,8 +134,8 @@ class H5DataV3(DataSet):
         Override centre frequency if provided, in Hz
     band : string or None, optional
         Override receiver band if provided (e.g. 'l') - used to find ND models
-    squeeze : {False, True}, optional
-        Don't force vis / weights / flags to be 3-dimensional
+    keepdims : {False, True}, optional
+        Force vis / weights / flags to be 3-dimensional, regardless of selection
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
 
@@ -155,7 +155,7 @@ class H5DataV3(DataSet):
     """
     def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r',
                  time_scale=None, time_origin=None, rotate_bls=False,
-                 centre_freq=None, band=None, squeeze=False, **kwargs):
+                 centre_freq=None, band=None, keepdims=False, **kwargs):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file
@@ -223,7 +223,7 @@ class H5DataV3(DataSet):
         else:
             raise BrokenFile('File contains no visibility data')
         self._timestamps = data_group['timestamps'][:]
-        self._squeeze = squeeze
+        self._keepdims = keepdims
 
         # Resynthesise timestamps from sample counter based on a different scale factor or origin
         old_scale = cbf_group.attrs['scale_factor_timestamp']
@@ -309,13 +309,21 @@ class H5DataV3(DataSet):
         # Obtain flag descriptions from file or recreate default flag description table
         self._flags_description = data_group['flags_description'] if 'flags_description' in data_group else \
             np.array(zip(FLAG_NAMES, FLAG_DESCRIPTIONS))
+        self._flags_select = np.array([0], dtype=np.uint8)
+        self._flags_keep = 'all'
 
         # ------ Extract weights ------
 
-        # check if weight group present, else use dummy weight data
+        # Check if weights and weights_channel datasets are present, else use dummy weight data
         self._weights = data_group['weights'] if 'weights' in data_group else \
-            dummy_dataset('dummy_weights', shape=self._vis.shape[:-1] + (1,), dtype=np.float32, value=1.0)
-        self._weights_description = np.array(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS))
+            dummy_dataset('dummy_weights', shape=self._vis.shape[:-1], dtype=np.float32, value=1.0)
+        self._weights_channel = data_group['weights_channel'] if 'weights_channel' in data_group else \
+            dummy_dataset('dummy_weights_channel', shape=self._vis.shape[:-2], dtype=np.float32, value=1.0)
+        # Obtain weight descriptions from file or recreate default weight description table
+        self._weights_description = data_group['weights_description'] if 'weights_description' in data_group else \
+            np.array(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS))
+        self._weights_select = []
+        self._weights_keep = 'all'
 
         # ------ Extract observation parameters and script log ------
 
@@ -570,6 +578,66 @@ class H5DataV3(DataSet):
         return '\n'.join(descr)
 
     @property
+    def _weights_keep(self):
+        known_weights = [row[0] for row in getattr(self, '_weights_description', [])]
+        return [known_weights[ind] for ind in self._weights_select]
+
+    @_weights_keep.setter
+    def _weights_keep(self, names):
+        known_weights = [row[0] for row in getattr(self, '_weights_description', [])]
+        # Ensure a sequence of weight names
+        names = known_weights if names == 'all' else \
+            names.split(',') if isinstance(names, basestring) else names
+        # Create index list for desired weights
+        selection = []
+        for name in names:
+            try:
+                selection.append(known_weights.index(name))
+            except ValueError:
+                logger.warning("%r is not a legitimate weight type for this file, "
+                               "supported ones are %s" % (name, known_weights))
+        if known_weights and not selection:
+            logger.warning('No valid weights were selected - setting all weights to 1.0 by default')
+        self._weights_select = selection
+
+    @property
+    def _flags_keep(self):
+        if not hasattr(self, '_flags_description'):
+            return []
+        known_flags = [row[0] for row in self._flags_description]
+        # Reverse flag indices as np.packbits has bit 0 as the MSB (we want LSB)
+        selection = np.flipud(np.unpackbits(self._flags_select))
+        assert len(known_flags) == len(selection), \
+            'Expected %d flag types in file, got %s' % (len(selection), self._flags_description)
+        return [name for name, bit in zip(known_flags, selection) if bit]
+
+    @_flags_keep.setter
+    def _flags_keep(self, names):
+        if not hasattr(self, '_flags_description'):
+            self._flags_select = np.array([0], dtype=np.uint8)
+            return
+        known_flags = [row[0] for row in self._flags_description]
+        # Ensure a sequence of flag names
+        names = known_flags if names == 'all' else \
+            names.split(',') if isinstance(names, basestring) else names
+        # Create boolean list for desired flags
+        selection = np.zeros(8, dtype=np.uint8)
+        assert len(known_flags) == len(selection), \
+            'Expected %d flag types in file, got %d' % (len(selection), self._flags_description)
+        for name in names:
+            try:
+                selection[known_flags.index(name)] = 1
+            except ValueError:
+                logger.warning("%r is not a legitimate flag type for this file, "
+                               "supported ones are %s" % (name, known_flags))
+        # Pack index list into bit mask
+        # Reverse flag indices as np.packbits has bit 0 as the MSB (we want LSB)
+        flagmask = np.packbits(np.flipud(selection))
+        if known_flags and not flagmask:
+            logger.warning('No valid flags were selected - setting all flags to False by default')
+        self._flags_select = flagmask
+
+    @property
     def timestamps(self):
         """Visibility timestamps in UTC seconds since Unix epoch.
 
@@ -580,21 +648,26 @@ class H5DataV3(DataSet):
         """
         return self._timestamps[self._time_keep]
 
-    def _vislike_indexer(self, dataset, extractor):
+    def _vislike_indexer(self, dataset, extractor=None, dims=3):
         """Lazy indexer for vis-like datasets (vis / weights / flags).
 
         This operates on datasets with shape (*T*, *F*, *B*) and potentially
         different dtypes. The data type conversions are all left to the provided
-        extractor transform, while this method takes care of the common
+        optional extractor transform, while this method takes care of the common
         selection issues, such as preserving singleton dimensions and dealing
-        with duplicate final dumps.
+        with duplicate final dumps. By reducing the *dims* parameter, this
+        method also works for datasets with shape (*T*, *F*) or even (*T*,).
 
         Parameters
         ----------
         dataset : :class:`h5py.Dataset` object or equivalent
             Underlying vis-like dataset on which lazy indexing will be done
-        extractor : function, signature ``data = f(data, keep)``
+        extractor : None or function, signature ``data = f(data, keep)``, optional
             Transform to apply to data (`keep` is user-provided 2nd-stage index)
+            (None means no transform is applied)
+        dims : integer, optional
+            Number of dimensions in dataset (default has all three standard
+            dimensions, while smaller values get rid of trailing dimensions)
 
         Returns
         -------
@@ -608,18 +681,22 @@ class H5DataV3(DataSet):
         if len(time_keep) == len(dataset) - 1:
             time_keep = np.zeros(len(dataset), dtype=np.bool)
             time_keep[:len(self._time_keep)] = self._time_keep
-        stage1 = (time_keep, self._freq_keep, self._corrprod_keep)
+        stage1 = (time_keep, self._freq_keep, self._corrprod_keep)[:dims]
 
-        def _force_3dim(data, keep):
+        def _force_full_dim(data, keep):
             """Keep singleton dimensions in stage 2 (i.e. final) indexing."""
-            # Ensure that keep tuple has length of 3 (truncate or pad with blanket slices as necessary)
-            keep = keep[:3] + (slice(None),) * (3 - len(keep))
-            # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
+            # Ensure that keep tuple has length of dims (truncate or pad with blanket slices as necessary)
+            keep = keep[:dims] + (slice(None),) * (dims - len(keep))
+            # Final indexing ensures that returned data are always dims-dimensional (i.e. keep singleton dimensions)
             keep_singles = [(np.newaxis if np.isscalar(dim_keep) else slice(None))
                             for dim_keep in keep]
             return data[tuple(keep_singles)]
-        force_3dim = LazyTransform('force_3dim', _force_3dim)
-        transforms = [extractor] if self._squeeze else [extractor, force_3dim]
+        force_full_dim = LazyTransform('force_full_dim', _force_full_dim)
+        transforms = []
+        if extractor:
+            transforms.append(extractor)
+        if self._keepdims:
+            transforms.append(force_full_dim)
         return LazyIndexer(dataset, stage1, transforms)
 
     @property
@@ -644,87 +721,61 @@ class H5DataV3(DataSet):
                                 lambda shape: shape[:-1], np.complex64)
         return self._vislike_indexer(self._vis, extract)
 
-    def weights(self, names=None):
+    @property
+    def weights(self):
         """Visibility weights as a function of time, frequency and baseline.
 
-        Parameters
-        ----------
-        names : None or string or sequence of strings, optional
-            List of names of weights to be multiplied together, as a sequence
-            or string of comma-separated names (combine all weights by default)
-
-        Returns
-        -------
-        weights : :class:`LazyIndexer` object of float32, shape (*T*, *F*, *B*)
-            Array indexer with time along the first dimension, frequency along
-            the second dimension and correlation product ("baseline") index
-            along the third dimension. To get the data array itself from the
-            indexer `x`, do `x[:]` or perform any other form of indexing on it.
-            Only then will data be loaded into memory.
+        The weights data are returned as an array indexer of float32, shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The number of integrations *T* matches the length of
+        :meth:`timestamps`, the number of frequency channels *F* matches the
+        length of :meth:`freqs` and the number of correlation products *B*
+        matches the length of :meth:`corr_products`. To get the data array
+        itself from the indexer `x`, do `x[:]` or perform any other form of
+        indexing on it. Only then will data be loaded into memory.
 
         """
-        names = names.split(',') if isinstance(names, basestring) else WEIGHT_NAMES if names is None else names
+        # Build a lazy indexer for high-resolution weights (one per channel)
+        weights_channel = self._vislike_indexer(self._weights_channel, dims=2)
+        # Don't keep singleton dimensions in order to match lo-res weight shape
+        # after second-stage indexing (but before any final keepdims transform)
+        weights_channel.transforms = []
 
-        # Create index list for desired weights
-        selection = []
-        known_weights = [row[0] for row in self._weights_description]
-        for name in names:
-            try:
-                selection.append(known_weights.index(name))
-            except ValueError:
-                logger.warning("'%s' is not a legitimate weight type for this file" % (name,))
-        if not selection:
-            logger.warning('No valid weights were selected - setting all weights to 1.0 by default')
+        # We currently only cater for a single weight type (i.e. either select it or fall back to 1.0)
+        def transform(lo_res_weights, keep):
+            hi_res_weights = weights_channel[keep]
+            # Add corrprods dimension to hi-res weights to enable broadcasting
+            if lo_res_weights.ndim > hi_res_weights.ndim:
+                hi_res_weights = hi_res_weights[..., np.newaxis]
+            return lo_res_weights * hi_res_weights if self._weights_select else \
+                np.ones_like(lo_res_weights, dtype=np.float32)
+        extract = LazyTransform('extract_weights', transform, dtype=np.float32)
+        indexer = self._vislike_indexer(self._weights, extract)
+        if weights_channel.name.find('dummy') < 0:
+            indexer.name += ' * ' + weights_channel.name
+        return indexer
 
-        # Multiply selected weights together (or select lone weight)
-        # Strangely enough, if selection is [], prod produces the expected weights of 1.0 instead of an empty array
-        extract = LazyTransform('extract_weights',
-                                lambda weights, keep: weights[..., selection[0]]
-                                if len(selection) == 1 else weights[..., selection].prod(axis=-1),
-                                lambda shape: shape[:-1], np.float32)
-        return self._vislike_indexer(self._weights, extract)
-
-    def flags(self, names=None):
+    @property
+    def flags(self):
         """Flags as a function of time, frequency and baseline.
 
-        Parameters
-        ----------
-        names : None or string or sequence of strings, optional
-            List of names of flags that will be OR'ed together, as a sequence or
-            a string of comma-separated names (use all flags by default)
-
-        Returns
-        -------
-        flags : :class:`LazyIndexer` object of bool, shape (*T*, *F*, *B*)
-            Array indexer with time along the first dimension, frequency along
-            the second dimension and correlation product ("baseline") index
-            along the third dimension. To get the data array itself from the
-            indexer `x`, do `x[:]` or perform any other form of indexing on it.
-            Only then will data be loaded into memory.
+        The flags data are returned as an array indexer of bool, shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The number of integrations *T* matches the length of
+        :meth:`timestamps`, the number of frequency channels *F* matches the
+        length of :meth:`freqs` and the number of correlation products *B*
+        matches the length of :meth:`corr_products`. To get the data array
+        itself from the indexer `x`, do `x[:]` or perform any other form of
+        indexing on it. Only then will data be loaded into memory.
 
         """
-        # Reverse flag indices as np.packbits has bit 0 as the MSB (we want LSB)
-        known_flags = [row[0] for row in reversed(self._flags_description)]
-
-        names = names.split(',') if isinstance(names, basestring) else known_flags if names is None else names
-
-        # Create index list for desired flags
-        flagmask = np.zeros(8, dtype=np.int)
-        for name in names:
-            try:
-                flagmask[known_flags.index(name)] = 1
-            except ValueError:
-                logger.warning("'%s' is not a legitimate flag type for this file" % (name,))
-        # Pack index list into bit mask
-        flagmask = np.packbits(flagmask)
-        if not flagmask:
-            logger.warning('No valid flags were selected - setting all flags to False by default')
-
-        extract = LazyTransform('extract_flags',
-                                # Use flagmask to blank out the flags we don't want
-                                # Then convert uint8 to bool -> if any flag bits set, flag is set
-                                lambda flags, keep: np.bool_(np.bitwise_and(flagmask, flags)),
-                                dtype=np.bool)
+        def transform(flags, keep):
+            """Use flagmask to blank out the flags we don't want."""
+            # Then convert uint8 to bool -> if any flag bits set, flag is set
+            return np.bool_(np.bitwise_and(self._flags_select, flags))
+        extract = LazyTransform('extract_flags', transform, dtype=np.bool)
         return self._vislike_indexer(self._flags, extract)
 
     @property

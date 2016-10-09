@@ -127,7 +127,7 @@ else:
     plt.figure(1)
     plt.clf()
     ax = plt.subplot(1, 1, 1)
-    im = ResampledImage(d.vis, extract=lambda data, x, y: np.abs(data[y, x, 0][:, :, 0]),
+    im = ResampledImage(d.vis, extract=lambda data, x, y: np.abs(data[y, x, 0]),
                         autoscale=opts.autoscale, ax=ax)
     ax.set_xlabel('Channel index')
     ax.set_ylabel('Dump index')
