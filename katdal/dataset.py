@@ -114,7 +114,8 @@ class SpectralWindow(object):
     channel width. The channels are assumed to be regularly spaced and to be the
     result of either lower-sideband downconversion (channel frequencies
     decreasing with channel index) or upper-sideband downconversion (frequencies
-    increasing with index).
+    increasing with index). For further information the receiver band and
+    correlator product names are also available.
 
     Parameters
     ----------
@@ -125,9 +126,11 @@ class SpectralWindow(object):
     num_chans : int
         Number of frequency channels
     product : string, optional
-        Data product / correlator mode
+        Name of data product / correlator mode
     sideband : {-1, +1}, optional
         Type of downconversion (-1 => lower sideband, +1 => upper sideband)
+    band : {'L', 'UHF', 'S', 'X', 'Ku'}, optional
+        Name of receiver / band
 
     Attributes
     ----------
@@ -135,18 +138,21 @@ class SpectralWindow(object):
         Centre frequency of each frequency channel (assuming LSB mixing), in Hz
 
     """
-    def __init__(self, centre_freq, channel_width, num_chans, product=None, sideband=-1):
+    def __init__(self, centre_freq, channel_width, num_chans, product=None,
+                 sideband=-1, band='L'):
         self.centre_freq = centre_freq
         self.channel_width = channel_width
         self.num_chans = num_chans
         self.product = product if product is not None else ''
+        self.band = band
         # Don't subtract half a channel width as channel 0 is centred on 0 Hz in baseband
         self.channel_freqs = centre_freq + sideband * channel_width * (np.arange(num_chans) - num_chans / 2)
 
     def __repr__(self):
         """Short human-friendly string representation of spectral window object."""
-        return "<katdal.SpectralWindow product='%s' centre=%.3f MHz bandwidth=%.3f MHz channels=%d at 0x%x>" % \
-               (self.product, self.centre_freq / 1e6,
+        return "<katdal.SpectralWindow %s-band product=%r centre=%.3f MHz " \
+               "bandwidth=%.3f MHz channels=%d at 0x%x>" % \
+               (self.band, self.product, self.centre_freq / 1e6,
                 self.num_chans * self.channel_width / 1e6, self.num_chans, id(self))
 
     def __eq__(self, other):
@@ -429,10 +435,11 @@ class DataSet(object):
             descr.append('  %2d  %28s  %2d      %3d' %
                          (n, ant_names.ljust(7 * 4 + 6), len(sub.inputs), len(sub.corr_products)))
         descr += ['Spectral Windows: %d' % (len(self.spectral_windows),),
-                  '  ID  Product    CentreFreq(MHz)  Bandwidth(MHz)  Channels  ChannelWidth(kHz)']
+                  '  ID Band Product  CentreFreq(MHz)  Bandwidth(MHz)  Channels  ChannelWidth(kHz)']
         for n, spw in enumerate(self.spectral_windows):
-            descr.append('  %2d  %-11s %8.3f         %7.3f         %5d     %8.3f' %
-                         (n, spw.product, spw.centre_freq / 1e6, spw.channel_width / 1e6 * spw.num_chans,
+            descr.append('  %2d %-4s %-9s %9.3f        %8.3f          %5d     %9.3f' %
+                         (n, spw.band, spw.product, spw.centre_freq / 1e6,
+                          spw.channel_width / 1e6 * spw.num_chans,
                           spw.num_chans, spw.channel_width / 1e3))
         # Now add dynamic information, which depends on the current selection criteria
         descr += ['-------------------------------------------------------------------------------',
