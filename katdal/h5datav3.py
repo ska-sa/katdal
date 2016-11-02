@@ -406,7 +406,8 @@ class H5DataV3(DataSet):
                     band = self.sensor['TelescopeState/sub_band'][-1]
                 except KeyError:
                     band = ''
-                    logger.warning('Could not figure out receiver band - please provide it via band parameter')
+                    logger.warning('Could not figure out receiver band - '
+                                   'please provide it via band parameter')
         # Populate antenna -> receiver mapping
         for ant in cam_ants:
             rx_sensor = 'Antennas/%s/rsc_rx%s_serial_number' % (ant, band)
@@ -432,8 +433,10 @@ class H5DataV3(DataSet):
         if centre_freq:
             spw_params['centre_freq'] = centre_freq
         if 'centre_freq' not in spw_params:
-            # spw_params['centre_freq'] = cbf_group.attrs['center_freq']
-            raise BrokenFile('Could not figure out centre frequency - please provide it via centre_freq parameter')
+            # Choose something really obviously wrong but don't prevent opening the file
+            spw_params['centre_freq'] = 0.0
+            logger.warning('Could not figure out centre frequency, setting it to 0 Hz - '
+                           'please provide it via centre_freq parameter')
         # XXX Cater for future narrowband mode, at some stage
         num_chans = cbf_group.attrs['n_chans']
         if num_chans != self._vis.shape[1]:
