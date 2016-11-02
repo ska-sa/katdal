@@ -423,7 +423,7 @@ class DataSet(object):
         descr = ['===============================================================================',
                  'Name: %s (version %s)' % (self.name, self.version),
                  '===============================================================================',
-                 'Observer: %s  Experiment ID: %s' % (self.observer if self.observer else 'unknown',
+                 'Observer: %s  Experiment ID: %s' % (self.observer if self.observer else '-',
                                                       self.experiment_id if self.experiment_id else '-'),
                  "Description: '%s'" % (self.description if self.description else 'No description',),
                  'Observed from %s to %s' % (self.start_time.local(), self.end_time.local()),
@@ -438,7 +438,8 @@ class DataSet(object):
                   '  ID Band Product  CentreFreq(MHz)  Bandwidth(MHz)  Channels  ChannelWidth(kHz)']
         for n, spw in enumerate(self.spectral_windows):
             descr.append('  %2d %-4s %-9s %9.3f        %8.3f          %5d     %9.3f' %
-                         (n, spw.band, spw.product, spw.centre_freq / 1e6,
+                         (n, spw.band if spw.band else '-', spw.product if spw.product else '-',
+                          spw.centre_freq / 1e6,
                           spw.channel_width / 1e6 * spw.num_chans,
                           spw.num_chans, spw.channel_width / 1e3))
         # Now add dynamic information, which depends on the current selection criteria

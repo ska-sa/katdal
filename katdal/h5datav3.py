@@ -424,7 +424,7 @@ class H5DataV3(DataSet):
             # Custom Ku receiver for RTS
             'x': dict(band='Ku', sideband=1),
         }
-        spw_params = rx_table.get(band, dict(band='unknown', sideband=1))
+        spw_params = rx_table.get(band, dict(band='', sideband=1))
         # Cater for receivers with mixers
         if spw_params['band'] == 'Ku' and 'Ancillary/siggen_ku_frequency' in self.sensor:
             siggen_freq = self.sensor['Ancillary/siggen_ku_frequency'][0]
@@ -450,7 +450,7 @@ class H5DataV3(DataSet):
         spw_params['num_chans'] = num_chans
         spw_params['channel_width'] = bandwidth / num_chans
         # The data product is set by the script or passed to it via schedule block
-        spw_params['product'] = self.obs_params.get('product', 'unknown')
+        spw_params['product'] = self.obs_params.get('product', '')
         # We only expect a single spectral window within a single v3 file,
         # as changing the centre freq is like changing the CBF mode
         self.spectral_windows = [SpectralWindow(**spw_params)]
