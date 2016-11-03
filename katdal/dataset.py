@@ -150,10 +150,12 @@ class SpectralWindow(object):
 
     def __repr__(self):
         """Short human-friendly string representation of spectral window object."""
-        return "<katdal.SpectralWindow %s-band product=%r centre=%.3f MHz " \
+        return "<katdal.SpectralWindow %s-band product=%s centre=%.3f MHz " \
                "bandwidth=%.3f MHz channels=%d at 0x%x>" % \
-               (self.band, self.product, self.centre_freq / 1e6,
-                self.num_chans * self.channel_width / 1e6, self.num_chans, id(self))
+               (self.band if self.band else 'unknown',
+                repr(self.product) if self.product else 'unknown',
+                self.centre_freq / 1e6, self.num_chans * self.channel_width / 1e6,
+                self.num_chans, id(self))
 
     def __eq__(self, other):
         """Equality comparison operator."""
