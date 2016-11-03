@@ -426,9 +426,16 @@ class H5DataV3(DataSet):
         }
         spw_params = rx_table.get(band, dict(band='', sideband=1))
         # Cater for receivers with mixers
-        if spw_params['band'] == 'Ku' and 'Ancillary/siggen_ku_frequency' in self.sensor:
-            siggen_freq = self.sensor['Ancillary/siggen_ku_frequency'][0]
-            spw_params['centre_freq'] = 100. * siggen_freq + 1284e6
+        if spw_params['band'] == 'Ku':
+            if 'Ancillary/siggen_ku_frequency' in self.sensor:
+                siggen_freq = self.sensor['Ancillary/siggen_ku_frequency'][0]
+            elif 'TelescopeState' in f.file:
+                try:
+                    siggen_freq = self.sensor['TelescopeState/anc_siggen_ku_frequency'][0]
+                except KeyError:
+                    siggen_freq = 0.0
+            if siggen_freq:
+                spw_params['centre_freq'] = 100. * siggen_freq + 1284e6
         # Override centre frequency if provided, and quit if none found
         if centre_freq:
             spw_params['centre_freq'] = centre_freq
