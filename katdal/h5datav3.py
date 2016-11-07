@@ -374,16 +374,6 @@ class H5DataV3(DataSet):
         # Otherwise fall back to the list of antennas common to CAM and CBF
         obs_ants = obs_ants.split(',') if obs_ants else list(cam_ants & cbf_ants)
         self.ref_ant = obs_ants[0] if not ref_ant else ref_ant
-        # Populate antenna -> receiver mapping
-        band_override = band
-        for ant in cam_ants:
-            if band_override is None:
-                band_sensor = 'Antennas/%s/ap_indexer_position' % (ant,)
-                band = self.sensor[band_sensor][0] if band_sensor in self.sensor else ''
-            rx_sensor = 'Antennas/%s/rsc_rx%s_serial_number' % (ant, band)
-            rx_serial = self.sensor[rx_sensor][0] if rx_sensor in self.sensor else 0
-            if band:
-                self.receivers[ant] = '%s.%d' % (band, rx_serial)
         # Work around early RTS correlator bug by re-ordering labels
         if rotate_bls:
             corrprods = corrprods[range(1, len(corrprods)) + [0]]
@@ -407,9 +397,54 @@ class H5DataV3(DataSet):
 
         # ------ Extract spectral windows / frequencies ------
 
-        # The centre frequency is now in the domain of the CBF but can be overridden
-        # XXX Cater for other bands / receivers, as well as future narrowband mode, at some stage
-        centre_freq = cbf_group.attrs['center_freq'] if centre_freq is None else centre_freq
+        # Get the receiver band identity ('l', 's', 'u', 'x') from the corresponding subarray sensor
+        if not band and 'TelescopeState' in f.file:
+            try:
+                band = f.file['TelescopeState'].attrs['sub_band']
+            except KeyError:
+                try:
+                    band = self.sensor['TelescopeState/sub_band'][-1]
+                except KeyError:
+                    band = ''
+                    logger.warning('Could not figure out receiver band - '
+                                   'please provide it via band parameter')
+        # Populate antenna -> receiver mapping
+        for ant in cam_ants:
+            rx_sensor = 'Antennas/%s/rsc_rx%s_serial_number' % (ant, band)
+            rx_serial = self.sensor[rx_sensor][0] if rx_sensor in self.sensor else 0
+            if band:
+                self.receivers[ant] = '%s.%d' % (band, rx_serial)
+        # Mapping describing current receiver information on MeerKAT
+        # XXX Update this as new receivers come online
+        rx_table = {
+            # Standard L-band receiver
+            'l': dict(band='L', centre_freq=1284e6, sideband=1),
+            # Custom UHF receiver (real receiver + L-band digitiser, flipped spectrum)
+            'u': dict(band='UHF', centre_freq=428e6, sideband=-1),
+            # Custom Ku receiver for RTS
+            'x': dict(band='Ku', sideband=1),
+        }
+        spw_params = rx_table.get(band, dict(band='', sideband=1))
+        # Cater for receivers with mixers
+        if spw_params['band'] == 'Ku':
+            if 'Ancillary/siggen_ku_frequency' in self.sensor:
+                siggen_freq = self.sensor['Ancillary/siggen_ku_frequency'][0]
+            elif 'TelescopeState' in f.file:
+                try:
+                    siggen_freq = self.sensor['TelescopeState/anc_siggen_ku_frequency'][0]
+                except KeyError:
+                    siggen_freq = 0.0
+            if siggen_freq:
+                spw_params['centre_freq'] = 100. * siggen_freq + 1284e6
+        # Override centre frequency if provided, and quit if none found
+        if centre_freq:
+            spw_params['centre_freq'] = centre_freq
+        if 'centre_freq' not in spw_params:
+            # Choose something really obviously wrong but don't prevent opening the file
+            spw_params['centre_freq'] = 0.0
+            logger.warning('Could not figure out centre frequency, setting it to 0 Hz - '
+                           'please provide it via centre_freq parameter')
+        # XXX Cater for future narrowband mode, at some stage
         num_chans = cbf_group.attrs['n_chans']
         if num_chans != self._vis.shape[1]:
             raise BrokenFile('Number of channels received from correlator '
@@ -419,13 +454,13 @@ class H5DataV3(DataSet):
         if bandwidth == 857152196.0:
             logger.warning('Worked around CBF bandwidth bug (857.152 MHz -> 856.000 MHz)')
             bandwidth = 856000000.0
-        channel_width = bandwidth / num_chans
+        spw_params['num_chans'] = num_chans
+        spw_params['channel_width'] = bandwidth / num_chans
         # The data product is set by the script or passed to it via schedule block
-        product = self.obs_params.get('product', 'unknown')
-
+        spw_params['product'] = self.obs_params.get('product', '')
         # We only expect a single spectral window within a single v3 file,
         # as changing the centre freq is like changing the CBF mode
-        self.spectral_windows = [SpectralWindow(centre_freq, channel_width, num_chans, product, sideband=1)]
+        self.spectral_windows = [SpectralWindow(**spw_params)]
         self.sensor['Observation/spw'] = CategoricalData(self.spectral_windows, [0, num_dumps])
         self.sensor['Observation/spw_index'] = CategoricalData([0], [0, num_dumps])
 
