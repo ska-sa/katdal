@@ -305,14 +305,18 @@ for win in range(len(h5.spectral_windows)):
     npol = len(pols_to_use)
 
     # Create actual correlator product index
-    cp_index = [_cp_index(a1, a2, p)
+    cp_index = np.asarray([_cp_index(a1, a2, p)
         for a1, a2 in itertools.izip(ant1, ant2)
-        for p in pols_to_use]
+        for p in pols_to_use])
 
     # Identify valid and invalid correlator products
     # Reshape for broadcast on time and frequency dimensions
-    valid_cp = (np.asarray([i is not None for i in cp_index])
-        .reshape(1,1,-1))
+    valid_cp = np.asarray([i is not None for i in cp_index])
+    invalid_cp = np.logical_not(valid_cp)
+
+    # Zero any None indices, but use the above masks to reason
+    # about there existence in later code
+    cp_index[invalid_cp] = 0
 
     field_names, field_centers, field_times = [], [], []
     obs_modes = ['UNKNOWN']
@@ -381,26 +385,17 @@ for win in range(len(h5.spectral_windows)):
             scan_weight_data = h5.weights[ltime:utime, :, :]
             scan_flag_data = h5.flags[ltime:utime, :, :]
 
-            print "scan_data {}".format(scan_data.shape)
-            print "scan_weight_data {}".format(scan_weight_data.shape)
-            print "scan_flag_data {}".format(scan_flag_data.shape)
+            # Select correlator products
+            # cp_index could be used above when the LazyIndexer
+            # supports advanced integer indices
+            vis_data = scan_data[:,:,cp_index]
+            weight_data = scan_weight_data[:,:,cp_index]
+            flag_data = scan_flag_data[:,:,cp_index]
 
-            cond = np.broadcast_to(valid_cp, shape=scan_data.shape)
-            inv_cond = np.logical_not(cond)
-            print "mask {}".format(cond.shape)
-
-            # Assign visibility, weight and flag data, zeroing
-            # in cases where no valid correlator product exists
-            vis_data = np.select([cond, inv_cond],
-                [scan_data, np.zeros_like(scan_data)])
-            weight_data = np.select([cond, inv_cond],
-                [scan_weight_data, np.zeros_like(scan_weight_data)])
-            flag_data = np.select([cond, inv_cond],
-                [scan_flag_data, np.zeros_like(scan_flag_data)])
-
-            print "vis_data {}".format(vis_data.shape)
-            print "weight_data {}".format(weight_data.shape)
-            print "flag_data {}".format(flag_data.shape)
+            # Zero any invalid correlator products
+            vis_data[:,:,invalid_cp] = 0 + 0j
+            weight_data[:,:,invalid_cp] = 0
+            flag_data[:,:,invalid_cp] = False
 
             out_utc = utc_seconds[ltime:utime]
 
@@ -421,10 +416,6 @@ for win in range(len(h5.spectral_windows)):
                 model_data = np.ones(vis_data.shape, dtype=np.complex64)
                 # corrected data set copied from vis_data
                 corrected_data = vis_data
-
-            print "vis_data {}".format(vis_data.shape)
-            print "weight_data {}".format(weight_data.shape)
-            print "flag_data {}".format(flag_data.shape)
 
             def _separate_baselines_and_pols(array):
                 """
