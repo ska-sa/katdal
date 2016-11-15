@@ -371,12 +371,13 @@ for win in range(len(h5.spectral_windows)):
         # Iterate over time in some multiple of dump average
         ntime = utc_seconds.size
         tsize = dump_av*100
-        out_freqs = h5.channel_freqs
-        nchan = out_freqs.size
 
         for ltime in xrange(0, ntime, tsize):
             utime = min(ltime + tsize, ntime)
+
             tdiff = utime - ltime
+            out_freqs = h5.channel_freqs
+            nchan = out_freqs.size
 
             # load all visibility, weight and flag data
             # for this scan's timestamps.
