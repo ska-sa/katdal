@@ -370,7 +370,7 @@ for win in range(len(h5.spectral_windows)):
 
         # Iterate over time in some multiple of dump average
         ntime = utc_seconds.size
-        tsize = dump_av*100
+        tsize = dump_av
 
         for ltime in xrange(0, ntime, tsize):
             utime = min(ltime + tsize, ntime)
