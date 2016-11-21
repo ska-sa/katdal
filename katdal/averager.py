@@ -60,7 +60,7 @@ def block_and_average(vis, weight, flag, avsize, axis=0, flagav=False):
 
     # Workaround for numpy zero weight problem (set blocks with zero weight to weight 1
     # so that an average is returned for these blocks, otherwise numpy returns an error).
-    zeroweights = np.where(np.all(block_flag, axis=-1))
+    zeroweights = np.where(np.all(block_weight==0.0, axis=-1))
     block_weight[zeroweights] = 1.0
 
     # Average the data
