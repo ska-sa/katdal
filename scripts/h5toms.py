@@ -371,10 +371,10 @@ for win in range(len(h5.spectral_windows)):
         # Iterate over time in some multiple of dump average
         ntime = utc_seconds.size
         tsize = dump_av
+        ntime_av = ntime/tsize
 
-        for ltime in xrange(0, ntime, tsize):
-            utime = min(ltime + tsize, ntime)
-
+        for ltime in xrange(0,ntime-tsize+1,tsize):
+            utime = ltime + tsize
             tdiff = utime - ltime
             out_freqs = h5.channel_freqs
             nchan = out_freqs.size
@@ -482,9 +482,9 @@ for win in range(len(h5.spectral_windows)):
 
 
         s1 = time.time() - s
-        if average_data and np.shape(utc_seconds)[0] != np.shape(out_utc)[0]:
+        if average_data and utc_seconds.shape != ntime_av:
             print "Averaged %s x %s second dumps to %s x %s second dumps" % \
-                  (np.shape(utc_seconds)[0], h5.dump_period, np.shape(out_utc)[0], dump_time_width)
+                  (np.shape(utc_seconds)[0], h5.dump_period, ntime_av, dump_time_width)
         print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (sz_mb, s1, sz_mb / s1)
         scan_itr += 1
     main_table.close()
