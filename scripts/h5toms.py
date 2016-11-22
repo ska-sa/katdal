@@ -412,9 +412,8 @@ for win in range(len(h5.spectral_windows)):
                     averager.average_visibilities(vis_data, weight_data, flag_data, out_utc, out_freqs,
                                                   timeav=dump_av, chanav=chan_av, flagav=options.flagav)
 
-                # Time and channel dimensions change now
-                tdiff /= dump_av
-                nchan /= chan_av
+                # Infer new time and channel dimensions from averaged data
+                tdiff, nchan = vis_data.shape[0], vis_data.shape[1]
 
             model_data = None
             corrected_data = None
