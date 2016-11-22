@@ -43,6 +43,8 @@ parser = optparse.OptionParser(usage="%prog [options] <filename.h5> [<filename2.
                                description='Convert HDF5 file(s) to MeasurementSet')
 parser.add_option("-b", "--blank-ms", default="/var/kat/static/blank.ms",
                   help="Blank MS used as template (default=%default)")
+parser.add_option("-o", "--output-ms", default=None,
+                  help="Output Measurement Set")
 parser.add_option("-c", "--circular", action="store_true", default=False,
                   help="Produce quad circular polarisation. (RR, RL, LR, LL) "
                        "*** Currently just relabels the linear pols ****")
@@ -139,7 +141,11 @@ for win in range(len(h5.spectral_windows)):
     # Extract MS file per spectral window in H5 observation file
     print 'Extract MS for spw %d: central frequency %.2f MHz' % (win, (h5.spectral_windows[win]).centre_freq / 1e6)
     cen_freq = '%d' % int(h5.spectral_windows[win].centre_freq / 1e6)
-    basename = ('%s_%s' % (os.path.splitext(args[0])[0], cen_freq)) + \
+
+    # Use the supplied output MS for constructing an
+    # output filename schema, else use the hdf5 file
+    filename_schema = options.output_ms if options.output_ms is not None else args[0]
+    basename = ('%s_%s' % (os.path.splitext(filename_schema)[0], cen_freq)) + \
                ("." if len(args) == 1 else ".et_al.") + pol_for_name
 
     h5.select(spw=win, scans='track', flags=options.flags)
