@@ -437,13 +437,13 @@ for win in range(len(h5.spectral_windows)):
                 return (array.reshape(S).transpose(0,2,1,3)
                     .reshape(-1,nchan,npol))
 
-            def _create_uvw(a1, a2):
+            def _create_uvw(a1, a2, times):
                 """
-                Return a (ntime, 1, 3) array of UVW coordinates for baseline
+                Return a (ntime, 3) array of UVW coordinates for baseline
                 defined by a1 and a2
                 """
-                uvw = target.uvw(ant2[a2], timestamp=out_utc, antenna=ant1[a1])
-                return np.asarray(uvw).T[:,np.newaxis,:]
+                uvw = target.uvw(a2, timestamp=times, antenna=a1)
+                return np.asarray(uvw).T
 
             # Massage visibility, weight and flag data from
             # (ntime, nchan, nbl*npol) ordering to (ntime*nbl, nchan, npol)
@@ -451,10 +451,10 @@ for win in range(len(h5.spectral_windows)):
                 for a in (vis_data, weight_data, flag_data))
 
             # Iterate through baselines, computing UVW coordinates
-            # and concatenating along baseline.
-            # (ntime*nbl, 3)
-            uvw_coordinates = np.concatenate([_create_uvw(a1, a2)
-                for a1, a2 in itertools.izip(ant1_index, ant2_index)],
+            # for a chunk of timesteps
+            uvw_coordinates = np.concatenate([
+              _create_uvw(a1, a2, out_utc)[:,np.newaxis,:]
+              for a1, a2 in itertools.izip(ant1, ant2)],
                 axis=1).reshape(-1, 3)
 
             # Convert averaged UTC timestamps to MJD seconds.
