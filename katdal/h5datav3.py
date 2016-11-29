@@ -21,6 +21,10 @@ import logging
 import numpy as np
 import h5py
 import katpoint
+try:
+    import cPickle as pickle
+except ImportError:
+    import pickle
 
 from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow,
                       DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target)
@@ -366,7 +370,7 @@ class H5DataV3(DataSet):
         ants = sorted(ants)
         cam_ants = set(ant.name for ant in ants)
         # Original list of correlation products as pairs of input labels
-        corrprods = cbf_group.attrs['bls_ordering']
+        corrprods = self._get_corrprods(f)
         # Find names of all antennas with associated correlator data
         cbf_ants = set([cp[0][:-1] for cp in corrprods] + [cp[1][:-1] for cp in corrprods])
         # By default, only pick antennas that were in use by the script
@@ -374,9 +378,6 @@ class H5DataV3(DataSet):
         # Otherwise fall back to the list of antennas common to CAM and CBF
         obs_ants = obs_ants.split(',') if obs_ants else list(cam_ants & cbf_ants)
         self.ref_ant = obs_ants[0] if not ref_ant else ref_ant
-        # Work around early RTS correlator bug by re-ordering labels
-        if rotate_bls:
-            corrprods = corrprods[range(1, len(corrprods)) + [0]]
 
         if len(corrprods) != self._vis.shape[2]:
             # Apply k7_capture baseline mask after the fact, in the hope that it fixes correlation product mislabelling
@@ -517,6 +518,40 @@ class H5DataV3(DataSet):
         self.select(spw=0, subarray=0, ants=obs_ants)
 
     @staticmethod
+    def _get_corrprods(f, rotate_bls=False):
+        """Load the correlation products list from an open file
+
+        Parameters
+        ----------
+        f : :class:`h5py.File`
+            Open HDF5 file
+        rotate_bls : {False, True}, optional
+            Rotate baseline label list to work around early RTS correlator bug
+
+        Returns
+        -------
+        corrprods : list
+            list of pairs of input labels
+        """
+        try:
+            # If sdp_l0_bls_ordering is present, it should be used in preference
+            # to cbf_bls_ordering.
+            corrprods = pickle.loads(f['TelescopeState'].attrs['sdp_l0_bls_ordering'])
+        except KeyError:
+            # Prior to about Nov 2016, ingest would rewrite cbf_bls_ordering in
+            # place.
+            tm_group = f['TelescopeModel']
+            # Pick first group with appropriate class as CBF
+            cbfs = [comp for comp in tm_group
+                    if tm_group[comp].attrs.get('class') == 'CorrelatorBeamformer']
+            cbf_group = tm_group[cbfs[0]]
+            corrprods = cbf_group.attrs['bls_ordering']
+            # Work around early RTS correlator bug by re-ordering labels
+            if rotate_bls:
+                corrprods = corrprods[range(1, len(corrprods)) + [0]]
+        return corrprods
+
+    @staticmethod
     def _open(filename, mode='r'):
         """Open file and do basic version sanity check."""
         f = h5py.File(filename, mode)
@@ -544,10 +579,6 @@ class H5DataV3(DataSet):
         f, version = H5DataV3._open(filename)
         obs_params = {}
         tm_group = f['TelescopeModel']
-        # Pick first group with appropriate class as CBF
-        cbfs = [comp for comp in tm_group
-                if tm_group[comp].attrs.get('class') == 'CorrelatorBeamformer']
-        cbf_group = tm_group[cbfs[0]]
         ants = []
         for name in tm_group:
             if tm_group[name].attrs.get('class') != 'AntennaPositioner':
@@ -562,7 +593,7 @@ class H5DataV3(DataSet):
             ants.append(katpoint.Antenna(ant_description))
         cam_ants = set(ant.name for ant in ants)
         # Original list of correlation products as pairs of input labels
-        corrprods = cbf_group.attrs['bls_ordering']
+        corrprods = H5DataV3._get_corrprods(f)
         # Find names of all antennas with associated correlator data
         cbf_ants = set([cp[0][:-1] for cp in corrprods] + [cp[1][:-1] for cp in corrprods])
         # By default, only pick antennas that were in use by the script
