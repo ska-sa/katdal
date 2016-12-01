@@ -20,6 +20,7 @@
 # 1 and 2) or MeerKAT HDF5 file (version 3) using the casapy table tools
 # in the ms_extra module (or pyrap/casacore if casapy is not available).
 
+import itertools
 import os
 import shutil
 import tarfile
@@ -42,6 +43,8 @@ parser = optparse.OptionParser(usage="%prog [options] <filename.h5> [<filename2.
                                description='Convert HDF5 file(s) to MeasurementSet')
 parser.add_option("-b", "--blank-ms", default="/var/kat/static/blank.ms",
                   help="Blank MS used as template (default=%default)")
+parser.add_option("-o", "--output-ms", default=None,
+                  help="Output Measurement Set")
 parser.add_option("-c", "--circular", action="store_true", default=False,
                   help="Produce quad circular polarisation. (RR, RL, LR, LL) "
                        "*** Currently just relabels the linear pols ****")
@@ -138,7 +141,11 @@ for win in range(len(h5.spectral_windows)):
     # Extract MS file per spectral window in H5 observation file
     print 'Extract MS for spw %d: central frequency %.2f MHz' % (win, (h5.spectral_windows[win]).centre_freq / 1e6)
     cen_freq = '%d' % int(h5.spectral_windows[win].centre_freq / 1e6)
-    basename = ('%s_%s' % (os.path.splitext(args[0])[0], cen_freq)) + \
+
+    # Use the supplied output MS for constructing an
+    # output filename schema, else use the hdf5 file
+    filename_schema = options.output_ms if options.output_ms is not None else args[0]
+    basename = ('%s_%s' % (os.path.splitext(filename_schema)[0], cen_freq)) + \
                ("." if len(args) == 1 else ".et_al.") + pol_for_name
 
     h5.select(spw=win, scans='track', flags=options.flags)
@@ -278,6 +285,45 @@ for win in range(len(h5.spectral_windows)):
     #  prepare to write main dict
     main_table = ms_extra.open_main(ms_name, verbose=options.verbose)
     corrprod_to_index = dict([(tuple(cp), ind) for cp, ind in zip(h5.corr_products, range(len(h5.corr_products)))])
+
+    #==========================================
+    # Generate per-baseline antenna pairs and
+    # correlator product indices
+    #==========================================
+
+    # Generate baseline antenna pairs
+    na = len(h5.ants)
+    ant1_index, ant2_index = np.triu_indices(na,
+        1 if options.no_auto else 0)
+    ant1 = [h5.ants[a1] for a1 in ant1_index]
+    ant2 = [h5.ants[a2] for a2 in ant2_index]
+
+    def _cp_index(a1, a2, pol):
+        """
+        Create individual correlator product index
+        from antenna pair and polarisation
+        """
+        a1 = "%s%s" % (a1.name, pol[0].lower())
+        a2 = "%s%s" % (a2.name, pol[1].lower())
+
+        return corrprod_to_index.get((a1, a2))
+
+    nbl = ant1_index.size
+    npol = len(pols_to_use)
+
+    # Create actual correlator product index
+    cp_index = np.asarray([_cp_index(a1, a2, p)
+        for a1, a2 in itertools.izip(ant1, ant2)
+        for p in pols_to_use])
+
+    # Identify missing correlator products
+    # Reshape for broadcast on time and frequency dimensions
+    missing_cp = np.logical_not([i is not None for i in cp_index])
+
+    # Zero any None indices, but use the above masks to reason
+    # about there existence in later code
+    cp_index[missing_cp] = 0
+
     field_names, field_centers, field_times = [], [], []
     obs_modes = ['UNKNOWN']
 
@@ -297,13 +343,6 @@ for win in range(len(h5.spectral_windows)):
                 print "scan %3d (%4d samples) skipped - target '%s' not RADEC" % (scan_ind, scan_len, target.name)
             continue
         print "scan %3d (%4d samples) loaded. Target: '%s'. Writing to disk..." % (scan_ind, scan_len, target.name)
-
-        # load all data for this scan up front, as this improves disk throughput
-        scan_data = h5.vis[:]
-        # load the weights for this scan.
-        scan_weight_data = h5.weights[:]
-        # load flags selected from 'options.flags' for this scan
-        scan_flag_data = h5.flags[:]
 
         # Get the average dump time for this scan (equal to scan length if the dump period is longer than a scan)
         dump_time_width = min(time_av, scan_len * h5.dump_period)
@@ -335,83 +374,126 @@ for win in range(len(h5.spectral_windows)):
         # get state_id from obs_modes list if it is in the list, else 0 'UNKNOWN'
         state_id = obs_modes.index(obs_tag) if obs_tag in obs_modes else 0
 
-        for ant1_index, ant1 in enumerate(h5.ants):
-            for ant2_index, ant2 in enumerate(h5.ants):
-                if ant2_index < ant1_index:
-                    continue
-                if options.no_auto and (ant2_index == ant1_index):
-                    continue
-                polprods = [("%s%s" % (ant1.name, p[0].lower()),
-                             "%s%s" % (ant2.name, p[1].lower())) for p in pols_to_use]
+        # Iterate over time in some multiple of dump average
+        ntime = utc_seconds.size
+        tsize = dump_av
+        ntime_av = 0
 
-                pol_data, flag_pol_data, weight_pol_data = [], [], []
+        for ltime in xrange(0,ntime-tsize+1,tsize):
 
-                for p in polprods:
-                    # cable_delay = delays[p[1][-1]][ant2.name] - delays[p[0][-1]][ant1.name]
-                    # cable delays specific to pol type
-                    cp_index = corrprod_to_index.get(p)
-                    vis_data = scan_data[:, :, cp_index] if cp_index is not None else \
-                        np.zeros(h5.shape[:2], dtype=np.complex64)
-                    weight_data = scan_weight_data[:, :, cp_index] if cp_index is not None else \
-                        np.ones(h5.shape[:2], dtype=np.float32)
-                    flag_data = scan_flag_data[:, :, cp_index] if cp_index is not None else \
-                        np.zeros(h5.shape[:2], dtype=np.bool)
-                    # if options.stop_w:
-                    #    # Result of delay model in turns of phase. This is now
-                    #    # frequency dependent so has shape (tstamps, channels)
-                    #    turns = np.outer((h5.w[:, cp_index] / katpoint.lightspeed) - cable_delay, h5.channel_freqs)
-                    #    vis_data *= np.exp(-2j * np.pi * turns)
+            utime = ltime + tsize
+            tdiff = utime - ltime
+            out_freqs = h5.channel_freqs
+            nchan = out_freqs.size
 
-                    out_utc = utc_seconds
-                    out_freqs = h5.channel_freqs
+            # load all visibility, weight and flag data
+            # for this scan's timestamps.
+            # Ordered (ntime, nchan, nbl*npol)
+            scan_data = h5.vis[ltime:utime, :, :]
+            scan_weight_data = h5.weights[ltime:utime, :, :]
+            scan_flag_data = h5.flags[ltime:utime, :, :]
 
-                    # Overwrite the input visibilities with averaged visibilities,flags,weights,timestamps,channel freqs
-                    if average_data:
-                        vis_data, weight_data, flag_data, out_utc, out_freqs = \
-                            averager.average_visibilities(vis_data, weight_data, flag_data, out_utc, out_freqs,
-                                                          timeav=dump_av, chanav=chan_av, flagav=options.flagav)
+            # Select correlator products
+            # cp_index could be used above when the LazyIndexer
+            # supports advanced integer indices
+            vis_data = scan_data[:,:,cp_index]
+            weight_data = scan_weight_data[:,:,cp_index]
+            flag_data = scan_flag_data[:,:,cp_index]
 
-                    pol_data.append(vis_data)
-                    weight_pol_data.append(weight_data)
-                    flag_pol_data.append(flag_data)
+            # Zero and flag any missing correlator products
+            vis_data[:,:,missing_cp] = 0 + 0j
+            weight_data[:,:,missing_cp] = 0
+            flag_data[:,:,missing_cp] = True
 
-                vis_data = np.dstack(pol_data)
-                weight_data = np.dstack(weight_pol_data)
-                flag_data = np.dstack(flag_pol_data)
+            out_utc = utc_seconds[ltime:utime]
 
-                model_data = None
-                corrected_data = None
-                if options.model_data:
-                    # unity intensity zero phase model data set, same shape as vis_data
-                    model_data = np.ones(vis_data.shape, dtype=np.complex64)
-                    # corrected data set copied from vis_data
-                    corrected_data = vis_data
+            # Overwrite the input visibilities with averaged visibilities,flags,weights,timestamps,channel freqs
+            if average_data:
+                vis_data, weight_data, flag_data, out_utc, out_freqs = \
+                    averager.average_visibilities(vis_data, weight_data, flag_data, out_utc, out_freqs,
+                                                  timeav=dump_av, chanav=chan_av, flagav=options.flagav)
 
-                uvw_coordinates = np.array(target.uvw(ant2, timestamp=out_utc, antenna=ant1))
+                # Infer new time and channel dimensions from averaged data
+                tdiff, nchan = vis_data.shape[0], vis_data.shape[1]
 
-                # Convert averaged UTC timestamps to MJD seconds.
-                out_mjd = [katpoint.Timestamp(time_utc).to_mjd() * 24 * 60 * 60 for time_utc in out_utc]
+            #Increment the number of averaged dumps
+            ntime_av += tdiff
 
-                # Increment the filesize.
-                sz_mb += vis_data.dtype.itemsize * vis_data.size / (1024.0 * 1024.0)
-                sz_mb += weight_data.dtype.itemsize * weight_data.size / (1024.0 * 1024.0)
-                sz_mb += flag_data.dtype.itemsize * flag_data.size / (1024.0 * 1024.0)
+            model_data = None
+            corrected_data = None
+            if options.model_data:
+                # unity intensity zero phase model data set, same shape as vis_data
+                model_data = np.ones(vis_data.shape, dtype=np.complex64)
+                # corrected data set copied from vis_data
+                corrected_data = vis_data
 
-                if options.model_data:
-                    sz_mb += model_data.dtype.itemsize * model_data.size / (1024.0 * 1024.0)
-                    sz_mb += corrected_data.dtype.itemsize * corrected_data.size / (1024.0 * 1024.0)
+            def _separate_baselines_and_pols(array):
+                """
+                (1) Separate correlator product into baseline and polarisation,
+                (2) rotate baseline between time and channel,
+                (3) group time and baseline together
+                """
+                S = array.shape[:2] + (nbl, npol)
+                return (array.reshape(S).transpose(0,2,1,3)
+                    .reshape(-1,nchan,npol))
 
-                # write the data to the ms.
-                main_dict = ms_extra.populate_main_dict(uvw_coordinates, vis_data, flag_data,
-                                                        out_mjd, ant1_index, ant2_index,
-                                                        dump_time_width, field_id, state_id,
-                                                        scan_itr, model_data, corrected_data)
-                ms_extra.write_rows(main_table, main_dict, verbose=options.verbose)
+            def _create_uvw(a1, a2, times):
+                """
+                Return a (ntime, 3) array of UVW coordinates for baseline
+                defined by a1 and a2
+                """
+                uvw = target.uvw(a2, timestamp=times, antenna=a1)
+                return np.asarray(uvw).T
+
+            # Massage visibility, weight and flag data from
+            # (ntime, nchan, nbl*npol) ordering to (ntime*nbl, nchan, npol)
+            vis_data, weight_data, flag_data = (_separate_baselines_and_pols(a)
+                for a in (vis_data, weight_data, flag_data))
+
+            # Iterate through baselines, computing UVW coordinates
+            # for a chunk of timesteps
+            uvw_coordinates = np.concatenate([
+              _create_uvw(a1, a2, out_utc)[:,np.newaxis,:]
+              for a1, a2 in itertools.izip(ant1, ant2)],
+                axis=1).reshape(-1, 3)
+
+            # Convert averaged UTC timestamps to MJD seconds.
+            # Blow time up to (ntime*nbl,)
+            out_mjd = np.asarray([katpoint.Timestamp(time_utc).to_mjd() * 24 * 60 * 60
+                for time_utc in out_utc])
+
+            out_mjd = np.broadcast_to(out_mjd[:,np.newaxis], (tdiff, nbl)).ravel()
+
+            # Repeat antenna indices to (ntime*nbl,)
+            a1 = np.broadcast_to(ant1_index[np.newaxis,:], (tdiff, nbl)).ravel()
+            a2 = np.broadcast_to(ant2_index[np.newaxis,:], (tdiff, nbl)).ravel()
+
+            # Blow field ID up to (ntime*nbl,)
+            big_field_id = np.full((tdiff*nbl,), field_id, dtype=np.int32)
+            big_state_id = np.full((tdiff*nbl,), state_id, dtype=np.int32)
+            big_scan_itr = np.full((tdiff*nbl,), scan_itr, dtype=np.int32)
+
+            # write the data to the ms.
+            main_dict = ms_extra.populate_main_dict(uvw_coordinates, vis_data, flag_data,
+                                                    out_mjd, a1, a2,
+                                                    dump_time_width, big_field_id, big_state_id,
+                                                    big_scan_itr, model_data, corrected_data)
+            ms_extra.write_rows(main_table, main_dict, verbose=options.verbose)
+
+            # Increment the filesize.
+            sz_mb += vis_data.dtype.itemsize * vis_data.size / (1024.0 * 1024.0)
+            sz_mb += weight_data.dtype.itemsize * weight_data.size / (1024.0 * 1024.0)
+            sz_mb += flag_data.dtype.itemsize * flag_data.size / (1024.0 * 1024.0)
+
+            if options.model_data:
+                sz_mb += model_data.dtype.itemsize * model_data.size / (1024.0 * 1024.0)
+                sz_mb += corrected_data.dtype.itemsize * corrected_data.size / (1024.0 * 1024.0)
+
 
         s1 = time.time() - s
-        if average_data and np.shape(utc_seconds)[0] != np.shape(out_utc)[0]:
+        if average_data and utc_seconds.shape != ntime_av:
             print "Averaged %s x %s second dumps to %s x %s second dumps" % \
-                  (np.shape(utc_seconds)[0], h5.dump_period, np.shape(out_utc)[0], dump_time_width)
+                  (np.shape(utc_seconds)[0], h5.dump_period, ntime_av, dump_time_width)
         print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (sz_mb, s1, sz_mb / s1)
         scan_itr += 1
     main_table.close()

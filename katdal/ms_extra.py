@@ -310,31 +310,6 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
     """
     num_vis_samples, num_channels, num_pols = vis_data.shape
     timestamps = np.atleast_1d(np.asarray(timestamps, dtype=np.float64))
-    try:
-        antenna1_index, t = np.broadcast_arrays(np.asarray(antenna1_index, np.int32), timestamps)
-    except ValueError:
-        raise ValueError("Length of 'antenna1_index' should be 1 or %d, is %d instead" %
-                         (num_vis_samples, len(antenna1_index)))
-    try:
-        antenna2_index, t = np.broadcast_arrays(np.asarray(antenna2_index, np.int32), timestamps)
-    except ValueError:
-        raise ValueError("Length of 'antenna2_index' should be 1 or %d, is %d instead" %
-                         (num_vis_samples, len(antenna2_index)))
-    try:
-        field_id, t = np.broadcast_arrays(np.asarray(field_id, np.int32), timestamps)
-    except ValueError:
-        raise ValueError("Length of 'field_id' should be 1 or %d, is %d instead" %
-                         (num_vis_samples, len(field_id)))
-    try:
-        state_id, t = np.broadcast_arrays(np.asarray(state_id, np.int32), timestamps)
-    except ValueError:
-        raise ValueError("Length of 'state_id' should be 1 or %d, is %d instead" %
-                         (num_vis_samples, len(state_id)))
-    try:
-        scan_number, t = np.broadcast_arrays(np.asarray(scan_number, np.int32), timestamps)
-    except ValueError:
-        raise ValueError("Length of 'scan_number' should be 1 or %d, is %d instead" %
-                         (num_vis_samples, len(scan_number)))
 
     main_dict = {}
     # ID of first antenna in interferometer (integer)
@@ -386,7 +361,7 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
     # Modified Julian Dates in seconds (double)
     main_dict['TIME_CENTROID'] = timestamps
     # Vector with uvw coordinates (in metres) (double, 1-dim, shape=(3,))
-    main_dict['UVW'] = np.asarray(uvw_coordinates).transpose()
+    main_dict['UVW'] = np.asarray(uvw_coordinates)
     # Weight for each polarisation spectrum (float, 1-dim)
     main_dict['WEIGHT'] = np.ones((num_vis_samples, num_pols), dtype=np.float32)
     return main_dict
