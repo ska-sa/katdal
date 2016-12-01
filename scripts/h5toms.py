@@ -303,9 +303,10 @@ for win in range(len(h5.spectral_windows)):
         Create individual correlator product index
         from antenna pair and polarisation
         """
-        return corrprod_to_index.get((
-            "%s%s" % (a1.name, pol[0].lower()),
-            "%s%s" % (a2.name, pol[1].lower())))
+        a1 = "%s%s" % (a1.name, pol[0].lower())
+        a2 = "%s%s" % (a2.name, pol[1].lower())
+
+        return corrprod_to_index.get((a1, a2))
 
     nbl = ant1_index.size
     npol = len(pols_to_use)
@@ -315,14 +316,13 @@ for win in range(len(h5.spectral_windows)):
         for a1, a2 in itertools.izip(ant1, ant2)
         for p in pols_to_use])
 
-    # Identify valid and invalid correlator products
+    # Identify missing correlator products
     # Reshape for broadcast on time and frequency dimensions
-    valid_cp = np.asarray([i is not None for i in cp_index])
-    invalid_cp = np.logical_not(valid_cp)
+    missing_cp = np.logical_not([i is not None for i in cp_index])
 
     # Zero any None indices, but use the above masks to reason
     # about there existence in later code
-    cp_index[invalid_cp] = 0
+    cp_index[missing_cp] = 0
 
     field_names, field_centers, field_times = [], [], []
     obs_modes = ['UNKNOWN']
@@ -400,10 +400,10 @@ for win in range(len(h5.spectral_windows)):
             weight_data = scan_weight_data[:,:,cp_index]
             flag_data = scan_flag_data[:,:,cp_index]
 
-            # Zero any invalid correlator products
-            vis_data[:,:,invalid_cp] = 0 + 0j
-            weight_data[:,:,invalid_cp] = 0
-            flag_data[:,:,invalid_cp] = False
+            # Zero and flag any missing correlator products
+            vis_data[:,:,missing_cp] = 0 + 0j
+            weight_data[:,:,missing_cp] = 0
+            flag_data[:,:,missing_cp] = True
 
             out_utc = utc_seconds[ltime:utime]
 
