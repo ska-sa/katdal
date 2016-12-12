@@ -402,7 +402,10 @@ class H5DataV3(DataSet):
         if not band and 'TelescopeState' in f.file:
             try:
                 band = f.file['TelescopeState'].attrs['sub_band']
-            except KeyError:
+                # The telstate attributes were serialised via str() until 2016-11-29
+                if band not in ('l', 's', 'u', 'x'):
+                    band = pickle.loads(band)
+            except (KeyError, pickle.UnpicklingError):
                 try:
                     band = self.sensor['TelescopeState/sub_band'][-1]
                 except KeyError:
