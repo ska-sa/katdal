@@ -142,16 +142,18 @@ for win in range(len(h5.spectral_windows)):
     print 'Extract MS for spw %d: central frequency %.2f MHz' % (win, (h5.spectral_windows[win]).centre_freq / 1e6)
     cen_freq = '%d' % int(h5.spectral_windows[win].centre_freq / 1e6)
 
-    # Use the supplied output MS for constructing an
-    # output filename schema, else use the hdf5 file
-    filename_schema = options.output_ms if options.output_ms is not None else args[0]
-    basename = ('%s_%s' % (os.path.splitext(filename_schema)[0], cen_freq)) + \
-               ("." if len(args) == 1 else ".et_al.") + pol_for_name
+    # If no output MS filename supplied, infer the output filename
+    # from the first hdf5 file.
+    if options.output_ms is None:
+      basename = ('%s_%s' % (os.path.splitext(args[0])[0], cen_freq)) + \
+                 ("." if len(args) == 1 else ".et_al.") + pol_for_name
+      # create MS in current working directory
+      ms_name = basename + ".ms"
+    else:
+      ms_name = options.output_ms
 
     h5.select(spw=win, scans='track', flags=options.flags)
 
-    # create MS in current working directory
-    ms_name = basename + ".ms"
     # The first step is to copy the blank template MS to our desired output (making sure it's not already there)
     if os.path.exists(ms_name):
         raise RuntimeError("MS '%s' already exists - please remove it before running this script" % (ms_name,))
