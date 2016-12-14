@@ -16,11 +16,15 @@
 # limitations under the License.
 ################################################################################
 
+import os.path
+
 from setuptools import setup, find_packages
 
 
-with open('README.rst') as readme:
-    long_description = readme.read()
+here = os.path.abspath(os.path.dirname(__file__))
+readme = open(os.path.join(here, 'README.rst')).read()
+news = open(os.path.join(here, 'NEWS.rst')).read()
+long_description = readme + '\n\n' + news
 
 setup(name="katdal",
       description="Karoo Array Telescope data access library "
@@ -34,7 +38,7 @@ setup(name="katdal",
           "scripts/h5toms.py",
           "scripts/fix_ant_positions.py"],
       url='https://github.com/ska-sa/katdal',
-      license="BSD",
+      license="Modified BSD",
       classifiers=[
           "Development Status :: 4 - Beta",
           "Intended Audience :: Developers",
