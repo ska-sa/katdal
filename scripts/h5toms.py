@@ -421,14 +421,6 @@ for win in range(len(h5.spectral_windows)):
             #Increment the number of averaged dumps
             ntime_av += tdiff
 
-            model_data = None
-            corrected_data = None
-            if options.model_data:
-                # unity intensity zero phase model data set, same shape as vis_data
-                model_data = np.ones(vis_data.shape, dtype=np.complex64)
-                # corrected data set copied from vis_data
-                corrected_data = vis_data
-
             def _separate_baselines_and_pols(array):
                 """
                 (1) Separate correlator product into baseline and polarisation,
@@ -474,6 +466,16 @@ for win in range(len(h5.spectral_windows)):
             big_field_id = np.full((tdiff*nbl,), field_id, dtype=np.int32)
             big_state_id = np.full((tdiff*nbl,), state_id, dtype=np.int32)
             big_scan_itr = np.full((tdiff*nbl,), scan_itr, dtype=np.int32)
+
+            # Setup model_data and corrected_data if required
+            model_data = None
+            corrected_data = None
+
+            if options.model_data:
+                # unity intensity zero phase model data set, same shape as vis_data
+                model_data = np.ones(vis_data.shape, dtype=np.complex64)
+                # corrected data set copied from vis_data
+                corrected_data = vis_data
 
             # write the data to the ms.
             main_dict = ms_extra.populate_main_dict(uvw_coordinates, vis_data, flag_data,
