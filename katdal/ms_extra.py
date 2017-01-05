@@ -64,10 +64,10 @@ except:
 #
 
 
-def std_scalar(comment, valueType='integer', **kwargs):
+def std_scalar(comment, valueType='integer', option=0, **kwargs):
     """Description for standard scalar column."""
     return dict(comment=comment, valueType=valueType, dataManagerType='StandardStMan',
-                dataManagerGroup='StandardStMan', option=0, maxlen=0, **kwargs)
+                dataManagerGroup='StandardStMan', option=option, maxlen=0, **kwargs)
 
 
 def std_array(comment, valueType, ndim, **kwargs):
@@ -243,6 +243,22 @@ ms_desc['POINTING'] = {
 for sub_table in ms_desc:
     define_hypercolumn(ms_desc[sub_table])
 
+caltable_desc = {}
+caltable_desc['TIME'] = std_scalar('Timestamp of solution', 'double', option=5)
+caltable_desc['FIELD_ID'] = std_scalar('Unique id for this pointing', 'integer', option=5)
+caltable_desc['SPECTRAL_WINDOW_ID'] = std_scalar('Spectral window', 'integer', option=5)
+caltable_desc['ANTENNA1'] = std_scalar('ID of first antenna in interferometer', 'integer', option=5)
+caltable_desc['ANTENNA2'] = std_scalar('ID of second antenna in interferometer', 'integer', option=5)
+caltable_desc['INTERVAL'] = std_scalar('The effective integration time', 'double', option=5)
+caltable_desc['SCAN_NUMBER'] = std_scalar('Scan number', 'integer', option=5)
+caltable_desc['OBSERVATION_ID'] = std_scalar('Observation id (index in OBSERVATION table)', 'integer', option=5)
+caltable_desc['CPARAM'] = std_array('Solution values', 'complex', -1)
+caltable_desc['PARAMERR'] = std_array('Parameter error', 'float', -1)
+caltable_desc['FLAG'] = std_array('Solution values', 'boolean', -1)
+caltable_desc['SNR'] = std_array('Signal to noise ratio', 'float', -1)
+caltable_desc['WEIGHT'] = std_array('Weight', 'float', -1)
+define_hypercolumn(caltable_desc)
+
 # Define the appropriate way to open a table using the selected binding
 if casacore_binding == 'casapy':
     def open_table(filename, readonly=False, ack=False):
@@ -390,6 +406,47 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
     # Weight for each polarisation spectrum (float, 1-dim)
     main_dict['WEIGHT'] = np.ones((num_vis_samples, num_pols), dtype=np.float32)
     return main_dict
+
+
+def populate_caltable_main_dict(solution_times, solution_values, antennas, scans):
+    """Construct a dictionary containing the columns of the MAIN table.
+
+    The MAIN table contains the visibility data itself. The vis data has shape
+    (num_vis_samples, num_pols, num_channels). The table has one row per
+    visibility sample, which is one row per baseline per snapshot (time sample).
+
+    Parameters
+    ----------
+    solution_times : array of float, shape (num_solutions,)
+        Calibration solution times
+    solution_values : array of float, shape (num_solutions,)
+        Calibration solution values
+    antennas: array of float, shape (num_solutions,)
+        Antenna corresponding to each solution value
+    scans: array of float, shape (num_solutions,)
+        Scan number corresponding to each solution value
+
+    Returns
+    -------
+    calibration_main_dict : dict
+        Dictionary containing columns of the caltable MAIN table
+
+    """
+    num_rows = len(solution_times)
+    calibration_main_dict = {}
+    calibration_main_dict['TIME'] = solution_times
+    calibration_main_dict['FIELD_ID'] = np.zeros(num_rows, dtype=np.int32)
+    calibration_main_dict['SPECTRAL_WINDOW_ID'] = np.zeros(num_rows, dtype=np.int32)
+    calibration_main_dict['ANTENNA1'] = antennas
+    calibration_main_dict['ANTENNA2'] = np.zeros(num_rows, dtype=np.int32)
+    calibration_main_dict['INTERVAL'] = np.zeros(num_rows, dtype=np.int32)
+    calibration_main_dict['SCAN_NUMBER'] = scans
+    calibration_main_dict['OBSERVATION_ID'] = np.zeros(num_rows, dtype=np.int32)
+    calibration_main_dict['CPARAM'] = solution_values
+    calibration_main_dict['PARAMERR'] = np.zeros_like(solution_values, dtype=np.float32)
+    calibration_main_dict['FLAG'] = np.zeros_like(solution_values, dtype=np.int32)
+    calibration_main_dict['SNR'] = np.ones_like(solution_values, dtype=np.float32)
+    return calibration_main_dict
 
 
 def populate_antenna_dict(antenna_names, antenna_positions, antenna_diameters):
@@ -880,6 +937,7 @@ def populate_ms_dict(uvw_coordinates, vis_data, timestamps, antenna1_index, ante
     ms_dict['STATE'] = populate_state_dict(obs_modes)
     ms_dict['SOURCE'] = populate_source_dict(phase_center)
     return ms_dict
+
 
 # ----------------- Write completed dictionary to MS file --------------------
 
