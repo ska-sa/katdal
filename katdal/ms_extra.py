@@ -261,13 +261,13 @@ define_hypercolumn(caltable_desc)
 
 # Define the appropriate way to open a table using the selected binding
 if casacore_binding == 'casapy':
-    def open_table(filename, readonly=False, ack=False):
-        success = tb.open(filename, nomodify=readonly)
+    def open_table(filename, readonly=False, ack=False, **kwargs):
+        success = tb.open(filename, nomodify=readonly, **kwargs)
         return tb if success else None
 
 elif casacore_binding == 'pyrap':
-    def open_table(filename, readonly=False, ack=False):
-        t = tables.table(filename, readonly=readonly, ack=ack)
+    def open_table(filename, readonly=False, ack=False, **kwargs):
+        t = tables.table(filename, readonly=readonly, ack=ack, **kwargs)
         return t if type(t) == tables.table else None
 
 else:
