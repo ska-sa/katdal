@@ -28,6 +28,7 @@ import sys
 import os.path
 
 import numpy as np
+from copy import deepcopy
 
 # Look for a casacore library binding that will provide Table tools
 try:
@@ -252,12 +253,18 @@ caltable_desc['ANTENNA2'] = std_scalar('ID of second antenna in interferometer',
 caltable_desc['INTERVAL'] = std_scalar('The effective integration time', 'double', option=5)
 caltable_desc['SCAN_NUMBER'] = std_scalar('Scan number', 'integer', option=5)
 caltable_desc['OBSERVATION_ID'] = std_scalar('Observation id (index in OBSERVATION table)', 'integer', option=5)
-caltable_desc['CPARAM'] = std_array('Solution values', 'complex', -1)
 caltable_desc['PARAMERR'] = std_array('Parameter error', 'float', -1)
 caltable_desc['FLAG'] = std_array('Solution values', 'boolean', -1)
 caltable_desc['SNR'] = std_array('Signal to noise ratio', 'float', -1)
 caltable_desc['WEIGHT'] = std_array('Weight', 'float', -1)
-define_hypercolumn(caltable_desc)
+# float version of caltable
+caltable_desc_float = deepcopy(caltable_desc)
+caltable_desc_float['FPARAM'] = std_array('Solution values', 'float', -1)
+define_hypercolumn(caltable_desc_float)
+# complex version of caltable
+caltable_desc_complex = deepcopy(caltable_desc)
+caltable_desc_complex['CPARAM'] = std_array('Solution values', 'complex', -1)
+define_hypercolumn(caltable_desc_complex)
 
 # Define the appropriate way to open a table using the selected binding
 if casacore_binding == 'casapy':
@@ -442,7 +449,11 @@ def populate_caltable_main_dict(solution_times, solution_values, antennas, scans
     calibration_main_dict['INTERVAL'] = np.zeros(num_rows, dtype=np.int32)
     calibration_main_dict['SCAN_NUMBER'] = scans
     calibration_main_dict['OBSERVATION_ID'] = np.zeros(num_rows, dtype=np.int32)
-    calibration_main_dict['CPARAM'] = solution_values
+    if np.iscomplexobj(solution_values):
+        print 'COMPLEX!'
+        calibration_main_dict['CPARAM'] = solution_values
+    else:
+        calibration_main_dict['FPARAM'] = solution_values
     calibration_main_dict['PARAMERR'] = np.zeros_like(solution_values, dtype=np.float32)
     calibration_main_dict['FLAG'] = np.zeros_like(solution_values, dtype=np.int32)
     calibration_main_dict['SNR'] = np.ones_like(solution_values, dtype=np.float32)
@@ -675,6 +686,8 @@ def populate_spectral_window_dict(center_frequencies, channel_bandwidths):
         Dictionary containing columns of SPECTRAL_WINDOW subtable
 
     """
+    print center_frequencies
+    print len(center_frequencies)
     num_channels = len(center_frequencies)
     if len(channel_bandwidths) != num_channels:
         raise ValueError('Lengths of center_frequencies and channel_bandwidths differ (%d vs %d)' %
@@ -975,6 +988,7 @@ def write_rows(t, row_dict, verbose=True):
 
 def write_dict(ms_dict, ms_name='./blank.ms', verbose=True):
     # Iterate through subtables
+    print '!!', ms_name
     for sub_table_name, sub_dict in ms_dict.iteritems():
         # Allow parsing of single dict and array of dicts in the same fashion
         if isinstance(sub_dict, dict):

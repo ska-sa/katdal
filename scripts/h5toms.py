@@ -474,6 +474,7 @@ for win in range(len(h5.spectral_windows)):
                 print " No calibration antenna ordering in first H5 file. Can't create solution tables.\n"
                 continue
             antlist_indices = range(len(antlist))
+            print antlist, antlist_indices
 
             # for each solution type in the h5 file, create a table
             for sol in solution_types:
@@ -501,11 +502,14 @@ for win in range(len(h5.spectral_windows)):
                         nchans = 1
 
                     # create calibration solution measurement set
-                    caltable_desc = ms_extra.caltable_desc
+                    caltable_desc = ms_extra.caltable_desc_float if sol == 'K' else ms_extra.caltable_desc_complex
                     caltable = ms_extra.open_table(caltable_name, tabledesc=caltable_desc)
 
                     # add other keywords for main table
-                    caltable.putkeyword('ParType', 'Complex')
+                    if sol == 'K':
+                        caltable.putkeyword('ParType', 'Float')
+                    else:
+                        caltable.putkeyword('ParType', 'Complex')
                     caltable.putkeyword('MSName', ms_name)
                     caltable.putkeyword('VisCal', ms_soltype_lookup[sol])
                     caltable.putkeyword('PolBasis', 'unknown')
@@ -516,7 +520,17 @@ for win in range(len(h5.spectral_windows)):
                     caltable.putinfo({'readme': '', 'subType': ms_soltype_lookup[sol], 'type': 'Calibration'})
 
                     # get the solution data to write to the main table
-                    solutions_to_write = np.reshape(solvals, [ntimes*nants, nchans, npols])
+                    ntimes = 1
+                    solutions_to_write = np.reshape(solvals[-2], [npols, nchans, ntimes*nants]).T#[...,-1::-1]
+                    if sol == 'K':
+                        solutions_to_write = 1.0e9*solutions_to_write
+                    print '***********************', solutions_to_write
+                    #solutions_to_write = solutions_to_write[-(nants+1):-1]
+                    sol_mjd = np.array([sol_mjd[-2]])
+                    ntimes = 1
+
+
+                    print 'Solutions: ', len(sol_mjd), solutions_to_write.shape
                     times_to_write = np.repeat(sol_mjd, nants)
                     antennas_to_write = np.tile(antlist_indices, ntimes)
                     scans_to_write = np.repeat(range(len(sol_mjd)), nants)
@@ -544,6 +558,19 @@ for win in range(len(h5.spectral_windows)):
                         main_subtable = ms_extra.open_table(main_table.name()+'/'+subtable)
                         main_subtable.copy(subtable_location, deep=True)
                         caltable.putkeyword(subtable, 'Table: {0}'.format(subtable_location))
+                        if subtable == 'ANTENNA':
+                            caltable.putkeyword('NAME',antlist)
+                            caltable.putkeyword('STATION',antlist)
+                    if sol != 'B':
+                        print '*&**********8'
+                        spw_table = ms_extra.open_table(os.path.join(caltable.name(), 'SPECTRAL_WINDOW'))
+                        spw_table.removerows(spw_table.rownumbers())
+                        cen_index = len(out_freqs)/2
+                        spw_dict = {'SPECTRAL_WINDOW': ms_extra.populate_spectral_window_dict(np.atleast_1d(out_freqs[cen_index]),
+                                                                        np.atleast_1d(channel_freq_width))}
+                        print spw_dict, spw_table.name()
+                        ms_extra.write_dict(spw_dict, caltable.name(), verbose=options.verbose)
+
 
                     # done with this caltable
                     caltable.flush()
