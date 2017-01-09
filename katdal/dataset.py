@@ -455,9 +455,10 @@ class DataSet(object):
                                                             (self.size / 1e6, 'MB') if self.size > 1e6 else
                                                             (self.size / 1e3, 'KB'))]))
         autocorrs = np.array([(inpA[:-1] == inpB[:-1]) for inpA, inpB in self.corr_products])
+        crosscorrs = np.array([(inpA[:-1] != inpB[:-1]) for inpA, inpB in self.corr_products])
         descr.append('Antennas: %s  Inputs: %d  Autocorr: %s  Crosscorr: %s' %
                      (','.join([('*' + ant.name if ant.name == self.ref_ant else ant.name) for ant in self.ants]),
-                      len(self.inputs), 'yes' if np.any(autocorrs) else 'no', 'yes' if np.any(~autocorrs) else 'no'))
+                      len(self.inputs), 'yes' if np.any(autocorrs) else 'no', 'yes' if np.any(crosscorrs) else 'no'))
         chan_min, chan_max = self.channels.argmin(), self.channels.argmax()
         descr.append('Channels: %d (index %d - %d, %8.3f MHz - %8.3f MHz), each %7.3f kHz wide' %
                      (len(self.channels), self.channels[chan_min], self.channels[chan_max],
