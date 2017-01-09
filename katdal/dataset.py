@@ -22,7 +22,7 @@ import logging
 import numpy as np
 
 import katpoint
-from katpoint import is_iterable
+from katpoint import is_iterable, rad2deg
 
 logger = logging.getLogger(__name__)
 
@@ -1025,7 +1025,7 @@ class DataSet(object):
         The azimuth angles are returned in an array of float, shape (*T*, *A*).
 
         """
-        return np.column_stack([katpoint.rad2deg(self.sensor['Antennas/%s/az' % ant.name]) for ant in self.ants])
+        return np.column_stack([rad2deg(self.sensor['Antennas/%s/az' % ant.name]) for ant in self.ants])
 
     @property
     def el(self):
@@ -1034,7 +1034,7 @@ class DataSet(object):
         The elevation angles are returned in an array of float, shape (*T*, *A*).
 
         """
-        return np.column_stack([katpoint.rad2deg(self.sensor['Antennas/%s/el' % ant.name]) for ant in self.ants])
+        return np.column_stack([rad2deg(self.sensor['Antennas/%s/el' % ant.name]) for ant in self.ants])
 
     @property
     def ra(self):
@@ -1043,7 +1043,7 @@ class DataSet(object):
         The right ascensions are returned in an array of float, shape (*T*, *A*).
 
         """
-        return np.column_stack([katpoint.rad2deg(self.sensor['Antennas/%s/ra' % ant.name]) for ant in self.ants])
+        return np.column_stack([rad2deg(self.sensor['Antennas/%s/ra' % ant.name]) for ant in self.ants])
 
     @property
     def dec(self):
@@ -1052,7 +1052,7 @@ class DataSet(object):
         The declinations are returned in an array of float, shape (*T*, *A*).
 
         """
-        return np.column_stack([katpoint.rad2deg(self.sensor['Antennas/%s/dec' % ant.name]) for ant in self.ants])
+        return np.column_stack([rad2deg(self.sensor['Antennas/%s/dec' % ant.name]) for ant in self.ants])
 
     @property
     def parangle(self):
@@ -1067,7 +1067,7 @@ class DataSet(object):
         It is returned as an array of float, shape (*T*, *A*).
 
         """
-        return np.column_stack([katpoint.rad2deg(self.sensor['Antennas/%s/parangle' % ant.name]) for ant in self.ants])
+        return np.column_stack([rad2deg(self.sensor['Antennas/%s/parangle' % ant.name]) for ant in self.ants])
 
     @property
     def target_x(self):
@@ -1082,8 +1082,8 @@ class DataSet(object):
         float, shape (*T*, *A*).
 
         """
-        return np.column_stack([katpoint.rad2deg(self.sensor['Antennas/%s/target_x_%s_%s' %
-                                                             (ant.name, self.target_projection, self.target_coordsys)])
+        return np.column_stack([rad2deg(self.sensor['Antennas/%s/target_x_%s_%s' %
+                                                    (ant.name, self.target_projection, self.target_coordsys)])
                                 for ant in self.ants])
 
     @property
@@ -1099,8 +1099,8 @@ class DataSet(object):
         float, shape (*T*, *A*).
 
         """
-        return np.column_stack([katpoint.rad2deg(self.sensor['Antennas/%s/target_y_%s_%s' %
-                                                             (ant.name, self.target_projection, self.target_coordsys)])
+        return np.column_stack([rad2deg(self.sensor['Antennas/%s/target_y_%s_%s' %
+                                                    (ant.name, self.target_projection, self.target_coordsys)])
                                 for ant in self.ants])
 
     @property
