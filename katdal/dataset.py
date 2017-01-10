@@ -1032,7 +1032,7 @@ class DataSet(object):
             return self.sensor['Antennas/%s/%s_%s' % (antA, base_name, antB)]
         return np.column_stack([sensor_data(inpA[:-1], inpB[:-1])
                                 for inpA, inpB in self.corr_products]) \
-            if self.corr_products else np.zeros((self.shape[0], 0))
+            if len(self.corr_products) else np.zeros((self.shape[0], 0))
 
     @property
     def az(self):
