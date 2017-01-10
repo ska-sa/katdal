@@ -22,7 +22,7 @@ import logging
 import numpy as np
 
 import katpoint
-from katpoint import is_iterable
+from katpoint import is_iterable, rad2deg
 
 logger = logging.getLogger(__name__)
 
@@ -455,9 +455,10 @@ class DataSet(object):
                                                             (self.size / 1e6, 'MB') if self.size > 1e6 else
                                                             (self.size / 1e3, 'KB'))]))
         autocorrs = np.array([(inpA[:-1] == inpB[:-1]) for inpA, inpB in self.corr_products])
+        crosscorrs = np.array([(inpA[:-1] != inpB[:-1]) for inpA, inpB in self.corr_products])
         descr.append('Antennas: %s  Inputs: %d  Autocorr: %s  Crosscorr: %s' %
                      (','.join([('*' + ant.name if ant.name == self.ref_ant else ant.name) for ant in self.ants]),
-                      len(self.inputs), 'yes' if np.any(autocorrs) else 'no', 'yes' if np.any(~autocorrs) else 'no'))
+                      len(self.inputs), 'yes' if np.any(autocorrs) else 'no', 'yes' if np.any(crosscorrs) else 'no'))
         chan_min, chan_max = self.channels.argmin(), self.channels.argmax()
         descr.append('Channels: %d (index %d - %d, %8.3f MHz - %8.3f MHz), each %7.3f kHz wide' %
                      (len(self.channels), self.channels[chan_min], self.channels[chan_max],
@@ -1018,6 +1019,21 @@ class DataSet(object):
         """
         return self.sensor['Antennas/%s/lst' % self.ref_ant] * (12 / np.pi)
 
+    def _sensor_per_ant(self, base_name):
+        """Extract a single sensor per antenna and safely stack the results."""
+        def sensor_data(ant_name):
+            return self.sensor['Antennas/%s/%s' % (ant_name, base_name)]
+        return np.column_stack([sensor_data(ant.name) for ant in self.ants]) \
+            if self.ants else np.zeros((self.shape[0], 0))
+
+    def _sensor_per_corrprod(self, base_name):
+        """Extract a single sensor per corrprod and safely stack the results."""
+        def sensor_data(antA, antB):
+            return self.sensor['Antennas/%s/%s_%s' % (antA, base_name, antB)]
+        return np.column_stack([sensor_data(inpA[:-1], inpB[:-1])
+                                for inpA, inpB in self.corr_products]) \
+            if len(self.corr_products) else np.zeros((self.shape[0], 0))
+
     @property
     def az(self):
         """Azimuth angle of each dish in degrees.
@@ -1025,7 +1041,7 @@ class DataSet(object):
         The azimuth angles are returned in an array of float, shape (*T*, *A*).
 
         """
-        return np.column_stack([katpoint.rad2deg(self.sensor['Antennas/%s/az' % ant.name]) for ant in self.ants])
+        return rad2deg(self._sensor_per_ant('az'))
 
     @property
     def el(self):
@@ -1034,7 +1050,7 @@ class DataSet(object):
         The elevation angles are returned in an array of float, shape (*T*, *A*).
 
         """
-        return np.column_stack([katpoint.rad2deg(self.sensor['Antennas/%s/el' % ant.name]) for ant in self.ants])
+        return rad2deg(self._sensor_per_ant('el'))
 
     @property
     def ra(self):
@@ -1043,7 +1059,7 @@ class DataSet(object):
         The right ascensions are returned in an array of float, shape (*T*, *A*).
 
         """
-        return np.column_stack([katpoint.rad2deg(self.sensor['Antennas/%s/ra' % ant.name]) for ant in self.ants])
+        return rad2deg(self._sensor_per_ant('ra'))
 
     @property
     def dec(self):
@@ -1052,7 +1068,7 @@ class DataSet(object):
         The declinations are returned in an array of float, shape (*T*, *A*).
 
         """
-        return np.column_stack([katpoint.rad2deg(self.sensor['Antennas/%s/dec' % ant.name]) for ant in self.ants])
+        return rad2deg(self._sensor_per_ant('dec'))
 
     @property
     def parangle(self):
@@ -1067,7 +1083,7 @@ class DataSet(object):
         It is returned as an array of float, shape (*T*, *A*).
 
         """
-        return np.column_stack([katpoint.rad2deg(self.sensor['Antennas/%s/parangle' % ant.name]) for ant in self.ants])
+        return rad2deg(self._sensor_per_ant('parangle'))
 
     @property
     def target_x(self):
@@ -1082,9 +1098,8 @@ class DataSet(object):
         float, shape (*T*, *A*).
 
         """
-        return np.column_stack([katpoint.rad2deg(self.sensor['Antennas/%s/target_x_%s_%s' %
-                                                             (ant.name, self.target_projection, self.target_coordsys)])
-                                for ant in self.ants])
+        name = 'target_x_%s_%s' % (self.target_projection, self.target_coordsys)
+        return rad2deg(self._sensor_per_ant(name))
 
     @property
     def target_y(self):
@@ -1099,9 +1114,8 @@ class DataSet(object):
         float, shape (*T*, *A*).
 
         """
-        return np.column_stack([katpoint.rad2deg(self.sensor['Antennas/%s/target_y_%s_%s' %
-                                                             (ant.name, self.target_projection, self.target_coordsys)])
-                                for ant in self.ants])
+        name = 'target_y_%s_%s' % (self.target_projection, self.target_coordsys)
+        return rad2deg(self._sensor_per_ant(name))
 
     @property
     def u(self):
@@ -1112,8 +1126,7 @@ class DataSet(object):
         It is returned as an array of float, shape (*T*, *B*).
 
         """
-        return np.column_stack([self.sensor['Antennas/%s/u_%s' % (inpA[:-1], inpB[:-1])]
-                                for inpA, inpB in self.corr_products])
+        return self._sensor_per_corrprod('u')
 
     @property
     def v(self):
@@ -1124,8 +1137,7 @@ class DataSet(object):
         It is returned as an array of float, shape (*T*, *B*).
 
         """
-        return np.column_stack([self.sensor['Antennas/%s/v_%s' % (inpA[:-1], inpB[:-1])]
-                                for inpA, inpB in self.corr_products])
+        return self._sensor_per_corrprod('v')
 
     @property
     def w(self):
@@ -1136,5 +1148,4 @@ class DataSet(object):
         It is returned as an array of float, shape (*T*, *B*).
 
         """
-        return np.column_stack([self.sensor['Antennas/%s/w_%s' % (inpA[:-1], inpB[:-1])]
-                                for inpA, inpB in self.corr_products])
+        return self._sensor_per_corrprod('w')
