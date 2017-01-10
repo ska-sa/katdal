@@ -26,6 +26,7 @@ import shutil
 import tarfile
 import optparse
 import time
+import pickle
 
 import numpy as np
 
@@ -88,6 +89,8 @@ parser.add_option("--chanbin", type=int, default=0,
                   help="Bin width for channel averaging in channels, default is no averaging.")
 parser.add_option("--flagav", action="store_true", default=False,
                   help="If a single element in an averaging bin is flagged, flag the averaged bin.")
+parser.add_option("-T", "--tables", action="store_true", default=False,
+                  help="Create calibration tables from gain solutions in the h5 file (if present)")
 
 (options, args) = parser.parse_args()
 
@@ -145,8 +148,9 @@ for win in range(len(h5.spectral_windows)):
     # If no output MS filename supplied, infer the output filename
     # from the first hdf5 file.
     if options.output_ms is None:
-      basename = ('%s_%s' % (os.path.splitext(args[0])[0], cen_freq)) + \
-                 ("." if len(args) == 1 else ".et_al.") + pol_for_name
+      h5base = os.path.splitext(args[0])[0]
+      basename = ('%s_%s' % (h5base, cen_freq)) + \
+               ("." if len(args) == 1 else ".et_al.") + pol_for_name
       # create MS in current working directory
       ms_name = basename + ".ms"
     else:
@@ -280,6 +284,12 @@ for win in range(len(h5.spectral_windows)):
     print "Writing static meta data..."
     ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
 
+    # before resetting ms_dict, copy subset to caltable dictionary
+    if options.tables:
+        caltable_dict = {}
+        caltable_dict['ANTENNA'] = ms_dict['ANTENNA']
+        caltable_dict['OBSERVATION'] = ms_dict['OBSERVATION']
+
     ms_dict = {}
     # increment scans sequentially in the ms
     scan_itr = 1
@@ -399,6 +409,7 @@ for win in range(len(h5.spectral_windows)):
             # cp_index could be used above when the LazyIndexer
             # supports advanced integer indices
             vis_data = scan_data[:,:,cp_index]
+
             weight_data = scan_weight_data[:,:,cp_index]
             flag_data = scan_flag_data[:,:,cp_index]
 
@@ -500,8 +511,6 @@ for win in range(len(h5.spectral_windows)):
                   (np.shape(utc_seconds)[0], h5.dump_period, ntime_av, dump_time_width)
         print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (sz_mb, s1, sz_mb / s1)
         scan_itr += 1
-    main_table.close()
-    # done writing main table
 
     # Remove spaces from source names, unless otherwise specified
     field_names = [f.replace(' ', '') for f in field_names] if not options.keep_spaces else field_names
@@ -520,3 +529,140 @@ for win in range(len(h5.spectral_windows)):
         tar = tarfile.open('%s.tar' % (ms_name,), 'w')
         tar.add(ms_name, arcname=os.path.basename(ms_name))
         tar.close()
+
+    # --------------------------------------
+    # Now write calibration product tables if required
+    # Open first HDF5 file in the list to extract TelescopeState parameters from
+    #   (can't extract telstate params from contatenated katdal file as it uses the hdf5 file directly)
+    h50 = katdal.open(args[0], ref_ant=options.ref_ant)
+
+    if options.tables:
+        # copy extra subtable dictionary values necessary for caltable
+        caltable_dict['SPECTRAL_WINDOW'] = ms_dict['SPECTRAL_WINDOW']
+        caltable_dict['FIELD'] = ms_dict['FIELD']
+
+        solution_types = ['G', 'B', 'K']
+        ms_soltype_lookup = {'G': 'G Jones', 'B': 'B Jones', 'K': 'K Jones'}
+
+        print "\nWriting calibration solution tables to disk...."
+        if 'TelescopeState' not in h50.file.keys():
+            print " No TelescopeState in first H5 file. Can't create solution tables.\n"
+        else:
+            # first get solution antenna ordering
+            #   newer h5 files have the cal antlist as a sensor
+            if 'cal_antlist' in h50.file['TelescopeState'].keys():
+                a0 = h50.file['TelescopeState']['cal_antlist'].value
+                antlist = pickle.loads(a0[0][1])
+            #   older h5 files have the cal antlist as an attribute
+            elif 'cal_antlist' in h50.file['TelescopeState'].attrs.keys():
+                a0 = h50.file['TelescopeState'].attrs['cal_antlist'].strip().strip(']').strip('[').split(',')
+                antlist = np.array([a.strip().strip("'") for a in a0])
+            else:
+                print " No calibration antenna ordering in first H5 file. Can't create solution tables.\n"
+                continue
+            antlist_indices = range(len(antlist))
+
+            # for each solution type in the h5 file, create a table
+            for sol in solution_types:
+                caltable_name = '{0}.{1}'.format(h5base, sol)
+                sol_name = 'cal_product_{0}'.format(sol,)
+
+                if sol_name in h50.file['TelescopeState'].keys():
+                    print ' - creating {0} solution table: {1}\n'.format(sol, caltable_name)
+
+                    # get solution values from the h5 file
+                    solutions = h50.file['TelescopeState'][sol_name].value
+                    soltimes, solvals = [], []
+                    for t, s in solutions:
+                        soltimes.append(t)
+                        solvals.append(pickle.loads(s))
+                    solvals = np.array(solvals)
+
+                    # convert averaged UTC timestamps to MJD seconds.
+                    sol_mjd = np.array([katpoint.Timestamp(time_utc).to_mjd() * 24 * 60 * 60 for time_utc in soltimes])
+
+                    # determine solution characteristics
+                    if len(solvals.shape) == 4:
+                        ntimes, nchans, npols, nants = solvals.shape
+                    else:
+                        ntimes, npols, nants = solvals.shape
+                        nchans = 1
+
+                    # create calibration solution measurement set
+                    caltable_desc = ms_extra.caltable_desc_float if sol == 'K' else ms_extra.caltable_desc_complex
+                    caltable = ms_extra.open_table(caltable_name, tabledesc=caltable_desc)
+
+                    # add other keywords for main table
+                    if sol == 'K':
+                        caltable.putkeyword('ParType', 'Float')
+                    else:
+                        caltable.putkeyword('ParType', 'Complex')
+                    caltable.putkeyword('MSName', ms_name)
+                    caltable.putkeyword('VisCal', ms_soltype_lookup[sol])
+                    caltable.putkeyword('PolBasis', 'unknown')
+                    # add necessary units
+                    caltable.putcolkeywords('TIME', {'MEASINFO': {'Ref': 'UTC', 'type': 'epoch'}, 'QuantumUnits': ['s']})
+                    caltable.putcolkeywords('INTERVAL', {'QuantumUnits': ['s']})
+                    # specify that this is a calibration table
+                    caltable.putinfo({'readme': '', 'subType': ms_soltype_lookup[sol], 'type': 'Calibration'})
+
+                    # get the solution data to write to the main table
+                    # stack in time for storing in caltable
+                    solutions_to_write = np.rollaxis(solvals[0],-1,0)
+                    for sol_iter in solvals[1:]:
+                        solutions_to_write = np.vstack([solutions_to_write,np.rollaxis(sol_iter,-1,0)])
+                    solutions_to_write = np.array(solutions_to_write)
+
+                    # add extra pseudo channel axis to non-B solutions
+                    if sol != 'B':
+                        solutions_to_write = solutions_to_write[:,np.newaxis,:]
+                    # MS's store delays in nanoseconds
+                    if sol == 'K':
+                        solutions_to_write = 1.0e9*solutions_to_write
+
+                    times_to_write = np.repeat(sol_mjd, nants)
+                    antennas_to_write = np.tile(antlist_indices, ntimes)
+                    scans_to_write = np.repeat(range(len(sol_mjd)), nants)
+                    # write the main table
+                    main_cal_dict = ms_extra.populate_caltable_main_dict(times_to_write, solutions_to_write, antennas_to_write, scans_to_write)
+                    ms_extra.write_rows(caltable, main_cal_dict, verbose=options.verbose)
+
+                    # create and write subtables
+                    subtables = ['OBSERVATION', 'ANTENNA', 'FIELD', 'SPECTRAL_WINDOW', 'HISTORY']
+                    subtable_key = [(os.path.join(caltable.name(), st)) for st in subtables]
+
+                    # Add subtable keywords and create subtables
+                    # ------------------------------------------------------------------------------
+                    # # this gives an error in casapy:
+                    # # *** Error *** MSObservation(const Table &) - table is not a valid MSObservation
+                    # for subtable, subtable_location in zip(subtables, subtable_key)
+                    #     ms_extra.open_table(subtable_location, tabledesc=ms_extra.ms_desc[subtable])
+                    #     caltable.putkeyword(subtable, 'Table: {0}'.format(subtable_location))
+                    # # write the static info for the table
+                    # ms_extra.write_dict(caltable_dict, caltable.name(), verbose=options.verbose)
+                    # ------------------------------------------------------------------------------
+                    # instead try just copying the main table subtables
+                    #   this works to plot the data casapy, but the solutions still can't be applied in casapy...
+                    for subtable, subtable_location in zip(subtables, subtable_key):
+                        main_subtable = ms_extra.open_table(main_table.name()+'/'+subtable)
+                        main_subtable.copy(subtable_location, deep=True)
+                        caltable.putkeyword(subtable, 'Table: {0}'.format(subtable_location))
+                        if subtable == 'ANTENNA':
+                            caltable.putkeyword('NAME',antlist)
+                            caltable.putkeyword('STATION',antlist)
+                    if sol != 'B':
+                        spw_table = ms_extra.open_table(os.path.join(caltable.name(), 'SPECTRAL_WINDOW'))
+                        spw_table.removerows(spw_table.rownumbers())
+                        cen_index = len(out_freqs)//2
+                        # the delay values in the cal pipeline are calculated relative to frequency 0
+                        ref_freq = 0.0 if sol == 'K' else None
+                        spw_dict = {'SPECTRAL_WINDOW': ms_extra.populate_spectral_window_dict(np.atleast_1d(out_freqs[cen_index]),
+                                                                        np.atleast_1d(channel_freq_width), ref_freq=ref_freq)}
+                        ms_extra.write_dict(spw_dict, caltable.name(), verbose=options.verbose)
+
+                    # done with this caltable
+                    caltable.flush()
+                    caltable.close()
+
+    main_table.close()
+    # done writing main table
