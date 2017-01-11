@@ -402,7 +402,7 @@ class H5DataV3(DataSet):
         # Get the receiver band identity ('l', 's', 'u', 'x') if not overridden
         if not band:
             if 'TelescopeState' in f.file:
-                # AR1 and beyond uses the subarray band attribute / sensor
+                # Newer RTS, AR1 and beyond use the subarray band attribute / sensor
                 try:
                     band = f.file['TelescopeState'].attrs['sub_band']
                     # The telstate attributes were serialised via str() until 2016-11-29
@@ -414,7 +414,7 @@ class H5DataV3(DataSet):
                     except KeyError:
                         band = ''
             else:
-                # Fallback for RTS, with warnings as it is not 100% reliable
+                # Fallback for the original RTS before 2016-07-21 (not reliable)
                 # Find the most common valid indexer position in the subarray
                 positions = Counter()
                 for ant in cam_ants:
