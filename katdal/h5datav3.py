@@ -17,6 +17,7 @@
 """Data accessor class for HDF5 files produced by RTS correlator."""
 
 import logging
+from collections import Counter
 
 import numpy as np
 import h5py
@@ -398,20 +399,43 @@ class H5DataV3(DataSet):
 
         # ------ Extract spectral windows / frequencies ------
 
-        # Get the receiver band identity ('l', 's', 'u', 'x') from the corresponding subarray sensor
-        if not band and 'TelescopeState' in f.file:
-            try:
-                band = f.file['TelescopeState'].attrs['sub_band']
-                # The telstate attributes were serialised via str() until 2016-11-29
-                if band not in ('l', 's', 'u', 'x'):
-                    band = pickle.loads(band)
-            except (KeyError, pickle.UnpicklingError):
+        # Get the receiver band identity ('l', 's', 'u', 'x') if not overridden
+        if not band:
+            if 'TelescopeState' in f.file:
+                # AR1 and beyond uses the subarray band attribute / sensor
                 try:
-                    band = self.sensor['TelescopeState/sub_band'][-1]
-                except KeyError:
+                    band = f.file['TelescopeState'].attrs['sub_band']
+                    # The telstate attributes were serialised via str() until 2016-11-29
+                    if band not in ('l', 's', 'u', 'x'):
+                        band = pickle.loads(band)
+                except (KeyError, pickle.UnpicklingError):
+                    try:
+                        band = self.sensor['TelescopeState/sub_band'][-1]
+                    except KeyError:
+                        band = ''
+            else:
+                # Fallback for RTS, with warnings as it is not 100% reliable
+                # Find the most common valid indexer position in the subarray
+                positions = Counter()
+                for ant in cam_ants:
+                    pos_sensor = 'Antennas/%s/ap_indexer_position' % (ant,)
+                    try:
+                        pos = self.sensor[pos_sensor][-1]
+                    except KeyError:
+                        pos = ''
+                    if pos in ('l', 's', 'u', 'x'):
+                        positions[pos] += 1
+                try:
+                    band = positions.most_common(1)[0][0]
+                except IndexError:
+                    # An empty counter -> no valid positions were found
                     band = ''
-                    logger.warning('Could not figure out receiver band - '
-                                   'please provide it via band parameter')
+                else:
+                    logger.warning('Guessed receiver band from most common '
+                                   'indexer position - this is not reliable!')
+        if not band:
+            logger.warning('Could not figure out receiver band - '
+                           'please provide it via band parameter')
         # Populate antenna -> receiver mapping
         for ant in cam_ants:
             rx_sensor = 'Antennas/%s/rsc_rx%s_serial_number' % (ant, band)
@@ -440,7 +464,7 @@ class H5DataV3(DataSet):
                     siggen_freq = 0.0
             if siggen_freq:
                 spw_params['centre_freq'] = 100. * siggen_freq + 1284e6
-        # Override centre frequency if provided, and quit if none found
+        # Override centre frequency if provided
         if centre_freq:
             spw_params['centre_freq'] = centre_freq
         if 'centre_freq' not in spw_params:
