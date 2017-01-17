@@ -287,7 +287,7 @@ for win in range(len(h5.spectral_windows)):
     ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
 
     # before resetting ms_dict, copy subset to caltable dictionary
-    if options.tables:
+    if options.caltables:
         caltable_dict = {}
         caltable_dict['ANTENNA'] = ms_dict['ANTENNA']
         caltable_dict['OBSERVATION'] = ms_dict['OBSERVATION']
@@ -588,6 +588,7 @@ for win in range(len(h5.spectral_windows)):
                     else:
                         ntimes, npols, nants = solvals.shape
                         nchans = 1
+                        solvals = solvals.reshape(ntimes, nchans, npols, nants)
 
                     # create calibration solution measurement set
                     caltable_desc = ms_extra.caltable_desc_float if sol == 'K' else ms_extra.caltable_desc_complex
@@ -608,15 +609,8 @@ for win in range(len(h5.spectral_windows)):
                     caltable.putinfo({'readme': '', 'subType': ms_soltype_lookup[sol], 'type': 'Calibration'})
 
                     # get the solution data to write to the main table
-                    # stack in time for storing in caltable
-                    solutions_to_write = np.rollaxis(solvals[0],-1,0)
-                    for sol_iter in solvals[1:]:
-                        solutions_to_write = np.vstack([solutions_to_write,np.rollaxis(sol_iter,-1,0)])
-                    solutions_to_write = np.array(solutions_to_write)
+                    solutions_to_write = solvals.transpose(0, 3, 1, 2).reshape(ntimes * nants, nchans, npols)
 
-                    # add extra pseudo channel axis to non-B solutions
-                    if sol != 'B':
-                        solutions_to_write = solutions_to_write[:,np.newaxis,:]
                     # MS's store delays in nanoseconds
                     if sol == 'K':
                         solutions_to_write = 1.0e9*solutions_to_write
