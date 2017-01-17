@@ -89,8 +89,8 @@ parser.add_option("--chanbin", type=int, default=0,
                   help="Bin width for channel averaging in channels, default is no averaging.")
 parser.add_option("--flagav", action="store_true", default=False,
                   help="If a single element in an averaging bin is flagged, flag the averaged bin.")
-parser.add_option("-T", "--tables", action="store_true", default=False,
-                  help="Create calibration tables from gain solutions in the h5 file (if present)")
+parser.add_option("--caltables", action="store_true", default=False,
+                  help="Create calibration tables from gain solutions in the h5 file (if present).")
 
 (options, args) = parser.parse_args()
 
