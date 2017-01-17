@@ -148,13 +148,15 @@ for win in range(len(h5.spectral_windows)):
     # If no output MS filename supplied, infer the output filename
     # from the first hdf5 file.
     if options.output_ms is None:
-      h5base = os.path.splitext(args[0])[0]
-      basename = ('%s_%s' % (h5base, cen_freq)) + \
-               ("." if len(args) == 1 else ".et_al.") + pol_for_name
+      basename = ('%s_%s' % (os.path.splitext(args[0])[0], cen_freq)) + \
+                 ("." if len(args) == 1 else ".et_al.") + pol_for_name
       # create MS in current working directory
       ms_name = basename + ".ms"
     else:
       ms_name = options.output_ms
+    # for the calibration table base name, use the ms name without the .ms extension, if there is a .ms extension
+    # otherwise use the ms name
+    caltable_basename = ms_name[:-3] if ms_name.lower().endswith('.ms') else ms_name
 
     h5.select(spw=win, scans='track', flags=options.flags)
 
@@ -536,7 +538,7 @@ for win in range(len(h5.spectral_windows)):
     #   (can't extract telstate params from contatenated katdal file as it uses the hdf5 file directly)
     h50 = katdal.open(args[0], ref_ant=options.ref_ant)
 
-    if options.tables:
+    if options.caltables:
         # copy extra subtable dictionary values necessary for caltable
         caltable_dict['SPECTRAL_WINDOW'] = ms_dict['SPECTRAL_WINDOW']
         caltable_dict['FIELD'] = ms_dict['FIELD']
@@ -564,7 +566,7 @@ for win in range(len(h5.spectral_windows)):
 
             # for each solution type in the h5 file, create a table
             for sol in solution_types:
-                caltable_name = '{0}.{1}'.format(h5base, sol)
+                caltable_name = '{0}.{1}'.format(caltable_basename, sol)
                 sol_name = 'cal_product_{0}'.format(sol,)
 
                 if sol_name in h50.file['TelescopeState'].keys():
