@@ -557,8 +557,7 @@ for win in range(len(h5.spectral_windows)):
                 antlist = pickle.loads(a0[0][1])
             #   older h5 files have the cal antlist as an attribute
             elif 'cal_antlist' in first_h5.file['TelescopeState'].attrs.keys():
-                a0 = first_h5.file['TelescopeState'].attrs['cal_antlist'].strip().strip(']').strip('[').split(',')
-                antlist = np.array([a.strip().strip("'") for a in a0])
+                antlist = np.safe_eval(first_h5.file['TelescopeState'].attrs['cal_antlist'])
             else:
                 print " No calibration antenna ordering in first H5 file. Can't create solution tables.\n"
                 continue
