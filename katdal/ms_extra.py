@@ -394,9 +394,10 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
 def populate_caltable_main_dict(solution_times, solution_values, antennas, scans):
     """Construct a dictionary containing the columns of the MAIN table.
 
-    The MAIN table contains the visibility data itself. The vis data has shape
-    (num_vis_samples, num_pols, num_channels). The table has one row per
-    visibility sample, which is one row per baseline per snapshot (time sample).
+    The MAIN table contains the gain solution data itself. The shape of the data
+    sepends on the nature of the solution: (npol,1) for gains and delays and
+    (npol, nchan) for bandpasses.
+    The table has one row per antenna per time.
 
     Parameters
     ----------
