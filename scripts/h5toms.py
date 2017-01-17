@@ -536,7 +536,7 @@ for win in range(len(h5.spectral_windows)):
     # Now write calibration product tables if required
     # Open first HDF5 file in the list to extract TelescopeState parameters from
     #   (can't extract telstate params from contatenated katdal file as it uses the hdf5 file directly)
-    h50 = katdal.open(args[0], ref_ant=options.ref_ant)
+    first_h5 = katdal.open(args[0], ref_ant=options.ref_ant)
 
     if options.caltables:
         # copy extra subtable dictionary values necessary for caltable
@@ -547,17 +547,17 @@ for win in range(len(h5.spectral_windows)):
         ms_soltype_lookup = {'G': 'G Jones', 'B': 'B Jones', 'K': 'K Jones'}
 
         print "\nWriting calibration solution tables to disk...."
-        if 'TelescopeState' not in h50.file.keys():
+        if 'TelescopeState' not in first_h5.file.keys():
             print " No TelescopeState in first H5 file. Can't create solution tables.\n"
         else:
             # first get solution antenna ordering
             #   newer h5 files have the cal antlist as a sensor
-            if 'cal_antlist' in h50.file['TelescopeState'].keys():
-                a0 = h50.file['TelescopeState']['cal_antlist'].value
+            if 'cal_antlist' in first_h5.file['TelescopeState'].keys():
+                a0 = first_h5.file['TelescopeState']['cal_antlist'].value
                 antlist = pickle.loads(a0[0][1])
             #   older h5 files have the cal antlist as an attribute
-            elif 'cal_antlist' in h50.file['TelescopeState'].attrs.keys():
-                a0 = h50.file['TelescopeState'].attrs['cal_antlist'].strip().strip(']').strip('[').split(',')
+            elif 'cal_antlist' in first_h5.file['TelescopeState'].attrs.keys():
+                a0 = first_h5.file['TelescopeState'].attrs['cal_antlist'].strip().strip(']').strip('[').split(',')
                 antlist = np.array([a.strip().strip("'") for a in a0])
             else:
                 print " No calibration antenna ordering in first H5 file. Can't create solution tables.\n"
@@ -569,11 +569,11 @@ for win in range(len(h5.spectral_windows)):
                 caltable_name = '{0}.{1}'.format(caltable_basename, sol)
                 sol_name = 'cal_product_{0}'.format(sol,)
 
-                if sol_name in h50.file['TelescopeState'].keys():
+                if sol_name in first_h5.file['TelescopeState'].keys():
                     print ' - creating {0} solution table: {1}\n'.format(sol, caltable_name)
 
                     # get solution values from the h5 file
-                    solutions = h50.file['TelescopeState'][sol_name].value
+                    solutions = first_h5.file['TelescopeState'][sol_name].value
                     soltimes, solvals = [], []
                     for t, s in solutions:
                         soltimes.append(t)
