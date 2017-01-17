@@ -622,6 +622,7 @@ for win in range(len(h5.spectral_windows)):
 
                     times_to_write = np.repeat(sol_mjd, nants)
                     antennas_to_write = np.tile(antlist_indices, ntimes)
+                    # just mock up the scans -- this doesnt actually correspond to scans in the data
                     scans_to_write = np.repeat(range(len(sol_mjd)), nants)
                     # write the main table
                     main_cal_dict = ms_extra.populate_caltable_main_dict(times_to_write, solutions_to_write, antennas_to_write, scans_to_write)
