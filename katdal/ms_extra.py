@@ -26,6 +26,7 @@ This can use either casapy (the default) or pyrap to create the MS.
 
 import sys
 import os.path
+from copy import deepcopy
 
 import numpy as np
 
@@ -64,10 +65,10 @@ except:
 #
 
 
-def std_scalar(comment, valueType='integer', **kwargs):
+def std_scalar(comment, valueType='integer', option=0, **kwargs):
     """Description for standard scalar column."""
     return dict(comment=comment, valueType=valueType, dataManagerType='StandardStMan',
-                dataManagerGroup='StandardStMan', option=0, maxlen=0, **kwargs)
+                dataManagerGroup='StandardStMan', option=option, maxlen=0, **kwargs)
 
 
 def std_array(comment, valueType, ndim, **kwargs):
@@ -243,15 +244,38 @@ ms_desc['POINTING'] = {
 for sub_table in ms_desc:
     define_hypercolumn(ms_desc[sub_table])
 
+caltable_desc = {}
+caltable_desc['TIME'] = std_scalar('Timestamp of solution', 'double', option=5)
+caltable_desc['FIELD_ID'] = std_scalar('Unique id for this pointing', 'integer', option=5)
+caltable_desc['SPECTRAL_WINDOW_ID'] = std_scalar('Spectral window', 'integer', option=5)
+caltable_desc['ANTENNA1'] = std_scalar('ID of first antenna in interferometer', 'integer', option=5)
+caltable_desc['ANTENNA2'] = std_scalar('ID of second antenna in interferometer', 'integer', option=5)
+caltable_desc['INTERVAL'] = std_scalar('The effective integration time', 'double', option=5)
+caltable_desc['SCAN_NUMBER'] = std_scalar('Scan number', 'integer', option=5)
+caltable_desc['OBSERVATION_ID'] = std_scalar('Observation id (index in OBSERVATION table)', 'integer', option=5)
+caltable_desc['PARAMERR'] = std_array('Parameter error', 'float', -1)
+caltable_desc['FLAG'] = std_array('Solution values', 'boolean', -1)
+caltable_desc['SNR'] = std_array('Signal to noise ratio', 'float', -1)
+caltable_desc['WEIGHT'] = std_array('Weight', 'float', -1)
+# float version of caltable
+caltable_desc_float = deepcopy(caltable_desc)
+caltable_desc_float['FPARAM'] = std_array('Solution values', 'float', -1)
+define_hypercolumn(caltable_desc_float)
+# complex version of caltable
+caltable_desc_complex = deepcopy(caltable_desc)
+caltable_desc_complex['CPARAM'] = std_array('Solution values', 'complex', -1)
+define_hypercolumn(caltable_desc_complex)
+
 # Define the appropriate way to open a table using the selected binding
 if casacore_binding == 'casapy':
-    def open_table(filename, readonly=False, ack=False):
-        success = tb.open(filename, nomodify=readonly)
+    def open_table(filename, readonly=False, ack=False, **kwargs):
+        success = tb.open(filename, nomodify=readonly, **kwargs)
         return tb if success else None
 
 elif casacore_binding == 'pyrap':
-    def open_table(filename, readonly=False, ack=False):
-        t = tables.table(filename, readonly=readonly, ack=ack)
+    def open_table(filename, readonly=False, ack=False, **kwargs):
+        t = tables.table(filename, readonly=readonly, ack=ack, **kwargs)
+
         return t if type(t) == tables.table else None
 
 else:
@@ -365,6 +389,51 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
     # Weight for each polarisation spectrum (float, 1-dim)
     main_dict['WEIGHT'] = np.ones((num_vis_samples, num_pols), dtype=np.float32)
     return main_dict
+
+
+def populate_caltable_main_dict(solution_times, solution_values, antennas, scans):
+    """Construct a dictionary containing the columns of the MAIN table.
+
+    The MAIN table contains the gain solution data itself. The shape of the data
+    sepends on the nature of the solution: (npol,1) for gains and delays and
+    (npol, nchan) for bandpasses.
+    The table has one row per antenna per time.
+
+    Parameters
+    ----------
+    solution_times : array of float, shape (num_solutions,)
+        Calibration solution times
+    solution_values : array of float, shape (num_solutions,)
+        Calibration solution values
+    antennas: array of float, shape (num_solutions,)
+        Antenna corresponding to each solution value
+    scans: array of float, shape (num_solutions,)
+        Scan number corresponding to each solution value
+
+    Returns
+    -------
+    calibration_main_dict : dict
+        Dictionary containing columns of the caltable MAIN table
+
+    """
+    num_rows = len(solution_times)
+    calibration_main_dict = {}
+    calibration_main_dict['TIME'] = solution_times
+    calibration_main_dict['FIELD_ID'] = np.zeros(num_rows, dtype=np.int32)
+    calibration_main_dict['SPECTRAL_WINDOW_ID'] = np.zeros(num_rows, dtype=np.int32)
+    calibration_main_dict['ANTENNA1'] = antennas
+    calibration_main_dict['ANTENNA2'] = np.zeros(num_rows, dtype=np.int32)
+    calibration_main_dict['INTERVAL'] = np.zeros(num_rows, dtype=np.int32)
+    calibration_main_dict['SCAN_NUMBER'] = scans
+    calibration_main_dict['OBSERVATION_ID'] = np.zeros(num_rows, dtype=np.int32)
+    if np.iscomplexobj(solution_values):
+        calibration_main_dict['CPARAM'] = solution_values
+    else:
+        calibration_main_dict['FPARAM'] = solution_values
+    calibration_main_dict['PARAMERR'] = np.zeros_like(solution_values, dtype=np.float32)
+    calibration_main_dict['FLAG'] = np.zeros_like(solution_values, dtype=np.int32)
+    calibration_main_dict['SNR'] = np.ones_like(solution_values, dtype=np.float32)
+    return calibration_main_dict
 
 
 def populate_antenna_dict(antenna_names, antenna_positions, antenna_diameters):
@@ -572,7 +641,7 @@ def populate_observation_dict(start_time, end_time, telescope_name='unknown',
     return observation_dict
 
 
-def populate_spectral_window_dict(center_frequencies, channel_bandwidths):
+def populate_spectral_window_dict(center_frequencies, channel_bandwidths, ref_freq=None):
     """Construct a dictionary containing the columns of the SPECTRAL_WINDOW subtable.
 
     The SPECTRAL_WINDOW subtable describes groupings of frequency channels into
@@ -621,7 +690,10 @@ def populate_spectral_window_dict(center_frequencies, channel_bandwidths):
     # Number of spectral channels (integer)
     spectral_window_dict['NUM_CHAN'] = np.array([num_channels], dtype=np.int32)
     # The reference frequency (double) - pick the frequency of the middle channel
-    spectral_window_dict['REF_FREQUENCY'] = np.array([center_frequencies[num_channels // 2]], dtype=np.float64)
+    if ref_freq is None:
+        spectral_window_dict['REF_FREQUENCY'] = np.array([center_frequencies[num_channels // 2]], dtype=np.float64)
+    else:
+        spectral_window_dict['REF_FREQUENCY'] = np.array([ref_freq], dtype=np.float64)
     # The effective noise bandwidth for each channel (double, 1-dim)
     spectral_window_dict['RESOLUTION'] = np.array([channel_bandwidths], dtype=np.float64)
     # The total bandwidth for this window (double)
