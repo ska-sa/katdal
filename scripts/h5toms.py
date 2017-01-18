@@ -339,6 +339,7 @@ for win in range(len(h5.spectral_windows)):
 
     field_names, field_centers, field_times = [], [], []
     obs_modes = ['UNKNOWN']
+    total_size_mb = 0.0
 
     for scan_ind, scan_state, target in h5.scans():
         s = time.time()
@@ -360,7 +361,7 @@ for win in range(len(h5.spectral_windows)):
         # Get the average dump time for this scan (equal to scan length if the dump period is longer than a scan)
         dump_time_width = min(time_av, scan_len * h5.dump_period)
 
-        sz_mb = 0.0
+        scan_size_mb = 0.0
         # Get UTC timestamps
         utc_seconds = h5.timestamps[:]
         # Update field lists if this is a new target
@@ -495,20 +496,24 @@ for win in range(len(h5.spectral_windows)):
             ms_extra.write_rows(main_table, main_dict, verbose=options.verbose)
 
             # Increment the filesize.
-            sz_mb += vis_data.dtype.itemsize * vis_data.size / (1024.0 * 1024.0)
-            sz_mb += weight_data.dtype.itemsize * weight_data.size / (1024.0 * 1024.0)
-            sz_mb += flag_data.dtype.itemsize * flag_data.size / (1024.0 * 1024.0)
+            scan_size_mb += vis_data.dtype.itemsize * vis_data.size / (1024.0 * 1024.0)
+            scan_size_mb += weight_data.dtype.itemsize * weight_data.size / (1024.0 * 1024.0)
+            scan_size_mb += flag_data.dtype.itemsize * flag_data.size / (1024.0 * 1024.0)
 
             if options.model_data:
-                sz_mb += model_data.dtype.itemsize * model_data.size / (1024.0 * 1024.0)
-                sz_mb += corrected_data.dtype.itemsize * corrected_data.size / (1024.0 * 1024.0)
+                scan_size_mb += model_data.dtype.itemsize * model_data.size / (1024.0 * 1024.0)
+                scan_size_mb += corrected_data.dtype.itemsize * corrected_data.size / (1024.0 * 1024.0)
 
         s1 = time.time() - s
         if average_data and utc_seconds.shape != ntime_av:
             print "Averaged %s x %s second dumps to %s x %s second dumps" % \
                   (np.shape(utc_seconds)[0], h5.dump_period, ntime_av, dump_time_width)
-        print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (sz_mb, s1, sz_mb / s1)
+        print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (scan_size_mb, s1, scan_size_mb / s1)
         scan_itr += 1
+        total_size_mb += scan_size_mb
+
+    if total_size_mb == 0.0:
+        raise RuntimeError("No usable data found in HDF5 file (pick another reference antenna, maybe?)")
 
     # Remove spaces from source names, unless otherwise specified
     field_names = [f.replace(' ', '') for f in field_names] if not options.keep_spaces else field_names
