@@ -148,12 +148,12 @@ for win in range(len(h5.spectral_windows)):
     # If no output MS filename supplied, infer the output filename
     # from the first hdf5 file.
     if options.output_ms is None:
-      basename = ('%s_%s' % (os.path.splitext(args[0])[0], cen_freq)) + \
-                 ("." if len(args) == 1 else ".et_al.") + pol_for_name
-      # create MS in current working directory
-      ms_name = basename + ".ms"
+        basename = ('%s_%s' % (os.path.splitext(args[0])[0], cen_freq)) + \
+                   ("." if len(args) == 1 else ".et_al.") + pol_for_name
+        # create MS in current working directory
+        ms_name = basename + ".ms"
     else:
-      ms_name = options.output_ms
+        ms_name = options.output_ms
     # for the calibration table base name, use the ms name without the .ms extension, if there is a .ms extension
     # otherwise use the ms name
     caltable_basename = ms_name[:-3] if ms_name.lower().endswith('.ms') else ms_name
@@ -300,15 +300,14 @@ for win in range(len(h5.spectral_windows)):
     main_table = ms_extra.open_main(ms_name, verbose=options.verbose)
     corrprod_to_index = dict([(tuple(cp), ind) for cp, ind in zip(h5.corr_products, range(len(h5.corr_products)))])
 
-    #==========================================
+    # ==========================================
     # Generate per-baseline antenna pairs and
     # correlator product indices
-    #==========================================
+    # ==========================================
 
     # Generate baseline antenna pairs
     na = len(h5.ants)
-    ant1_index, ant2_index = np.triu_indices(na,
-        1 if options.no_auto else 0)
+    ant1_index, ant2_index = np.triu_indices(na, 1 if options.no_auto else 0)
     ant1 = [h5.ants[a1] for a1 in ant1_index]
     ant2 = [h5.ants[a2] for a2 in ant2_index]
 
@@ -327,8 +326,8 @@ for win in range(len(h5.spectral_windows)):
 
     # Create actual correlator product index
     cp_index = np.asarray([_cp_index(a1, a2, p)
-        for a1, a2 in itertools.izip(ant1, ant2)
-        for p in pols_to_use])
+                           for a1, a2 in itertools.izip(ant1, ant2)
+                           for p in pols_to_use])
 
     # Identify missing correlator products
     # Reshape for broadcast on time and frequency dimensions
@@ -340,6 +339,7 @@ for win in range(len(h5.spectral_windows)):
 
     field_names, field_centers, field_times = [], [], []
     obs_modes = ['UNKNOWN']
+    total_size_mb = 0.0
 
     for scan_ind, scan_state, target in h5.scans():
         s = time.time()
@@ -361,7 +361,7 @@ for win in range(len(h5.spectral_windows)):
         # Get the average dump time for this scan (equal to scan length if the dump period is longer than a scan)
         dump_time_width = min(time_av, scan_len * h5.dump_period)
 
-        sz_mb = 0.0
+        scan_size_mb = 0.0
         # Get UTC timestamps
         utc_seconds = h5.timestamps[:]
         # Update field lists if this is a new target
@@ -393,7 +393,7 @@ for win in range(len(h5.spectral_windows)):
         tsize = dump_av
         ntime_av = 0
 
-        for ltime in xrange(0,ntime-tsize+1,tsize):
+        for ltime in xrange(0, ntime - tsize + 1, tsize):
 
             utime = ltime + tsize
             tdiff = utime - ltime
@@ -410,15 +410,15 @@ for win in range(len(h5.spectral_windows)):
             # Select correlator products
             # cp_index could be used above when the LazyIndexer
             # supports advanced integer indices
-            vis_data = scan_data[:,:,cp_index]
+            vis_data = scan_data[:, :, cp_index]
 
-            weight_data = scan_weight_data[:,:,cp_index]
-            flag_data = scan_flag_data[:,:,cp_index]
+            weight_data = scan_weight_data[:, :, cp_index]
+            flag_data = scan_flag_data[:, :, cp_index]
 
             # Zero and flag any missing correlator products
-            vis_data[:,:,missing_cp] = 0 + 0j
-            weight_data[:,:,missing_cp] = 0
-            flag_data[:,:,missing_cp] = True
+            vis_data[:, :, missing_cp] = 0 + 0j
+            weight_data[:, :, missing_cp] = 0
+            flag_data[:, :, missing_cp] = True
 
             out_utc = utc_seconds[ltime:utime]
 
@@ -431,7 +431,7 @@ for win in range(len(h5.spectral_windows)):
                 # Infer new time and channel dimensions from averaged data
                 tdiff, nchan = vis_data.shape[0], vis_data.shape[1]
 
-            #Increment the number of averaged dumps
+            # Increment the number of averaged dumps
             ntime_av += tdiff
 
             def _separate_baselines_and_pols(array):
@@ -441,8 +441,7 @@ for win in range(len(h5.spectral_windows)):
                 (3) group time and baseline together
                 """
                 S = array.shape[:2] + (nbl, npol)
-                return (array.reshape(S).transpose(0,2,1,3)
-                    .reshape(-1,nchan,npol))
+                return array.reshape(S).transpose(0, 2, 1, 3).reshape(-1, nchan, npol)
 
             def _create_uvw(a1, a2, times):
                 """
@@ -455,30 +454,29 @@ for win in range(len(h5.spectral_windows)):
             # Massage visibility, weight and flag data from
             # (ntime, nchan, nbl*npol) ordering to (ntime*nbl, nchan, npol)
             vis_data, weight_data, flag_data = (_separate_baselines_and_pols(a)
-                for a in (vis_data, weight_data, flag_data))
+                                                for a in (vis_data, weight_data, flag_data))
 
             # Iterate through baselines, computing UVW coordinates
             # for a chunk of timesteps
             uvw_coordinates = np.concatenate([
-              _create_uvw(a1, a2, out_utc)[:,np.newaxis,:]
-              for a1, a2 in itertools.izip(ant1, ant2)],
-                axis=1).reshape(-1, 3)
+                _create_uvw(a1, a2, out_utc)[:, np.newaxis, :]
+                for a1, a2 in itertools.izip(ant1, ant2)], axis=1).reshape(-1, 3)
 
             # Convert averaged UTC timestamps to MJD seconds.
             # Blow time up to (ntime*nbl,)
             out_mjd = np.asarray([katpoint.Timestamp(time_utc).to_mjd() * 24 * 60 * 60
-                for time_utc in out_utc])
+                                  for time_utc in out_utc])
 
-            out_mjd = np.broadcast_to(out_mjd[:,np.newaxis], (tdiff, nbl)).ravel()
+            out_mjd = np.broadcast_to(out_mjd[:, np.newaxis], (tdiff, nbl)).ravel()
 
             # Repeat antenna indices to (ntime*nbl,)
-            a1 = np.broadcast_to(ant1_index[np.newaxis,:], (tdiff, nbl)).ravel()
-            a2 = np.broadcast_to(ant2_index[np.newaxis,:], (tdiff, nbl)).ravel()
+            a1 = np.broadcast_to(ant1_index[np.newaxis, :], (tdiff, nbl)).ravel()
+            a2 = np.broadcast_to(ant2_index[np.newaxis, :], (tdiff, nbl)).ravel()
 
             # Blow field ID up to (ntime*nbl,)
-            big_field_id = np.full((tdiff*nbl,), field_id, dtype=np.int32)
-            big_state_id = np.full((tdiff*nbl,), state_id, dtype=np.int32)
-            big_scan_itr = np.full((tdiff*nbl,), scan_itr, dtype=np.int32)
+            big_field_id = np.full((tdiff * nbl,), field_id, dtype=np.int32)
+            big_state_id = np.full((tdiff * nbl,), state_id, dtype=np.int32)
+            big_scan_itr = np.full((tdiff * nbl,), scan_itr, dtype=np.int32)
 
             # Setup model_data and corrected_data if required
             model_data = None
@@ -498,21 +496,24 @@ for win in range(len(h5.spectral_windows)):
             ms_extra.write_rows(main_table, main_dict, verbose=options.verbose)
 
             # Increment the filesize.
-            sz_mb += vis_data.dtype.itemsize * vis_data.size / (1024.0 * 1024.0)
-            sz_mb += weight_data.dtype.itemsize * weight_data.size / (1024.0 * 1024.0)
-            sz_mb += flag_data.dtype.itemsize * flag_data.size / (1024.0 * 1024.0)
+            scan_size_mb += vis_data.dtype.itemsize * vis_data.size / (1024.0 * 1024.0)
+            scan_size_mb += weight_data.dtype.itemsize * weight_data.size / (1024.0 * 1024.0)
+            scan_size_mb += flag_data.dtype.itemsize * flag_data.size / (1024.0 * 1024.0)
 
             if options.model_data:
-                sz_mb += model_data.dtype.itemsize * model_data.size / (1024.0 * 1024.0)
-                sz_mb += corrected_data.dtype.itemsize * corrected_data.size / (1024.0 * 1024.0)
-
+                scan_size_mb += model_data.dtype.itemsize * model_data.size / (1024.0 * 1024.0)
+                scan_size_mb += corrected_data.dtype.itemsize * corrected_data.size / (1024.0 * 1024.0)
 
         s1 = time.time() - s
         if average_data and utc_seconds.shape != ntime_av:
             print "Averaged %s x %s second dumps to %s x %s second dumps" % \
                   (np.shape(utc_seconds)[0], h5.dump_period, ntime_av, dump_time_width)
-        print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (sz_mb, s1, sz_mb / s1)
+        print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (scan_size_mb, s1, scan_size_mb / s1)
         scan_itr += 1
+        total_size_mb += scan_size_mb
+
+    if total_size_mb == 0.0:
+        raise RuntimeError("No usable data found in HDF5 file (pick another reference antenna, maybe?)")
 
     # Remove spaces from source names, unless otherwise specified
     field_names = [f.replace(' ', '') for f in field_names] if not options.keep_spaces else field_names
@@ -603,7 +604,8 @@ for win in range(len(h5.spectral_windows)):
                     caltable.putkeyword('VisCal', ms_soltype_lookup[sol])
                     caltable.putkeyword('PolBasis', 'unknown')
                     # add necessary units
-                    caltable.putcolkeywords('TIME', {'MEASINFO': {'Ref': 'UTC', 'type': 'epoch'}, 'QuantumUnits': ['s']})
+                    caltable.putcolkeywords('TIME', {'MEASINFO': {'Ref': 'UTC', 'type': 'epoch'},
+                                                     'QuantumUnits': ['s']})
                     caltable.putcolkeywords('INTERVAL', {'QuantumUnits': ['s']})
                     # specify that this is a calibration table
                     caltable.putinfo({'readme': '', 'subType': ms_soltype_lookup[sol], 'type': 'Calibration'})
@@ -613,14 +615,15 @@ for win in range(len(h5.spectral_windows)):
 
                     # MS's store delays in nanoseconds
                     if sol == 'K':
-                        solutions_to_write = 1.0e9*solutions_to_write
+                        solutions_to_write = 1e9 * solutions_to_write
 
                     times_to_write = np.repeat(sol_mjd, nants)
                     antennas_to_write = np.tile(antlist_indices, ntimes)
                     # just mock up the scans -- this doesnt actually correspond to scans in the data
                     scans_to_write = np.repeat(range(len(sol_mjd)), nants)
                     # write the main table
-                    main_cal_dict = ms_extra.populate_caltable_main_dict(times_to_write, solutions_to_write, antennas_to_write, scans_to_write)
+                    main_cal_dict = ms_extra.populate_caltable_main_dict(times_to_write, solutions_to_write,
+                                                                         antennas_to_write, scans_to_write)
                     ms_extra.write_rows(caltable, main_cal_dict, verbose=options.verbose)
 
                     # create and write subtables
@@ -640,20 +643,22 @@ for win in range(len(h5.spectral_windows)):
                     # instead try just copying the main table subtables
                     #   this works to plot the data casapy, but the solutions still can't be applied in casapy...
                     for subtable, subtable_location in zip(subtables, subtable_key):
-                        main_subtable = ms_extra.open_table(main_table.name()+'/'+subtable)
+                        main_subtable = ms_extra.open_table(os.path.join(main_table.name(), subtable))
                         main_subtable.copy(subtable_location, deep=True)
                         caltable.putkeyword(subtable, 'Table: {0}'.format(subtable_location))
                         if subtable == 'ANTENNA':
-                            caltable.putkeyword('NAME',antlist)
-                            caltable.putkeyword('STATION',antlist)
+                            caltable.putkeyword('NAME', antlist)
+                            caltable.putkeyword('STATION', antlist)
                     if sol != 'B':
                         spw_table = ms_extra.open_table(os.path.join(caltable.name(), 'SPECTRAL_WINDOW'))
                         spw_table.removerows(spw_table.rownumbers())
-                        cen_index = len(out_freqs)//2
+                        cen_index = len(out_freqs) // 2
                         # the delay values in the cal pipeline are calculated relative to frequency 0
                         ref_freq = 0.0 if sol == 'K' else None
-                        spw_dict = {'SPECTRAL_WINDOW': ms_extra.populate_spectral_window_dict(np.atleast_1d(out_freqs[cen_index]),
-                                                                        np.atleast_1d(channel_freq_width), ref_freq=ref_freq)}
+                        spw_dict = {'SPECTRAL_WINDOW':
+                                    ms_extra.populate_spectral_window_dict(np.atleast_1d(out_freqs[cen_index]),
+                                                                           np.atleast_1d(channel_freq_width),
+                                                                           ref_freq=ref_freq)}
                         ms_extra.write_dict(spw_dict, caltable.name(), verbose=options.verbose)
 
                     # done with this caltable

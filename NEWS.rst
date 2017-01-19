@@ -1,6 +1,13 @@
 History
 =======
 
+0.7.1 (2017-01-19)
+------------------
+
+* Fix MODEL_DATA / CORRECTED_DATA shapes in h5toms
+* Produce calibration solution tables in h5toms and improve error messages
+* Autodetect receiver band on older RTS files
+
 0.7 (2016-12-14)
 ----------------
 
