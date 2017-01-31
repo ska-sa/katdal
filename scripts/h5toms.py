@@ -321,21 +321,6 @@ for win in range(len(h5.spectral_windows)):
     # Version 1 and 2 files are KAT-7; the rest are MeerKAT
     telescope_name = 'KAT-7' if h5.version[0] in '12' else 'MeerKAT'
 
-    ms_dict = {}
-    ms_dict['ANTENNA'] = ms_extra.populate_antenna_dict([ant.name for ant in h5.ants],
-                                                        [ant.position_ecef for ant in h5.ants],
-                                                        [ant.diameter for ant in h5.ants])
-    ms_dict['FEED'] = ms_extra.populate_feed_dict(len(h5.ants), num_receptors_per_feed=2)
-    ms_dict['DATA_DESCRIPTION'] = ms_extra.populate_data_description_dict()
-    ms_dict['POLARIZATION'] = ms_extra.populate_polarization_dict(ms_pols=pols_to_use,
-                                                                  stokes_i=(options.HH or options.VV),
-                                                                  circular=options.circular)
-    ms_dict['OBSERVATION'] = ms_extra.populate_observation_dict(start_time, end_time, telescope_name,
-                                                                h5.observer, h5.experiment_id)
-
-    print "Writing static meta data..."
-    ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
-
     # before resetting ms_dict, copy subset to caltable dictionary
     if options.caltables:
         caltable_dict = {}
@@ -355,6 +340,29 @@ for win in range(len(h5.spectral_windows)):
     field_names, field_centers, field_times = [], [], []
     obs_modes = ['UNKNOWN']
     total_size_mb = 0.0
+
+    # Create the MeasurementSet
+    table_desc = ms_extra.kat_ms_desc(nflagcat=1, nchan=nchan, ncorr=npol)
+    ms_extra.create_ms(ms_name, table_desc)
+
+    #  prepare to write main dict
+    main_table = ms_extra.open_main(ms_name, verbose=options.verbose)
+
+    ms_dict = {}
+    ms_dict['ANTENNA'] = ms_extra.populate_antenna_dict([ant.name for ant in h5.ants],
+                                                        [ant.position_ecef for ant in h5.ants],
+                                                        [ant.diameter for ant in h5.ants])
+    ms_dict['FEED'] = ms_extra.populate_feed_dict(len(h5.ants), num_receptors_per_feed=2)
+    ms_dict['DATA_DESCRIPTION'] = ms_extra.populate_data_description_dict()
+    ms_dict['POLARIZATION'] = ms_extra.populate_polarization_dict(ms_pols=pols_to_use,
+                                                                  stokes_i=(options.HH or options.VV),
+                                                                  circular=options.circular)
+    ms_dict['OBSERVATION'] = ms_extra.populate_observation_dict(start_time, end_time, telescope_name,
+                                                                h5.observer, h5.experiment_id)
+
+    print "Writing static meta data..."
+    ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
+
 
     for scan_ind, scan_state, target in h5.scans():
         s = time.time()
