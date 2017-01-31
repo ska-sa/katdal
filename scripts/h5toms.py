@@ -273,18 +273,22 @@ for win in range(len(h5.spectral_windows)):
     # Are we averaging?
     average_data = False
 
+    # Determine the number of channels
+    nchan = len(h5.channels)
+
     # Work out channel average and frequency increment
     if options.chanbin > 1:
         average_data = True
         # Check how many channels we are dropping
-        numchans = len(h5.channels)
-        chan_remainder = numchans % options.chanbin
+        chan_remainder = nchan % options.chanbin
+        avg_nchan = int(nchan / min(nchan, options.chanbin))
         print "Averaging %s channels, output ms will have %s channels." % \
-              (options.chanbin, int(numchans / min(numchans, options.chanbin)))
+              (options.chanbin, avg_nchan)
         if chan_remainder > 0:
             print "The last %s channels in the data will be dropped during averaging " \
-                  "(%s does not divide %s)." % (chan_remainder, options.chanbin, numchans)
+                  "(%s does not divide %s)." % (chan_remainder, options.chanbin, nchan)
         chan_av = options.chanbin
+        nchan = avg_nchan
     else:
         # No averaging in channel
         chan_av = 1
@@ -334,7 +338,6 @@ for win in range(len(h5.spectral_windows)):
 
     cp_info = corrprod_index_and_missing_mask(h5)
     nbl = cp_info.ant1_index.size
-    nchan = h5.channel_freqs.size
     npol = len(pols_to_use)
 
     field_names, field_centers, field_times = [], [], []
