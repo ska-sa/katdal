@@ -20,6 +20,7 @@
 # 1 and 2) or MeerKAT HDF5 file (version 3) using the casapy table tools
 # in the ms_extra module (or pyrap/casacore if casapy is not available).
 
+from collections import namedtuple
 import itertools
 import os
 import shutil
@@ -34,7 +35,6 @@ import katpoint
 import katdal
 from katdal import averager
 from katdal import ms_extra
-
 
 tag_to_intent = {'gaincal': 'CALIBRATE_PHASE,CALIBRATE_AMPLI',
                  'bpcal': 'CALIBRATE_BANDPASS,CALIBRATE_FLUX',
@@ -130,6 +130,61 @@ pol_for_name = 'hh' if options.HH else \
                'full_pol' if options.full_pol else \
                'circular_pol' if options.circular else \
                'hh_vv'
+
+def antenna_indices(na, no_auto_corr):
+  """ Get default antenna1 and antenna2 arrays """
+  return np.triu_indices(na, 1 if no_auto_corr else 0)
+
+def corrprod_index_and_missing_mask(h5):
+  """
+  Return the correlator product index and mask representing
+  missing correlator products
+  """
+  corrprod_to_index = dict([(tuple(cp), ind) for cp, ind
+      in zip(h5.corr_products, range(len(h5.corr_products)))])
+
+  # ==========================================
+  # Generate per-baseline antenna pairs and
+  # correlator product indices
+  # ==========================================
+
+  # Generate baseline antenna pairs
+  auto_cor = options.no_auto == False
+  ant1_index, ant2_index = antenna_indices(len(h5.ants), auto_cor)
+  ant1 = [h5.ants[a1] for a1 in ant1_index]
+  ant2 = [h5.ants[a2] for a2 in ant2_index]
+
+  def _cp_index(a1, a2, pol):
+      """
+      Create individual correlator product index
+      from antenna pair and polarisation
+      """
+      a1 = "%s%s" % (a1.name, pol[0].lower())
+      a2 = "%s%s" % (a2.name, pol[1].lower())
+
+      return corrprod_to_index.get((a1, a2))
+
+  nbl = ant1_index.size
+  npol = len(pols_to_use)
+
+  # Create actual correlator product index
+  cp_index = np.asarray([_cp_index(a1, a2, p)
+                         for a1, a2 in itertools.izip(ant1, ant2)
+                         for p in pols_to_use])
+
+  # Identify missing correlator products
+  # Reshape for broadcast on time and frequency dimensions
+  missing_cp = np.logical_not([i is not None for i in cp_index])
+
+  # Zero any None indices, but use the above masks to reason
+  # about there existence in later code
+  cp_index[missing_cp] = 0
+
+  CPInfo = namedtuple("CPInfo", ["ant1_index", "ant2_index",
+                                "ant1", "ant2",
+                                "cp_index", "missing_cp"])
+
+  return CPInfo(ant1_index, ant2_index, ant1, ant2, cp_index, missing_cp)
 
 # Open HDF5 file
 # if len(args) == 1: args = args[0]
@@ -296,46 +351,11 @@ for win in range(len(h5.spectral_windows)):
     # increment scans sequentially in the ms
     scan_itr = 1
     print "\nIterating through scans in file(s)...\n"
-    #  prepare to write main dict
-    main_table = ms_extra.open_main(ms_name, verbose=options.verbose)
-    corrprod_to_index = dict([(tuple(cp), ind) for cp, ind in zip(h5.corr_products, range(len(h5.corr_products)))])
 
-    # ==========================================
-    # Generate per-baseline antenna pairs and
-    # correlator product indices
-    # ==========================================
-
-    # Generate baseline antenna pairs
-    na = len(h5.ants)
-    ant1_index, ant2_index = np.triu_indices(na, 1 if options.no_auto else 0)
-    ant1 = [h5.ants[a1] for a1 in ant1_index]
-    ant2 = [h5.ants[a2] for a2 in ant2_index]
-
-    def _cp_index(a1, a2, pol):
-        """
-        Create individual correlator product index
-        from antenna pair and polarisation
-        """
-        a1 = "%s%s" % (a1.name, pol[0].lower())
-        a2 = "%s%s" % (a2.name, pol[1].lower())
-
-        return corrprod_to_index.get((a1, a2))
-
-    nbl = ant1_index.size
+    cp_info = corrprod_index_and_missing_mask(h5)
+    nbl = cp_info.ant1_index.size
+    nchan = h5.channel_freqs.size
     npol = len(pols_to_use)
-
-    # Create actual correlator product index
-    cp_index = np.asarray([_cp_index(a1, a2, p)
-                           for a1, a2 in itertools.izip(ant1, ant2)
-                           for p in pols_to_use])
-
-    # Identify missing correlator products
-    # Reshape for broadcast on time and frequency dimensions
-    missing_cp = np.logical_not([i is not None for i in cp_index])
-
-    # Zero any None indices, but use the above masks to reason
-    # about there existence in later code
-    cp_index[missing_cp] = 0
 
     field_names, field_centers, field_times = [], [], []
     obs_modes = ['UNKNOWN']
@@ -410,15 +430,15 @@ for win in range(len(h5.spectral_windows)):
             # Select correlator products
             # cp_index could be used above when the LazyIndexer
             # supports advanced integer indices
-            vis_data = scan_data[:, :, cp_index]
+            vis_data = scan_data[:, :, cp_info.cp_index]
 
-            weight_data = scan_weight_data[:, :, cp_index]
-            flag_data = scan_flag_data[:, :, cp_index]
+            weight_data = scan_weight_data[:, :, cp_info.cp_index]
+            flag_data = scan_flag_data[:, :, cp_info.cp_index]
 
             # Zero and flag any missing correlator products
-            vis_data[:, :, missing_cp] = 0 + 0j
-            weight_data[:, :, missing_cp] = 0
-            flag_data[:, :, missing_cp] = True
+            vis_data[:, :, cp_info.missing_cp] = 0 + 0j
+            weight_data[:, :, cp_info.missing_cp] = 0
+            flag_data[:, :, cp_info.missing_cp] = True
 
             out_utc = utc_seconds[ltime:utime]
 
@@ -458,9 +478,9 @@ for win in range(len(h5.spectral_windows)):
 
             # Iterate through baselines, computing UVW coordinates
             # for a chunk of timesteps
-            uvw_coordinates = np.concatenate([
-                _create_uvw(a1, a2, out_utc)[:, np.newaxis, :]
-                for a1, a2 in itertools.izip(ant1, ant2)], axis=1).reshape(-1, 3)
+            uvw_coordinates = np.concatenate([_create_uvw(a1, a2, out_utc)[:, np.newaxis, :]
+                        for a1, a2 in itertools.izip(cp_info.ant1, cp_info.ant2)],
+                          axis=1).reshape(-1, 3)
 
             # Convert averaged UTC timestamps to MJD seconds.
             # Blow time up to (ntime*nbl,)
@@ -470,8 +490,8 @@ for win in range(len(h5.spectral_windows)):
             out_mjd = np.broadcast_to(out_mjd[:, np.newaxis], (tdiff, nbl)).ravel()
 
             # Repeat antenna indices to (ntime*nbl,)
-            a1 = np.broadcast_to(ant1_index[np.newaxis, :], (tdiff, nbl)).ravel()
-            a2 = np.broadcast_to(ant2_index[np.newaxis, :], (tdiff, nbl)).ravel()
+            a1 = np.broadcast_to(cp_info.ant1_index[np.newaxis, :], (tdiff, nbl)).ravel()
+            a2 = np.broadcast_to(cp_info.ant2_index[np.newaxis, :], (tdiff, nbl)).ravel()
 
             # Blow field ID up to (ntime*nbl,)
             big_field_id = np.full((tdiff * nbl,), field_id, dtype=np.int32)
