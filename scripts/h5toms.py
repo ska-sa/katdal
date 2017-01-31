@@ -218,11 +218,6 @@ for win in range(len(h5.spectral_windows)):
     # The first step is to copy the blank template MS to our desired output (making sure it's not already there)
     if os.path.exists(ms_name):
         raise RuntimeError("MS '%s' already exists - please remove it before running this script" % (ms_name,))
-    try:
-        shutil.copytree(options.blank_ms, ms_name)
-    except OSError:
-        raise RuntimeError("Failed to copy blank MS from %s to %s - please check presence "
-                           "of blank MS and/or permissions" % (options.blank_ms, ms_name))
 
     print "Will create MS output in", ms_name
 
