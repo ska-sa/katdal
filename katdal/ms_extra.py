@@ -93,7 +93,7 @@ def tiled_array(comment, valueType, ndim, dataManagerGroup, **kwargs):
 def define_hypercolumn(desc):
     """Add hypercolumn definitions to table description."""
     desc['_define_hypercolumn_'] = dict([(v['dataManagerGroup'],
-                                          dict(HCdatanames=[k], HCndim=v['ndim'] + 1, HCcoordnames=[], HCidnames=[]))
+                                          dict(HCdatanames=[k], HCndim=v['ndim'] + 1))
                                          for k, v in desc.iteritems() if v['dataManagerType'] == 'TiledShapeStMan'])
 
 ms_desc = {}
