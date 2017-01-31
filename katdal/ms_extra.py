@@ -174,15 +174,26 @@ if casacore_binding == 'casapy':
         success = tb.open(filename, nomodify=readonly, **kwargs)
         return tb if success else None
 
+    def create_ms(filename):
+        raise NotImplementedError("create_ms not implemented for casapy")
+
 elif casacore_binding == 'pyrap':
     def open_table(filename, readonly=False, ack=False, **kwargs):
         t = tables.table(filename, readonly=readonly, ack=ack, **kwargs)
 
         return t if type(t) == tables.table else None
 
+    def create_ms(filename, table_desc=None):
+        tables.default_ms(filename, table_desc)
+
 else:
     def open_table(filename, readonly=False):
-        raise ImportError("Cannot open MS '%s', as neither casapy nor pyrap were found" % (filename,))
+        raise NotImplementedError("Cannot open MS '%s', as neither "
+                                    "casapy nor pyrap were found" % (filename,))
+
+    def create_ms(filename):
+        raise NotImplementedError("Cannot create MS '%s', as neither "
+                                    "casapy nor pyrap were found" % (filename,))
 
 
 # -------- Routines that create MS data structures in dictionaries -----------
