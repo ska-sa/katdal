@@ -116,10 +116,10 @@ def kat_ms_desc(nflagcat, nchan, ncorr):
 
     table_desc = {
         'WEIGHT': tiled_array("Weight for each polarization spectrum",
-                            'float', 1, 'WeightHyperColumn', shape=[nchan]),
+                            'float', 1, 'WeightHyperColumn', shape=[ncorr]),
         'SIGMA': tiled_array("Estimated rms noise for channel "
                             "with unity bandpass response",
-                            'float', 1, 'SigmaHyperColumn', shape=[nchan]),
+                            'float', 1, 'SigmaHyperColumn', shape=[ncorr]),
         'IMAGING_WEIGHT': tiled_array("Weight set by imaging task "
                             "(e.g. uniform weighting)",
                             'float', 1, 'ImagingWeightHyperColumn', shape=[nchan]),
