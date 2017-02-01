@@ -116,29 +116,29 @@ def kat_ms_desc(nflagcat, nchan, ncorr):
 
     table_desc = {
         'WEIGHT': tiled_array("Weight for each polarization spectrum",
-                            'float', 1, 'WeightColumn', shape=[nchan]),
+                            'float', 1, 'WeightHyperColumn', shape=[nchan]),
         'SIGMA': tiled_array("Estimated rms noise for channel "
                             "with unity bandpass response",
-                            'float', 1, 'SigmaColumn', shape=[nchan]),
+                            'float', 1, 'SigmaHyperColumn', shape=[nchan]),
         'IMAGING_WEIGHT': tiled_array("Weight set by imaging task "
                             "(e.g. uniform weighting)",
-                            'float', 1, 'imWeightHyperColumn', shape=[nchan]),
+                            'float', 1, 'ImagingWeightHyperColumn', shape=[nchan]),
         'DATA': tiled_array("The data column",
-                            'complex', 2, 'dataHyperColumn',
+                            'complex', 2, 'DataHyperColumn',
                             shape=[nchan, ncorr]),
         'MODEL_DATA': tiled_array("The model data column",
-                            'complex', 2, 'ModelDataColumn',
+                            'complex', 2, 'ModelDataHyperColumn',
                             shape=[nchan, ncorr]),
         'CORRECTED_DATA': tiled_array("The corrected data column",
-                            'complex', 2, 'CorrectedDataColumn',
+                            'complex', 2, 'CorrectedDataHyperColumn',
                             shape=[nchan, ncorr]),
         'FLAG': tiled_array("The data flags, "
                             "array of bools with same shape as data",
-                            'boolean', 2, 'FlagColumn',
+                            'boolean', 2, 'FlagHyperColumn',
                             shape=[nchan, ncorr]),
         'FLAG_CATEGORY': tiled_array("The flag category, "
                             "NUM_CAT flags for each datum",
-                            'boolean', 3, 'flagHyperColumn',
+                            'boolean', 3, 'FlagCategoryHyperColumn',
                             shape=[nflagcat, nchan, ncorr]),
     }
 
