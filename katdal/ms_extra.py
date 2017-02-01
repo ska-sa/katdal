@@ -290,7 +290,7 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
     # Sequential scan number from on-line system (integer)
     main_dict['SCAN_NUMBER'] = scan_number
     # Estimated rms noise for channel with unity bandpass response (float, 1-dim)
-    main_dict['SIGMA'] = np.ones((num_vis_samples, num_channels), dtype=np.float32)
+    main_dict['SIGMA'] = np.ones((num_vis_samples, num_pols), dtype=np.float32)
     # ID for this observing state (integer)
     main_dict['STATE_ID'] = state_id
     # Modified Julian Dates in seconds (double)
@@ -300,7 +300,7 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
     # Vector with uvw coordinates (in metres) (double, 1-dim, shape=(3,))
     main_dict['UVW'] = np.asarray(uvw_coordinates)
     # Weight for each polarisation spectrum (float, 1-dim)
-    main_dict['WEIGHT'] = np.ones((num_vis_samples, num_channels), dtype=np.float32)
+    main_dict['WEIGHT'] = np.ones((num_vis_samples, num_pols), dtype=np.float32)
     return main_dict
 
 
