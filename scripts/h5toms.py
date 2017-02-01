@@ -514,11 +514,13 @@ for win in range(len(h5.spectral_windows)):
                 # corrected data set copied from vis_data
                 corrected_data = vis_data
 
-            # write the data to the ms.
-            main_dict = ms_extra.populate_main_dict(uvw_coordinates, vis_data, flag_data,
-                                                    out_mjd, a1, a2,
-                                                    dump_time_width, big_field_id, big_state_id,
-                                                    big_scan_itr, model_data, corrected_data)
+            # Populate dictionary for write to MS
+            main_dict = ms_extra.populate_main_dict(uvw_coordinates, vis_data,
+                                flag_data, out_mjd, a1, a2,
+                                dump_time_width, big_field_id, big_state_id,
+                                big_scan_itr, model_data, corrected_data)
+
+            # Write data to MS.
             ms_extra.write_rows(main_table, main_dict, verbose=options.verbose)
 
             # Calculate bytes written from the summed arrays in the dict
@@ -526,17 +528,23 @@ for win in range(len(h5.spectral_windows)):
                               if isinstance(a, np.ndarray))
 
         s1 = time.time() - s
+
         if average_data and utc_seconds.shape != ntime_av:
-            print "Averaged %s x %s second dumps to %s x %s second dumps" % \
-                  (np.shape(utc_seconds)[0], h5.dump_period, ntime_av, dump_time_width)
+            print "Averaged %s x %s second dumps to %s x %s second dumps" % (
+                                    np.shape(utc_seconds)[0], h5.dump_period,
+                                    ntime_av, dump_time_width)
 
         scan_size_mb = float(scan_size) / (1024**2)
-        print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (scan_size_mb, s1, scan_size_mb / s1)
+
+        print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (
+                                    scan_size_mb, s1, scan_size_mb / s1)
+
         scan_itr += 1
         total_size += scan_size
 
     if total_size == 0:
-        raise RuntimeError("No usable data found in HDF5 file (pick another reference antenna, maybe?)")
+        raise RuntimeError("No usable data found in HDF5 file "
+                           "(pick another reference antenna, maybe?)")
 
     # Remove spaces from source names, unless otherwise specified
     field_names = [f.replace(' ', '') for f in field_names] if not options.keep_spaces else field_names
