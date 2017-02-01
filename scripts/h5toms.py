@@ -403,11 +403,9 @@ for win in range(len(h5.spectral_windows)):
         field_id = field_names.index(target.name)
 
         # Determine the observation tag for this scan
-        obs_tag = []
-        for tag in target.tags:
-            if tag in tag_to_intent:
-                obs_tag.append(tag_to_intent[tag])
-        obs_tag = ','.join(obs_tag)
+        obs_tag = ','.join(tag_to_intent[tag] for tag in target.tags
+                                            if tag in tag_to_intent)
+
         # add tag to obs_modes list
         if obs_tag and obs_tag not in obs_modes:
             obs_modes.append(obs_tag)
