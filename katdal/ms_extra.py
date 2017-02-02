@@ -44,26 +44,6 @@ except:
     except ImportError:
         casacore_binding = ''
 
-# Table descriptions for the standard MS tables
-# ---------------------------------------------
-# These dicts are used to create a new MS via pyrap. They are obtained by first
-# creating a blank MS in CASA, using::
-#
-#   sm.open('blank.ms')
-#   sm.close()
-#
-# The structure of this MS is then extracted in pyrap by getting the description
-# of the MAIN and sub-tables::
-#
-#   import pyrap.tables as tables
-#   import os
-#   ms_name = 'blank.ms'
-#   ms_desc = {'MAIN' : tables.table(ms_name).getdesc(actual=False)}
-#   for sub_table in os.walk(ms_name).next()[1]:
-#       ms_desc[sub_table] = tables.table(os.path.join(ms_name, sub_table)).getdesc(actual=False)
-#   ...
-#
-
 
 def std_scalar(comment, valueType='integer', option=0, **kwargs):
     """Description for standard scalar column."""
@@ -113,6 +93,9 @@ def kat_ms_desc(nflagcat, nchan, ncorr):
     :return: Returns a table description describing the extra columns and
              hypercolumns
     """
+
+    if not casacore_binding == 'pyrap':
+
 
     table_desc = {
         'WEIGHT': tiled_array("Weight for each polarization spectrum",
