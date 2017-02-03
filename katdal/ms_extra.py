@@ -76,58 +76,163 @@ def define_hypercolumn(desc):
                                           dict(HCdatanames=[k], HCndim=v['ndim'] + 1))
                                          for k, v in desc.iteritems() if v['dataManagerType'] == 'TiledShapeStMan'])
 
-def kat_ms_desc(nflagcat, nchan, ncorr):
+def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
     """
-    Creates additional columns and hypercolumns for creating a MeasurementSet
-    suitable for holding MeerKAT data.
+    Creates Table Description and Data Manager Information objecs that
+    describe a MeasurementSet suitable for holding MeerKAT data.
 
-    Columns are given fixed shapes in terms of the arguments to this function.
-    Hypercolumns are defined over them.
+    Creates additional DATA, IMAGING_WEIGHT and possibly
+    MODEL_DATA and CORRECTED_DATA columns.
 
-    Columns are DATA, MODEL_DATA, CORRECTED_DATA, FLAG,
-    FLAG_CATEGORY, WEIGHT, SIGMA, IMAGING_WEIGHT.
+    Columns are given fixed shapes defined by the arguments to this function.
 
-    :param nflagcat: Number of flag categories. 1 is a sensible option here.
+    :param nbl: Number of baselines.
     :param nchan: Number of channels.
     :param ncorr: Number of correlations.
-    :return: Returns a table description describing the extra columns and
-             hypercolumns
+    :param model_data: Boolean indicated whether MODEL_DATA and CORRECTED_DATA
+                        should be added to the Measurement Set.
+    :return: Returns a tuple containing a table description describing
+            the extra columns and hypercolumns, as well as a Data Manager
+            description.
     """
 
     if not casacore_binding == 'pyrap':
+        raise ValueError("kat_ms_desc_and_dminfo requires the "
+                        "casacore binding to operate")
+
+    # Columns that will be modified.
+    # We want to keep things like their
+    # keywords, dims and shapes
+    modify_columns = { "WEIGHT", "SIGMA", "FLAG", "FLAG_CATEGORY",
+                                    "UVW", "ANTENNA1", "ANTENNA2" }
+
+    # Get the required table descriptor for an MS
+    table_desc = tables.required_ms_desc("MAIN")
+
+    # Take columns we wish to modify
+    extra_table_desc = { c: d for c, d in table_desc.iteritems()
+                                        if c in modify_columns }
+
+    # Used to set the SPEC for each Data Manager Group
+    dmgroup_spec = {}
+
+    def dmspec(shape, extra_shape):
+        """
+        Create data manager spec, mostly be adding a DEFAULTTILESHAPE
+        composed of reversed shape with extra_shape appended to it.
+        """
+        rs = list(reversed(shape)) # Reverse, annoying
+        return { "DEFAULTTILESHAPE" : np.int32(rs + extra_shape) }
 
 
-    table_desc = {
-        'WEIGHT': tiled_array("Weight for each polarization spectrum",
-                            'float', 1, 'WeightHyperColumn', shape=[ncorr]),
-        'SIGMA': tiled_array("Estimated rms noise for channel "
-                            "with unity bandpass response",
-                            'float', 1, 'SigmaHyperColumn', shape=[ncorr]),
-        'IMAGING_WEIGHT': tiled_array("Weight set by imaging task "
-                            "(e.g. uniform weighting)",
-                            'float', 1, 'ImagingWeightHyperColumn', shape=[nchan]),
-        'DATA': tiled_array("The data column",
-                            'complex', 2, 'DataHyperColumn',
-                            shape=[nchan, ncorr]),
-        'MODEL_DATA': tiled_array("The model data column",
-                            'complex', 2, 'ModelDataHyperColumn',
-                            shape=[nchan, ncorr]),
-        'CORRECTED_DATA': tiled_array("The corrected data column",
-                            'complex', 2, 'CorrectedDataHyperColumn',
-                            shape=[nchan, ncorr]),
-        'FLAG': tiled_array("The data flags, "
-                            "array of bools with same shape as data",
-                            'boolean', 2, 'FlagHyperColumn',
-                            shape=[nchan, ncorr]),
-        'FLAG_CATEGORY': tiled_array("The flag category, "
-                            "NUM_CAT flags for each datum",
-                            'boolean', 3, 'FlagCategoryHyperColumn',
-                            shape=[nflagcat, nchan, ncorr]),
-    }
+    # Update existing columns with shape and data manager information
+    dm_group = 'UVW'
+    shape = [3]
+    dmgroup_spec[dm_group] = dmspec(shape, [2*nbl])
+    extra_table_desc["UVW"].update(options=0,
+        shape=shape, ndim=len(shape),
+        dataManagerGroup=dm_group,
+        dataManagerType='TiledColumnStMan')
 
-    define_hypercolumn(table_desc)
+    dm_group = 'Weight'
+    shape = [ncorr]
+    dmgroup_spec[dm_group] = dmspec(shape, [2*nbl])
+    extra_table_desc["WEIGHT"].update(options=4,
+        shape=shape, ndim=len(shape),
+        dataManagerGroup=dm_group,
+        dataManagerType='TiledColumnStMan')
 
-    return table_desc
+    dm_group = 'Sigma'
+    shape = [ncorr]
+    dmgroup_spec[dm_group] = dmspec(shape, [2*nbl])
+    extra_table_desc["SIGMA"].update(options=4,
+        shape=shape, ndim=len(shape),
+        dataManagerGroup=dm_group,
+        dataManagerType='TiledColumnStMan')
+
+
+    dm_group = 'Flag'
+    shape=[nchan, ncorr]
+    dmgroup_spec[dm_group] = dmspec(shape, [2*nbl])
+    extra_table_desc["FLAG"].update(options=4,
+        shape=shape, ndim=len(shape),
+        dataManagerGroup=dm_group,
+        dataManagerType='TiledColumnStMan')
+
+
+    dm_group = 'FlagCategory'
+    shape = [1, nchan, ncorr]
+    dmgroup_spec[dm_group] = dmspec(shape, [2*nbl])
+    extra_table_desc["FLAG_CATEGORY"].update(options=4,
+        shape=shape, ndim=len(shape),
+        dataManagerGroup=dm_group,
+        dataManagerType='TiledColumnStMan')
+
+
+    # Create new columns for integration into the MS
+    additional_columns = []
+
+    dm_group = 'Data'
+    shape = [nchan, ncorr]
+    dmgroup_spec[dm_group] = dmspec(shape, [2*nbl])
+    desc = tables.tablecreatearraycoldesc("DATA", 0+0j,
+            comment="The Visibility DATA Column",
+            options=4, valuetype='complex',
+            keywords={ "UNIT": "Jy" },
+            shape=shape, ndim=len(shape),
+            datamanagergroup=dm_group,
+            datamanagertype='TiledColumnStMan')
+    additional_columns.append(desc)
+
+    dm_group = 'ImagingWeight'
+    shape = [nchan]
+    dmgroup_spec[dm_group] = dmspec(shape, [2*nbl])
+    desc = tables.tablecreatearraycoldesc("IMAGING_WEIGHT", 0,
+            comment="Weight set by imaging task (e.g. uniform weighting)",
+            options=4, valuetype='float',
+            shape=shape, ndim=len(shape),
+            datamanagergroup=dm_group,
+            datamanagertype='TiledColumnStMan')
+    additional_columns.append(desc)
+
+    # Add MODEL_DATA and CORRECTED_DATA if requested
+    if model_data == True:
+        dm_group = 'ModelData'
+        shape=[nchan, ncorr]
+        dmgroup_spec[dm_group] = dmspec(shape, [2*nbl])
+        desc = tables.tablecreatearraycoldesc("MODEL_DATA", 0+0j,
+                comment="The Visibility MODEL_DATA Column",
+                options=4, valuetype='complex',
+                keywords={ "UNIT": "Jy" },
+                shape=shape, ndim=len(shape),
+                datamanagergroup=dm_group,
+                datamanagertype='TiledColumnStMan')
+        additional_columns.append(desc)
+
+        dm_group = 'CorrectedData'
+        shape=[nchan, ncorr]
+        dmgroup_spec[dm_group] = dmspec(shape, [2*nbl])
+        desc = tables.tablecreatearraycoldesc("CORRECTED_DATA", 0+0j,
+                comment="The Visibility CORRECTED_DATA Column",
+                options=4, valuetype='complex',
+                keywords={ "UNIT": "Jy" },
+                shape=shape, ndim=len(shape),
+                datamanagergroup=dm_group,
+                datamanagertype='TiledColumnStMan')
+        additional_columns.append(desc)
+
+    # Update extra table description with additional columns
+    extra_table_desc.update(tables.maketabdesc(additional_columns))
+
+    # Update the original table descriptor with modifications/additions
+    # Need thisto construct a complete Data Manager specification
+    # that includes the original columns
+    table_desc.update(extra_table_desc)
+
+    # Construct DataManager Specification
+    dminfo = tables.makedminfo(table_desc, dmgroup_spec)
+
+    return extra_table_desc, dminfo
 
 caltable_desc = {}
 caltable_desc['TIME'] = std_scalar('Timestamp of solution', 'double', option=5)
@@ -157,7 +262,7 @@ if casacore_binding == 'casapy':
         success = tb.open(filename, nomodify=readonly, **kwargs)
         return tb if success else None
 
-    def create_ms(filename):
+    def create_ms(filename, table_desc=None, dm_info=None):
         raise NotImplementedError("create_ms not implemented for casapy")
 
 elif casacore_binding == 'pyrap':
@@ -166,15 +271,15 @@ elif casacore_binding == 'pyrap':
 
         return t if type(t) == tables.table else None
 
-    def create_ms(filename, table_desc=None):
-        tables.default_ms(filename, table_desc)
+    def create_ms(filename, table_desc=None, dm_info=None):
+        tables.default_ms(filename, table_desc, dm_info)
 
 else:
     def open_table(filename, readonly=False):
         raise NotImplementedError("Cannot open MS '%s', as neither "
                                     "casapy nor pyrap were found" % (filename,))
 
-    def create_ms(filename):
+    def create_ms(filename, table_desc=None, dm_info=None):
         raise NotImplementedError("Cannot create MS '%s', as neither "
                                     "casapy nor pyrap were found" % (filename,))
 

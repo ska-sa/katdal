@@ -345,8 +345,9 @@ for win in range(len(h5.spectral_windows)):
     total_size = 0
 
     # Create the MeasurementSet
-    table_desc = ms_extra.kat_ms_desc(nflagcat=1, nchan=nchan, ncorr=npol)
-    ms_extra.create_ms(ms_name, table_desc)
+    table_desc, dminfo = ms_extra.kat_ms_desc_and_dminfo(nbl=nbl,
+      nchan=nchan, ncorr=npol, model_data=options.model_data)
+    ms_extra.create_ms(ms_name, table_desc, dminfo)
 
     #  prepare to write main dict
     main_table = ms_extra.open_main(ms_name, verbose=options.verbose)
