@@ -25,6 +25,7 @@ This can use either casapy (the default) or pyrap to create the MS.
 #
 
 import sys
+import os
 import os.path
 from copy import deepcopy
 
@@ -118,7 +119,7 @@ def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
 
     def dmspec(shape, extra_shape):
         """
-        Create data manager spec, mostly be adding a DEFAULTTILESHAPE
+        Create data manager spec, mostly by adding a DEFAULTTILESHAPE
         composed of reversed shape with extra_shape appended to it.
         """
         rs = list(reversed(shape)) # Reverse, annoying
@@ -272,7 +273,11 @@ elif casacore_binding == 'pyrap':
         return t if type(t) == tables.table else None
 
     def create_ms(filename, table_desc=None, dm_info=None):
-        tables.default_ms(filename, table_desc, dm_info)
+        with tables.default_ms(filename, table_desc, dm_info) as T:
+            # Add the SOURCE subtable
+            source_filename = os.path.join(os.getcwd(), filename, "SOURCE")
+            tables.default_ms_subtable("SOURCE", source_filename)
+            T.putkeyword("SOURCE", "Table: %s" % source_filename)
 
 else:
     def open_table(filename, readonly=False):
