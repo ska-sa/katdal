@@ -77,6 +77,16 @@ def define_hypercolumn(desc):
                                           dict(HCdatanames=[k], HCndim=v['ndim'] + 1))
                                          for k, v in desc.iteritems() if v['dataManagerType'] == 'TiledShapeStMan'])
 
+# Map Measurement Set string types to numpy types
+MS_TO_NP_TYPE_MAP = {
+    'INT' : np.int32,
+    'FLOAT' : np.float32,
+    'DOUBLE' : np.float64,
+    'BOOLEAN' : np.bool,
+    'COMPLEX' : np.complex64,
+    'DCOMPLEX' : np.complex128
+}
+
 def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
     """
     Creates Table Description and Data Manager Information objecs that
@@ -117,57 +127,75 @@ def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
     # Used to set the SPEC for each Data Manager Group
     dmgroup_spec = {}
 
-    def dmspec(shape, extra_shape):
+    def dmspec(coldesc, tile_mem_limit=None):
         """
-        Create data manager spec, mostly by adding a DEFAULTTILESHAPE
-        composed of reversed shape with extra_shape appended to it.
+        Create data manager spec for a given column description,
+        mostly by adding a DEFAULTTILESHAPE that fits into the
+        supplied memory limit.
         """
-        rs = list(reversed(shape)) # Reverse, annoying
-        return { "DEFAULTTILESHAPE" : np.int32(rs + extra_shape) }
 
+        # Choose 4MB if none given
+        if tile_mem_limit is None:
+            tile_mem_limit = 4*1024*1024
+
+        # Get the reversed column shape. DEFAULTTILESHAPE is deep in
+        # casacore and its necessary to specify their ordering here
+        # ntilerows is the dim that will change least quickly
+        rev_shape = list(reversed(coldesc["shape"]))
+
+        ntilerows = 1
+        np_dtype = MS_TO_NP_TYPE_MAP[coldesc["valueType"].upper()]
+        nbytes = np.dtype(np_dtype).itemsize
+
+        # Try bump up the number of rows in our tiles while they're
+        # below the memory limit for the tile
+        while np.product(rev_shape + [2*ntilerows])*nbytes < tile_mem_limit:
+            ntilerows *= 2
+
+        return { "DEFAULTTILESHAPE" : np.int32(rev_shape + [ntilerows]) }
 
     # Update existing columns with shape and data manager information
     dm_group = 'UVW'
     shape = [3]
-    dmgroup_spec[dm_group] = dmspec(shape, [2*nbl])
     extra_table_desc["UVW"].update(options=0,
         shape=shape, ndim=len(shape),
         dataManagerGroup=dm_group,
         dataManagerType='TiledColumnStMan')
+    dmgroup_spec[dm_group] = dmspec(extra_table_desc["UVW"])
 
     dm_group = 'Weight'
     shape = [ncorr]
-    dmgroup_spec[dm_group] = dmspec(shape, [2*nbl])
     extra_table_desc["WEIGHT"].update(options=4,
         shape=shape, ndim=len(shape),
         dataManagerGroup=dm_group,
         dataManagerType='TiledColumnStMan')
+    dmgroup_spec[dm_group] = dmspec(extra_table_desc["WEIGHT"])
 
     dm_group = 'Sigma'
     shape = [ncorr]
-    dmgroup_spec[dm_group] = dmspec(shape, [2*nbl])
     extra_table_desc["SIGMA"].update(options=4,
         shape=shape, ndim=len(shape),
         dataManagerGroup=dm_group,
         dataManagerType='TiledColumnStMan')
+    dmgroup_spec[dm_group] = dmspec(extra_table_desc["SIGMA"])
 
 
     dm_group = 'Flag'
     shape=[nchan, ncorr]
-    dmgroup_spec[dm_group] = dmspec(shape, [2*nbl])
     extra_table_desc["FLAG"].update(options=4,
         shape=shape, ndim=len(shape),
         dataManagerGroup=dm_group,
         dataManagerType='TiledColumnStMan')
+    dmgroup_spec[dm_group] = dmspec(extra_table_desc["FLAG"])
 
 
     dm_group = 'FlagCategory'
     shape = [1, nchan, ncorr]
-    dmgroup_spec[dm_group] = dmspec(shape, [2*nbl])
     extra_table_desc["FLAG_CATEGORY"].update(options=4,
         shape=shape, ndim=len(shape),
         dataManagerGroup=dm_group,
         dataManagerType='TiledColumnStMan')
+    dmgroup_spec[dm_group] = dmspec(extra_table_desc["FLAG_CATEGORY"])
 
 
     # Create new columns for integration into the MS
@@ -175,7 +203,6 @@ def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
 
     dm_group = 'Data'
     shape = [nchan, ncorr]
-    dmgroup_spec[dm_group] = dmspec(shape, [2*nbl])
     desc = tables.tablecreatearraycoldesc("DATA", 0+0j,
             comment="The Visibility DATA Column",
             options=4, valuetype='complex',
@@ -183,24 +210,24 @@ def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
             shape=shape, ndim=len(shape),
             datamanagergroup=dm_group,
             datamanagertype='TiledColumnStMan')
+    dmgroup_spec[dm_group] = dmspec(desc["desc"])
     additional_columns.append(desc)
 
     dm_group = 'ImagingWeight'
     shape = [nchan]
-    dmgroup_spec[dm_group] = dmspec(shape, [2*nbl])
     desc = tables.tablecreatearraycoldesc("IMAGING_WEIGHT", 0,
             comment="Weight set by imaging task (e.g. uniform weighting)",
             options=4, valuetype='float',
             shape=shape, ndim=len(shape),
             datamanagergroup=dm_group,
             datamanagertype='TiledColumnStMan')
+    dmgroup_spec[dm_group] = dmspec(desc["desc"])
     additional_columns.append(desc)
 
     # Add MODEL_DATA and CORRECTED_DATA if requested
     if model_data == True:
         dm_group = 'ModelData'
         shape=[nchan, ncorr]
-        dmgroup_spec[dm_group] = dmspec(shape, [2*nbl])
         desc = tables.tablecreatearraycoldesc("MODEL_DATA", 0+0j,
                 comment="The Visibility MODEL_DATA Column",
                 options=4, valuetype='complex',
@@ -208,11 +235,11 @@ def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
                 shape=shape, ndim=len(shape),
                 datamanagergroup=dm_group,
                 datamanagertype='TiledColumnStMan')
+        dmgroup_spec[dm_group] = dmspec(desc["desc"])
         additional_columns.append(desc)
 
         dm_group = 'CorrectedData'
         shape=[nchan, ncorr]
-        dmgroup_spec[dm_group] = dmspec(shape, [2*nbl])
         desc = tables.tablecreatearraycoldesc("CORRECTED_DATA", 0+0j,
                 comment="The Visibility CORRECTED_DATA Column",
                 options=4, valuetype='complex',
@@ -220,13 +247,14 @@ def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
                 shape=shape, ndim=len(shape),
                 datamanagergroup=dm_group,
                 datamanagertype='TiledColumnStMan')
+        dmgroup_spec[dm_group] = dmspec(desc["desc"])
         additional_columns.append(desc)
 
     # Update extra table description with additional columns
     extra_table_desc.update(tables.maketabdesc(additional_columns))
 
     # Update the original table descriptor with modifications/additions
-    # Need thisto construct a complete Data Manager specification
+    # Need this to construct a complete Data Manager specification
     # that includes the original columns
     table_desc.update(extra_table_desc)
 
