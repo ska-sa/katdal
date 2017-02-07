@@ -715,7 +715,7 @@ def populate_source_dict(phase_centers, time_origins, center_frequencies, field_
     completeness it is included here (with no time varying terms).
     """
     num_channels = len(center_frequencies)
-    phase_centers = np.atleast_2d(np.asarray(phase_centers, np.float64))[:, np.newaxis, :]
+    phase_centers = np.atleast_2d(np.asarray(phase_centers, np.float64))
     num_fields = len(phase_centers)
     if field_names is None:
         field_names = ['Source%d' % (field,) for field in range(num_fields)]
