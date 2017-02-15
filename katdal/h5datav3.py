@@ -476,8 +476,10 @@ class H5DataV3(DataSet):
         # XXX Cater for future narrowband mode, at some stage
         num_chans = cbf_group.attrs['n_chans']
         if num_chans != self._vis.shape[1]:
-            raise BrokenFile('Number of channels received from correlator '
-                             '(%d) differs from number of channels in data (%d)' % (num_chans, self._vis.shape[1]))
+            logger.warning('Number of channels received from correlator (%d) differs '
+                           'from number of channels in data (%d) - trusting the latter',
+                           num_chans, self._vis.shape[1])
+            num_chans = self._vis.shape[1]
         bandwidth = cbf_group.attrs['bandwidth']
         # Work around a bc856M4k CBF bug active from 2016-04-28 to 2016-06-01 that got the bandwidth wrong
         if bandwidth == 857152196.0:
