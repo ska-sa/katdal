@@ -465,6 +465,22 @@ class H5DataV3(DataSet):
                     pass
             if siggen_freq:
                 spw_params['centre_freq'] = 100. * siggen_freq + 1284e6
+        # XXX Cater for future narrowband mode, at some stage
+        num_chans = cbf_group.attrs['n_chans']
+        bandwidth = cbf_group.attrs['bandwidth']
+        # Work around a bc856M4k CBF bug active from 2016-04-28 to 2016-06-01 that got the bandwidth wrong
+        if bandwidth == 857152196.0:
+            logger.warning('Worked around CBF bandwidth bug (857.152 MHz -> 856.000 MHz)')
+            bandwidth = 856000000.0
+        # Get channel width from original CBF parameters
+        spw_params['channel_width'] = bandwidth / num_chans
+        # Continue with different channel count, but invalidate centre freq (keep channel width though)
+        if num_chans != self._vis.shape[1]:
+            logger.warning('Number of channels received from correlator (%d) differs '
+                           'from number of channels in data (%d) - trusting the latter',
+                           num_chans, self._vis.shape[1])
+            num_chans = self._vis.shape[1]
+            spw_params.pop('centre_freq', None)
         # Override centre frequency if provided
         if centre_freq:
             spw_params['centre_freq'] = centre_freq
@@ -473,20 +489,7 @@ class H5DataV3(DataSet):
             spw_params['centre_freq'] = 0.0
             logger.warning('Could not figure out centre frequency, setting it to 0 Hz - '
                            'please provide it via centre_freq parameter')
-        # XXX Cater for future narrowband mode, at some stage
-        num_chans = cbf_group.attrs['n_chans']
-        if num_chans != self._vis.shape[1]:
-            logger.warning('Number of channels received from correlator (%d) differs '
-                           'from number of channels in data (%d) - trusting the latter',
-                           num_chans, self._vis.shape[1])
-            num_chans = self._vis.shape[1]
-        bandwidth = cbf_group.attrs['bandwidth']
-        # Work around a bc856M4k CBF bug active from 2016-04-28 to 2016-06-01 that got the bandwidth wrong
-        if bandwidth == 857152196.0:
-            logger.warning('Worked around CBF bandwidth bug (857.152 MHz -> 856.000 MHz)')
-            bandwidth = 856000000.0
         spw_params['num_chans'] = num_chans
-        spw_params['channel_width'] = bandwidth / num_chans
         # The data product is set by the script or passed to it via schedule block
         spw_params['product'] = self.obs_params.get('product', '')
         # We only expect a single spectral window within a single v3 file,
