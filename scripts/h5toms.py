@@ -119,7 +119,8 @@ h5 = katdal.open(args, ref_ant=options.ref_ant)
 pols_in_file = list(np.unique([(cp[0][-1] + cp[1][-1]).upper() for cp in h5.corr_products]))
 
 #Which polarisation do we want to write into the MS
-#all possible pols if full-pol selected, otherwise the selected polarisations via pols_to_use.
+#all possible pols if full-pol selected, otherwise the selected polarisations via pols_to_use
+#finally select any of HH,VV present (the default).
 pols_to_use = ['HH', 'HV', 'VH', 'VV'] if (options.full_pol or options.circular) else \
               options.pols_to_use.split(',') if options.pols_to_use else \
               [pol for pol in ['HH','VV'] if pol in pols_in_file]
@@ -184,12 +185,10 @@ for win in range(len(h5.spectral_windows)):
         print "\nThe MS can be converted into a uvfits file in casapy, with the command:"
         print "      exportuvfits(vis='%s', fitsfile='%s', datacolumn='data')\n" % (ms_name, uv_name)
 
-    if options.HH or options.VV:
-        print "\n#### Producing Stokes I MS using " + ('HH' if options.HH else 'VV') + " only ####\n"
-    elif options.full_pol:
+    if options.full_pol:
         print "\n#### Producing a full polarisation MS (HH,HV,VH,VV) ####\n"
     else:
-        print "\n#### Producing a two polarisation MS (HH, VV) ####\n"
+        print "\n#### Producing MS with %s polarisations ####\n"%(','.join(pols_to_use))
 
     # # Open HDF5 file
     # if len(args) == 1: args = args[0]
