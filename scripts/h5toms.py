@@ -120,13 +120,13 @@ if not ms_extra.casacore_binding:
 else:
     print "Using '%s' casacore binding to produce MS" % (ms_extra.casacore_binding,)
 
-#  which polarisation do we want to write into the MS and pull from the HDF5 file
+# which polarisation do we want to write into the MS and pull from the HDF5 file
 pols_to_use = ['HH'] if options.HH else \
               ['VV'] if options.VV else \
               ['HH', 'HV', 'VH', 'VV'] if (options.full_pol or options.circular) else \
-              ['HH', 'VV']
-pol_for_name = 'hh' if options.HH else \
-               'vv' if options.VV else \
+              list(np.sort(np.unique([(inp[-1]*2).upper() for inp in h5.inputs])))
+pol_for_name = 'hh' if pols_to_use == ['HH'] else \
+               'vv' if pols_to_use == ['VV'] else \
                'full_pol' if options.full_pol else \
                'circular_pol' if options.circular else \
                'hh_vv'
