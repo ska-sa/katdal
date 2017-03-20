@@ -132,7 +132,7 @@ if np.any([pol not in pols_in_file for pol in pols_to_use]):
 
 #Set full_pol if this is selected via options.pols_to_use
 if set(pols_to_use) == set(['HH', 'HV', 'VH', 'VV']) and not options.circular:
-    options.full_pol==True
+    options.full_pol=True
 
 pol_for_name = 'full_pol' if options.full_pol else \
                'circular_pol' if options.circular else \
