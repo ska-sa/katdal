@@ -769,7 +769,7 @@ def populate_field_dict(phase_centers, time_origins, field_names=None):
     # Direction of REFERENCE center (e.g. RA, DEC) as polynomial in time (double, 2-dim)
     field_dict['REFERENCE_DIR'] = phase_centers
     # Source id (integer), or a value of -1 indicates there is no corresponding source defined
-    field_dict['SOURCE_ID'] = - np.ones(num_fields, dtype=np.int32)
+    field_dict['SOURCE_ID'] = np.arange(num_fields) # the same as source id
     # Time origin for direction and rate (double)
     field_dict['TIME'] = np.atleast_1d(np.asarray(time_origins, dtype=np.float64))
     return field_dict
