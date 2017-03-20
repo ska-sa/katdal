@@ -116,25 +116,27 @@ else:
 h5 = katdal.open(args, ref_ant=options.ref_ant)
 
 #Get list of unique polarisation products in the file
-pols_in_file = list(np.unique([(cp[0][-1] + cp[1][-1]).upper() for cp in h5.corr_products]))
+pols_in_file = np.unique([(cp[0][-1] + cp[1][-1]).upper() for cp in h5.corr_products])
 
 #Which polarisation do we want to write into the MS
-#all possible pols if full-pol selected, otherwise the selected polarisations via pols_to_use
-#finally select any of HH,VV present (the default).
+#select all possible pols if full-pol selected, otherwise the selected polarisations via pols_to_use
+#otherwise finally select any of HH,VV present (the default).
 pols_to_use = ['HH', 'HV', 'VH', 'VV'] if (options.full_pol or options.circular) else \
-              options.pols_to_use.split(',') if options.pols_to_use else \
+              list(np.unique(options.pols_to_use.split(','))) if options.pols_to_use else \
               [pol for pol in ['HH','VV'] if pol in pols_in_file]
 
 #Check we have the chosen polarisations
 if np.any([pol not in pols_in_file for pol in pols_to_use]):
-    raise RuntimeError("Selected polarisation products: %s are not available. "
-                       "Available polarisations are: %s"%(','.join(pols_to_use),','.join(pols_in_file)))
+    raise RuntimeError("Selected polarisation(s): %s not available. "
+                       "Available polarisation(s): %s"%(','.join(pols_to_use),','.join(pols_in_file)))
 
-pol_for_name = 'hh' if pols_to_use == ['HH'] else \
-               'vv' if pols_to_use == ['VV'] else \
-               'full_pol' if options.full_pol else \
+#Set full_pol if this is selected via options.pols_to_use
+if set(pols_to_use) == set(['HH', 'HV', 'VH', 'VV']) and not options.circular:
+    options.full_pol==True
+
+pol_for_name = 'full_pol' if options.full_pol else \
                'circular_pol' if options.circular else \
-               'hh_vv'
+               '_'.join(pols_to_use).lower()
 
 # ms_name = os.path.splitext(args[0])[0] + ("." if len(args) == 1 else ".et_al.") + pol_for_name + ".ms"
 
@@ -188,7 +190,7 @@ for win in range(len(h5.spectral_windows)):
     if options.full_pol:
         print "\n#### Producing a full polarisation MS (HH,HV,VH,VV) ####\n"
     else:
-        print "\n#### Producing MS with %s polarisations ####\n"%(','.join(pols_to_use))
+        print "\n#### Producing MS with %s polarisation(s) ####\n"%(','.join(pols_to_use))
 
     # # Open HDF5 file
     # if len(args) == 1: args = args[0]
