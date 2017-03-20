@@ -276,7 +276,6 @@ for win in range(len(h5.spectral_windows)):
     ms_dict['FEED'] = ms_extra.populate_feed_dict(len(h5.ants), num_receptors_per_feed=2)
     ms_dict['DATA_DESCRIPTION'] = ms_extra.populate_data_description_dict()
     ms_dict['POLARIZATION'] = ms_extra.populate_polarization_dict(ms_pols=pols_to_use,
-                                                                  stokes_i=(options.HH or options.VV),
                                                                   circular=options.circular)
     ms_dict['OBSERVATION'] = ms_extra.populate_observation_dict(start_time, end_time, telescope_name,
                                                                 h5.observer, h5.experiment_id)
