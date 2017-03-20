@@ -60,10 +60,8 @@ parser.add_option("-v", "--verbose", action="store_true", default=False,
                   help="More verbose progress information")
 parser.add_option("-w", "--stop-w", action="store_true", default=False,
                   help="Use W term to stop fringes for each baseline")
-parser.add_option("-x", "--HH", action="store_true", default=False,
-                  help="Produce a Stokes I MeasurementSet using only HH")
-parser.add_option("-y", "--VV", action="store_true", default=False,
-                  help="Produce a Stokes I MeasurementSet using only VV")
+parser.add_option("-p", "--pols-to-use", default=None,
+                  help="Select polarisation products to include in MS from HH,VV,HV,VH, default is all available from HH,VV")
 parser.add_option("-u", "--uvfits", action="store_true", default=False,
                   help="Print command to convert MS to miriad uvfits in casapy")
 parser.add_option("-a", "--no-auto", action="store_true", default=False,
@@ -98,14 +96,6 @@ if len(args) < 1 or not args[0].endswith(".h5"):
     parser.print_help()
     raise RuntimeError("Please provide one or more HDF5 filenames as arguments")
 
-if options.HH and options.VV:
-    raise RuntimeError("You cannot include both HH and VV in the production of "
-                       "Stokes I (i.e. you specified --HH and --VV).")
-
-if options.full_pol and (options.HH or options.VV):
-    raise RuntimeError("You have specified a full pol MS but also chosen to produce "
-                       "Stokes I (either HH or VV). Choose one or the other.")
-
 if options.elevation_range and len(options.elevation_range.split(',')) < 2:
     raise RuntimeError("You have selected elevation flagging. Please provide elevation "
                        "limits in the form 'lowest_elevation,highest_elevation'.")
@@ -120,21 +110,30 @@ if not ms_extra.casacore_binding:
 else:
     print "Using '%s' casacore binding to produce MS" % (ms_extra.casacore_binding,)
 
-# which polarisation do we want to write into the MS and pull from the HDF5 file
-pols_to_use = ['HH'] if options.HH else \
-              ['VV'] if options.VV else \
-              ['HH', 'HV', 'VH', 'VV'] if (options.full_pol or options.circular) else \
-              list(np.sort(np.unique([(inp[-1]*2).upper() for inp in h5.inputs])))
+# Open HDF5 file
+# if len(args) == 1: args = args[0]
+# katdal can handle a list of files, which get virtually concatenated internally
+h5 = katdal.open(args, ref_ant=options.ref_ant)
+
+#Get list of unique polarisation products in the file
+pols_in_file = list(np.unique([(cp[0][-1] + cp[1][-1]).upper() for cp in h5.corr_products]))
+
+#Which polarisation do we want to write into the MS
+#all possible pols if full-pol selected, otherwise the selected polarisations via pols_to_use.
+pols_to_use = ['HH', 'HV', 'VH', 'VV'] if (options.full_pol or options.circular) else \
+              options.pols_to_use.split(',') if options.pols_to_use else \
+              [pol for pol in ['HH','VV'] if pol in pols_in_file]
+
+#Check we have the chosen polarisations
+if np.any([pol not in pols_in_file for pol in pols_to_use]):
+    raise RuntimeError("Selected polarisation products: %s are not available. "
+                       "Available polarisations are: %s"%(','.join(pols_to_use),','.join(pols_in_file)))
+
 pol_for_name = 'hh' if pols_to_use == ['HH'] else \
                'vv' if pols_to_use == ['VV'] else \
                'full_pol' if options.full_pol else \
                'circular_pol' if options.circular else \
                'hh_vv'
-
-# Open HDF5 file
-# if len(args) == 1: args = args[0]
-# katdal can handle a list of files, which get virtually concatenated internally
-h5 = katdal.open(args, ref_ant=options.ref_ant)
 
 # ms_name = os.path.splitext(args[0])[0] + ("." if len(args) == 1 else ".et_al.") + pol_for_name + ".ms"
 
