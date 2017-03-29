@@ -61,7 +61,8 @@ parser.add_option("-v", "--verbose", action="store_true", default=False,
 parser.add_option("-w", "--stop-w", action="store_true", default=False,
                   help="Use W term to stop fringes for each baseline")
 parser.add_option("-p", "--pols-to-use", default=None,
-                  help="Select polarisation products to include in MS from HH,VV,HV,VH, default is all available from HH,VV")
+                  help="Select polarisation products to include in MS as comma separated list "
+                       "(from: HH, HV, VH, VV). Default is all available from HH, VV")
 parser.add_option("-u", "--uvfits", action="store_true", default=False,
                   help="Print command to convert MS to miriad uvfits in casapy")
 parser.add_option("-a", "--no-auto", action="store_true", default=False,
