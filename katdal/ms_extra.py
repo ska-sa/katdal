@@ -637,12 +637,12 @@ def populate_source_dict(phase_centers, time_origins, center_frequencies, field_
     completeness it is included here (with no time varying terms).
     """
     num_channels = len(center_frequencies)
-    phase_centers = np.atleast_2d(np.asarray(phase_centers, np.float64))[:, np.newaxis, :]
+    phase_centers = np.atleast_2d(np.asarray(phase_centers, np.float64))
     num_fields = len(phase_centers)
     if field_names is None:
         field_names = ['Source%d' % (field,) for field in range(num_fields)]
     source_dict = {}
-    source_dict['SOURCE_ID'] = np.arange(num_fields)
+    source_dict['SOURCE_ID'] = np.arange(num_fields,dtype=np.int32)
     source_dict['PROPER_MOTION'] = np.zeros((num_fields, 2), dtype=np.float32)
     source_dict['DIRECTION'] = phase_centers
     source_dict['CALIBRATION_GROUP'] = np.ones(num_fields) * -1
