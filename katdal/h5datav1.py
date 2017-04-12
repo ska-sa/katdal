@@ -335,7 +335,8 @@ class H5DataV1(DataSet):
             keep = keep[:3] + (slice(None),) * (3 - len(keep))
             # Final indexing ensures that returned data are always 3-dimensional (i.e. keep singleton dimensions)
             force_3dim = tuple((np.newaxis if np.isscalar(dim_keep) else slice(None)) for dim_keep in keep)
-            return np.dstack([tf[str(corrind)][force_3dim[:2]] for corrind in
+            # Conjugate the data to correct for the lower sideband downconversion
+            return np.dstack([tf[str(corrind)][force_3dim[:2]].conjugate() for corrind in
                               np.nonzero(corrprod_keep)[0]])[:, :, keep[2]][:, :, force_3dim[2]]
         extract_vis = LazyTransform('extract_vis_v1', index_corrprod,
                                     lambda shape: (shape[0], shape[1], corrprod_keep.sum()), np.complex64)
@@ -361,6 +362,9 @@ class H5DataV1(DataSet):
         data array itself from the indexer `x`, do `x[:]` or perform any other
         form of indexing on it. Only then will data be loaded into memory.
 
+        The sign convention of the imaginary part is consistent with an
+        electric field of :math:`e^{i(\omega t - jz)}` i.e. phase that
+        increases with time.
         """
         return ConcatenatedLazyIndexer(self._vis_indexers())
 

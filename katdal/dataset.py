@@ -144,6 +144,7 @@ class SpectralWindow(object):
         self.channel_width = channel_width
         self.num_chans = num_chans
         self.product = product if product is not None else ''
+        self.sideband = sideband
         self.band = band
         # Don't subtract half a channel width as channel 0 is centred on 0 Hz in baseband
         self.channel_freqs = centre_freq + sideband * channel_width * (np.arange(num_chans) - num_chans / 2)
@@ -262,7 +263,7 @@ def _calc_uvw(cache, name, antA, antB):
     u, v, w = np.empty(len(cache.timestamps)), np.empty(len(cache.timestamps)), np.empty(len(cache.timestamps))
     targets = cache.get('Observation/target')
     for segm, target in targets.segments():
-        u[segm], v[segm], w[segm] = target.uvw(antennaB, cache.timestamps[segm], antennaA)
+        u[segm], v[segm], w[segm] = target.uvw(antennaA, cache.timestamps[segm], antennaB)
     cache[antA_group + 'u_%s' % (antB,)] = u
     cache[antA_group + 'v_%s' % (antB,)] = v
     cache[antA_group + 'w_%s' % (antB,)] = w
@@ -940,6 +941,9 @@ class DataSet(object):
         matches the length of :meth:`freqs` and the number of correlation
         products *B* matches the length of :meth:`corr_products`.
 
+        The sign convention of the imaginary part is consistent with an
+        electric field of :math:`e^{i(\omega t - jz)}` i.e. phase that
+        increases with time.
         """
         raise NotImplementedError
 
@@ -1123,7 +1127,8 @@ class DataSet(object):
 
         This calculates the *u* coordinate of the baseline vector of each
         correlation product as a function of time while tracking the target.
-        It is returned as an array of float, shape (*T*, *B*).
+        It is returned as an array of float, shape (*T*, *B*). The sign
+        convention is :math:`u_1 - u_2` for baseline (ant1, ant2).
 
         """
         return self._sensor_per_corrprod('u')
@@ -1134,7 +1139,8 @@ class DataSet(object):
 
         This calculates the *v* coordinate of the baseline vector of each
         correlation product as a function of time while tracking the target.
-        It is returned as an array of float, shape (*T*, *B*).
+        It is returned as an array of float, shape (*T*, *B*). The sign
+        convention is :math:`v_1 - v_2` for baseline (ant1, ant2).
 
         """
         return self._sensor_per_corrprod('v')
@@ -1145,7 +1151,8 @@ class DataSet(object):
 
         This calculates the *w* coordinate of the baseline vector of each
         correlation product as a function of time while tracking the target.
-        It is returned as an array of float, shape (*T*, *B*).
+        It is returned as an array of float, shape (*T*, *B*).The sign
+        convention is :math:`w_1 - w_2` for baseline (ant1, ant2).
 
         """
         return self._sensor_per_corrprod('w')

@@ -446,9 +446,13 @@ for win in range(len(h5.spectral_windows)):
             def _create_uvw(a1, a2, times):
                 """
                 Return a (ntime, 3) array of UVW coordinates for baseline
-                defined by a1 and a2
+                defined by a1 and a2. The sign convention matches `CASA`_,
+                rather than the Measurement Set `definition`_.
+
+                .. _CASA: https://casa.nrao.edu/Memos/CoordConvention.pdf
+                .. _definition: https://casa.nrao.edu/Memos/229.html#SECTION00064000000000000000
                 """
-                uvw = target.uvw(a2, timestamp=times, antenna=a1)
+                uvw = target.uvw(a1, timestamp=times, antenna=a2)
                 return np.asarray(uvw).T
 
             # Massage visibility, weight and flag data from
