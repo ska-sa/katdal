@@ -584,10 +584,14 @@ class H5DataV2(DataSet):
         data array itself from the indexer `x`, do `x[:]` or perform any other
         form of indexing on it. Only then will data be loaded into memory.
 
+        The sign convention of the imaginary part is consistent with an
+        electric field of :math:`e^{i(\omega t - jz)}` i.e. phase that
+        increases with time.
         """
         extract = LazyTransform('extract_vis',
                                 # Discard the 4th / last dimension as this is subsumed in complex view
-                                lambda vis, keep: vis.view(np.complex64)[..., 0],
+                                # The visibilities are conjugated due to using the lower sideband
+                                lambda vis, keep: vis.view(np.complex64)[..., 0].conjugate(),
                                 lambda shape: shape[:-1], np.complex64)
         return self._vislike_indexer(self._vis, extract)
 
