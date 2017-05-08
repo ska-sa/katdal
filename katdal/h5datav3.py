@@ -29,7 +29,7 @@ except ImportError:
 
 from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow,
                       DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target)
-from .sensordata import SensorData, SensorCache, TelstateSensorData
+from .sensordata import SensorData, SensorCache, H5TelstateSensorData
 from .categorical import CategoricalData
 from .lazy_indexer import LazyIndexer, LazyTransform
 
@@ -200,7 +200,7 @@ class H5DataV3(DataSet):
                 if isinstance(obj, h5py.Dataset) and obj.shape != () and \
                    set(obj.dtype.names) == {'timestamp', 'value'}:
                     name = 'TelescopeState/' + name
-                    cache[name] = TelstateSensorData(obj, name)
+                    cache[name] = H5TelstateSensorData(obj, name)
             f.file['TelescopeState'].visititems(register_telstate_sensor)
 
         # ------ Extract vis and timestamps ------

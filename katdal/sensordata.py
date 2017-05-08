@@ -98,7 +98,7 @@ class SensorData(object):
                (self.__class__.__name__, self.name, len(self), self.dtype, id(self))
 
 
-def _telstate_unpack(s):
+def _h5_telstate_unpack(s):
     """This unpacks a telstate value from its string representation."""
     try:
         # Since 2016-05-09 the HDF5 TelescopeState contains pickled values
@@ -113,8 +113,8 @@ def _telstate_unpack(s):
             return s
 
 
-class TelstateSensorData(SensorData):
-    """Raw (uncached) sensor data in TelescopeState record array form.
+class H5TelstateSensorData(SensorData):
+    """Raw (uncached) sensor data in HDF5 TelescopeState record array form.
 
     This wraps the telstate sensors stored in recent HDF5 files. It differs
     in two ways from the normal HDF5 sensors: no 'status' column and values
@@ -138,15 +138,15 @@ class TelstateSensorData(SensorData):
 
     """
     def __init__(self, data, name=None):
-        super(TelstateSensorData, self).__init__(data, name)
+        super(H5TelstateSensorData, self).__init__(data, name)
         # Unpickle first value to derive dtype (should be simple for sensors)
-        self.dtype = np.array([_telstate_unpack(data['value'][0])]).dtype
+        self.dtype = np.array([_h5_telstate_unpack(data['value'][0])]).dtype
 
     def __getitem__(self, key):
         """Extract timestamp, value and status of each sensor data point."""
         if key == 'value':
             # Unpickle sensor data upon request
-            return np.array([_telstate_unpack(s) for s in self.data[key]])
+            return np.array([_h5_telstate_unpack(s) for s in self.data[key]])
         elif key == 'status':
             # Fake the missing status column
             return np.repeat('nominal', len(self))
@@ -154,6 +154,7 @@ class TelstateSensorData(SensorData):
             # WARNING: if key is an index or slice, values will still be pickled
             # It is safer to extract data explicitly into recarray in __init__
             return np.asarray(self.data[key])
+
 
 # -------------------------------------------------------------------------------------------------
 # -- Utility functions
