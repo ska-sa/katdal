@@ -29,7 +29,8 @@ except ImportError:
 
 from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow,
                       DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target)
-from .sensordata import SensorData, SensorCache, H5TelstateSensorData
+from .sensordata import (SensorCache, RecordSensorData,
+                         H5TelstateSensorData)
 from .categorical import CategoricalData
 from .lazy_indexer import LazyIndexer, LazyTransform
 
@@ -190,7 +191,7 @@ class H5DataV3(DataSet):
                 group_lookup = {'AntennaPositioner': 'Antennas/' + comp_name}
                 group_name = group_lookup.get(comp_type, comp_type) if comp_type else comp_name
                 name = '/'.join((group_name, sensor_name))
-                cache[name] = SensorData(obj, name)
+                cache[name] = RecordSensorData(obj, name)
         tm_group.visititems(register_sensor)
         # Also load sensors from TelescopeState for what it's worth
         if 'TelescopeState' in f.file:
@@ -245,9 +246,10 @@ class H5DataV3(DataSet):
         sensor_start_time = 0.0
         # Pick first regular sensor with longer data record than data (hopefully straddling it)
         for sensor_name, sensor_data in cache.iteritems():
-            if sensor_name.endswith(regular_sensors) and len(sensor_data):
-                proposed_sensor_start_time = sensor_data[0]['timestamp']
-                sensor_duration = sensor_data[-1]['timestamp'] - proposed_sensor_start_time
+            if sensor_name.endswith(regular_sensors) and sensor_data:
+                sensor_times = sensor_data['timestamp']
+                proposed_sensor_start_time = sensor_times[0]
+                sensor_duration = sensor_times[-1] - proposed_sensor_start_time
                 if sensor_duration > data_duration:
                     sensor_start_time = proposed_sensor_start_time
                     break

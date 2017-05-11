@@ -25,7 +25,7 @@ import katpoint
 
 from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow,
                       DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target)
-from .sensordata import SensorData, SensorCache
+from .sensordata import RecordSensorData, SensorCache
 from .categorical import CategoricalData
 from .lazy_indexer import LazyIndexer, LazyTransform
 from .concatdata import ConcatenatedLazyIndexer
@@ -153,7 +153,7 @@ class H5DataV1(DataSet):
                 # Assume sensor dataset name is AntennaN/Sensors/dataset and rename it to Antennas/{ant}/dataset
                 ant_name = obj.parent.parent.attrs['description'].split(',')[0]
                 standardised_name = 'Antennas/%s/%s' % (ant_name, name.split('/')[-1])
-                cache[standardised_name] = SensorData(obj, standardised_name)
+                cache[standardised_name] = RecordSensorData(obj, standardised_name)
         ants_group.visititems(register_sensor)
         # Use estimated data timestamps for now, to speed up data segmentation
         # This will linearly interpolate pointing coordinates to correlator data timestamps (on access)

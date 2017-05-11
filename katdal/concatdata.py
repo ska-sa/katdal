@@ -206,18 +206,17 @@ class ConcatenatedSensorData(SensorData):
     This is a convenient container for returning raw (uncached) sensor data sets
     from a :class:`ConcatenatedSensorCache` object. It only accesses the
     underlying data sets when explicitly asked to via the __getitem__ interface,
-    but provides quick access to metadata such as sensor dtype, name and number
-    of data points.
+    but provides quick access to metadata such as sensor dtype and name.
 
     Parameters
     ----------
-    data : sequence of recarray-like with fields ('timestamp', 'value', 'status')
-        Uncached sensor data as a list of record arrays or equivalent (such as a
-        :class:`h5py.Dataset`)
+    data : sequence of recarray-like with fields 'timestamp', 'value' ('status')
+        Uncached sensor data as a list of record arrays or equivalent (such as
+        an :class:`h5py.Dataset`)
 
     """
     def __init__(self, data):
-        self.data = data
+        self._data = data
         names = unique_in_order([sd.name for sd in data])
         if len(names) != 1:
             raise ConcatenationError('Cannot concatenate sensors with different names: %s' % (names,))
@@ -233,11 +232,13 @@ class ConcatenatedSensorData(SensorData):
 
     def __getitem__(self, key):
         """Extract timestamp, value and status of each sensor data point."""
-        return np.concatenate([sd[key] for sd in self.data])
+        return np.concatenate([sd[key] for sd in self._data])
 
-    def __len__(self):
-        """Number of sensor data points."""
-        return np.sum([len(sd) for sd in self.data])
+    def __bool__(self):
+        """True if sensor has at least one data point."""
+        return any([bool(sd) for sd in self._data])
+
+    __nonzero__ = __bool__
 
 
 def _calc_dummy(cache, name):
