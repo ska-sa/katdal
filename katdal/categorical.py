@@ -77,7 +77,7 @@ class CategoricalData(object):
     Parameters
     ----------
     sensor_values : sequence, length *N*
-        Sequence of sensor values (of any type except None)
+        Sequence of sensor values (of any type, preferably not None [see Notes])
     events : sequence of non-negative ints, length *N* + 1
         Corresponding monotonic sequence of dump indices where each sensor value
         came into effect. The last event is one past the last dump where the
@@ -90,6 +90,14 @@ class CategoricalData(object):
         Array of unique sensor values, in order they were found in `sensor_values`
     indices : array of int, shape (*N*,)
         Array of indices into `unique_values`, one per sensor event
+
+    Notes
+    -----
+    It is discouraged to have a sensor value of None as this value is given
+    a special meaning in methods such as :meth:`CategoricalData.add` and
+    :meth:`sensor_to_categorical`. On the other hand, it is the most sensible
+    dummy object value and any Nones entering through this initialiser will
+    probably not cause any issues.
 
     """
     def __init__(self, sensor_values, events):

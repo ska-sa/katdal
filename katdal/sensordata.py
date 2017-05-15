@@ -82,7 +82,7 @@ class SensorData(object):
         self.dtype = dtype
 
     def __getitem__(self, key):
-        """Extract timestamp, value and status of each sensor data point.
+        """Extract timestamp and value (and status) of each sensor data point.
 
         Parameters
         ----------
@@ -203,7 +203,7 @@ class H5TelstateSensorData(RecordSensorData):
             self.dtype = test_data.dtype if test_data.ndim == 1 else np.object
 
     def __getitem__(self, key):
-        """Extract timestamp, value and status of each sensor data point."""
+        """Extract timestamp and value of each sensor data point."""
         if key == 'timestamp':
             return np.asarray(self._data[key])
         elif key == 'value':
