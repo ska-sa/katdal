@@ -23,7 +23,7 @@ import cPickle as pickle
 import numpy as np
 import katpoint
 
-from .categorical import sensor_to_categorical
+from .categorical import HashableValueWrapper, sensor_to_categorical
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ class SensorData(object):
     name : string
         Sensor name
     dtype : :class:`numpy.dtype` object
-        Type of sensor data, as a NumPy dtype
+        Sensor data type as NumPy dtype (beware that string lengths may be wrong)
 
     """
     def __init__(self, name, dtype):
@@ -194,7 +194,9 @@ class H5TelstateSensorData(RecordSensorData):
     """
     def __init__(self, data, name=None):
         super(H5TelstateSensorData, self).__init__(data, name)
-        # Unpickle first value to derive proper dtype
+        # Unpickle first value to derive proper dtype.
+        # Beware that variable-length strings will be misleading as the length
+        # of the first string is probably less than the maximum length in data.
         if len(data['value']) > 0:
             test_data = np.array([_h5_telstate_unpack(data['value'][0])])
             # Beware array-valued sensors; treat their values as opaque objects
@@ -207,14 +209,15 @@ class H5TelstateSensorData(RecordSensorData):
         if key == 'timestamp':
             return np.asarray(self._data[key])
         elif key == 'value':
-            # Unpickle sensor data upon request
+            # Unpack everything first, otherwise old files will be a mess
             values = [_h5_telstate_unpack(s) for s in self._data[key]]
-            # Do element-wise assignment from list into array of right shape
-            # and dtype, which ensures that array values remain opaque objects
-            # without incurring a performance penalty for plain old values.
-            values_array = np.empty(len(values), dtype=self.dtype)
-            values_array[:] = values
-            return values_array
+            if self.dtype == np.object:
+                values = [HashableValueWrapper.wrap(value) for value in values]
+            values = np.array(values)
+            # Rediscover dtype from values (mostly to fix variable-length
+            # string types now that we have seen all the data)
+            self.dtype = values.dtype
+            return values
         else:
             raise ValueError("Sensor %r data has no key '%s'" % (self.name, key))
 
@@ -366,15 +369,10 @@ def remove_duplicates_and_failures(sensor):
     # Determine the index of the x value chosen to represent each original x value (used to pick y values too)
     replacement = unique_ind[len(unique_ind) - np.cumsum(last_of_run[::-1])[::-1]]
     # All duplicates should have the same y and z values - complain otherwise, but continue.
-    # It is a bit tricky to compare objects since array values will result in
-    # arrays of bools, so leverage np.array_equal for all objects instead.
-    same_y = np.array([np.array_equal(y1, y2)
-                       for y1, y2 in zip(y[replacement], y)]) \
-        if y.dtype == np.object else (y[replacement] == y)
-    if not all(same_y):
+    if not np.all(y[replacement] == y):
         logger.debug("Sensor %r has duplicate timestamps with different values",
                      sensor.name)
-        for ind in (~same_y).nonzero()[0]:
+        for ind in (y[replacement] != y).nonzero()[0]:
             logger.debug("At %s, sensor %r has values of %s and %s - "
                          "keeping last one", katpoint.Timestamp(x[ind]).local(),
                          sensor.name, y[ind], y[replacement][ind])

@@ -359,7 +359,11 @@ class ConcatenatedSensorCache(SensorCache):
             props.update(kwargs)
             return concatenate_categorical(split_data, **props)
         else:
-            return np.concatenate(split_data)
+            # Keep arrays as arrays and lists as lists to avoid dtype issues
+            if isinstance(split_data[0], np.ndarray):
+                return np.concatenate(split_data)
+            else:
+                return sum(split_data, [])
 
     def __setitem__(self, name, data):
         """Assign data to sensor, splitting it across underlying caches.
@@ -463,11 +467,11 @@ class ConcatenatedDataSet(DataSet):
             d.sensor['Observation/target'] = split_target[n]
             d.sensor['Observation/target_index'] = CategoricalData(split_target[n].indices, split_target[n].events)
             scan_index = d.sensor.get('Observation/scan_index')
-            scan_index.unique_values += scan_start
+            scan_index.unique_values = [index + scan_start for index in scan_index.unique_values]
             scan_start += len(scan_index.unique_values)
             d.sensor['Observation/scan_index'] = scan_index
             compscan_index = d.sensor.get('Observation/compscan_index')
-            compscan_index.unique_values += compscan_start
+            compscan_index.unique_values = [index + compscan_start for index in compscan_index.unique_values]
             compscan_start += len(compscan_index.unique_values)
             d.sensor['Observation/compscan_index'] = compscan_index
         # Apply default selection and initialise all members that depend on selection in the process

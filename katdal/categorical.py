@@ -95,38 +95,44 @@ class HashableValueWrapper(object):
         return pickle.loads(self.hashable_value)
 
 
-def unique_in_order(elements, return_inverse=False):
+def unique_in_order(elements, unwrap=False, return_inverse=False):
     """Extract unique elements from *elements* while preserving original order.
 
     Parameters
     ----------
-    elements : sequence
-        Sequence of sortable objects (i.e. objects supporting the < operator)
+    elements : sequence of hashables
+        Sequence of hashable objects (i.e. objects supporting __hash__ operator)
+    unwrap : {False, True}, optional
+        If True, unwrap any objects wrapped in a :class:`HashableValueWrapper`
     return_inverse : {False, True}, optional
         If True, also return sequence of indices that can be used to reconstruct
         original `elements` sequence via `unique_elements[inverse]`
 
     Returns
     -------
-    unique_elements : array
-        Array of unique objects, in original order they were found in `elements`
+    unique_elements : list
+        List of unique objects, in original order they were found in `elements`
     inverse : array of int, optional
         If `return_inverse` is True, sequence of indices that can be used to
         reconstruct original sequence
 
     """
-    elements = np.atleast_1d(elements)
-    # Ensure that objects support the appropriate comparison operators for sorting (i.e. <)
-    if (elements.dtype == np.object) and not hasattr(elements[0], '__lt__') and not hasattr(elements[0], '__cmp__'):
-        raise TypeError("Cannot identify unique objects of %s as it has no __lt__ or __cmp__ methods" %
-                        (elements[0].__class__,))
-    # Find unique elements based on sorting
-    unique_elements, indices = np.unique(elements, return_inverse=True)
-    # Shuffle unique values back into their original order as they were found in elements
-    indices_list = indices.tolist()
-    original_order = np.argsort([indices_list.index(n) for n in range(len(unique_elements))])
-    return (unique_elements[original_order], original_order.argsort()[indices]) \
-        if return_inverse else unique_elements[original_order]
+    # Surprisingly, a zero generator like itertools.repeat does not buy you anything
+    lookup = collections.OrderedDict(zip(elements, len(elements) * [0]))
+    for index, element in enumerate(lookup):
+        lookup[element] = index
+    if unwrap:
+        def maybe_unwrap(v):   # noqa: E301
+            return v.unwrap() if isinstance(v, HashableValueWrapper) else v
+        unique_elements = [maybe_unwrap(element) for element in lookup]
+    else:
+        unique_elements = lookup.keys()
+    if return_inverse:
+        inverse = np.array([lookup[element] for element in elements], dtype=np.int)
+        return unique_elements, inverse
+    else:
+        return unique_elements
+
 
 # -------------------------------------------------------------------------------------------------
 # -- CLASS :  CategoricalData
@@ -137,12 +143,12 @@ class CategoricalData(object):
     """Container for categorical (i.e. non-numerical) sensor data.
 
     This container allows simple manipulation and interpolation of a time series
-    of non-numerical data represented as discrete events. The data are stored in
-    three arrays:
+    of non-numerical data represented as discrete events. The data is stored as
+    a list of sensor values and two integer arrays:
 
-    * `events` stores the time indices (dumps) where each event occurs
     * `unique_values` stores one copy of each unique object in the data series
-    * `indices` stores indices linking each event to the `unique_values` array
+    * `events` stores the time indices (dumps) where each event occurs
+    * `indices` stores indices linking each event to the `unique_values` list
 
     The __getitem__ interface (i.e. `data[dump]`) returns the data associated
     with the last event before the requested dump(s), in effect doing a
@@ -162,8 +168,8 @@ class CategoricalData(object):
 
     Attributes
     ----------
-    unique_values : array, shape (*M*,)
-        Array of unique sensor values, in order they were found in `sensor_values`
+    unique_values : list, length *M*
+        List of unique sensor values in order they were found in `sensor_values`
     indices : array of int, shape (*N*,)
         Array of indices into `unique_values`, one per sensor event
 
@@ -175,10 +181,24 @@ class CategoricalData(object):
     dummy object value and any Nones entering through this initialiser will
     probably not cause any issues.
 
+    It is better to make `unique_values` a list instead of an array because an
+    array assimilates objects such as tuples, lists and other arrays. The
+    alternative is an array of :class:`HashableValueWrapper` objects but these
+    then need to be unpacked at some later stage which is also tricky.
+
     """
     def __init__(self, sensor_values, events):
-        self.unique_values, self.indices = unique_in_order(sensor_values, return_inverse=True)
+        self.unique_values, self.indices = unique_in_order(sensor_values, unwrap=True,
+                                                           return_inverse=True)
         self.events = np.asarray(events)
+
+    @property
+    def _hashable_values(self):
+        """Hashable version of unique values, wrapping any objects."""
+        if self.dtype == np.object:
+            return [HashableValueWrapper.wrap(value) for value in self.unique_values]
+        else:
+            return self.unique_values
 
     def _lookup(self, dumps):
         """Look up relevant indices occurring at specified *dumps*.
@@ -210,8 +230,8 @@ class CategoricalData(object):
 
         Returns
         -------
-        val : array
-            Sensor values at selected dumps
+        val : object or list of objects
+            Sensor values at selected dumps, either single value or list of them
 
         """
         if isinstance(key, slice):
@@ -220,12 +240,17 @@ class CategoricalData(object):
         # Convert sequence of bools (one per dump) to sequence of indices where key is True
         elif np.asarray(key).dtype == np.bool and len(np.asarray(key)) == self.events[-1]:
             key = np.nonzero(key)[0]
-        return self.unique_values[self._lookup(key)]
+        indices = self._lookup(key)
+        # Interpret indices as either a sequence of ints or a single int
+        try:
+            return [self.unique_values[index] for index in indices]
+        except TypeError:
+            return self.unique_values[indices]
 
     def __repr__(self):
         """Short human-friendly string representation of categorical data object."""
         return "<katdal.CategoricalData events=%d values=%d type='%s' at 0x%x>" % \
-               (len(self.indices), len(self.unique_values), self.unique_values.dtype, id(self))
+               (len(self.indices), len(self.unique_values), self.dtype, id(self))
 
     def __str__(self):
         """Long human-friendly string representation of categorical data object."""
@@ -237,58 +262,49 @@ class CategoricalData(object):
         """Length operator indicates number of events produced by sensor."""
         return len(self.indices)
 
+    def _bool_per_dump(self, bool_per_value):
+        """Turn list of bools per unique value into an array of bools per dump."""
+        bool_per_event = np.atleast_1d(np.array(bool_per_value)[self.indices])
+        bool_per_dump = np.empty(self.events[-1], dtype=np.bool)
+        for n, (start, end) in enumerate(zip(self.events[:-1], self.events[1:])):
+            bool_per_dump[start:end] = bool_per_event[n]
+        return bool_per_dump
+
     def __eq__(self, other):
         """Equality comparison operator."""
-        index_truths = np.atleast_1d((self.unique_values == other)[self.indices])
-        result = np.empty(self.events[-1], dtype=np.bool)
-        for n, (start, end) in enumerate(zip(self.events[:-1], self.events[1:])):
-            result[start:end] = index_truths[n]
-        return result
+        return self._bool_per_dump([value == other for value in self._hashable_values])
 
     def __ne__(self, other):
         """Inequality comparison operator."""
-        index_truths = np.atleast_1d((self.unique_values != other)[self.indices])
-        result = np.empty(self.events[-1], dtype=np.bool)
-        for n, (start, end) in enumerate(zip(self.events[:-1], self.events[1:])):
-            result[start:end] = index_truths[n]
-        return result
+        return self._bool_per_dump([value != other for value in self._hashable_values])
 
     def __lt__(self, other):
         """Less-than comparison operator."""
-        index_truths = np.atleast_1d((self.unique_values < other)[self.indices])
-        result = np.empty(self.events[-1], dtype=np.bool)
-        for n, (start, end) in enumerate(zip(self.events[:-1], self.events[1:])):
-            result[start:end] = index_truths[n]
-        return result
+        return self._bool_per_dump([value < other for value in self._hashable_values])
 
     def __gt__(self, other):
         """Greather-than comparison operator."""
-        index_truths = np.atleast_1d((self.unique_values > other)[self.indices])
-        result = np.empty(self.events[-1], dtype=np.bool)
-        for n, (start, end) in enumerate(zip(self.events[:-1], self.events[1:])):
-            result[start:end] = index_truths[n]
-        return result
+        return self._bool_per_dump([value > other for value in self._hashable_values])
 
     def __le__(self, other):
         """Less-than-or-equal comparison operator."""
-        index_truths = np.atleast_1d((self.unique_values <= other)[self.indices])
-        result = np.empty(self.events[-1], dtype=np.bool)
-        for n, (start, end) in enumerate(zip(self.events[:-1], self.events[1:])):
-            result[start:end] = index_truths[n]
-        return result
+        return self._bool_per_dump([value <= other for value in self._hashable_values])
 
     def __ge__(self, other):
         """Greater-than-or-equal comparison operator."""
-        index_truths = np.atleast_1d((self.unique_values >= other)[self.indices])
-        result = np.empty(self.events[-1], dtype=np.bool)
-        for n, (start, end) in enumerate(zip(self.events[:-1], self.events[1:])):
-            result[start:end] = index_truths[n]
-        return result
+        return self._bool_per_dump([value >= other for value in self._hashable_values])
 
     @property
     def dtype(self):
         """Sensor value type."""
-        return self.unique_values.dtype
+        if self.unique_values:
+            # Put all values into array to find maximum length of any string type
+            test_data = np.array(self.unique_values)
+            # Beware array-valued sensors; treat their values as opaque objects
+            # This forces sensor values to be 1-D at all times (an invariant)
+            return test_data.dtype if test_data.ndim == 1 else np.object
+        else:
+            return np.object
 
     def segments(self):
         """Generator that iterates through events and returns segment and value.
@@ -320,12 +336,14 @@ class CategoricalData(object):
 
         """
         # If value has not been seen before, add it to unique_values (and create new index for it)
-        value_index = np.nonzero(self.unique_values == value)[0] if value is not None else [self._lookup(event)]
-        if len(value_index) == 0:
-            value_index = len(self.unique_values)
-            self.unique_values = np.r_[self.unique_values, [value]]
+        if value is not None:
+            try:
+                value_index = self._hashable_values.index(value)
+            except ValueError:
+                value_index = len(self.unique_values)
+                self.unique_values += [value]
         else:
-            value_index = value_index[0]
+            value_index = self._lookup(event)
         # If new event coincides with existing event, simply change value of that event, else insert new event
         event_index = self.events.searchsorted(event)
         before, after = event_index, (event_index + 1 if self.events[event_index] == event else event_index)
@@ -335,21 +353,25 @@ class CategoricalData(object):
     def remove(self, value):
         """Remove sensor value, remapping indices and merging segments in process.
 
+        If the sensor value does not exist, do nothing.
+
         Parameters
         ----------
         value : object
             Sensor value to remove from container
 
         """
-        index = np.nonzero(self.unique_values == value)[0]
-        if len(index) > 0:
-            index = index[0]
+        try:
+            index = self._hashable_values.index(value)
+        except ValueError:
+            pass
+        else:
             keep = (self.indices != index)
             remap = np.arange(len(self.unique_values))
             remap[index:] -= 1
             self.indices = remap[self.indices[keep]]
             self.events = np.r_[self.events[keep], self.events[-1]]
-            self.unique_values = np.r_[self.unique_values[:index], self.unique_values[index + 1:]]
+            self.unique_values = self.unique_values[:index] + self.unique_values[index + 1:]
 
     def add_unmatched(self, segments, match_dist=1):
         """Add duplicate events for segment starts that don't match sensor events.
@@ -401,7 +423,7 @@ class CategoricalData(object):
         # When multiple sensor events are associated with the same segment, only keep the final one
         final = np.nonzero(np.diff(events) > 0)[0]
         subset, self.indices = np.unique(self.indices[final], return_inverse=True)
-        self.unique_values = self.unique_values[subset]
+        self.unique_values = [self.unique_values[index] for index in subset]
         self.events = np.r_[events[final], events[-1]]
 
     def partition(self, segments):
@@ -481,9 +503,10 @@ def concatenate_categorical(split_data, **kwargs):
     segments = np.cumsum([0] + [cat_data.events[-1] for cat_data in split_data])
     data = CategoricalData([], [])
     # Combine all unique values in the order they are found in datasets
-    split_values = [cat_data.unique_values for cat_data in split_data]
+    split_values = [cat_data._hashable_values for cat_data in split_data]
     inverse_splits = np.cumsum([0] + [len(vals) for vals in split_values])
-    data.unique_values, inverse = unique_in_order(np.concatenate(split_values), return_inverse=True)
+    data.unique_values, inverse = unique_in_order(sum(split_values, []),
+                                                  unwrap=True, return_inverse=True)
     indices, events = [], []
     for n, cat_data in enumerate(split_data):
         # Remap indices to new unique_values array
@@ -545,6 +568,9 @@ def sensor_to_categorical(sensor_timestamps, sensor_values, dump_midtimes, dump_
     sensor_timestamps = np.atleast_1d(sensor_timestamps)
     sensor_values = np.atleast_1d(sensor_values)
     dump_midtimes = np.atleast_1d(dump_midtimes)
+    # Check if sensor values are objects wrapped in HashableValueWrappers
+    wrapped_values = len(sensor_values) and isinstance(sensor_values[0],
+                                                       HashableValueWrapper)
     # Convert sensor event times to dump indices (pick the dump during which each sensor event occurred)
     # The last event is fixed at one-past-the-last-dump, to indicate the end of the last segment
     events = np.r_[dump_midtimes.searchsorted(sensor_timestamps - 0.5 * dump_period), len(dump_midtimes)]
@@ -554,16 +580,24 @@ def sensor_to_categorical(sensor_timestamps, sensor_values, dump_midtimes, dump_
     sensor_values, events = sensor_values[non_empty], np.r_[events[non_empty], len(dump_midtimes)]
     # Force first dump to have valid sensor value (use initial value or first proper value advanced to start)
     if events[0] != 0 and initial_value is not None:
+        if wrapped_values:
+            initial_value = HashableValueWrapper.wrap(initial_value)
         sensor_values, events = np.r_[[initial_value], sensor_values], np.r_[0, events]
     events[0] = 0
     # Apply optional transform to sensor values
-    sensor_values = np.array([transform(y) for y in sensor_values]) if transform is not None else sensor_values
+    if transform is not None:
+        if wrapped_values:
+            unwrapped_transform = transform
+            transform = lambda value: HashableValueWrapper.wrap(unwrapped_transform(value.unwrap()))   # noqa: E731
+        sensor_values = np.array([transform(y) for y in sensor_values])
     # Discard sensor events that do not change the (transformed) sensor value (i.e. that repeat the previous value)
     if not allow_repeats:
         changes = [n for n in range(len(sensor_values)) if (n == 0) or (sensor_values[n] != sensor_values[n - 1])]
         sensor_values, events = sensor_values[changes], np.r_[events[changes], len(dump_midtimes)]
     # Extend segments with "greedy" values to include first dump of next segment where sensor value is changing
     if greedy_values is not None:
+        if wrapped_values:
+            greedy_values = [HashableValueWrapper.wrap(value) for value in greedy_values]
         greedy_to_nongreedy = [n for n in range(1, len(sensor_values))
                                if sensor_values[n - 1] in greedy_values and sensor_values[n] not in greedy_values]
         events[greedy_to_nongreedy] += 1

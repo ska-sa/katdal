@@ -305,7 +305,7 @@ class H5DataV2(DataSet):
             # Fall back to basic RFE7 LO frequency, as this supported multiple spectral windows before k7_capture did
             # This assumes WBC mode, though (NBC modes only fully supported since HDF5 v2.1)
             centre_freq = self.sensor.get('RFE/rfe7.lo1.frequency')
-            centre_freq.unique_values -= 4200e6
+            centre_freq.unique_values = [freq - 4200e6 for freq in centre_freq.unique_values]
         num_chans = get_single_value(config_group['Correlator'], 'n_chans')
         if num_chans != self._vis.shape[1]:
             raise BrokenFile('Number of channels received from correlator '
