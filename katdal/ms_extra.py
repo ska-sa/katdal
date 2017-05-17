@@ -192,6 +192,7 @@ def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
     dm_group = 'FlagCategory'
     shape = [1, nchan, ncorr]
     extra_table_desc["FLAG_CATEGORY"].update(options=4,
+        keywords={},
         shape=shape, ndim=len(shape),
         dataManagerGroup=dm_group,
         dataManagerType='TiledColumnStMan')
