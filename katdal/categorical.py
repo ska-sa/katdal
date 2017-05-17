@@ -16,7 +16,83 @@
 
 """Container for categorical (i.e. non-numerical) sensor data and related tools."""
 
+import collections
+import cPickle as pickle
+
 import numpy as np
+
+
+class HashableValueWrapper(object):
+    """Wrapper that ensures objects are hashable and comparable by value.
+
+    This wrapper class has two main benefits:
+
+      - It prevents sensor values that are NumPy ndarrays themselves (or
+        array-like objects such as tuples and lists) from dissolving and
+        losing their identity when they are assembled into an array.
+
+      - It ensures that all sensor values become hashable by value, which eases
+        comparison (e.g. avoiding the array-valued booleans resulting from
+        ndarray comparisons without resorting to np.array_equal) and also
+        allows sensor values to be looked up in mappings to simplify indexing.
+
+    Parameters
+    ----------
+    hashable_value : object that is hashable
+        The wrapped version of a sensor value - if not available, use static
+        method :meth:`wrap` instead (current implementation expects a pickle)
+
+    """
+    def __init__(self, hashable_value):
+        self.hashable_value = hashable_value
+
+    def __repr__(self):
+        """Short human-friendly string representation of wrapper object."""
+        return "<katdal.%s { %r } at 0x%x>" % \
+               (self.__class__.__name__, self.unwrap(), id(self))
+
+    def __str__(self):
+        """Longer human-friendly string representation of wrapped object."""
+        return str(self.unwrap())
+
+    def __eq__(self, other):
+        """Equality comparison operator."""
+        if not isinstance(other, HashableValueWrapper):
+            other = HashableValueWrapper.wrap(other)
+        return self.hashable_value == other.hashable_value
+
+    def __ne__(self, other):
+        """Inequality comparison operator."""
+        return not self == other
+
+    def __lt__(self, other):
+        """Less-than comparison operator."""
+        raise TypeError("HashableValueWrapper objects are considered unorderable")
+
+    def __gt__(self, other):
+        """Greather-than comparison operator."""
+        raise TypeError("HashableValueWrapper objects are considered unorderable")
+
+    def __le__(self, other):
+        """Less-than-or-equal comparison operator."""
+        raise TypeError("HashableValueWrapper objects are considered unorderable")
+
+    def __ge__(self, other):
+        """Greater-than-or-equal comparison operator."""
+        raise TypeError("HashableValueWrapper objects are considered unorderable")
+
+    def __hash__(self):
+        """Return hash value of wrapped object (guaranteed to be hashable)."""
+        return hash(self.hashable_value)
+
+    @staticmethod
+    def wrap(value):
+        """Wrap generic object to become hashable (pickle implementation)."""
+        return HashableValueWrapper(pickle.dumps(value))
+
+    def unwrap(self):
+        """Extract original object from wrapper (pickle implementation)."""
+        return pickle.loads(self.hashable_value)
 
 
 def unique_in_order(elements, return_inverse=False):
