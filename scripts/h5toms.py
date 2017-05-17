@@ -148,17 +148,16 @@ def corrprod_index_and_missing_mask(h5):
   npol = len(pols_to_use)
 
   # Create actual correlator product index
-  cp_index = np.asarray([_cp_index(a1, a2, p)
-                         for a1, a2 in itertools.izip(ant1, ant2)
-                         for p in pols_to_use])
+  cp_index = [_cp_index(a1, a2, p)
+                 for a1, a2 in itertools.izip(ant1, ant2)
+                 for p in pols_to_use]
 
   # Identify missing correlator products
-  # Reshape for broadcast on time and frequency dimensions
   missing_cp = np.logical_not([i is not None for i in cp_index])
-
-  # Zero any None indices, but use the above masks to reason
-  # about there existence in later code
-  cp_index[missing_cp] = 0
+  
+  # Now create ndarray containing all integers
+  # missing_cp will be used to identify bad entries
+  cp_index = np.asarray([i if i else 0 for i in cp_index])
 
   CPInfo = namedtuple("CPInfo", ["ant1_index", "ant2_index",
                                 "ant1", "ant2",
