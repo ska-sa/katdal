@@ -455,15 +455,32 @@ class H5DataV3(DataSet):
         spw_params = rx_table.get(band, dict(band='', sideband=1))
         # Cater for receivers with mixers
         if spw_params['band'] == 'Ku':
+            siggen_freq = 0.0
             if 'Ancillary/siggen_ku_frequency' in self.sensor:
                 siggen_freq = self.sensor['Ancillary/siggen_ku_frequency'][0]
             elif 'TelescopeState' in f.file:
                 try:
                     siggen_freq = self.sensor['TelescopeState/anc_siggen_ku_frequency'][0]
                 except KeyError:
-                    siggen_freq = 0.0
+                    pass
             if siggen_freq:
                 spw_params['centre_freq'] = 100. * siggen_freq + 1284e6
+        # XXX Cater for future narrowband mode, at some stage
+        num_chans = cbf_group.attrs['n_chans']
+        bandwidth = cbf_group.attrs['bandwidth']
+        # Work around a bc856M4k CBF bug active from 2016-04-28 to 2016-06-01 that got the bandwidth wrong
+        if bandwidth == 857152196.0:
+            logger.warning('Worked around CBF bandwidth bug (857.152 MHz -> 856.000 MHz)')
+            bandwidth = 856000000.0
+        # Get channel width from original CBF parameters
+        spw_params['channel_width'] = bandwidth / num_chans
+        # Continue with different channel count, but invalidate centre freq (keep channel width though)
+        if num_chans != self._vis.shape[1]:
+            logger.warning('Number of channels received from correlator (%d) differs '
+                           'from number of channels in data (%d) - trusting the latter',
+                           num_chans, self._vis.shape[1])
+            num_chans = self._vis.shape[1]
+            spw_params.pop('centre_freq', None)
         # Override centre frequency if provided
         if centre_freq:
             spw_params['centre_freq'] = centre_freq
@@ -472,18 +489,7 @@ class H5DataV3(DataSet):
             spw_params['centre_freq'] = 0.0
             logger.warning('Could not figure out centre frequency, setting it to 0 Hz - '
                            'please provide it via centre_freq parameter')
-        # XXX Cater for future narrowband mode, at some stage
-        num_chans = cbf_group.attrs['n_chans']
-        if num_chans != self._vis.shape[1]:
-            raise BrokenFile('Number of channels received from correlator '
-                             '(%d) differs from number of channels in data (%d)' % (num_chans, self._vis.shape[1]))
-        bandwidth = cbf_group.attrs['bandwidth']
-        # Work around a bc856M4k CBF bug active from 2016-04-28 to 2016-06-01 that got the bandwidth wrong
-        if bandwidth == 857152196.0:
-            logger.warning('Worked around CBF bandwidth bug (857.152 MHz -> 856.000 MHz)')
-            bandwidth = 856000000.0
         spw_params['num_chans'] = num_chans
-        spw_params['channel_width'] = bandwidth / num_chans
         # The data product is set by the script or passed to it via schedule block
         spw_params['product'] = self.obs_params.get('product', '')
         # We only expect a single spectral window within a single v3 file,
@@ -807,10 +813,19 @@ class H5DataV3(DataSet):
         data array itself from the indexer `x`, do `x[:]` or perform any other
         form of indexing on it. Only then will data be loaded into memory.
 
+        The sign convention of the imaginary part is consistent with an
+        electric field of :math:`e^{i(\omega t - jz)}` i.e. phase that
+        increases with time.
         """
+        if self.spectral_windows[self.spw].sideband == 1:
+            # Discard the 4th / last dimension as this is subsumed in complex view
+            convert = lambda vis, keep: vis.view(np.complex64)[..., 0]
+        else:
+            # Lower side-band has the conjugate visibilities, and this isn't
+            # corrected in the correlator.
+            convert = lambda vis, keep: vis.view(np.complex64)[..., 0].conjugate()
         extract = LazyTransform('extract_vis',
-                                # Discard the 4th / last dimension as this is subsumed in complex view
-                                lambda vis, keep: vis.view(np.complex64)[..., 0],
+                                convert,
                                 lambda shape: shape[:-1], np.complex64)
         return self._vislike_indexer(self._vis, extract)
 

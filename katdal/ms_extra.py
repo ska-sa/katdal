@@ -748,12 +748,12 @@ def populate_source_dict(phase_centers, time_origins, center_frequencies, field_
     if field_names is None:
         field_names = ['Source%d' % (field,) for field in range(num_fields)]
     source_dict = {}
-    source_dict['SOURCE_ID'] = np.arange(num_fields)
+    source_dict['SOURCE_ID'] = np.arange(num_fields,dtype=np.int32)
     source_dict['PROPER_MOTION'] = np.zeros((num_fields, 2), dtype=np.float32)
     source_dict['DIRECTION'] = phase_centers
-    source_dict['CALIBRATION_GROUP'] = np.ones(num_fields) * -1
+    source_dict['CALIBRATION_GROUP'] = np.ones(num_fields,dtype=np.int32) * -1 # Grouping for calibration purpose
     source_dict['NAME'] = np.atleast_1d(field_names)
-    source_dict['NUM_LINES'] = np.ones(num_fields)
+    source_dict['NUM_LINES'] = np.ones(num_fields,dtype=np.int32) # Number of spectral lines
     source_dict['TIME'] = np.atleast_1d(np.asarray(time_origins, dtype=np.float64))
     source_dict['REST_FREQUENCY'] = np.tile(np.array([center_frequencies[num_channels // 2]],
                                                      dtype=np.float64), (num_fields, 1))
@@ -803,7 +803,7 @@ def populate_field_dict(phase_centers, time_origins, field_names=None):
     # Direction of REFERENCE center (e.g. RA, DEC) as polynomial in time (double, 2-dim)
     field_dict['REFERENCE_DIR'] = phase_centers
     # Source id (integer), or a value of -1 indicates there is no corresponding source defined
-    field_dict['SOURCE_ID'] = - np.ones(num_fields, dtype=np.int32)
+    field_dict['SOURCE_ID'] = np.arange(num_fields,dtype=np.int32) # the same as source id
     # Time origin for direction and rate (double)
     field_dict['TIME'] = np.atleast_1d(np.asarray(time_origins, dtype=np.float64))
     return field_dict
