@@ -222,6 +222,77 @@ class H5TelstateSensorData(RecordSensorData):
             raise ValueError("Sensor %r data has no key '%s'" % (self.name, key))
 
 
+class TelstateSensorData(SensorData):
+    """Raw (uninterpolated) sensor data stored in original TelescopeState.
+
+    This wraps sensor data stored in a TelescopeState object. The data is
+    only read out on item access and then cached on the object. The caching
+    should be fine as a SensorData object is typically replaced by either
+    a CategoricalData object or a NumPy array as part of sensor extraction,
+    right after the caching occurs.
+
+    Parameters
+    ----------
+    telstate : :class:`katsdptelstate.TelescopeState` object
+        Telescope state object
+    name : string
+        Sensor name, also used as telstate key
+
+    Raises
+    ------
+    KeyError
+        If sensor name is not found in telstate or it is an attribute instead
+
+    """
+    def __init__(self, telstate, name):
+        self._telstate = telstate
+        # This cache simplifies separate 'timestamp' / 'value' access pattern
+        self._value_times = []
+        if name not in telstate:
+            raise KeyError('No sensor named %r in telstate (key not found)' %
+                           (name,))
+        if telstate.is_immutable(name):
+            raise KeyError("No sensor named %r in telstate (it's an attribute)" %
+                           (name,))
+        test_data = np.array([telstate[name]])
+        # Beware array-valued sensors; treat their values as opaque objects
+        # otherwise they will turn 'value' into a mega-array of e.g. float.
+        # This forces sensor values to be 1-D at all times (an invariant).
+        dtype = test_data.dtype if test_data.ndim == 1 else np.object
+        super(TelstateSensorData, self).__init__(name, dtype)
+
+    def __bool__(self):
+        """True if sensor has at least one data point."""
+        return self.name in self._telstate and \
+            not self._telstate.is_immutable(self.name)
+
+    __nonzero__ = __bool__
+
+    def _cache_data(self):
+        if not self._value_times:
+            wrapped = (self.dtype == np.object)
+            self._value_times = self._telstate.get_range(self.name, st=0,
+                                                         return_pickle=wrapped)
+            if wrapped:
+                self._value_times = [(HashableValueWrapper(v), t)
+                                     for v, t in self._value_times]
+
+    def __getitem__(self, key):
+        """Extract timestamp and value of each sensor data point."""
+        if key == 'timestamp':
+            self._cache_data()
+            return np.array([t for v, t in self._value_times])
+        elif key == 'value':
+            self._cache_data()
+            values = np.array([v for v, t in self._value_times])
+            # Rediscover dtype from values (mostly to fix variable-length
+            # string types now that we have seen all the data)
+            self.dtype = values.dtype
+            return values
+        else:
+            raise ValueError("Sensor %r data has no key '%s'" % (self.name, key))
+
+
 # -------------------------------------------------------------------------------------------------
 # -- Utility functions
 # -------------------------------------------------------------------------------------------------
