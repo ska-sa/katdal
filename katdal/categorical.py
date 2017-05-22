@@ -42,6 +42,18 @@ class HashableValueWrapper(object):
         The wrapped version of a sensor value - if not available, use static
         method :meth:`wrap` instead (current implementation expects a pickle)
 
+    Note
+    ----
+    The current implementation uses pickle to make generic objects hashable,
+    even though it is not recommended (see http://bit.ly/2ruNkH2). The main
+    problem is with unordered data like dicts and sets, where the item order
+    in the pickle string may differ even though the objects are equal. E.g.
+
+      pickle.dumps({1: 0, 9: 0}) == pickle.dumps({9: 0, 1: 0})
+
+    evaluates to False, even though the dicts are equal. On top of this there
+    is also the issue of potentially differing pickle protocols.
+
     """
     def __init__(self, hashable_value):
         self.hashable_value = hashable_value
@@ -172,6 +184,8 @@ class CategoricalData(object):
         List of unique sensor values in order they were found in `sensor_values`
     indices : array of int, shape (*N*,)
         Array of indices into `unique_values`, one per sensor event
+    dtype : :class:`numpy.dtype` object
+        Sensor data type as NumPy dtype (found on demand from `unique_values`)
 
     Notes
     -----
