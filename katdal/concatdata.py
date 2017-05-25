@@ -236,7 +236,7 @@ class ConcatenatedSensorData(SensorData):
 
     def __bool__(self):
         """True if sensor has at least one data point."""
-        return any([bool(sd) for sd in self._data])
+        return any(bool(sd) for sd in self._data)
 
     __nonzero__ = __bool__
 

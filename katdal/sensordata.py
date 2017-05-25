@@ -262,9 +262,8 @@ class TelstateSensorData(SensorData):
         super(TelstateSensorData, self).__init__(name, dtype)
 
     def __bool__(self):
-        """True if sensor has at least one data point."""
-        return self.name in self._telstate and \
-            not self._telstate.is_immutable(self.name)
+        """True if sensor has at least one data point (already checked in init)."""
+        return True
 
     __nonzero__ = __bool__
 
@@ -402,7 +401,7 @@ def remove_duplicates_and_failures(sensor):
 
     This sorts the 'timestamp' field of the sensor record array and removes any
     duplicate values, updating the corresponding 'value' and 'status' fields as
-    well. If more than one timestamp have the same value, the value and status
+    well. If more than one timestamp has the same value, the value and status
     of the last of these timestamps are selected. If the values differ for the
     same timestamp, a warning is logged (and the last one is still picked).
 
@@ -454,10 +453,12 @@ def remove_duplicates_and_failures(sensor):
             logger.debug("At %s, sensor %r has statuses of %r and %r - "
                          "keeping last one", katpoint.Timestamp(x[ind]).local(),
                          sensor.name, z[ind], z[replacement][ind])
-    # Remove entries where 'status' equals 'failure', if 'status' is present
+    # Remove entries where 'status' implies invalid values, if 'status' is present
     if z is not None:
         # Explicitly cast status to string type, as k7_augment produced sensors with integer statuses
-        unique_ind = unique_ind[z[unique_ind].astype('|S7') != 'failure']
+        status = z[unique_ind].astype('|S7')
+        has_valid_value = np.array([['nominal'], ['warn'], ['error']])
+        unique_ind = unique_ind[(status == has_valid_value).any(axis=0)]
     # Strip 'status' / z field from final output as its job is done
     data = np.array(zip(x[unique_ind], y[unique_ind]),
                     dtype=[('timestamp', x.dtype), ('value', y.dtype)])

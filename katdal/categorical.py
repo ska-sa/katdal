@@ -45,9 +45,10 @@ class HashableValueWrapper(object):
     Note
     ----
     The current implementation uses pickle to make generic objects hashable,
-    even though it is not recommended (see http://bit.ly/2ruNkH2). The main
-    problem is with unordered data like dicts and sets, where the item order
-    in the pickle string may differ even though the objects are equal. E.g.
+    even though it is not recommended - see e.g.
+    http://www.aminus.org/blogs/index.php/2007/11/03/pickle_dumps_not_suitable_for_hashing
+    The main problem is with unordered data like dicts and sets, where the item
+    order in the pickle string may differ even though the objects are equal;
 
       pickle.dumps({1: 0, 9: 0}) == pickle.dumps({9: 0, 1: 0})
 
@@ -118,7 +119,7 @@ def unique_in_order(elements, unwrap=False, return_inverse=False):
         If True, unwrap any objects wrapped in a :class:`HashableValueWrapper`
     return_inverse : {False, True}, optional
         If True, also return sequence of indices that can be used to reconstruct
-        original `elements` sequence via `unique_elements[inverse]`
+        original `elements` sequence via `[unique_elements[i] for i in inverse]`
 
     Returns
     -------
@@ -385,7 +386,7 @@ class CategoricalData(object):
             remap[index:] -= 1
             self.indices = remap[self.indices[keep]]
             self.events = np.r_[self.events[keep], self.events[-1]]
-            self.unique_values = self.unique_values[:index] + self.unique_values[index + 1:]
+            del self.unique_values[index]
 
     def add_unmatched(self, segments, match_dist=1):
         """Add duplicate events for segment starts that don't match sensor events.
