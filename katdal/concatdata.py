@@ -29,7 +29,6 @@ from .dataset import DataSet
 
 class ConcatenationError(Exception):
     """Sequence of objects could not be concatenated due to incompatibility."""
-    pass
 
 # -------------------------------------------------------------------------------------------------
 # -- CLASS :  ConcatenatedLazyIndexer
@@ -62,6 +61,7 @@ class ConcatenatedLazyIndexer(LazyIndexer):
         If transform chain does not obey restrictions on changing the data shape
 
     """
+
     def __init__(self, indexers, transforms=None):
         # Only keep those indexers that have any data selected on first axis (unless nothing at all is selected)
         self.indexers = [indexer for indexer in indexers if indexer.shape[0]]
@@ -215,6 +215,7 @@ class ConcatenatedSensorData(SensorData):
         an :class:`h5py.Dataset`)
 
     """
+
     def __init__(self, data):
         self._data = data
         names = unique_in_order([sd.name for sd in data])
@@ -268,6 +269,7 @@ class ConcatenatedSensorCache(SensorCache):
         be applied to sensor data (this can be disabled on data retrieval)
 
     """
+
     def __init__(self, caches, keep=None):
         self.caches = caches
         # Collect the names and types of all actual and virtual sensors in caches, as well as properties
@@ -409,6 +411,7 @@ class ConcatenatedDataSet(DataSet):
         List of existing data sets
 
     """
+
     def __init__(self, datasets):
         DataSet.__init__(self, '', datasets[0].ref_ant, datasets[0].time_offset)
 

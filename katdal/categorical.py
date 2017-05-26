@@ -56,6 +56,7 @@ class HashableValueWrapper(object):
     is also the issue of potentially differing pickle protocols.
 
     """
+
     def __init__(self, hashable_value):
         self.hashable_value = hashable_value
 
@@ -109,7 +110,7 @@ class HashableValueWrapper(object):
 
 
 def unique_in_order(elements, unwrap=False, return_inverse=False):
-    """Extract unique elements from *elements* while preserving original order.
+    """Extract unique elements from `elements` while preserving original order.
 
     Parameters
     ----------
@@ -202,6 +203,7 @@ class CategoricalData(object):
     then need to be unpacked at some later stage which is also tricky.
 
     """
+
     def __init__(self, sensor_values, events):
         self.unique_values, self.indices = unique_in_order(sensor_values, unwrap=True,
                                                            return_inverse=True)
@@ -216,7 +218,7 @@ class CategoricalData(object):
             return self.unique_values
 
     def _lookup(self, dumps):
-        """Look up relevant indices occurring at specified *dumps*.
+        """Look up relevant indices occurring at specified `dumps`.
 
         Parameters
         ----------
@@ -392,7 +394,7 @@ class CategoricalData(object):
         """Add duplicate events for segment starts that don't match sensor events.
 
         Given a sequence of segments, this matches each segment start to the
-        nearest sensor event dump (within *match_dist*). Any unmatched segment
+        nearest sensor event dump (within `match_dist`). Any unmatched segment
         starts are added as duplicate sensor events (or ignored if they fall
         outside the sensor event range).
 

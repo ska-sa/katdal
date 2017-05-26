@@ -159,6 +159,7 @@ class H5DataV3(DataSet):
       timestamp = sample_counter / time_scale + time_origin
 
     """
+
     def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r',
                  time_scale=None, time_origin=None, rotate_bls=False,
                  centre_freq=None, band=None, keepdims=False, **kwargs):
@@ -554,7 +555,7 @@ class H5DataV3(DataSet):
 
     @staticmethod
     def _get_corrprods(f, rotate_bls=False):
-        """Load the correlation products list from an open file
+        """Load the correlation products list from an open file.
 
         Parameters
         ----------
@@ -802,7 +803,7 @@ class H5DataV3(DataSet):
 
     @property
     def vis(self):
-        """Complex visibility data as a function of time, frequency and baseline.
+        r"""Complex visibility data as a function of time, frequency and baseline.
 
         The visibility data are returned as an array indexer of complex64, shape
         (*T*, *F*, *B*), with time along the first dimension, frequency along the

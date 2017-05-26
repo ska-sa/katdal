@@ -88,6 +88,7 @@ class H5DataV1(DataSet):
         Underlying HDF5 file, exposed via :mod:`h5py` interface
 
     """
+
     def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r', **kwargs):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
@@ -349,7 +350,7 @@ class H5DataV1(DataSet):
 
     @property
     def vis(self):
-        """Complex visibility data as a function of time, frequency and baseline.
+        r"""Complex visibility data as a function of time, frequency and baseline.
 
         The visibility data are returned as an array indexer of complex64, shape
         (*T*, *F*, *B*), with time along the first dimension, frequency along the

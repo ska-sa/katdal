@@ -77,6 +77,7 @@ class SensorData(object):
         Sensor data type as NumPy dtype (beware that string lengths may be wrong)
 
     """
+
     def __init__(self, name, dtype):
         self.name = name
         self.dtype = dtype
@@ -99,7 +100,7 @@ class SensorData(object):
         Raises
         ------
         ValueError
-            If *key* is unsupported field name
+            If `key` is unsupported field name
 
         """
         raise NotImplementedError
@@ -136,6 +137,7 @@ class RecordSensorData(SensorData):
         Sensor name (assumed to be data.name by default, if it exists)
 
     """
+
     def __init__(self, data, name=None):
         name = name if name is not None else getattr(data, 'name', '')
         dtype = data.dtype.fields['value'][0]
@@ -160,7 +162,7 @@ class RecordSensorData(SensorData):
 
 
 def _h5_telstate_unpack(s):
-    """This unpacks a telstate value from its string representation."""
+    """Unpack a telstate value from its string representation."""
     try:
         # Since 2016-05-09 the HDF5 TelescopeState contains pickled values
         return pickle.loads(s)
@@ -193,6 +195,7 @@ class H5TelstateSensorData(RecordSensorData):
         Sensor name (assumed to be data.name by default, if it exists)
 
     """
+
     def __init__(self, data, name=None):
         super(H5TelstateSensorData, self).__init__(data, name)
         # Unpickle first value to derive proper dtype.
@@ -245,6 +248,7 @@ class TelstateSensorData(SensorData):
         If sensor name is not found in telstate or it is an attribute instead
 
     """
+
     def __init__(self, telstate, name):
         self._telstate = telstate
         # This cache simplifies separate 'timestamp' / 'value' access pattern
@@ -301,13 +305,13 @@ class TelstateSensorData(SensorData):
 def _safe_linear_interp(xi, yi, x):
     """Linearly interpolate (xi, yi) values to x positions, safely.
 
-    Given a set of N ``(x, y)`` points, provided in the *xi* and *yi* arrays,
+    Given a set of N ``(x, y)`` points, provided in the `xi` and `yi` arrays,
     this will calculate ``y``-coordinate values for a set of M ``x``-coordinates
-    provided in the *x* array, using linear interpolation.
+    provided in the `x` array, using linear interpolation.
 
-    It is safe in the sense that if *xi* and *yi* only contain a single point
+    It is safe in the sense that if `xi` and `yi` only contain a single point
     it will revert to zeroth-order interpolation. In addition, data will not
-    be extrapolated linearly past the edges of *xi*, but the closest value
+    be extrapolated linearly past the edges of `xi`, but the closest value
     will be used instead (i.e. also zeroth-order interpolation).
 
     Parameters
@@ -366,7 +370,7 @@ def dummy_sensor_data(name, value=None, dtype=np.float64, timestamp=0.0):
     name : string
         Sensor name
     value : object, optional
-        Filler value (default is None, meaning *dtype* will be used instead)
+        Filler value (default is None, meaning `dtype` will be used instead)
     dtype : :class:`numpy.dtype` object or equivalent, optional
         Desired sensor data type, used if no explicit value is given
     timestamp : float, optional
@@ -531,6 +535,7 @@ class SensorCache(dict):
         the aliased names and the data of the original sensors.
 
     """
+
     def __init__(self, cache, timestamps, dump_period, keep=slice(None), props=None, virtual={}, aliases={}):
         # Initialise cache via dict constructor
         super(SensorCache, self).__init__(cache)
