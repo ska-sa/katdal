@@ -87,7 +87,8 @@ class SensorData(object):
         Parameters
         ----------
         key : {'timestamp', 'value', 'status'}
-            Name of field to access ('status' is optional and may raise error)
+            Name of field to access ('status' is optional and raises ValueError
+            if not supported)
 
         Returns
         -------
@@ -128,7 +129,7 @@ class RecordSensorData(SensorData):
 
     Parameters
     ----------
-    data : recarray-like, with fields 'timestamp', 'value' ('status' optional)
+    data : recarray-like, with fields 'timestamp', 'value' and optionally 'status'
         Uninterpolated sensor data as structured array or equivalent (such as
         an :class:`h5py.Dataset`)
     name : string or None, optional
@@ -457,8 +458,8 @@ def remove_duplicates_and_failures(sensor):
     if z is not None:
         # Explicitly cast status to string type, as k7_augment produced sensors with integer statuses
         status = z[unique_ind].astype('|S7')
-        has_valid_value = np.array([['nominal'], ['warn'], ['error']])
-        unique_ind = unique_ind[(status == has_valid_value).any(axis=0)]
+        unique_ind = unique_ind[(status == 'nominal') | (status == 'warn') |
+                                (status == 'error')]
     # Strip 'status' / z field from final output as its job is done
     data = np.array(zip(x[unique_ind], y[unique_ind]),
                     dtype=[('timestamp', x.dtype), ('value', y.dtype)])

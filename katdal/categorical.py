@@ -45,8 +45,8 @@ class HashableValueWrapper(object):
     Note
     ----
     The current implementation uses pickle to make generic objects hashable,
-    even though it is not recommended - see e.g.
-    http://www.aminus.org/blogs/index.php/2007/11/03/pickle_dumps_not_suitable_for_hashing
+    even though it is not recommended - see e.g. this `blog post
+    <http://www.aminus.org/blogs/index.php/2007/11/03/pickle_dumps_not_suitable_for_hashing>`_.
     The main problem is with unordered data like dicts and sets, where the item
     order in the pickle string may differ even though the objects are equal;
 

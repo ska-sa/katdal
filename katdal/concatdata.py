@@ -210,7 +210,7 @@ class ConcatenatedSensorData(SensorData):
 
     Parameters
     ----------
-    data : sequence of recarray-like with fields 'timestamp', 'value' ('status')
+    data : sequence of recarray-like with fields 'timestamp', 'value' and optionally 'status'
         Uncached sensor data as a list of record arrays or equivalent (such as
         an :class:`h5py.Dataset`)
 
