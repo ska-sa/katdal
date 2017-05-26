@@ -401,8 +401,8 @@ def dummy_sensor_data(name, value=None, dtype=np.float64, timestamp=0.0):
     return RecordSensorData(data, name)
 
 
-def remove_duplicates_and_failures(sensor):
-    """Remove duplicate timestamp values and failures from sensor data.
+def remove_duplicates_and_invalid_values(sensor):
+    """Remove duplicate timestamps and invalid values from sensor data.
 
     This sorts the 'timestamp' field of the sensor record array and removes any
     duplicate values, updating the corresponding 'value' and 'status' fields as
@@ -410,22 +410,23 @@ def remove_duplicates_and_failures(sensor):
     of the last of these timestamps are selected. If the values differ for the
     same timestamp, a warning is logged (and the last one is still picked).
 
-    In addition, if there is a 'status' field, get rid of data with a 'failure'
-    status which indicates that the sensor could not be read and the
-    corresponding value will therefore be meaningless. Afterwards, remove the
-    'status' field from the data as this is the only place it plays a role.
+    In addition, if there is a 'status' field, get rid of data with a status
+    other than 'nominal', 'warn' or 'error', which indicates that the sensor
+    could not be read and the corresponding value will therefore be invalid.
+    Afterwards, remove the 'status' field from the data as this is the only
+    place it plays a role.
 
     Parameters
     ----------
-    sensor : :class:`SensorData` object, length N
+    sensor : :class:`SensorData` object, length *N*
         Raw sensor dataset, which acts like a record array with fields
         'timestamp', 'value' and optionally 'status'
 
     Returns
     -------
-    clean_sensor : :class:`RecordSensorData` object, length M
-        Sensor data with duplicate timestamps and failures removed (M <= N),
-        and only 'timestamp' and 'value' fields left
+    clean_sensor : :class:`RecordSensorData` object, length *M*
+        Sensor data with duplicate timestamps and invalid values removed
+        (*M* <= *N*), and only 'timestamp' and 'value' fields left
 
     """
     x = np.atleast_1d(sensor['timestamp'])
@@ -682,7 +683,7 @@ class SensorCache(dict):
             # Clean up sensor data if non-empty
             if sensor_data:
                 # Sort sensor events in chronological order and discard duplicates and unreadable sensor values
-                sensor_data = remove_duplicates_and_failures(sensor_data)
+                sensor_data = remove_duplicates_and_invalid_values(sensor_data)
             if not sensor_data:
                 sensor_data = dummy_sensor_data(name, value=props.get('initial_value'), dtype=sensor_data.dtype)
                 logger.warning("No usable data found for sensor '%s' - replaced with dummy data (%r)" %
