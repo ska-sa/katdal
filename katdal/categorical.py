@@ -42,11 +42,6 @@ class ComparableArrayWrapper(object):
     value : object
         The sensor value to be wrapped
 
-    Note
-    ----
-    The object is explicitly non-hashable to force comparisons to be by value
-    instead of by identity for ndarrays.
-
     """
 
     def __init__(self, value):
@@ -76,34 +71,45 @@ class ComparableArrayWrapper(object):
 
     def __lt__(self, other):
         """Less-than comparison operator."""
+        if isinstance(other, ComparableArrayWrapper):
+            other = other.unwrapped
         return self.unwrapped < other
 
     def __gt__(self, other):
         """Greather-than comparison operator."""
+        if isinstance(other, ComparableArrayWrapper):
+            other = other.unwrapped
         return self.unwrapped > other
 
     def __le__(self, other):
         """Less-than-or-equal comparison operator."""
+        if isinstance(other, ComparableArrayWrapper):
+            other = other.unwrapped
         return self.unwrapped <= other
 
     def __ge__(self, other):
         """Greater-than-or-equal comparison operator."""
+        if isinstance(other, ComparableArrayWrapper):
+            other = other.unwrapped
         return self.unwrapped >= other
 
-    # Force class to be unhashable to allow value comparison via __eq__ if possible
-    __hash__ = None
+    def __hash__(self):
+        """If the underlying object is hashable, the wrapper is too."""
+        return hash(self.unwrapped)
+
+    @staticmethod
+    def unwrap(v):
+        """Unwrap value if needed."""
+        return v.unwrapped if isinstance(v, ComparableArrayWrapper) else v
 
 
-def unique_in_order(elements, unwrap=False, return_inverse=False):
+def unique_in_order(elements, return_inverse=False):
     """Extract unique elements from `elements` while preserving original order.
 
     Parameters
     ----------
-    elements : sequence of hashables or comparables
-        Sequence of hashable or comparable objects (i.e. objects supporting
-        either __hash__ or __eq__ operator)
-    unwrap : {False, True}, optional
-        If True, unwrap any objects wrapped in a :class:`ComparableArrayWrapper`
+    elements : sequence
+        Sequence of equality-comparable objects
     return_inverse : {False, True}, optional
         If True, also return sequence of indices that can be used to reconstruct
         original `elements` sequence via `[unique_elements[i] for i in inverse]`
@@ -137,10 +143,6 @@ def unique_in_order(elements, unwrap=False, return_inverse=False):
         unique_elements = lookup.keys()
         if return_inverse:
             inverse = [lookup[element] for element in elements]
-    if unwrap:
-        def maybe_unwrap(v):   # noqa: E301
-            return v.unwrapped if isinstance(v, ComparableArrayWrapper) else v
-        unique_elements = [maybe_unwrap(element) for element in unique_elements]
     # Force inverse to int dtype in case it is an empty array (float otherwise)
     return (unique_elements, np.array(inverse, dtype=np.int)) \
         if return_inverse else unique_elements
@@ -197,20 +199,20 @@ class CategoricalData(object):
 
     It is better to make `unique_values` a list instead of an array because an
     array assimilates objects such as tuples, lists and other arrays. The
-    alternative is an array of :class:`ComparableArrayWrapper` objects but these
-    then need to be unpacked at some later stage which is also tricky.
+    alternative is an array of :class:`ComparableArrayWrapper` objects but
+    these then need to be unpacked at some later stage which is also tricky.
 
     """
 
     def __init__(self, sensor_values, events):
-        self.unique_values, self.indices = unique_in_order(sensor_values, unwrap=True,
-                                                           return_inverse=True)
+        values, self.indices = unique_in_order(sensor_values, return_inverse=True)
+        self.unique_values = [ComparableArrayWrapper.unwrap(v) for v in values]
         self.events = np.asarray(events)
 
     @property
     def _comparable_values(self):
         """Comparable version of unique values, wrapping any objects."""
-        return [ComparableArrayWrapper.wrap(value) for value in self.unique_values]
+        return [ComparableArrayWrapper(value) for value in self.unique_values]
 
     def _lookup(self, dumps):
         """Look up relevant indices occurring at specified `dumps`.
@@ -517,8 +519,8 @@ def concatenate_categorical(split_data, **kwargs):
     # Combine all unique values in the order they are found in datasets
     split_values = [cat_data._comparable_values for cat_data in split_data]
     inverse_splits = np.cumsum([0] + [len(vals) for vals in split_values])
-    data.unique_values, inverse = unique_in_order(sum(split_values, []),
-                                                  unwrap=True, return_inverse=True)
+    values, inverse = unique_in_order(sum(split_values, []), return_inverse=True)
+    data.unique_values = [ComparableArrayWrapper.unwrap(v) for v in values]
     indices, events = [], []
     for n, cat_data in enumerate(split_data):
         # Remap indices to new unique_values array
