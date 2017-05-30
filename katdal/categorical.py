@@ -17,63 +17,58 @@
 """Container for categorical (i.e. non-numerical) sensor data and related tools."""
 
 import collections
-import cPickle as pickle
 
 import numpy as np
 
 
-class HashableValueWrapper(object):
-    """Wrapper that ensures objects are hashable and comparable by value.
+class ComparableArrayWrapper(object):
+    """Wrapper that improves comparison of array objects.
 
     This wrapper class has two main benefits:
 
-      - It prevents sensor values that are NumPy ndarrays themselves (or
-        array-like objects such as tuples and lists) from dissolving and
-        losing their identity when they are assembled into an array.
+      - It prevents sensor values that are NumPy ndarrays themselves
+        (or array-like objects such as tuples and lists) from dissolving
+        and losing their identity when they are assembled into an array.
 
-      - It ensures that all sensor values become hashable by value, which eases
-        comparison (e.g. avoiding the array-valued booleans resulting from
-        ndarray comparisons without resorting to np.array_equal) and also
-        allows sensor values to be looked up in mappings to simplify indexing.
+      - It ensures that array-valued sensor values become properly comparable
+        (avoiding array-valued booleans resulting from standard comparisons).
+
+    The former is needed because :class:`SensorData` is treated as a structured
+    array even if it contains object values. The latter is needed because the
+    equality operator crops up in hard-to-reach places like inside list.index().
 
     Parameters
     ----------
-    hashable_value : object that is hashable
-        The wrapped version of a sensor value - if not available, use static
-        method :meth:`wrap` instead (current implementation expects a pickle)
+    value : object
+        The sensor value to be wrapped
 
     Note
     ----
-    The current implementation uses pickle to make generic objects hashable,
-    even though it is not recommended - see e.g. this `blog post
-    <http://www.aminus.org/blogs/index.php/2007/11/03/pickle_dumps_not_suitable_for_hashing>`_.
-    The main problem is with unordered data like dicts and sets, where the item
-    order in the pickle string may differ even though the objects are equal;
-
-      pickle.dumps({1: 0, 9: 0}) == pickle.dumps({9: 0, 1: 0})
-
-    evaluates to False, even though the dicts are equal. On top of this there
-    is also the issue of potentially differing pickle protocols.
+    The object is explicitly non-hashable to force comparisons to be by value
+    instead of by identity for ndarrays.
 
     """
 
-    def __init__(self, hashable_value):
-        self.hashable_value = hashable_value
+    def __init__(self, value):
+        self.unwrapped = value
 
     def __repr__(self):
         """Short human-friendly string representation of wrapper object."""
         return "<katdal.%s { %r } at 0x%x>" % \
-               (self.__class__.__name__, self.unwrap(), id(self))
+               (self.__class__.__name__, self.unwrapped, id(self))
 
     def __str__(self):
         """Longer human-friendly string representation of wrapped object."""
-        return str(self.unwrap())
+        return str(self.unwrapped)
 
     def __eq__(self, other):
         """Equality comparison operator."""
-        if not isinstance(other, HashableValueWrapper):
-            other = HashableValueWrapper.wrap(other)
-        return self.hashable_value == other.hashable_value
+        if isinstance(other, ComparableArrayWrapper):
+            other = other.unwrapped
+        if isinstance(self.unwrapped, np.ndarray) or isinstance(other, np.ndarray):
+            return np.array_equal(self.unwrapped, other)
+        else:
+            return self.unwrapped == other
 
     def __ne__(self, other):
         """Inequality comparison operator."""
@@ -81,32 +76,22 @@ class HashableValueWrapper(object):
 
     def __lt__(self, other):
         """Less-than comparison operator."""
-        raise TypeError("HashableValueWrapper objects are considered unorderable")
+        return self.unwrapped < other
 
     def __gt__(self, other):
         """Greather-than comparison operator."""
-        raise TypeError("HashableValueWrapper objects are considered unorderable")
+        return self.unwrapped > other
 
     def __le__(self, other):
         """Less-than-or-equal comparison operator."""
-        raise TypeError("HashableValueWrapper objects are considered unorderable")
+        return self.unwrapped <= other
 
     def __ge__(self, other):
         """Greater-than-or-equal comparison operator."""
-        raise TypeError("HashableValueWrapper objects are considered unorderable")
+        return self.unwrapped >= other
 
-    def __hash__(self):
-        """Return hash value of wrapped object (guaranteed to be hashable)."""
-        return hash(self.hashable_value)
-
-    @staticmethod
-    def wrap(value):
-        """Wrap generic object to become hashable (pickle implementation)."""
-        return HashableValueWrapper(pickle.dumps(value))
-
-    def unwrap(self):
-        """Extract original object from wrapper (pickle implementation)."""
-        return pickle.loads(self.hashable_value)
+    # Force class to be unhashable to allow value comparison via __eq__ if possible
+    __hash__ = None
 
 
 def unique_in_order(elements, unwrap=False, return_inverse=False):
@@ -114,10 +99,11 @@ def unique_in_order(elements, unwrap=False, return_inverse=False):
 
     Parameters
     ----------
-    elements : sequence of hashables
-        Sequence of hashable objects (i.e. objects supporting __hash__ operator)
+    elements : sequence of hashables or comparables
+        Sequence of hashable or comparable objects (i.e. objects supporting
+        either __hash__ or __eq__ operator)
     unwrap : {False, True}, optional
-        If True, unwrap any objects wrapped in a :class:`HashableValueWrapper`
+        If True, unwrap any objects wrapped in a :class:`ComparableArrayWrapper`
     return_inverse : {False, True}, optional
         If True, also return sequence of indices that can be used to reconstruct
         original `elements` sequence via `[unique_elements[i] for i in inverse]`
@@ -131,21 +117,33 @@ def unique_in_order(elements, unwrap=False, return_inverse=False):
         reconstruct original sequence
 
     """
-    # Surprisingly, a zero generator like itertools.repeat does not buy you anything
-    lookup = collections.OrderedDict(zip(elements, len(elements) * [0]))
-    for index, element in enumerate(lookup):
-        lookup[element] = index
+    unique_elements, inverse = [], []
+    try:
+        # Surprisingly, a zero generator like itertools.repeat does not buy you anything
+        lookup = collections.OrderedDict(zip(elements, len(elements) * [0]))
+    except TypeError:
+        # Fall back to slower list-based lookup for unhashable object values
+        for element in elements:
+            try:
+                index = unique_elements.index(element)
+            except ValueError:
+                index = len(unique_elements)
+                unique_elements.append(element)
+            if return_inverse:
+                inverse.append(index)
+    else:
+        for index, element in enumerate(lookup):
+            lookup[element] = index
+        unique_elements = lookup.keys()
+        if return_inverse:
+            inverse = [lookup[element] for element in elements]
     if unwrap:
         def maybe_unwrap(v):   # noqa: E301
-            return v.unwrap() if isinstance(v, HashableValueWrapper) else v
-        unique_elements = [maybe_unwrap(element) for element in lookup]
-    else:
-        unique_elements = lookup.keys()
-    if return_inverse:
-        inverse = np.array([lookup[element] for element in elements], dtype=np.int)
-        return unique_elements, inverse
-    else:
-        return unique_elements
+            return v.unwrapped if isinstance(v, ComparableArrayWrapper) else v
+        unique_elements = [maybe_unwrap(element) for element in unique_elements]
+    # Force inverse to int dtype in case it is an empty array (float otherwise)
+    return (unique_elements, np.array(inverse, dtype=np.int)) \
+        if return_inverse else unique_elements
 
 
 # -------------------------------------------------------------------------------------------------
@@ -199,7 +197,7 @@ class CategoricalData(object):
 
     It is better to make `unique_values` a list instead of an array because an
     array assimilates objects such as tuples, lists and other arrays. The
-    alternative is an array of :class:`HashableValueWrapper` objects but these
+    alternative is an array of :class:`ComparableArrayWrapper` objects but these
     then need to be unpacked at some later stage which is also tricky.
 
     """
@@ -210,12 +208,9 @@ class CategoricalData(object):
         self.events = np.asarray(events)
 
     @property
-    def _hashable_values(self):
-        """Hashable version of unique values, wrapping any objects."""
-        if self.dtype == np.object:
-            return [HashableValueWrapper.wrap(value) for value in self.unique_values]
-        else:
-            return self.unique_values
+    def _comparable_values(self):
+        """Comparable version of unique values, wrapping any objects."""
+        return [ComparableArrayWrapper.wrap(value) for value in self.unique_values]
 
     def _lookup(self, dumps):
         """Look up relevant indices occurring at specified `dumps`.
@@ -289,27 +284,27 @@ class CategoricalData(object):
 
     def __eq__(self, other):
         """Equality comparison operator."""
-        return self._bool_per_dump([value == other for value in self._hashable_values])
+        return self._bool_per_dump([value == other for value in self._comparable_values])
 
     def __ne__(self, other):
         """Inequality comparison operator."""
-        return self._bool_per_dump([value != other for value in self._hashable_values])
+        return self._bool_per_dump([value != other for value in self._comparable_values])
 
     def __lt__(self, other):
         """Less-than comparison operator."""
-        return self._bool_per_dump([value < other for value in self._hashable_values])
+        return self._bool_per_dump([value < other for value in self._comparable_values])
 
     def __gt__(self, other):
         """Greather-than comparison operator."""
-        return self._bool_per_dump([value > other for value in self._hashable_values])
+        return self._bool_per_dump([value > other for value in self._comparable_values])
 
     def __le__(self, other):
         """Less-than-or-equal comparison operator."""
-        return self._bool_per_dump([value <= other for value in self._hashable_values])
+        return self._bool_per_dump([value <= other for value in self._comparable_values])
 
     def __ge__(self, other):
         """Greater-than-or-equal comparison operator."""
-        return self._bool_per_dump([value >= other for value in self._hashable_values])
+        return self._bool_per_dump([value >= other for value in self._comparable_values])
 
     @property
     def dtype(self):
@@ -355,7 +350,7 @@ class CategoricalData(object):
         # If value has not been seen before, add it to unique_values (and create new index for it)
         if value is not None:
             try:
-                value_index = self._hashable_values.index(value)
+                value_index = self._comparable_values.index(value)
             except ValueError:
                 value_index = len(self.unique_values)
                 self.unique_values += [value]
@@ -379,7 +374,7 @@ class CategoricalData(object):
 
         """
         try:
-            index = self._hashable_values.index(value)
+            index = self._comparable_values.index(value)
         except ValueError:
             pass
         else:
@@ -520,7 +515,7 @@ def concatenate_categorical(split_data, **kwargs):
     segments = np.cumsum([0] + [cat_data.events[-1] for cat_data in split_data])
     data = CategoricalData([], [])
     # Combine all unique values in the order they are found in datasets
-    split_values = [cat_data._hashable_values for cat_data in split_data]
+    split_values = [cat_data._comparable_values for cat_data in split_data]
     inverse_splits = np.cumsum([0] + [len(vals) for vals in split_values])
     data.unique_values, inverse = unique_in_order(sum(split_values, []),
                                                   unwrap=True, return_inverse=True)
@@ -585,9 +580,9 @@ def sensor_to_categorical(sensor_timestamps, sensor_values, dump_midtimes, dump_
     sensor_timestamps = np.atleast_1d(sensor_timestamps)
     sensor_values = np.atleast_1d(sensor_values)
     dump_midtimes = np.atleast_1d(dump_midtimes)
-    # Check if sensor values are objects wrapped in HashableValueWrappers
+    # Check if sensor values are objects wrapped in ComparableArrayWrappers
     wrapped_values = len(sensor_values) and isinstance(sensor_values[0],
-                                                       HashableValueWrapper)
+                                                       ComparableArrayWrapper)
     # Convert sensor event times to dump indices (pick the dump during which each sensor event occurred)
     # The last event is fixed at one-past-the-last-dump, to indicate the end of the last segment
     events = np.r_[dump_midtimes.searchsorted(sensor_timestamps - 0.5 * dump_period), len(dump_midtimes)]
@@ -598,14 +593,14 @@ def sensor_to_categorical(sensor_timestamps, sensor_values, dump_midtimes, dump_
     # Force first dump to have valid sensor value (use initial value or first proper value advanced to start)
     if events[0] != 0 and initial_value is not None:
         if wrapped_values:
-            initial_value = HashableValueWrapper.wrap(initial_value)
+            initial_value = ComparableArrayWrapper(initial_value)
         sensor_values, events = np.r_[[initial_value], sensor_values], np.r_[0, events]
     events[0] = 0
     # Apply optional transform to sensor values
     if transform is not None:
         if wrapped_values:
             unwrapped_transform = transform
-            transform = lambda value: HashableValueWrapper.wrap(unwrapped_transform(value.unwrap()))   # noqa: E731
+            transform = lambda value: ComparableArrayWrapper(unwrapped_transform(value.unwrapped))  # noqa: E731
         sensor_values = np.array([transform(y) for y in sensor_values])
     # Discard sensor events that do not change the (transformed) sensor value (i.e. that repeat the previous value)
     if not allow_repeats:
@@ -613,8 +608,6 @@ def sensor_to_categorical(sensor_timestamps, sensor_values, dump_midtimes, dump_
         sensor_values, events = sensor_values[changes], np.r_[events[changes], len(dump_midtimes)]
     # Extend segments with "greedy" values to include first dump of next segment where sensor value is changing
     if greedy_values is not None:
-        if wrapped_values:
-            greedy_values = [HashableValueWrapper.wrap(value) for value in greedy_values]
         greedy_to_nongreedy = [n for n in range(1, len(sensor_values))
                                if sensor_values[n - 1] in greedy_values and sensor_values[n] not in greedy_values]
         events[greedy_to_nongreedy] += 1

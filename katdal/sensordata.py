@@ -23,7 +23,7 @@ import cPickle as pickle
 import numpy as np
 import katpoint
 
-from .categorical import HashableValueWrapper, sensor_to_categorical
+from .categorical import ComparableArrayWrapper, sensor_to_categorical
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +216,7 @@ class H5TelstateSensorData(RecordSensorData):
             # Unpack everything first, otherwise old files will be a mess
             values = [_h5_telstate_unpack(s) for s in self._data[key]]
             if self.dtype == np.object:
-                values = [HashableValueWrapper.wrap(value) for value in values]
+                values = [ComparableArrayWrapper(value) for value in values]
             values = np.array(values)
             # Rediscover dtype from values (mostly to fix variable-length
             # string types now that we have seen all the data)
@@ -274,11 +274,9 @@ class TelstateSensorData(SensorData):
 
     def _cache_data(self):
         if not self._value_times:
-            wrapped = (self.dtype == np.object)
-            self._value_times = self._telstate.get_range(self.name, st=0,
-                                                         return_pickle=wrapped)
-            if wrapped:
-                self._value_times = [(HashableValueWrapper(v), t)
+            self._value_times = self._telstate.get_range(self.name, st=0)
+            if self.dtype == np.object:
+                self._value_times = [(ComparableArrayWrapper(v), t)
                                      for v, t in self._value_times]
 
     def __getitem__(self, key):
