@@ -104,7 +104,27 @@ class ComparableArrayWrapper(object):
 
 
 def infer_dtype(values):
-    """Figure out dtype of sequence of sensor values, or None if unavailable."""
+    """Figure out dtype of sequence of sensor values.
+
+    The common dtype is determined by implicit NumPy coercion. If the values
+    are array-like themselves, treat them as opaque objects to simplify
+    sensor processing. If the sequence is empty, the dtype is unknown and
+    set to None. In addition, short-circuit to an actual dtype for objects
+    with this attribute to simplify calling this on a mixed collection of
+    sensor data.
+
+    Parameters
+    ----------
+    values : sequence, or object with dtype
+        Sequence of sensor values (typically a list), or a sensor data object
+        with a dtype attribute (like ndarray or :class:`SensorData`)
+
+    Returns
+    -------
+    dtype : :class:`numpy.dtype` object or None
+        Inferred dtype, or None if `values` is an empty sequence
+
+    """
     # If values already has a dtype (because it is an ndarray, SensorData,
     # CategoricalData, etc), return that instead
     if hasattr(values, 'dtype'):

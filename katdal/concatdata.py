@@ -201,8 +201,29 @@ class ConcatenatedLazyIndexer(LazyIndexer):
 # -------------------------------------------------------------------------------------------------
 
 
-def infer_common_dtype(sensor_data_sequence):
-    """Figure out common dtype of a sequence of objects with dtypes."""
+def infer_dtypes(sensor_data_sequence):
+    """List all known dtypes found in a sequence of sensor data objects.
+
+    This extracts the dtypes from a sequence of sensor data objects and
+    finds the unique set (where string types of various lengths are represented
+    by the string type with the maximum length). If all the objects have
+    unknown dtype, return [None] instead.
+
+    XXX The list of dtypes can be further collapsed to a single dtype if needed
+    via NumPy coercion. This will effectively forgo any relative type checking.
+
+    Parameters
+    ----------
+    sensor_data_sequence : sequence of sensor data objects
+        These objects may include :class:`SensorData`, :class:`numpy.ndarray`,
+        :class:`CategoricalData` and lists of sensor values
+
+    Returns
+    -------
+    dtypes : list of :class:`numpy.dtype` objects, or [None]
+        List of unique dtypes found in sequence, or [None] if dtype is unknown
+
+    """
     dtypes = [infer_dtype(sd) for sd in sensor_data_sequence]
     # Ignore unavailable dtypes unless nothing is available
     dtypes = [dt for dt in dtypes if dt is not None]
@@ -237,7 +258,7 @@ class ConcatenatedSensorData(SensorData):
             raise ConcatenationError('Cannot concatenate sensor %r with different '
                                      'underlying names: %s' % (self.name, names))
         self.name = names[0]
-        dtypes = infer_common_dtype(data)
+        dtypes = infer_dtypes(data)
         if len(dtypes) != 1:
             raise ConcatenationError("Cannot concatenate sensor %r with different "
                                      "dtypes: %s" % (self.name, dtypes))
@@ -353,7 +374,7 @@ class ConcatenatedSensorCache(SensorCache):
         if some_dtypes_unknown:
             # Figure out the most likely dtype after potential extraction
             # This can be expensive so avoid unless really needed
-            latest_dtype = infer_common_dtype(split_data)[0]
+            latest_dtype = infer_dtypes(split_data)[0]
             # If we now know the dtype, fill in the blanks with actual dummy data
             if latest_dtype is not None:
                 for i, cache in enumerate(self.caches):
@@ -375,7 +396,7 @@ class ConcatenatedSensorCache(SensorCache):
         select : {False, True}, optional
             True if preset time selection will be applied to returned data
         extract : {True, False}, optional
-            True if sensor data should be extracted from HDF5 file and cached
+            True if sensor data should be extracted from store and cached
         kwargs : dict, optional
             Additional parameters are passed to underlying sensor caches
 
