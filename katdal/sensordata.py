@@ -14,7 +14,7 @@
 # limitations under the License.
 ################################################################################
 
-"""Container that stores cached and uncached (raw) sensor data."""
+"""Container that stores cached (interpolated) and uncached (raw) sensor data."""
 
 import logging
 import re
@@ -56,15 +56,15 @@ except ImportError:
 
 
 class SensorData(object):
-    """Raw (uninterpolated) sensor data wrapper.
+    """Raw (uninterpolated) sensor data placeholder.
 
-    This is a convenient wrapper for uninterpolated sensor data which resembles
+    This is basically a placeholder for uninterpolated sensor data resembling
     a structured array with fields 'timestamp', 'value' and optionally 'status'.
 
     Its main advantage is that it exposes the sensor data dtype (from the
-    'value' field) as a top-level attribute, making it compatible with NumPy
-    arrays and :class:`CategoricalData` objects when used together in a sensor
-    cache. It also exposes the sensor name, if available.
+    'value' field, if available) as a top-level attribute, making it compatible
+    with NumPy arrays and :class:`CategoricalData` objects when used together
+    in a sensor cache. It also exposes the sensor name, if available.
 
     The idea is that the raw sensor data is not initially cached in this object,
     making it a light-weight wrapper focussing on sensor metadata. All data
@@ -74,8 +74,8 @@ class SensorData(object):
     ----------
     name : string
         Sensor name
-    dtype : :class:`numpy.dtype` object
-        Sensor data type as NumPy dtype (beware that string lengths may be wrong)
+    dtype : :class:`numpy.dtype` object or equivalent or None
+        Sensor value type as NumPy dtype (None if not available yet)
 
     """
 
@@ -114,7 +114,7 @@ class SensorData(object):
 
     def __repr__(self):
         """Short human-friendly string representation of sensor data object."""
-        return "<katdal.%s '%s' type='%s' at 0x%x>" % \
+        return "<katdal.%s '%s' type=%s at 0x%x>" % \
                (self.__class__.__name__, self.name, self.dtype, id(self))
 
 
@@ -157,7 +157,7 @@ class RecordSensorData(SensorData):
 
     def __repr__(self):
         """Short human-friendly string representation of sensor data object."""
-        return "<katdal.%s '%s' len=%d type='%s' at 0x%x>" % \
+        return "<katdal.%s '%s' len=%d type=%s at 0x%x>" % \
                (self.__class__.__name__, self.name,
                 len(self._data), self.dtype, id(self))
 
@@ -541,7 +541,7 @@ class SensorCache(dict):
         names = sorted([key for key in self.iterkeys()])
         maxlen = max([len(name) for name in names])
         objects = [self.get(name, extract=False) for name in names]
-        obj_reprs = [(("<numpy.ndarray shape=%s type='%s' at 0x%x>" % (obj.shape, obj.dtype, id(obj)))
+        obj_reprs = [(("<numpy.ndarray shape=%s type=%s at 0x%x>" % (obj.shape, obj.dtype, id(obj)))
                      if isinstance(obj, np.ndarray) else repr(obj)) for obj in objects]
         actual = ['%s : %s' % (str(name).ljust(maxlen), obj_repr) for name, obj_repr in zip(names, obj_reprs)]
         virtual = ['%s : <function %s.%s>' % (str(pat).ljust(maxlen), func.__module__, func.__name__)
@@ -552,9 +552,10 @@ class SensorCache(dict):
     def __repr__(self):
         """Short human-friendly string representation of sensor cache object."""
         sensors = [self.get(name, extract=False) for name in self.iterkeys()]
-        return "<katdal.%s sensors=%d cached=%d at 0x%x>" % \
+        return "<katdal.%s sensors=%d cached=%d virtual=%d at 0x%x>" % \
                (self.__class__.__name__, len(sensors),
-                np.sum([not isinstance(s, SensorData) for s in sensors]), id(self))
+                np.sum([not isinstance(s, SensorData) for s in sensors]),
+                len(self.virtual), id(self))
 
     def __getitem__(self, name):
         """Sensor values interpolated to correlator data timestamps.

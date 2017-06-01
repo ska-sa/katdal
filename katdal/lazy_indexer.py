@@ -180,7 +180,7 @@ class LazyIndexer(object):
 
     def __repr__(self):
         """Short human-friendly string representation of lazy indexer object."""
-        return "<katdal.%s '%s': shape %s, type '%s' at 0x%x>" % \
+        return "<katdal.%s '%s': shape %s, type %s at 0x%x>" % \
                (self.__class__.__name__, self.name, self.shape, self.dtype, id(self))
 
     def _name_shape_dtype(self, name, shape, dtype):

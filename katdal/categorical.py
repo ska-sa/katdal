@@ -278,7 +278,7 @@ class CategoricalData(object):
 
     def __repr__(self):
         """Short human-friendly string representation of categorical data object."""
-        return "<katdal.CategoricalData events=%d values=%d type='%s' at 0x%x>" % \
+        return "<katdal.CategoricalData events=%d values=%d type=%s at 0x%x>" % \
                (len(self.indices), len(self.unique_values), self.dtype, id(self))
 
     def __str__(self):
