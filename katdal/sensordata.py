@@ -23,7 +23,8 @@ import cPickle as pickle
 import numpy as np
 import katpoint
 
-from .categorical import ComparableArrayWrapper, sensor_to_categorical
+from .categorical import (ComparableArrayWrapper, infer_dtype,
+                          sensor_to_categorical)
 
 logger = logging.getLogger(__name__)
 
@@ -198,15 +199,8 @@ class H5TelstateSensorData(RecordSensorData):
 
     def __init__(self, data, name=None):
         super(H5TelstateSensorData, self).__init__(data, name)
-        # Unpickle first value to derive proper dtype.
-        # Beware that variable-length strings will be misleading as the length
-        # of the first string is probably less than the maximum length in data.
-        if len(data['value']) > 0:
-            test_data = np.array([_h5_telstate_unpack(data['value'][0])])
-            # Beware array-valued sensors; treat their values as opaque objects
-            # otherwise they will turn 'value' into a mega-array of e.g. float.
-            # This forces sensor values to be 1-D at all times (an invariant).
-            self.dtype = test_data.dtype if test_data.ndim == 1 else np.object
+        # The dtype is not immediately available - need to unpickle data first
+        self.dtype = None
 
     def __getitem__(self, key):
         """Extract timestamp and value of each sensor data point."""
@@ -215,12 +209,10 @@ class H5TelstateSensorData(RecordSensorData):
         elif key == 'value':
             # Unpack everything first, otherwise old files will be a mess
             values = [_h5_telstate_unpack(s) for s in self._data[key]]
+            # Figure out dtype and wrap any objects
+            self.dtype = infer_dtype(values)
             if self.dtype == np.object:
                 values = [ComparableArrayWrapper(value) for value in values]
-            values = np.array(values)
-            # Rediscover dtype from values (mostly to fix variable-length
-            # string types now that we have seen all the data)
-            self.dtype = values.dtype
             return values
         else:
             raise ValueError("Sensor %r data has no key '%s'" % (self.name, key))
@@ -252,19 +244,15 @@ class TelstateSensorData(SensorData):
     def __init__(self, telstate, name):
         self._telstate = telstate
         # This cache simplifies separate 'timestamp' / 'value' access pattern
-        self._value_times = []
+        self._values = self._times = None
         if name not in telstate:
             raise KeyError('No sensor named %r in telstate (key not found)' %
                            (name,))
         if telstate.is_immutable(name):
             raise KeyError("No sensor named %r in telstate (it's an attribute)" %
                            (name,))
-        test_data = np.array([telstate[name]])
-        # Beware array-valued sensors; treat their values as opaque objects
-        # otherwise they will turn 'value' into a mega-array of e.g. float.
-        # This forces sensor values to be 1-D at all times (an invariant).
-        dtype = test_data.dtype if test_data.ndim == 1 else np.object
-        super(TelstateSensorData, self).__init__(name, dtype)
+        # The dtype is not immediately available - need to unpickle data first
+        super(TelstateSensorData, self).__init__(name, None)
 
     def __bool__(self):
         """True if sensor has at least one data point (already checked in init)."""
@@ -273,24 +261,22 @@ class TelstateSensorData(SensorData):
     __nonzero__ = __bool__
 
     def _cache_data(self):
-        if not self._value_times:
-            self._value_times = self._telstate.get_range(self.name, st=0)
+        if not self._times:
+            value_times = self._telstate.get_range(self.name, st=0)
+            self._values = [v for v, t in value_times]
+            self.dtype = infer_dtype(self._values)
             if self.dtype == np.object:
-                self._value_times = [(ComparableArrayWrapper(v), t)
-                                     for v, t in self._value_times]
+                self._values = [ComparableArrayWrapper(v) for v in self._values]
+            self._times = [t for v, t in value_times]
 
     def __getitem__(self, key):
         """Extract timestamp and value of each sensor data point."""
         if key == 'timestamp':
             self._cache_data()
-            return np.array([t for v, t in self._value_times])
+            return np.array(self._times)
         elif key == 'value':
             self._cache_data()
-            values = np.array([v for v, t in self._value_times])
-            # Rediscover dtype from values (mostly to fix variable-length
-            # string types now that we have seen all the data)
-            self.dtype = values.dtype
-            return values
+            return np.array(self._values)
         else:
             raise ValueError("Sensor %r data has no key '%s'" % (self.name, key))
 

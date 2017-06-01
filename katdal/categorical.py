@@ -103,6 +103,21 @@ class ComparableArrayWrapper(object):
         return v.unwrapped if isinstance(v, ComparableArrayWrapper) else v
 
 
+def infer_dtype(values):
+    """Figure out dtype of sequence of sensor values, or None if unavailable."""
+    # If values already has a dtype (because it is an ndarray, SensorData,
+    # CategoricalData, etc), return that instead
+    if hasattr(values, 'dtype'):
+        return values.dtype
+    if not values:
+        return None
+    # Put all values into array to find maximum length of any string type
+    test_data = np.array(values)
+    # Beware array-valued sensors; treat their values as opaque objects
+    # This forces sensor values to be 1-D at all times (an invariant)
+    return test_data.dtype if test_data.ndim == 1 else np.dtype(object)
+
+
 def unique_in_order(elements, return_inverse=False):
     """Extract unique elements from `elements` while preserving original order.
 
@@ -311,14 +326,7 @@ class CategoricalData(object):
     @property
     def dtype(self):
         """Sensor value type."""
-        if self.unique_values:
-            # Put all values into array to find maximum length of any string type
-            test_data = np.array(self.unique_values)
-            # Beware array-valued sensors; treat their values as opaque objects
-            # This forces sensor values to be 1-D at all times (an invariant)
-            return test_data.dtype if test_data.ndim == 1 else np.object
-        else:
-            return np.object
+        return infer_dtype(self.unique_values)
 
     def segments(self):
         """Generator that iterates through events and returns segment and value.
