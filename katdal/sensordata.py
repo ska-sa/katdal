@@ -234,10 +234,7 @@ class TelstateSensorData(SensorData):
     """Raw (uninterpolated) sensor data stored in original TelescopeState.
 
     This wraps sensor data stored in a TelescopeState object. The data is
-    only read out on item access and then cached on the object. The caching
-    should be fine as a SensorData object is typically replaced by either
-    a CategoricalData object or a NumPy array as part of sensor extraction,
-    right after the caching occurs.
+    only read out on item access.
 
     Object-valued sensors (including sensors with ndarrays as values) will have
     its values wrapped by :class:`ComparableArrayWrapper`.
@@ -253,6 +250,14 @@ class TelstateSensorData(SensorData):
     ------
     KeyError
         If sensor name is not found in telstate or it is an attribute instead
+
+    Notes
+    -----
+    The sensor data is cached on the object after any item access to ensure
+    that requesting timestamps and then values only loads the data once instead
+    of twice. The caching should be fine as a SensorData object is typically
+    replaced by either a CategoricalData object or a NumPy array as part of
+    sensor extraction, right after the caching occurs.
 
     """
 
@@ -362,7 +367,9 @@ def dummy_sensor_data(name, value=None, dtype=np.float64, timestamp=0.0):
     is required (e.g. when concatenating sensors from different datasets and
     one dataset lacks the sensor). The dummy dataset contains a single data
     point with the filler value and a configurable timestamp (defaulting to
-    way back).
+    way back). If the filler value is an object it will be wrapped in a
+    :class:`ComparableArrayWrapper` to match the behaviour of other
+    :class:`SensorData` objects.
 
     Parameters
     ----------
@@ -387,15 +394,16 @@ def dummy_sensor_data(name, value=None, dtype=np.float64, timestamp=0.0):
         elif np.issubdtype(dtype, np.int):
             value = -1
         elif np.issubdtype(dtype, np.str):
-            # Order is important here, because np.str is a subtype of np.bool, but not the other way around...
+            # Order is important here, because np.str is a subtype of np.bool,
+            # but not the other way around...
             value = ''
         elif np.issubdtype(dtype, np.bool):
             value = False
-        elif np.issubdtype(dtype, np.object):
-            value = None
     else:
-        dtype = np.array(value).dtype
-    data = np.array(zip([timestamp], [value]),
+        dtype = infer_dtype([value])
+    if dtype == np.object:
+        value = ComparableArrayWrapper(value)
+    data = np.array([(timestamp, value)],
                     dtype=[('timestamp', np.float64), ('value', dtype)])
     return RecordSensorData(data, name)
 

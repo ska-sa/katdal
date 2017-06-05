@@ -255,8 +255,12 @@ class ConcatenatedSensorData(SensorData):
         self._data = data
         names = unique_in_order([sd.name for sd in data])
         if len(names) != 1:
-            raise ConcatenationError('Cannot concatenate sensor %r with different '
-                                     'underlying names: %s' % (self.name, names))
+            # XXX This is probably not a serious restriction; consider removal.
+            # It is a weak verification that we are combining like sensors,
+            # but underlying names may legitimately differ for datasets of
+            # different minor versions (even within the same version...).
+            raise ConcatenationError('Cannot concatenate sensor with different '
+                                     'underlying names: %s' % (names,))
         self.name = names[0]
         dtypes = infer_dtypes(data)
         if len(dtypes) != 1:
@@ -305,7 +309,8 @@ class ConcatenatedSensorCache(SensorCache):
 
     def __init__(self, caches, keep=None):
         self.caches = caches
-        # Collect the names and types of all actual and virtual sensors in caches, as well as properties
+        # Collect all actual and virtual sensors in caches as well as properties
+        # The main point is to discover the name and dtype of each known sensor
         actual, virtual, self.props = {}, {}, {}
         for cache in caches:
             actual.update(cache.iteritems())
