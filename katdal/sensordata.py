@@ -70,6 +70,9 @@ class SensorData(object):
     making it a light-weight wrapper focussing on sensor metadata. All data
     access should be via __getitem__ of the appropriate field.
 
+    Where possible, object-valued sensors (including sensors with ndarrays as
+    values) will have values wrapped by :class:`ComparableArrayWrapper`.
+
     Parameters
     ----------
     name : string
@@ -129,6 +132,12 @@ class RecordSensorData(SensorData):
     is a simpler version of a recarray that only provides item-style access to
     fields and not attribute-style access.
 
+    Object-valued sensors are not treated specially in this class, as it is
+    assumed that any wrapping already occurred in the construction of the
+    recarray-like `data` input and will be reflected in its dtype. The original
+    HDF5 sensor datasets also did not contain any objects as they only support
+    standard KATCP types, so there was no need for wrapping there.
+
     Parameters
     ----------
     data : recarray-like, with fields 'timestamp', 'value' and optionally 'status'
@@ -187,6 +196,9 @@ class H5TelstateSensorData(RecordSensorData):
     TODO: This is a temporary fix to get at missing sensors in telstate and
     should be replaced by a proper wrapping of any telstate object.
 
+    Object-valued sensors (including sensors with ndarrays as values) will have
+    its values wrapped by :class:`ComparableArrayWrapper`.
+
     Parameters
     ----------
     data : recarray-like, with fields ('timestamp', 'value')
@@ -226,6 +238,9 @@ class TelstateSensorData(SensorData):
     should be fine as a SensorData object is typically replaced by either
     a CategoricalData object or a NumPy array as part of sensor extraction,
     right after the caching occurs.
+
+    Object-valued sensors (including sensors with ndarrays as values) will have
+    its values wrapped by :class:`ComparableArrayWrapper`.
 
     Parameters
     ----------

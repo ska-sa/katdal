@@ -219,6 +219,7 @@ class CategoricalData(object):
     ----------
     unique_values : list, length *M*
         List of unique sensor values in order they were found in `sensor_values`
+        with any :class:`ComparableArrayWrapper` objects unwrapped
     indices : array of int, shape (*N*,)
         Array of indices into `unique_values`, one per sensor event
     dtype : :class:`numpy.dtype` object
@@ -226,6 +227,11 @@ class CategoricalData(object):
 
     Notes
     -----
+    Any object values wrapped in a :class:`ComparableArrayWrapper` will be
+    unwrapped before adding it to `unique_values`. When adding, removing and
+    comparing values to this container, any object values will be wrapped again
+    temporarily to ensure proper comparisons.
+
     It is discouraged to have a sensor value of None as this value is given
     a special meaning in methods such as :meth:`CategoricalData.add` and
     :meth:`sensor_to_categorical`. On the other hand, it is the most sensible
