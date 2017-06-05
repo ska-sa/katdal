@@ -201,16 +201,13 @@ class ConcatenatedLazyIndexer(LazyIndexer):
 # -------------------------------------------------------------------------------------------------
 
 
-def infer_dtypes(sensor_data_sequence):
-    """List all known dtypes found in a sequence of sensor data objects.
+def common_dtype(sensor_data_sequence):
+    """The dtype suitable to store all sensor data values in the given sequence.
 
-    This extracts the dtypes from a sequence of sensor data objects and
-    finds the unique set (where string types of various lengths are represented
-    by the string type with the maximum length). If all the objects have
-    unknown dtype, return [None] instead.
-
-    XXX The list of dtypes can be further collapsed to a single dtype if needed
-    via NumPy coercion. This will effectively forgo any relative type checking.
+    This extracts the dtypes of a sequence of sensor data objects and finds the
+    minimal dtype to which all of them may be safely cast using NumPy type
+    promotion rules (which will typically be the dtype of a concatenation of
+    the values). If all the objects have unknown dtype, return None instead.
 
     Parameters
     ----------
@@ -220,19 +217,18 @@ def infer_dtypes(sensor_data_sequence):
 
     Returns
     -------
-    dtypes : list of :class:`numpy.dtype` objects, or [None]
-        List of unique dtypes found in sequence, or [None] if dtype is unknown
+    dtype : :class:`numpy.dtype` object or None
+        The promoted dtype of the sequence, or None if dtype is unknown
 
     """
+    # The sd object will always have a dtype attribute, unless we are extracting
+    # a categorical sensor with selection resulting in a list of sensor values.
+    # For that reason only, use the infer_dtype function just to be safe.
     dtypes = [infer_dtype(sd) for sd in sensor_data_sequence]
-    # Ignore unavailable dtypes unless nothing is available
+    # Ignore all unavailable dtypes for now
     dtypes = [dt for dt in dtypes if dt is not None]
-    dtypes = unique_in_order(dtypes) if dtypes else [None]
-    if all(np.issubdtype(dtype, np.str) for dtype in dtypes):
-        # Strings of different lengths have different dtypes
-        # (e.g. '|S1' vs '|S10') but can be safely concatenated
-        dtypes = [np.dtype('|S%d' % (max([dt.itemsize for dt in dtypes]),))]
-    return dtypes
+    # Find resulting dtype through type promotion or give up if nothing is known
+    return np.result_type(*dtypes) if dtypes else None
 
 
 class ConcatenatedSensorData(SensorData):
@@ -252,7 +248,6 @@ class ConcatenatedSensorData(SensorData):
     """
 
     def __init__(self, data):
-        self._data = data
         names = unique_in_order([sd.name for sd in data])
         if len(names) != 1:
             # XXX This is probably not a serious restriction; consider removal.
@@ -261,12 +256,9 @@ class ConcatenatedSensorData(SensorData):
             # different minor versions (even within the same version...).
             raise ConcatenationError('Cannot concatenate sensor with different '
                                      'underlying names: %s' % (names,))
-        self.name = names[0]
-        dtypes = infer_dtypes(data)
-        if len(dtypes) != 1:
-            raise ConcatenationError("Cannot concatenate sensor %r with different "
-                                     "dtypes: %s" % (self.name, dtypes))
-        self.dtype = dtypes[0]
+        super(ConcatenatedSensorData, self).__init__(names[0],
+                                                     common_dtype(data))
+        self._data = data
 
     def __getitem__(self, key):
         """Extract timestamp, value and status of each sensor data point."""
@@ -379,8 +371,8 @@ class ConcatenatedSensorCache(SensorCache):
         if some_dtypes_unknown:
             # Figure out the most likely dtype after potential extraction
             # This can be expensive so avoid unless really needed
-            latest_dtype = infer_dtypes(split_data)[0]
-            # If we now know the dtype, fill in the blanks with actual dummy data
+            latest_dtype = common_dtype(split_data)
+            # If we now know the dtype, fill in blanks with actual dummy data
             if latest_dtype is not None:
                 for i, cache in enumerate(self.caches):
                     if type(split_data[i]) is SensorData:

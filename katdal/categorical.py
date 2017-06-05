@@ -106,7 +106,7 @@ class ComparableArrayWrapper(object):
 def infer_dtype(values):
     """Figure out dtype of sequence of sensor values.
 
-    The common dtype is determined by implicit NumPy coercion. If the values
+    The common dtype is determined by explicit NumPy promotion. If the values
     are array-like themselves, treat them as opaque objects to simplify
     sensor processing. If the sequence is empty, the dtype is unknown and
     set to None. In addition, short-circuit to an actual dtype for objects
@@ -124,6 +124,15 @@ def infer_dtype(values):
     dtype : :class:`numpy.dtype` object or None
         Inferred dtype, or None if `values` is an empty sequence
 
+    Notes
+    -----
+    This is almost, but not quite, entirely like :func:`numpy.result_type`.
+    The differences are that this accepts generic objects in the sequence,
+    treats ndarrays as objects regardless of their underlying dtype, supports
+    a dtype of None and short-circuits the check if the sequence itself is an
+    object with a dtype. And this accepts the sequence as the first parameter
+    as opposed to being unpacked across the argument list.
+
     """
     # If values already has a dtype (because it is an ndarray, SensorData,
     # CategoricalData, etc), return that instead
@@ -131,7 +140,7 @@ def infer_dtype(values):
         return values.dtype
     if not values:
         return None
-    # Put all values into array to find maximum length of any string type
+    # Put all values into array to perform explicit NumPy type promotion
     test_data = np.array(values)
     # Beware array-valued sensors; treat their values as opaque objects
     # This forces sensor values to be 1-D at all times (an invariant)
