@@ -23,13 +23,13 @@ import numpy as np
 
 from .lazy_indexer import LazyIndexer
 from .sensordata import SensorData, SensorCache, dummy_sensor_data
-from .categorical import CategoricalData, unique_in_order, concatenate_categorical
+from .categorical import (CategoricalData, unique_in_order, infer_dtype,
+                          concatenate_categorical)
 from .dataset import DataSet
 
 
 class ConcatenationError(Exception):
     """Sequence of objects could not be concatenated due to incompatibility."""
-    pass
 
 # -------------------------------------------------------------------------------------------------
 # -- CLASS :  ConcatenatedLazyIndexer
@@ -62,6 +62,7 @@ class ConcatenatedLazyIndexer(LazyIndexer):
         If transform chain does not obey restrictions on changing the data shape
 
     """
+
     def __init__(self, indexers, transforms=None):
         # Only keep those indexers that have any data selected on first axis (unless nothing at all is selected)
         self.indexers = [indexer for indexer in indexers if indexer.shape[0]]
@@ -200,44 +201,74 @@ class ConcatenatedLazyIndexer(LazyIndexer):
 # -------------------------------------------------------------------------------------------------
 
 
+def common_dtype(sensor_data_sequence):
+    """The dtype suitable to store all sensor data values in the given sequence.
+
+    This extracts the dtypes of a sequence of sensor data objects and finds the
+    minimal dtype to which all of them may be safely cast using NumPy type
+    promotion rules (which will typically be the dtype of a concatenation of
+    the values). If all the objects have unknown dtype, return None instead.
+
+    Parameters
+    ----------
+    sensor_data_sequence : sequence of sensor data objects
+        These objects may include :class:`SensorData`, :class:`numpy.ndarray`,
+        :class:`CategoricalData` and lists of sensor values
+
+    Returns
+    -------
+    dtype : :class:`numpy.dtype` object or None
+        The promoted dtype of the sequence, or None if dtype is unknown
+
+    """
+    # The sd object will always have a dtype attribute, unless we are extracting
+    # a categorical sensor with selection resulting in a list of sensor values.
+    # For that reason only, use the infer_dtype function just to be safe.
+    dtypes = [infer_dtype(sd) for sd in sensor_data_sequence]
+    # Ignore all unavailable dtypes for now
+    dtypes = [dt for dt in dtypes if dt is not None]
+    # Find resulting dtype through type promotion or give up if nothing is known
+    return np.result_type(*dtypes) if dtypes else None
+
+
 class ConcatenatedSensorData(SensorData):
     """The concatenation of multiple raw (uncached) sensor data sets.
 
     This is a convenient container for returning raw (uncached) sensor data sets
     from a :class:`ConcatenatedSensorCache` object. It only accesses the
     underlying data sets when explicitly asked to via the __getitem__ interface,
-    but provides quick access to metadata such as sensor dtype, name and number
-    of data points.
+    but provides quick access to metadata such as sensor dtype and name.
 
     Parameters
     ----------
-    data : sequence of recarray-like with fields ('timestamp', 'value', 'status')
-        Uncached sensor data as a list of record arrays or equivalent (such as a
-        :class:`h5py.Dataset`)
+    data : sequence of recarray-like with fields 'timestamp', 'value' and optionally 'status'
+        Uncached sensor data as a list of record arrays or equivalent (such as
+        an :class:`h5py.Dataset`)
 
     """
+
     def __init__(self, data):
-        self.data = data
         names = unique_in_order([sd.name for sd in data])
         if len(names) != 1:
-            raise ConcatenationError('Cannot concatenate sensors with different names: %s' % (names,))
-        self.name = names[0]
-        dtypes = unique_in_order([sd.dtype for sd in data])
-        if len(dtypes) == 1:
-            self.dtype = dtypes[0]
-        elif np.all([np.issubdtype(dtype, np.str) for dtype in dtypes]):
-            # Strings of different lengths have different dtypes (e.g. '|S1' vs '|S10') but can be safely concatenated
-            self.dtype = np.dtype('|S%d' % (max([dt.itemsize for dt in dtypes]),))
-        else:
-            raise ConcatenationError("Cannot concatenate sensor '%s' with different dtypes: %s" % (self.name, dtypes))
+            # XXX This is probably not a serious restriction; consider removal.
+            # It is a weak verification that we are combining like sensors,
+            # but underlying names may legitimately differ for datasets of
+            # different minor versions (even within the same version...).
+            raise ConcatenationError('Cannot concatenate sensor with different '
+                                     'underlying names: %s' % (names,))
+        super(ConcatenatedSensorData, self).__init__(names[0],
+                                                     common_dtype(data))
+        self._data = data
 
     def __getitem__(self, key):
         """Extract timestamp, value and status of each sensor data point."""
-        return np.concatenate([sd[key] for sd in self.data])
+        return np.concatenate([sd[key] for sd in self._data])
 
-    def __len__(self):
-        """Number of sensor data points."""
-        return np.sum([len(sd) for sd in self.data])
+    def __bool__(self):
+        """True if sensor has at least one data point."""
+        return any(bool(sd) for sd in self._data)
+
+    __nonzero__ = __bool__
 
 
 def _calc_dummy(cache, name):
@@ -267,18 +298,30 @@ class ConcatenatedSensorCache(SensorCache):
         be applied to sensor data (this can be disabled on data retrieval)
 
     """
+
     def __init__(self, caches, keep=None):
         self.caches = caches
-        # Collect the names and types of all actual and virtual sensors in caches, as well as properties
+        # Collect all actual and virtual sensors in caches as well as properties
+        # The main point is to discover the name and dtype of each known sensor
         actual, virtual, self.props = {}, {}, {}
         for cache in caches:
-            actual.update(zip(cache.keys(), [sd.dtype for sd in cache.itervalues()]))
+            actual.update(cache.iteritems())
             virtual.update(cache.virtual)
             self.props.update(cache.props)
         # Pad out actual sensors on each cache (replace with default sensor values where missing)
-        for name, dtype in actual.iteritems():
-            if name not in cache:
-                cache[name] = dummy_sensor_data(name, dtype=dtype)
+        for name, sensor_data in actual.iteritems():
+            for cache in caches:
+                if name not in cache:
+                    # The original "raw" sensor name can differ from the cache
+                    # name due to aliasing, and concatenation cares about it.
+                    # Fully extracted ndarrays don't have .name, though...
+                    raw_name = getattr(sensor_data, 'name', name)
+                    dtype = sensor_data.dtype
+                    if dtype is None:
+                        # Instantiate base class as placeholder if type unknown
+                        cache[name] = SensorData(raw_name, dtype)
+                    else:
+                        cache[name] = dummy_sensor_data(raw_name, dtype=dtype)
         # Pad out virtual sensors with default functions (nans)
         for name in virtual:
             if name not in cache.virtual:
@@ -307,6 +350,36 @@ class ConcatenatedSensorCache(SensorCache):
             for n, cache in enumerate(self.caches):
                 cache._set_keep(keep[self._segments[n]:self._segments[n + 1]])
 
+    def _get(self, name, select, extract, **kwargs):
+        """Extract sensor data from multiple caches (see :meth:`get` for docs).
+
+        This extracts a sequence of sensor data objects, one from each cache,
+        in the process filling in any missing data if the relevant dtype
+        becomes available during extraction.
+
+        """
+        # First extract from all caches where the requested sensor is present
+        split_data = []
+        some_dtypes_unknown = False
+        for cache in self.caches:
+            sensor_data = cache.get(name, extract=False)
+            if type(sensor_data) is SensorData:
+                split_data.append(sensor_data)
+                some_dtypes_unknown = True
+            else:
+                split_data.append(cache.get(name, select, extract, **kwargs))
+        if some_dtypes_unknown:
+            # Figure out the most likely dtype after potential extraction
+            # This can be expensive so avoid unless really needed
+            latest_dtype = common_dtype(split_data)
+            # If we now know the dtype, fill in blanks with actual dummy data
+            if latest_dtype is not None:
+                for i, cache in enumerate(self.caches):
+                    if type(split_data[i]) is SensorData:
+                        cache[name] = dummy_sensor_data(name, dtype=latest_dtype)
+                        split_data[i] = cache.get(name, select, extract, **kwargs)
+        return split_data
+
     def get(self, name, select=False, extract=True, **kwargs):
         """Sensor values interpolated to correlator data timestamps.
 
@@ -320,7 +393,7 @@ class ConcatenatedSensorCache(SensorCache):
         select : {False, True}, optional
             True if preset time selection will be applied to returned data
         extract : {True, False}, optional
-            True if sensor data should be extracted from HDF5 file and cached
+            True if sensor data should be extracted from store and cached
         kwargs : dict, optional
             Additional parameters are passed to underlying sensor caches
 
@@ -341,10 +414,11 @@ class ConcatenatedSensorCache(SensorCache):
 
         """
         # Get array, categorical data or raw sensor data from each cache
-        split_data = [cache.get(name, select, extract, **kwargs) for cache in self.caches]
-        # If this sensor has already been partially extracted, we are forced to extract it in rest of caches too
-        if not extract and not np.all([isinstance(data, SensorData) for data in split_data]):
-            split_data = [cache.get(name, select, True, **kwargs) for cache in self.caches]
+        split_data = self._get(name, select, extract, **kwargs)
+        # If this sensor has already been partially extracted,
+        # we are forced to extract it in rest of caches too
+        if not extract and not all(isinstance(sd, SensorData) for sd in split_data):
+            split_data = self._get(name, select, True, **kwargs)
         if isinstance(split_data[0], SensorData):
             return ConcatenatedSensorData(split_data)
         elif isinstance(split_data[0], CategoricalData):
@@ -358,7 +432,11 @@ class ConcatenatedSensorCache(SensorCache):
             props.update(kwargs)
             return concatenate_categorical(split_data, **props)
         else:
-            return np.concatenate(split_data)
+            # Keep arrays as arrays and lists as lists to avoid dtype issues
+            if isinstance(split_data[0], np.ndarray):
+                return np.concatenate(split_data)
+            else:
+                return sum(split_data, [])
 
     def __setitem__(self, name, data):
         """Assign data to sensor, splitting it across underlying caches.
@@ -404,6 +482,7 @@ class ConcatenatedDataSet(DataSet):
         List of existing data sets
 
     """
+
     def __init__(self, datasets):
         DataSet.__init__(self, '', datasets[0].ref_ant, datasets[0].time_offset)
 
@@ -462,11 +541,11 @@ class ConcatenatedDataSet(DataSet):
             d.sensor['Observation/target'] = split_target[n]
             d.sensor['Observation/target_index'] = CategoricalData(split_target[n].indices, split_target[n].events)
             scan_index = d.sensor.get('Observation/scan_index')
-            scan_index.unique_values += scan_start
+            scan_index.unique_values = [index + scan_start for index in scan_index.unique_values]
             scan_start += len(scan_index.unique_values)
             d.sensor['Observation/scan_index'] = scan_index
             compscan_index = d.sensor.get('Observation/compscan_index')
-            compscan_index.unique_values += compscan_start
+            compscan_index.unique_values = [index + compscan_start for index in compscan_index.unique_values]
             compscan_start += len(compscan_index.unique_values)
             d.sensor['Observation/compscan_index'] = compscan_index
         # Apply default selection and initialise all members that depend on selection in the process

@@ -24,7 +24,7 @@ import katpoint
 
 from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow,
                       DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target)
-from .sensordata import SensorData, SensorCache
+from .sensordata import RecordSensorData, SensorCache
 from .categorical import CategoricalData, sensor_to_categorical
 from .lazy_indexer import LazyIndexer, LazyTransform
 
@@ -167,6 +167,7 @@ class H5DataV2(DataSet):
         Underlying HDF5 file, exposed via :mod:`h5py` interface
 
     """
+
     def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r',
                  quicklook=False, keepdims=False, **kwargs):
         DataSet.__init__(self, filename, ref_ant, time_offset)
@@ -263,7 +264,7 @@ class H5DataV2(DataSet):
                obj.dtype.names == ('timestamp', 'value', 'status'):
                 # Rename pedestal sensors from the old regime to become sensors of the corresponding antenna
                 name = ('Antennas/ant' + name[13:]) if name.startswith('Pedestals/ped') else name
-                cache[name] = SensorData(obj, name)
+                cache[name] = RecordSensorData(obj, name)
         sensors_group.visititems(register_sensor)
         # Use estimated data timestamps for now, to speed up data segmentation
         self.sensor = SensorCache(cache, data_timestamps, self.dump_period, keep=self._time_keep,
@@ -305,7 +306,7 @@ class H5DataV2(DataSet):
             # Fall back to basic RFE7 LO frequency, as this supported multiple spectral windows before k7_capture did
             # This assumes WBC mode, though (NBC modes only fully supported since HDF5 v2.1)
             centre_freq = self.sensor.get('RFE/rfe7.lo1.frequency')
-            centre_freq.unique_values -= 4200e6
+            centre_freq.unique_values = [freq - 4200e6 for freq in centre_freq.unique_values]
         num_chans = get_single_value(config_group['Correlator'], 'n_chans')
         if num_chans != self._vis.shape[1]:
             raise BrokenFile('Number of channels received from correlator '
@@ -571,7 +572,7 @@ class H5DataV2(DataSet):
 
     @property
     def vis(self):
-        """Complex visibility data as a function of time, frequency and baseline.
+        r"""Complex visibility data as a function of time, frequency and baseline.
 
         The visibility data are returned as an array indexer of complex64, shape
         (*T*, *F*, *B*), with time along the first dimension, frequency along the
