@@ -603,28 +603,27 @@ def _single_event_per_dump(events, greedy):
 
     Yields
     ------
-    event : non-negative int
+    event_index : non-negative int
         Index into `events` sequence of the next cleaned up event (does not
         yield the one-past-last-dump terminal event)
 
     """
-    # This will generate consecutive event indices with associated dump indices
-    dumps = enumerate(events)
     # The previous winning event is the dominant event in the previous dump
-    previous_dump, previous_winning_event = 0, 0
-    while True:
-        current_event, current_dump = next(dumps)
+    previous_winning_event = 0
+    previous_dump = 0
+    # This generates consecutive event indices with associated dump indices
+    for current_event, current_dump in enumerate(events):
         # At the start of a new dump, process the events of the previous dump
         if current_dump > previous_dump:
             # This previous event segment is assumed to straddle dump boundary
-            # ASSERT: current_event >= 1 since we are now at least at 2nd dump
+            assert current_event >= 1, "First sensor event not at dump 0"
             event_at_dump_start = current_event - 1
             # The normal victory condition is to be the final event in the dump
             if not greedy[previous_winning_event]:
                 previous_winning_event = event_at_dump_start
             winning_dump = events[previous_winning_event]
             # Only yield winning event in immediate past to avoid duplicates
-            if previous_dump <= winning_dump and winning_dump < current_dump:
+            if previous_dump <= winning_dump < current_dump:
                 yield previous_winning_event
             # If winning event was greedy and final event was non-greedy,
             # push final event to the start of next dump and yield if it is
@@ -674,7 +673,7 @@ def sensor_to_categorical(sensor_timestamps, sensor_values, dump_midtimes,
         Duration of each dump, in seconds
     transform : callable or None, optional
         Transform [unwrapped] sensor values before fixing initial value,
-        applying greed and discarding repeats
+        mapping dumps to events and discarding repeats
     initial_value : object or None, optional
         Sensor value [transformed, unwrapped] to use for dump = 0 up to first
         proper event (force first proper event to start at dump = 0 by default)
@@ -699,9 +698,8 @@ def sensor_to_categorical(sensor_timestamps, sensor_values, dump_midtimes,
     wrapped_values = len(sensor_values) and isinstance(sensor_values[0],
                                                        ComparableArrayWrapper)
     # Convert sensor event times to dump indices by picking the dump during
-    # which each sensor event occurred (more precisely: closest dump centroid).
-    # Last event is fixed at one-past-last-dump to indicate end of last segment.
-    events = np.r_[dump_endtimes.searchsorted(sensor_timestamps) - 1, num_dumps]
+    # which each sensor event occurred (more precisely: closest dump centroid)
+    events = dump_endtimes.searchsorted(sensor_timestamps) - 1
     # Get rid of excess events before the first dump and after the last dump
     # The dump index of prior events is -1 and of later events is `num_dumps`
     first_proper_event = events.searchsorted(-1, side='right')
@@ -712,7 +710,7 @@ def sensor_to_categorical(sensor_timestamps, sensor_values, dump_midtimes,
     one_past_last_event = events.searchsorted(num_dumps)
     within_dumps = slice(first_proper_event, one_past_last_event)
     sensor_values = sensor_values[within_dumps]
-    events = np.r_[events[within_dumps], num_dumps]
+    events = events[within_dumps]
     # Apply optional transform to sensor values
     if transform is not None:
         if wrapped_values:
@@ -732,14 +730,15 @@ def sensor_to_categorical(sensor_timestamps, sensor_values, dump_midtimes,
     # Clean up dump->event mapping, taking into account greedy values
     greedy_values = () if greedy_values is None else greedy_values
     greedy = [value in greedy_values for value in sensor_values]
-    cleaned_up = [event for event in _single_event_per_dump(events, greedy)]
+    cleaned_up = list(_single_event_per_dump(np.r_[events, num_dumps], greedy))
     sensor_values = sensor_values[cleaned_up]
-    events = np.r_[events[cleaned_up], num_dumps]
+    events = events[cleaned_up]
     # Discard sensor events that do not change the (transformed) sensor value
     # (i.e. that repeat the previous value)
     if not allow_repeats:
-        changes_value = [n for n in range(len(sensor_values)) if (n == 0) or
-                         (sensor_values[n] != sensor_values[n - 1])]
+        changes_value = [n for n in range(len(sensor_values)) if n == 0 or
+                         sensor_values[n] != sensor_values[n - 1]]
         sensor_values = sensor_values[changes_value]
-        events = np.r_[events[changes_value], num_dumps]
-    return CategoricalData(sensor_values, events)
+        events = events[changes_value]
+    # Last event is fixed at one-past-last-dump to indicate end of last segment
+    return CategoricalData(sensor_values, np.r_[events, num_dumps])
