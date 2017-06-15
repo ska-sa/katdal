@@ -580,8 +580,70 @@ def concatenate_categorical(split_data, **kwargs):
     return data
 
 
-def sensor_to_categorical(sensor_timestamps, sensor_values, dump_midtimes, dump_period,
-                          greedy_values=None, initial_value=None, transform=None, allow_repeats=False, **kwargs):
+def _single_event_per_dump(events, greedy):
+    """Ensure that each dump is associated with a single sensor event.
+
+    This generates a sequence of cleaned-up sensor events (represented by
+    indices into the original `events` sequence), which ensures that each dump
+    is associated with a single event. When there are multiple events inside
+    a dump, pick the final one. In addition, some sensor values designated as
+    "greedy" will override non-greedy ones and grab a dump even if it is not
+    the final value. In this scenario, move the final (non-greedy) event to the
+    next dump by modifying its dump index in the `events` parameter. The
+    generator returns up to *N* events but not the special terminal event.
+
+    Parameters
+    ----------
+    events : mutable sequence of non-negative ints, length *N* + 1
+        Monotonic sequence of dump indices associated with each sensor event.
+        The last event is one past the last dump (i.e. the total number of
+        dumps). Be aware that this parameter is mutated by the function.
+    greedy : sequence of bool, length *N*
+        Flags indicating whether the sensor value at a given event is "greedy"
+
+    Yields
+    ------
+    event_index : non-negative int
+        Index into `events` sequence of the next cleaned up event (does not
+        yield the one-past-last-dump terminal event)
+
+    """
+    # The previous winning event is the dominant event in the previous dump
+    previous_winning_event = 0
+    previous_dump = 0
+    # This generates consecutive event indices with associated dump indices
+    for current_event, current_dump in enumerate(events):
+        # At the start of a new dump, process the events of the previous dump
+        if current_dump > previous_dump:
+            # This previous event segment is assumed to straddle dump boundary
+            assert current_event >= 1, "First sensor event not at dump 0"
+            event_at_dump_start = current_event - 1
+            # The normal victory condition is to be the final event in the dump
+            if not greedy[previous_winning_event]:
+                previous_winning_event = event_at_dump_start
+            winning_dump = events[previous_winning_event]
+            # Only yield winning event in immediate past to avoid duplicates
+            if previous_dump <= winning_dump < current_dump:
+                yield previous_winning_event
+            # If winning event was greedy and final event was non-greedy,
+            # push final event to the start of next dump and yield if it is
+            # the only event in that dump (otherwise it has to fight it out...)
+            if event_at_dump_start != previous_winning_event:
+                # NB: This modifies `events`! It simplifies bookkeeping.
+                events[event_at_dump_start] += 1
+                if current_dump > events[event_at_dump_start]:
+                    yield event_at_dump_start
+                previous_winning_event = event_at_dump_start
+            previous_dump = current_dump
+        # While within the same dump, pick the latest greedy event as winner
+        # Also, avoid indexing greedy with final one-past-last event
+        if (current_event < len(greedy)) and greedy[current_event]:
+            previous_winning_event = current_event
+
+
+def sensor_to_categorical(sensor_timestamps, sensor_values, dump_midtimes,
+                          dump_period, transform=None, initial_value=None,
+                          greedy_values=None, allow_repeats=False, **kwargs):
     """Align categorical sensor events with dumps and clean up spurious events.
 
     This converts timestamped sensor data into a categorical dataset by
@@ -591,69 +653,92 @@ def sensor_to_categorical(sensor_timestamps, sensor_values, dump_midtimes, dump_
     guaranteed to have a valid value by either using the supplied `initial_value`
     or extrapolating the first proper value back in time. The sensor data may
     be transformed before events that repeat values are potentially discarded.
-    Finally, events with values marked as "greedy" swallow the last dump of their
-    preceding events, where the sensor value is changing into the greedy value.
-    A greedy value therefore takes precedence over another value when both occur
-    within the same dump (either changing from or to the greedy value).
+    Finally, events with values marked as "greedy" take precedence over normal
+    events when both occur within the same dump (either changing from or to the
+    greedy value, or if the greedy value occurs completely within a dump).
+
+    XXX Future improvements include picking the event with the longest duration
+    within a dump as opposed to the final event, and "snapping" event boundaries
+    to dump boundaries with a given tolerance (e.g. 5-10% of dump period).
 
     Parameters
     ----------
     sensor_timestamps : sequence of float, length *M*
         Sequence of sensor timestamps (typically UTC seconds since Unix epoch)
     sensor_values : sequence, length *M*
-        Corresponding sequence of sensor values
+        Corresponding sequence of sensor values [potentially wrapped]
     dump_midtimes : sequence of float, length *N*
         Sequence of dump midtimes (same reference as sensor timestamps)
     dump_period : float
         Duration of each dump, in seconds
-    greedy_values : sequence or None, optional
-        List of (transformed) sensor values considered "greedy"
-    initial_value : object or None, optional
-        Sensor value to use for dump = 0 up to the first proper event
-        (the default is to force the first proper event to start at dump = 0)
     transform : callable or None, optional
-        Transform sensor values before discarding repeats and applying greed
+        Transform [unwrapped] sensor values before fixing initial value,
+        mapping dumps to events and discarding repeats
+    initial_value : object or None, optional
+        Sensor value [transformed, unwrapped] to use for dump = 0 up to first
+        proper event (force first proper event to start at dump = 0 by default)
+    greedy_values : sequence or None, optional
+        List of [transformed, unwrapped] sensor values considered "greedy"
     allow_repeats : {False, True}, optional
-        If False, discard sensor events that do not change (transformed) value
+        If False, discard sensor events that do not change [transformed] value
 
     Returns
     -------
     data : :class:`CategoricalData` object
-        Constructed categorical dataset
+        Constructed categorical dataset [unwraps any wrapped values]
 
     """
     sensor_timestamps = np.atleast_1d(sensor_timestamps)
     sensor_values = np.atleast_1d(sensor_values)
-    dump_midtimes = np.atleast_1d(dump_midtimes)
+    dump_endtimes = dump_midtimes + 0.5 * dump_period
+    num_dumps = len(dump_endtimes)
+    # Insert an extra prior dump to collect sensor values before first dump
+    dump_endtimes = np.r_[dump_endtimes[0] - dump_period, dump_endtimes]
     # Check if sensor values are objects wrapped in ComparableArrayWrappers
     wrapped_values = len(sensor_values) and isinstance(sensor_values[0],
                                                        ComparableArrayWrapper)
-    # Convert sensor event times to dump indices (pick the dump during which each sensor event occurred)
-    # The last event is fixed at one-past-the-last-dump, to indicate the end of the last segment
-    events = np.r_[dump_midtimes.searchsorted(sensor_timestamps - 0.5 * dump_period), len(dump_midtimes)]
-    # Cull any empty segments (i.e. when multiple sensor events occur within a single dump, only keep last one)
-    # This also gets rid of excess events before the first dump and after the last dump
-    non_empty = np.nonzero(np.diff(events) > 0)[0]
-    sensor_values, events = sensor_values[non_empty], np.r_[events[non_empty], len(dump_midtimes)]
-    # Force first dump to have valid sensor value (use initial value or first proper value advanced to start)
-    if events[0] != 0 and initial_value is not None:
-        if wrapped_values:
-            initial_value = ComparableArrayWrapper(initial_value)
-        sensor_values, events = np.r_[[initial_value], sensor_values], np.r_[0, events]
-    events[0] = 0
+    # Convert sensor event times to dump indices by picking the dump during
+    # which each sensor event occurred (more precisely: closest dump centroid)
+    events = dump_endtimes.searchsorted(sensor_timestamps) - 1
+    # Get rid of excess events before the first dump and after the last dump
+    # The dump index of prior events is -1 and of later events is `num_dumps`
+    first_proper_event = events.searchsorted(-1, side='right')
+    # Shift the final prior event (if any) to the start of the first dump
+    if first_proper_event > 0:
+        first_proper_event -= 1
+        events[first_proper_event] = 0
+    one_past_last_event = events.searchsorted(num_dumps)
+    within_dumps = slice(first_proper_event, one_past_last_event)
+    sensor_values = sensor_values[within_dumps]
+    events = events[within_dumps]
     # Apply optional transform to sensor values
     if transform is not None:
         if wrapped_values:
-            unwrapped_transform = transform
-            transform = lambda value: ComparableArrayWrapper(unwrapped_transform(value.unwrapped))  # noqa: E731
+            orig_transform = transform
+            def transform(value):   # noqa: E301
+                """Unwrap wrapped value, transform and rewrap."""
+                return ComparableArrayWrapper(orig_transform(value.unwrapped))
         sensor_values = np.array([transform(y) for y in sensor_values])
-    # Discard sensor events that do not change the (transformed) sensor value (i.e. that repeat the previous value)
+    # Force first dump to have valid sensor value
+    # (insert initial value or let the first proper value apply from the start)
+    if events[0] != 0 and initial_value is not None:
+        if wrapped_values:
+            initial_value = ComparableArrayWrapper(initial_value)
+        sensor_values = np.r_[[initial_value], sensor_values]
+        events = np.r_[0, events]
+    events[0] = 0
+    # Clean up dump->event mapping, taking into account greedy values
+    greedy_values = () if greedy_values is None else greedy_values
+    greedy = [value in greedy_values for value in sensor_values]
+    cleaned_up = list(_single_event_per_dump(np.r_[events, num_dumps], greedy))
+    sensor_values = sensor_values[cleaned_up]
+    events = events[cleaned_up]
+    # Discard sensor events that do not change the (transformed) sensor value
+    # (i.e. that repeat the previous value)
     if not allow_repeats:
-        changes = [n for n in range(len(sensor_values)) if (n == 0) or (sensor_values[n] != sensor_values[n - 1])]
-        sensor_values, events = sensor_values[changes], np.r_[events[changes], len(dump_midtimes)]
-    # Extend segments with "greedy" values to include first dump of next segment where sensor value is changing
-    if greedy_values is not None:
-        greedy_to_nongreedy = [n for n in range(1, len(sensor_values))
-                               if sensor_values[n - 1] in greedy_values and sensor_values[n] not in greedy_values]
-        events[greedy_to_nongreedy] += 1
-    return CategoricalData(sensor_values, events)
+        changes_value = [n for n in range(len(sensor_values)) if n == 0 or
+                         sensor_values[n] != sensor_values[n - 1]]
+        sensor_values = sensor_values[changes_value]
+        events = events[changes_value]
+    # Last event is fixed at one-past-last-dump to indicate end of last segment
+    return CategoricalData(sensor_values, np.r_[events, num_dumps])

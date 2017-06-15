@@ -56,4 +56,4 @@ setup(name="katdal",
       setup_requires=['katversion'],
       use_katversion=True,
       install_requires=['numpy', 'katpoint', 'h5py'],
-      test_suite="nose.collector")
+      tests_require=['nose'])
