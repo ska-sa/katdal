@@ -1,0 +1,4 @@
+h5py
+katversion
+numpy
+git+ssh://git@github.com/ska-sa/katpoint#egg=katpoint
