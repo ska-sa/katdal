@@ -287,6 +287,13 @@ class CategoricalData(object):
     def __getitem__(self, key):
         """Look up sensor value at selected dumps.
 
+        Be aware that the dtype of the returned array may differ from that of
+        the :class:`CategoricalData` object if the sensor values are
+        multi-dimensional arrays themselves, in effect falling back to the
+        underlying dtype. For large multi-dimensional sensor values this
+        method may also cause memory issues as it will duplicate these arrays
+        into the final output array.
+
         Parameters
         ----------
         key : int or slice or sequence of int or sequence of bool
@@ -294,8 +301,8 @@ class CategoricalData(object):
 
         Returns
         -------
-        val : object or list of objects
-            Sensor values at selected dumps, either single value or list of them
+        val : object or array of objects
+            Sensor values at selected dumps, either single value or array of them
 
         """
         if isinstance(key, slice):
@@ -307,7 +314,7 @@ class CategoricalData(object):
         indices = self._lookup(key)
         # Interpret indices as either a sequence of ints or a single int
         try:
-            return [self.unique_values[index] for index in indices]
+            return np.array([self.unique_values[index] for index in indices])
         except TypeError:
             return self.unique_values[indices]
 
