@@ -434,7 +434,7 @@ class CategoricalData(object):
             remap = np.arange(len(self.unique_values))
             remap[index:] -= 1
             self.indices = remap[self.indices[keep]]
-            self.events = np.r_[self.events[keep], self.events[-1]]
+            self.events = np.r_[self.events[:-1][keep], self.events[-1]]
             del self.unique_values[index]
 
     def add_unmatched(self, segments, match_dist=1):
