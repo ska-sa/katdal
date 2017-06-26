@@ -451,21 +451,24 @@ def remove_duplicates_and_invalid_values(sensor):
     unique_ind = last_of_run.nonzero()[0]
     # Determine the index of the x value chosen to represent each original x value (used to pick y values too)
     replacement = unique_ind[len(unique_ind) - np.cumsum(last_of_run[::-1])[::-1]]
-    # All duplicates should have the same y and z values - complain otherwise, but continue.
-    if not np.all(y[replacement] == y):
+    # All duplicates should have the same y and z values - complain otherwise, but continue
+    y_differs = [n for (r, n) in zip(replacement, range(len(y))) if y[r] != y[n]]
+    if y_differs:
         logger.debug("Sensor %r has duplicate timestamps with different values",
                      sensor.name)
-        for ind in (y[replacement] != y).nonzero()[0]:
+        for ind in y_differs:
             logger.debug("At %s, sensor %r has values of %s and %s - "
                          "keeping last one", katpoint.Timestamp(x[ind]).local(),
-                         sensor.name, y[ind], y[replacement][ind])
-    if z is not None and not np.all(z[replacement] == z):
-        logger.debug("Sensor %r has duplicate timestamps with different statuses",
-                     sensor.name)
-        for ind in (z[replacement] != z).nonzero()[0]:
-            logger.debug("At %s, sensor %r has statuses of %r and %r - "
-                         "keeping last one", katpoint.Timestamp(x[ind]).local(),
-                         sensor.name, z[ind], z[replacement][ind])
+                         sensor.name, y[ind], y[replacement[ind]])
+    if z is not None:
+        z_differs = [n for (r, n) in zip(replacement, range(len(z))) if z[r] != z[n]]
+        if z_differs:
+            logger.debug("Sensor %r has duplicate timestamps with different statuses",
+                         sensor.name)
+            for ind in z_differs:
+                logger.debug("At %s, sensor %r has statuses of %r and %r - "
+                             "keeping last one", katpoint.Timestamp(x[ind]).local(),
+                             sensor.name, z[ind], z[replacement[ind]])
     # Remove entries where 'status' implies invalid values, if 'status' is present
     if z is not None:
         # Explicitly cast status to string type, as k7_augment produced sensors with integer statuses
