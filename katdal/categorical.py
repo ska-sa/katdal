@@ -722,7 +722,7 @@ def sensor_to_categorical(sensor_timestamps, sensor_values, dump_midtimes,
     if transform is not None:
         if wrapped_values:
             orig_transform = transform
-            def transform(value):   # noqa: E301
+            def transform(value):   # noqa: E306
                 """Unwrap wrapped value, transform and rewrap."""
                 return ComparableArrayWrapper(orig_transform(value.unwrapped))
         sensor_values = np.array([transform(y) for y in sensor_values])
@@ -737,7 +737,10 @@ def sensor_to_categorical(sensor_timestamps, sensor_values, dump_midtimes,
     # Clean up dump->event mapping, taking into account greedy values
     greedy_values = () if greedy_values is None else greedy_values
     greedy = [value in greedy_values for value in sensor_values]
-    cleaned_up = list(_single_event_per_dump(np.r_[events, num_dumps], greedy))
+    # Add one-past-last-dump terminator (will be removed again by `cleaned_up`)
+    events = np.r_[events, num_dumps]
+    # NB: `events` is mutated by `_single_event_per_dump`
+    cleaned_up = list(_single_event_per_dump(events, greedy))
     sensor_values = sensor_values[cleaned_up]
     events = events[cleaned_up]
     # Discard sensor events that do not change the (transformed) sensor value
