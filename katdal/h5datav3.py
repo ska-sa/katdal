@@ -450,13 +450,20 @@ class H5DataV3(DataSet):
         rx_table = {
             # Standard L-band receiver
             'l': dict(band='L', centre_freq=1284e6, sideband=1),
-            # Custom UHF receiver (real receiver + L-band digitiser, flipped spectrum)
-            'u': dict(band='UHF', centre_freq=428e6, sideband=-1),
+            # Standard UHF receiver
+            'u': dict(band='UHF', centre_freq=816e6, sideband=1),
             # Custom Ku receiver for RTS
             'x': dict(band='Ku', sideband=1),
         }
         spw_params = rx_table.get(band, dict(band='', sideband=1))
-        # Cater for receivers with mixers
+        # XXX Cater for future narrowband mode at some stage
+        num_chans = cbf_group.attrs['n_chans']
+        bandwidth = cbf_group.attrs['bandwidth']
+        # Work around a bc856M4k CBF bug active from 2016-04-28 to 2016-06-01 that got the bandwidth wrong
+        if bandwidth == 857152196.0:
+            logger.warning('Worked around CBF bandwidth bug (857.152 MHz -> 856.000 MHz)')
+            bandwidth = 856000000.0
+        # Cater for non-standard receivers
         if spw_params['band'] == 'Ku':
             siggen_freq = 0.0
             if 'Ancillary/siggen_ku_frequency' in self.sensor:
@@ -468,13 +475,10 @@ class H5DataV3(DataSet):
                     pass
             if siggen_freq:
                 spw_params['centre_freq'] = 100. * siggen_freq + 1284e6
-        # XXX Cater for future narrowband mode, at some stage
-        num_chans = cbf_group.attrs['n_chans']
-        bandwidth = cbf_group.attrs['bandwidth']
-        # Work around a bc856M4k CBF bug active from 2016-04-28 to 2016-06-01 that got the bandwidth wrong
-        if bandwidth == 857152196.0:
-            logger.warning('Worked around CBF bandwidth bug (857.152 MHz -> 856.000 MHz)')
-            bandwidth = 856000000.0
+        # "Fake UHF": a real receiver + L-band digitiser and flipped spectrum
+        elif spw_params['band'] == 'UHF' and bandwidth == 856e6:
+            spw_params['centre_freq'] = 428e6
+            spw_params['sideband'] = -1
         # Get channel width from original CBF parameters
         spw_params['channel_width'] = bandwidth / num_chans
         # Continue with different channel count, but invalidate centre freq (keep channel width though)
