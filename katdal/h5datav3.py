@@ -36,8 +36,10 @@ from .lazy_indexer import LazyIndexer, LazyTransform
 
 logger = logging.getLogger(__name__)
 
-# Simplify the scan activities to derive the basic state of the antenna (slewing, scanning, tracking, stopped)
-SIMPLIFY_STATE = {'scan_ready': 'slew', 'scan': 'scan', 'scan_complete': 'scan', 'track': 'track', 'slew': 'slew'}
+# Simplify the scan activities to derive the basic state of the antenna
+# (slewing, scanning, tracking, stopped)
+SIMPLIFY_STATE = {'scan_ready': 'slew', 'scan': 'scan', 'scan_complete': 'scan',
+                  'load_scan': 'scan', 'track': 'track', 'slew': 'slew'}
 
 SENSOR_PROPS = dict(DEFAULT_SENSOR_PROPS)
 SENSOR_PROPS.update({
