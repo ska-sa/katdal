@@ -16,124 +16,181 @@
 
 """Container for categorical (i.e. non-numerical) sensor data and related tools."""
 
+import collections
+
 import numpy as np
 
 
-def unique(ar, return_index=False, return_inverse=False):
-    """Find the unique elements of an array.
+class ComparableArrayWrapper(object):
+    """Wrapper that improves comparison of array objects.
 
-    Returns the sorted unique elements of an array. There are two optional
-    outputs in addition to the unique elements: the indices of the input array
-    that give the unique values, and the indices of the unique array that
-    reconstruct the input array.
+    This wrapper class has two main benefits:
+
+      - It prevents sensor values that are NumPy ndarrays themselves
+        (or array-like objects such as tuples and lists) from dissolving
+        and losing their identity when they are assembled into an array.
+
+      - It ensures that array-valued sensor values become properly comparable
+        (avoiding array-valued booleans resulting from standard comparisons).
+
+    The former is needed because :class:`SensorData` is treated as a structured
+    array even if it contains object values. The latter is needed because the
+    equality operator crops up in hard-to-reach places like inside list.index().
 
     Parameters
     ----------
-    ar : array_like
-        Input array. This will be flattened if it is not already 1-D.
-    return_index : bool, optional
-        If True, also return the indices of `ar` that result in the unique
-        array.
-    return_inverse : bool, optional
-        If True, also return the indices of the unique array that can be used
-        to reconstruct `ar`.
+    value : object
+        The sensor value to be wrapped
+
+    """
+
+    def __init__(self, value):
+        self.unwrapped = value
+
+    def __repr__(self):
+        """Short human-friendly string representation of wrapper object."""
+        return "<katdal.%s { %r } at 0x%x>" % \
+               (self.__class__.__name__, self.unwrapped, id(self))
+
+    def __str__(self):
+        """Longer human-friendly string representation of wrapped object."""
+        return str(self.unwrapped)
+
+    def __eq__(self, other):
+        """Equality comparison operator."""
+        if isinstance(other, ComparableArrayWrapper):
+            other = other.unwrapped
+        if isinstance(self.unwrapped, np.ndarray) or isinstance(other, np.ndarray):
+            return np.array_equal(self.unwrapped, other)
+        else:
+            return self.unwrapped == other
+
+    def __ne__(self, other):
+        """Inequality comparison operator."""
+        return not self == other
+
+    def __lt__(self, other):
+        """Less-than comparison operator."""
+        if isinstance(other, ComparableArrayWrapper):
+            other = other.unwrapped
+        return self.unwrapped < other
+
+    def __gt__(self, other):
+        """Greather-than comparison operator."""
+        if isinstance(other, ComparableArrayWrapper):
+            other = other.unwrapped
+        return self.unwrapped > other
+
+    def __le__(self, other):
+        """Less-than-or-equal comparison operator."""
+        if isinstance(other, ComparableArrayWrapper):
+            other = other.unwrapped
+        return self.unwrapped <= other
+
+    def __ge__(self, other):
+        """Greater-than-or-equal comparison operator."""
+        if isinstance(other, ComparableArrayWrapper):
+            other = other.unwrapped
+        return self.unwrapped >= other
+
+    def __hash__(self):
+        """If the underlying object is hashable, the wrapper is too."""
+        return hash(self.unwrapped)
+
+    @staticmethod
+    def unwrap(v):
+        """Unwrap value if needed."""
+        return v.unwrapped if isinstance(v, ComparableArrayWrapper) else v
+
+
+def infer_dtype(values):
+    """Figure out dtype of sequence of sensor values.
+
+    The common dtype is determined by explicit NumPy promotion. If the values
+    are array-like themselves, treat them as opaque objects to simplify
+    sensor processing. If the sequence is empty, the dtype is unknown and
+    set to None. In addition, short-circuit to an actual dtype for objects
+    with this attribute to simplify calling this on a mixed collection of
+    sensor data.
+
+    Parameters
+    ----------
+    values : sequence, or object with dtype
+        Sequence of sensor values (typically a list), or a sensor data object
+        with a dtype attribute (like ndarray or :class:`SensorData`)
 
     Returns
     -------
-    unique : ndarray
-        The sorted unique values.
-    unique_indices : ndarray, optional
-        The indices of the first occurrences of the unique values in the
-        (flattened) original array. Only provided if `return_index` is True.
-    unique_inverse : ndarray, optional
-        The indices to reconstruct the (flattened) original array from the
-        unique array. Only provided if `return_inverse` is True.
+    dtype : :class:`numpy.dtype` object or None
+        Inferred dtype, or None if `values` is an empty sequence
 
     Notes
     -----
-    This is a copy of :func:`numpy.unique` from NumPy 1.6.2, backported to make
-    katdal work with NumPy 1.3.0 (which did not have the return_index and
-    return_inverse keyword arguments). Once backwards compatibility is not
-    required anymore, this function may be removed and replaced by np.unique.
+    This is almost, but not quite, entirely like :func:`numpy.result_type`.
+    The differences are that this accepts generic objects in the sequence,
+    treats ndarrays as objects regardless of their underlying dtype, supports
+    a dtype of None and short-circuits the check if the sequence itself is an
+    object with a dtype. And this accepts the sequence as the first parameter
+    as opposed to being unpacked across the argument list.
 
     """
-    # Attempt to use the new np.unique interface first, otherwise reimplement it
-    try:
-        return np.unique(ar, return_index, return_inverse)
-    except TypeError:
-        pass
-
-    try:
-        ar = ar.flatten()
-    except AttributeError:
-        if not return_inverse and not return_index:
-            items = sorted(set(ar))
-            return np.asarray(items)
-        else:
-            ar = np.asanyarray(ar).flatten()
-
-    if ar.size == 0:
-        if return_inverse and return_index:
-            return ar, np.empty(0, np.bool), np.empty(0, np.bool)
-        elif return_inverse or return_index:
-            return ar, np.empty(0, np.bool)
-        else:
-            return ar
-
-    if return_inverse or return_index:
-        if return_index:
-            perm = ar.argsort(kind='mergesort')
-        else:
-            perm = ar.argsort()
-        aux = ar[perm]
-        flag = np.concatenate(([True], aux[1:] != aux[:-1]))
-        if return_inverse:
-            iflag = np.cumsum(flag) - 1
-            iperm = perm.argsort()
-            if return_index:
-                return aux[flag], perm[flag], iflag[iperm]
-            else:
-                return aux[flag], iflag[iperm]
-        else:
-            return aux[flag], perm[flag]
-    else:
-        ar.sort()
-        flag = np.concatenate(([True], ar[1:] != ar[:-1]))
-        return ar[flag]
+    # If values already has a dtype (because it is an ndarray, SensorData,
+    # CategoricalData, etc), return that instead
+    if hasattr(values, 'dtype'):
+        return values.dtype
+    if not values:
+        return None
+    # Put all values into array to perform explicit NumPy type promotion
+    test_data = np.array(values)
+    # Beware array-valued sensors; treat their values as opaque objects
+    # This forces sensor values to be 1-D at all times (an invariant)
+    return test_data.dtype if test_data.ndim == 1 else np.dtype(object)
 
 
 def unique_in_order(elements, return_inverse=False):
-    """Extract unique elements from *elements* while preserving original order.
+    """Extract unique elements from `elements` while preserving original order.
 
     Parameters
     ----------
     elements : sequence
-        Sequence of sortable objects (i.e. objects supporting the < operator)
+        Sequence of equality-comparable objects
     return_inverse : {False, True}, optional
         If True, also return sequence of indices that can be used to reconstruct
-        original `elements` sequence via `unique_elements[inverse]`
+        original `elements` sequence via `[unique_elements[i] for i in inverse]`
 
     Returns
     -------
-    unique_elements : array
-        Array of unique objects, in original order they were found in `elements`
+    unique_elements : list
+        List of unique objects, in original order they were found in `elements`
     inverse : array of int, optional
         If `return_inverse` is True, sequence of indices that can be used to
         reconstruct original sequence
 
     """
-    elements = np.atleast_1d(elements)
-    # Ensure that objects support the appropriate comparison operators for sorting (i.e. <)
-    if (elements.dtype == np.object) and not hasattr(elements[0], '__lt__') and not hasattr(elements[0], '__cmp__'):
-        raise TypeError("Cannot identify unique objects of %s as it has no __lt__ or __cmp__ methods" %
-                        (elements[0].__class__,))
-    # Find unique elements based on sorting
-    unique_elements, indices = unique(elements, return_inverse=True)
-    # Shuffle unique values back into their original order as they were found in elements
-    indices_list = indices.tolist()
-    original_order = np.argsort([indices_list.index(n) for n in range(len(unique_elements))])
-    return (unique_elements[original_order], original_order.argsort()[indices]) \
-        if return_inverse else unique_elements[original_order]
+    unique_elements, inverse = [], []
+    try:
+        # Surprisingly, a zero generator like itertools.repeat does not buy you anything
+        lookup = collections.OrderedDict(zip(elements, len(elements) * [0]))
+    except TypeError:
+        # Fall back to slower list-based lookup for unhashable object values
+        for element in elements:
+            try:
+                index = unique_elements.index(element)
+            except ValueError:
+                index = len(unique_elements)
+                unique_elements.append(element)
+            if return_inverse:
+                inverse.append(index)
+    else:
+        for index, element in enumerate(lookup):
+            lookup[element] = index
+        unique_elements = lookup.keys()
+        if return_inverse:
+            inverse = [lookup[element] for element in elements]
+    # Force inverse to int dtype in case it is an empty array (float otherwise)
+    return (unique_elements, np.array(inverse, dtype=np.int)) \
+        if return_inverse else unique_elements
+
 
 # -------------------------------------------------------------------------------------------------
 # -- CLASS :  CategoricalData
@@ -144,12 +201,12 @@ class CategoricalData(object):
     """Container for categorical (i.e. non-numerical) sensor data.
 
     This container allows simple manipulation and interpolation of a time series
-    of non-numerical data represented as discrete events. The data are stored in
-    three arrays:
+    of non-numerical data represented as discrete events. The data is stored as
+    a list of sensor values and two integer arrays:
 
-    * `events` stores the time indices (dumps) where each event occurs
     * `unique_values` stores one copy of each unique object in the data series
-    * `indices` stores indices linking each event to the `unique_values` array
+    * `events` stores the time indices (dumps) where each event occurs
+    * `indices` stores indices linking each event to the `unique_values` list
 
     The __getitem__ interface (i.e. `data[dump]`) returns the data associated
     with the last event before the requested dump(s), in effect doing a
@@ -160,7 +217,7 @@ class CategoricalData(object):
     Parameters
     ----------
     sensor_values : sequence, length *N*
-        Sequence of sensor values (of any type except None)
+        Sequence of sensor values (of any type, preferably not None [see Notes])
     events : sequence of non-negative ints, length *N* + 1
         Corresponding monotonic sequence of dump indices where each sensor value
         came into effect. The last event is one past the last dump where the
@@ -169,18 +226,46 @@ class CategoricalData(object):
 
     Attributes
     ----------
-    unique_values : array, shape (*M*,)
-        Array of unique sensor values, in order they were found in `sensor_values`
+    unique_values : list, length *M*
+        List of unique sensor values in order they were found in `sensor_values`
+        with any :class:`ComparableArrayWrapper` objects unwrapped
     indices : array of int, shape (*N*,)
         Array of indices into `unique_values`, one per sensor event
+    dtype : :class:`numpy.dtype` object
+        Sensor data type as NumPy dtype (found on demand from `unique_values`)
+
+    Notes
+    -----
+    Any object values wrapped in a :class:`ComparableArrayWrapper` will be
+    unwrapped before adding it to `unique_values`. When adding, removing and
+    comparing values to this container, any object values will be wrapped again
+    temporarily to ensure proper comparisons.
+
+    It is discouraged to have a sensor value of None as this value is given
+    a special meaning in methods such as :meth:`CategoricalData.add` and
+    :meth:`sensor_to_categorical`. On the other hand, it is the most sensible
+    dummy object value and any Nones entering through this initialiser will
+    probably not cause any issues.
+
+    It is better to make `unique_values` a list instead of an array because an
+    array assimilates objects such as tuples, lists and other arrays. The
+    alternative is an array of :class:`ComparableArrayWrapper` objects but
+    these then need to be unpacked at some later stage which is also tricky.
 
     """
+
     def __init__(self, sensor_values, events):
-        self.unique_values, self.indices = unique_in_order(sensor_values, return_inverse=True)
+        values, self.indices = unique_in_order(sensor_values, return_inverse=True)
+        self.unique_values = [ComparableArrayWrapper.unwrap(v) for v in values]
         self.events = np.asarray(events)
 
+    @property
+    def _comparable_values(self):
+        """Comparable version of unique values, wrapping any objects."""
+        return [ComparableArrayWrapper(value) for value in self.unique_values]
+
     def _lookup(self, dumps):
-        """Look up relevant indices occurring at specified *dumps*.
+        """Look up relevant indices occurring at specified `dumps`.
 
         Parameters
         ----------
@@ -202,6 +287,13 @@ class CategoricalData(object):
     def __getitem__(self, key):
         """Look up sensor value at selected dumps.
 
+        Be aware that the dtype of the returned array may differ from that of
+        the :class:`CategoricalData` object if the sensor values are
+        multi-dimensional arrays themselves, in effect falling back to the
+        underlying dtype. For large multi-dimensional sensor values this
+        method may also cause memory issues as it will duplicate these arrays
+        into the final output array.
+
         Parameters
         ----------
         key : int or slice or sequence of int or sequence of bool
@@ -209,8 +301,8 @@ class CategoricalData(object):
 
         Returns
         -------
-        val : array
-            Sensor values at selected dumps
+        val : object or array of objects
+            Sensor values at selected dumps, either single value or array of them
 
         """
         if isinstance(key, slice):
@@ -219,12 +311,17 @@ class CategoricalData(object):
         # Convert sequence of bools (one per dump) to sequence of indices where key is True
         elif np.asarray(key).dtype == np.bool and len(np.asarray(key)) == self.events[-1]:
             key = np.nonzero(key)[0]
-        return self.unique_values[self._lookup(key)]
+        indices = self._lookup(key)
+        # Interpret indices as either a sequence of ints or a single int
+        try:
+            return np.array([self.unique_values[index] for index in indices])
+        except TypeError:
+            return self.unique_values[indices]
 
     def __repr__(self):
         """Short human-friendly string representation of categorical data object."""
-        return "<katdal.CategoricalData events=%d values=%d type='%s' at 0x%x>" % \
-               (len(self.indices), len(self.unique_values), self.unique_values.dtype, id(self))
+        return "<katdal.CategoricalData events=%d values=%d type=%s at 0x%x>" % \
+               (len(self.indices), len(self.unique_values), self.dtype, id(self))
 
     def __str__(self):
         """Long human-friendly string representation of categorical data object."""
@@ -236,58 +333,42 @@ class CategoricalData(object):
         """Length operator indicates number of events produced by sensor."""
         return len(self.indices)
 
+    def _bool_per_dump(self, bool_per_value):
+        """Turn list of bools per unique value into an array of bools per dump."""
+        bool_per_event = np.atleast_1d(np.array(bool_per_value)[self.indices])
+        bool_per_dump = np.empty(self.events[-1], dtype=np.bool)
+        for n, (start, end) in enumerate(zip(self.events[:-1], self.events[1:])):
+            bool_per_dump[start:end] = bool_per_event[n]
+        return bool_per_dump
+
     def __eq__(self, other):
         """Equality comparison operator."""
-        index_truths = np.atleast_1d((self.unique_values == other)[self.indices])
-        result = np.empty(self.events[-1], dtype=np.bool)
-        for n, (start, end) in enumerate(zip(self.events[:-1], self.events[1:])):
-            result[start:end] = index_truths[n]
-        return result
+        return self._bool_per_dump([value == other for value in self._comparable_values])
 
     def __ne__(self, other):
         """Inequality comparison operator."""
-        index_truths = np.atleast_1d((self.unique_values != other)[self.indices])
-        result = np.empty(self.events[-1], dtype=np.bool)
-        for n, (start, end) in enumerate(zip(self.events[:-1], self.events[1:])):
-            result[start:end] = index_truths[n]
-        return result
+        return self._bool_per_dump([value != other for value in self._comparable_values])
 
     def __lt__(self, other):
         """Less-than comparison operator."""
-        index_truths = np.atleast_1d((self.unique_values < other)[self.indices])
-        result = np.empty(self.events[-1], dtype=np.bool)
-        for n, (start, end) in enumerate(zip(self.events[:-1], self.events[1:])):
-            result[start:end] = index_truths[n]
-        return result
+        return self._bool_per_dump([value < other for value in self._comparable_values])
 
     def __gt__(self, other):
         """Greather-than comparison operator."""
-        index_truths = np.atleast_1d((self.unique_values > other)[self.indices])
-        result = np.empty(self.events[-1], dtype=np.bool)
-        for n, (start, end) in enumerate(zip(self.events[:-1], self.events[1:])):
-            result[start:end] = index_truths[n]
-        return result
+        return self._bool_per_dump([value > other for value in self._comparable_values])
 
     def __le__(self, other):
         """Less-than-or-equal comparison operator."""
-        index_truths = np.atleast_1d((self.unique_values <= other)[self.indices])
-        result = np.empty(self.events[-1], dtype=np.bool)
-        for n, (start, end) in enumerate(zip(self.events[:-1], self.events[1:])):
-            result[start:end] = index_truths[n]
-        return result
+        return self._bool_per_dump([value <= other for value in self._comparable_values])
 
     def __ge__(self, other):
         """Greater-than-or-equal comparison operator."""
-        index_truths = np.atleast_1d((self.unique_values >= other)[self.indices])
-        result = np.empty(self.events[-1], dtype=np.bool)
-        for n, (start, end) in enumerate(zip(self.events[:-1], self.events[1:])):
-            result[start:end] = index_truths[n]
-        return result
+        return self._bool_per_dump([value >= other for value in self._comparable_values])
 
     @property
     def dtype(self):
         """Sensor value type."""
-        return self.unique_values.dtype
+        return infer_dtype(self.unique_values)
 
     def segments(self):
         """Generator that iterates through events and returns segment and value.
@@ -319,12 +400,14 @@ class CategoricalData(object):
 
         """
         # If value has not been seen before, add it to unique_values (and create new index for it)
-        value_index = np.nonzero(self.unique_values == value)[0] if value is not None else [self._lookup(event)]
-        if len(value_index) == 0:
-            value_index = len(self.unique_values)
-            self.unique_values = np.r_[self.unique_values, [value]]
+        if value is not None:
+            try:
+                value_index = self._comparable_values.index(value)
+            except ValueError:
+                value_index = len(self.unique_values)
+                self.unique_values += [value]
         else:
-            value_index = value_index[0]
+            value_index = self._lookup(event)
         # If new event coincides with existing event, simply change value of that event, else insert new event
         event_index = self.events.searchsorted(event)
         before, after = event_index, (event_index + 1 if self.events[event_index] == event else event_index)
@@ -334,27 +417,31 @@ class CategoricalData(object):
     def remove(self, value):
         """Remove sensor value, remapping indices and merging segments in process.
 
+        If the sensor value does not exist, do nothing.
+
         Parameters
         ----------
         value : object
             Sensor value to remove from container
 
         """
-        index = np.nonzero(self.unique_values == value)[0]
-        if len(index) > 0:
-            index = index[0]
+        try:
+            index = self._comparable_values.index(value)
+        except ValueError:
+            pass
+        else:
             keep = (self.indices != index)
             remap = np.arange(len(self.unique_values))
             remap[index:] -= 1
             self.indices = remap[self.indices[keep]]
-            self.events = np.r_[self.events[keep], self.events[-1]]
-            self.unique_values = np.r_[self.unique_values[:index], self.unique_values[index + 1:]]
+            self.events = np.r_[self.events[:-1][keep], self.events[-1]]
+            del self.unique_values[index]
 
     def add_unmatched(self, segments, match_dist=1):
         """Add duplicate events for segment starts that don't match sensor events.
 
         Given a sequence of segments, this matches each segment start to the
-        nearest sensor event dump (within *match_dist*). Any unmatched segment
+        nearest sensor event dump (within `match_dist`). Any unmatched segment
         starts are added as duplicate sensor events (or ignored if they fall
         outside the sensor event range).
 
@@ -399,8 +486,8 @@ class CategoricalData(object):
         events = segments[segments_with_event]
         # When multiple sensor events are associated with the same segment, only keep the final one
         final = np.nonzero(np.diff(events) > 0)[0]
-        subset, self.indices = unique(self.indices[final], return_inverse=True)
-        self.unique_values = self.unique_values[subset]
+        subset, self.indices = np.unique(self.indices[final], return_inverse=True)
+        self.unique_values = [self.unique_values[index] for index in subset]
         self.events = np.r_[events[final], events[-1]]
 
     def partition(self, segments):
@@ -480,9 +567,10 @@ def concatenate_categorical(split_data, **kwargs):
     segments = np.cumsum([0] + [cat_data.events[-1] for cat_data in split_data])
     data = CategoricalData([], [])
     # Combine all unique values in the order they are found in datasets
-    split_values = [cat_data.unique_values for cat_data in split_data]
+    split_values = [cat_data._comparable_values for cat_data in split_data]
     inverse_splits = np.cumsum([0] + [len(vals) for vals in split_values])
-    data.unique_values, inverse = unique_in_order(np.concatenate(split_values), return_inverse=True)
+    values, inverse = unique_in_order(sum(split_values, []), return_inverse=True)
+    data.unique_values = [ComparableArrayWrapper.unwrap(v) for v in values]
     indices, events = [], []
     for n, cat_data in enumerate(split_data):
         # Remap indices to new unique_values array
@@ -499,8 +587,70 @@ def concatenate_categorical(split_data, **kwargs):
     return data
 
 
-def sensor_to_categorical(sensor_timestamps, sensor_values, dump_midtimes, dump_period,
-                          greedy_values=None, initial_value=None, transform=None, allow_repeats=False, **kwargs):
+def _single_event_per_dump(events, greedy):
+    """Ensure that each dump is associated with a single sensor event.
+
+    This generates a sequence of cleaned-up sensor events (represented by
+    indices into the original `events` sequence), which ensures that each dump
+    is associated with a single event. When there are multiple events inside
+    a dump, pick the final one. In addition, some sensor values designated as
+    "greedy" will override non-greedy ones and grab a dump even if it is not
+    the final value. In this scenario, move the final (non-greedy) event to the
+    next dump by modifying its dump index in the `events` parameter. The
+    generator returns up to *N* events but not the special terminal event.
+
+    Parameters
+    ----------
+    events : mutable sequence of non-negative ints, length *N* + 1
+        Monotonic sequence of dump indices associated with each sensor event.
+        The last event is one past the last dump (i.e. the total number of
+        dumps). Be aware that this parameter is mutated by the function.
+    greedy : sequence of bool, length *N*
+        Flags indicating whether the sensor value at a given event is "greedy"
+
+    Yields
+    ------
+    event_index : non-negative int
+        Index into `events` sequence of the next cleaned up event (does not
+        yield the one-past-last-dump terminal event)
+
+    """
+    # The previous winning event is the dominant event in the previous dump
+    previous_winning_event = 0
+    previous_dump = 0
+    # This generates consecutive event indices with associated dump indices
+    for current_event, current_dump in enumerate(events):
+        # At the start of a new dump, process the events of the previous dump
+        if current_dump > previous_dump:
+            # This previous event segment is assumed to straddle dump boundary
+            assert current_event >= 1, "First sensor event not at dump 0"
+            event_at_dump_start = current_event - 1
+            # The normal victory condition is to be the final event in the dump
+            if not greedy[previous_winning_event]:
+                previous_winning_event = event_at_dump_start
+            winning_dump = events[previous_winning_event]
+            # Only yield winning event in immediate past to avoid duplicates
+            if previous_dump <= winning_dump < current_dump:
+                yield previous_winning_event
+            # If winning event was greedy and final event was non-greedy,
+            # push final event to the start of next dump and yield if it is
+            # the only event in that dump (otherwise it has to fight it out...)
+            if event_at_dump_start != previous_winning_event:
+                # NB: This modifies `events`! It simplifies bookkeeping.
+                events[event_at_dump_start] += 1
+                if current_dump > events[event_at_dump_start]:
+                    yield event_at_dump_start
+                previous_winning_event = event_at_dump_start
+            previous_dump = current_dump
+        # While within the same dump, pick the latest greedy event as winner
+        # Also, avoid indexing greedy with final one-past-last event
+        if (current_event < len(greedy)) and greedy[current_event]:
+            previous_winning_event = current_event
+
+
+def sensor_to_categorical(sensor_timestamps, sensor_values, dump_midtimes,
+                          dump_period, transform=None, initial_value=None,
+                          greedy_values=None, allow_repeats=False, **kwargs):
     """Align categorical sensor events with dumps and clean up spurious events.
 
     This converts timestamped sensor data into a categorical dataset by
@@ -510,60 +660,95 @@ def sensor_to_categorical(sensor_timestamps, sensor_values, dump_midtimes, dump_
     guaranteed to have a valid value by either using the supplied `initial_value`
     or extrapolating the first proper value back in time. The sensor data may
     be transformed before events that repeat values are potentially discarded.
-    Finally, events with values marked as "greedy" swallow the last dump of their
-    preceding events, where the sensor value is changing into the greedy value.
-    A greedy value therefore takes precedence over another value when both occur
-    within the same dump (either changing from or to the greedy value).
+    Finally, events with values marked as "greedy" take precedence over normal
+    events when both occur within the same dump (either changing from or to the
+    greedy value, or if the greedy value occurs completely within a dump).
+
+    XXX Future improvements include picking the event with the longest duration
+    within a dump as opposed to the final event, and "snapping" event boundaries
+    to dump boundaries with a given tolerance (e.g. 5-10% of dump period).
 
     Parameters
     ----------
     sensor_timestamps : sequence of float, length *M*
         Sequence of sensor timestamps (typically UTC seconds since Unix epoch)
     sensor_values : sequence, length *M*
-        Corresponding sequence of sensor values
+        Corresponding sequence of sensor values [potentially wrapped]
     dump_midtimes : sequence of float, length *N*
         Sequence of dump midtimes (same reference as sensor timestamps)
     dump_period : float
         Duration of each dump, in seconds
-    greedy_values : sequence or None, optional
-        List of (transformed) sensor values considered "greedy"
-    initial_value : object or None, optional
-        Sensor value to use for dump = 0 up to the first proper event
-        (the default is to force the first proper event to start at dump = 0)
     transform : callable or None, optional
-        Transform sensor values before discarding repeats and applying greed
+        Transform [unwrapped] sensor values before fixing initial value,
+        mapping dumps to events and discarding repeats
+    initial_value : object or None, optional
+        Sensor value [transformed, unwrapped] to use for dump = 0 up to first
+        proper event (force first proper event to start at dump = 0 by default)
+    greedy_values : sequence or None, optional
+        List of [transformed, unwrapped] sensor values considered "greedy"
     allow_repeats : {False, True}, optional
-        If False, discard sensor events that do not change (transformed) value
+        If False, discard sensor events that do not change [transformed] value
 
     Returns
     -------
     data : :class:`CategoricalData` object
-        Constructed categorical dataset
+        Constructed categorical dataset [unwraps any wrapped values]
 
     """
     sensor_timestamps = np.atleast_1d(sensor_timestamps)
     sensor_values = np.atleast_1d(sensor_values)
-    dump_midtimes = np.atleast_1d(dump_midtimes)
-    # Convert sensor event times to dump indices (pick the dump during which each sensor event occurred)
-    # The last event is fixed at one-past-the-last-dump, to indicate the end of the last segment
-    events = np.r_[dump_midtimes.searchsorted(sensor_timestamps - 0.5 * dump_period), len(dump_midtimes)]
-    # Cull any empty segments (i.e. when multiple sensor events occur within a single dump, only keep last one)
-    # This also gets rid of excess events before the first dump and after the last dump
-    non_empty = np.nonzero(np.diff(events) > 0)[0]
-    sensor_values, events = sensor_values[non_empty], np.r_[events[non_empty], len(dump_midtimes)]
-    # Force first dump to have valid sensor value (use initial value or first proper value advanced to start)
-    if events[0] != 0 and initial_value is not None:
-        sensor_values, events = np.r_[[initial_value], sensor_values], np.r_[0, events]
-    events[0] = 0
+    dump_endtimes = dump_midtimes + 0.5 * dump_period
+    num_dumps = len(dump_endtimes)
+    # Insert an extra prior dump to collect sensor values before first dump
+    dump_endtimes = np.r_[dump_endtimes[0] - dump_period, dump_endtimes]
+    # Check if sensor values are objects wrapped in ComparableArrayWrappers
+    wrapped_values = len(sensor_values) and isinstance(sensor_values[0],
+                                                       ComparableArrayWrapper)
+    # Convert sensor event times to dump indices by picking the dump during
+    # which each sensor event occurred (more precisely: closest dump centroid)
+    events = dump_endtimes.searchsorted(sensor_timestamps) - 1
+    # Get rid of excess events before the first dump and after the last dump
+    # The dump index of prior events is -1 and of later events is `num_dumps`
+    first_proper_event = events.searchsorted(-1, side='right')
+    # Shift the final prior event (if any) to the start of the first dump
+    if first_proper_event > 0:
+        first_proper_event -= 1
+        events[first_proper_event] = 0
+    one_past_last_event = events.searchsorted(num_dumps)
+    within_dumps = slice(first_proper_event, one_past_last_event)
+    sensor_values = sensor_values[within_dumps]
+    events = events[within_dumps]
     # Apply optional transform to sensor values
-    sensor_values = np.array([transform(y) for y in sensor_values]) if transform is not None else sensor_values
-    # Discard sensor events that do not change the (transformed) sensor value (i.e. that repeat the previous value)
+    if transform is not None:
+        if wrapped_values:
+            orig_transform = transform
+            def transform(value):   # noqa: E306
+                """Unwrap wrapped value, transform and rewrap."""
+                return ComparableArrayWrapper(orig_transform(value.unwrapped))
+        sensor_values = np.array([transform(y) for y in sensor_values])
+    # Force first dump to have valid sensor value
+    # (insert initial value or let the first proper value apply from the start)
+    if events[0] != 0 and initial_value is not None:
+        if wrapped_values:
+            initial_value = ComparableArrayWrapper(initial_value)
+        sensor_values = np.r_[[initial_value], sensor_values]
+        events = np.r_[0, events]
+    events[0] = 0
+    # Clean up dump->event mapping, taking into account greedy values
+    greedy_values = () if greedy_values is None else greedy_values
+    greedy = [value in greedy_values for value in sensor_values]
+    # Add one-past-last-dump terminator (will be removed again by `cleaned_up`)
+    events = np.r_[events, num_dumps]
+    # NB: `events` is mutated by `_single_event_per_dump`
+    cleaned_up = list(_single_event_per_dump(events, greedy))
+    sensor_values = sensor_values[cleaned_up]
+    events = events[cleaned_up]
+    # Discard sensor events that do not change the (transformed) sensor value
+    # (i.e. that repeat the previous value)
     if not allow_repeats:
-        changes = [n for n in range(len(sensor_values)) if (n == 0) or (sensor_values[n] != sensor_values[n - 1])]
-        sensor_values, events = sensor_values[changes], np.r_[events[changes], len(dump_midtimes)]
-    # Extend segments with "greedy" values to include first dump of next segment where sensor value is changing
-    if greedy_values is not None:
-        greedy_to_nongreedy = [n for n in range(1, len(sensor_values))
-                               if sensor_values[n - 1] in greedy_values and sensor_values[n] not in greedy_values]
-        events[greedy_to_nongreedy] += 1
-    return CategoricalData(sensor_values, events)
+        changes_value = [n for n in range(len(sensor_values)) if n == 0 or
+                         sensor_values[n] != sensor_values[n - 1]]
+        sensor_values = sensor_values[changes_value]
+        events = events[changes_value]
+    # Last event is fixed at one-past-last-dump to indicate end of last segment
+    return CategoricalData(sensor_values, np.r_[events, num_dumps])

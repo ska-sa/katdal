@@ -1,0 +1,9 @@
+Cython
+future
+h5py
+katversion
+numpy
+pkginfo
+pyephem
+six
+git+ssh://git@github.com/ska-sa/katpoint#egg=katpoint

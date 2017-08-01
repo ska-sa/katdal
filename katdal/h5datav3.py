@@ -29,14 +29,17 @@ except ImportError:
 
 from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow,
                       DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target)
-from .sensordata import SensorData, SensorCache, TelstateSensorData
+from .sensordata import (SensorCache, RecordSensorData,
+                         H5TelstateSensorData)
 from .categorical import CategoricalData
 from .lazy_indexer import LazyIndexer, LazyTransform
 
 logger = logging.getLogger(__name__)
 
-# Simplify the scan activities to derive the basic state of the antenna (slewing, scanning, tracking, stopped)
-SIMPLIFY_STATE = {'scan_ready': 'slew', 'scan': 'scan', 'scan_complete': 'scan', 'track': 'track', 'slew': 'slew'}
+# Simplify the scan activities to derive the basic state of the antenna
+# (slewing, scanning, tracking, stopped)
+SIMPLIFY_STATE = {'scan_ready': 'slew', 'scan': 'scan', 'scan_complete': 'scan',
+                  'load_scan': 'scan', 'track': 'track', 'slew': 'slew'}
 
 SENSOR_PROPS = dict(DEFAULT_SENSOR_PROPS)
 SENSOR_PROPS.update({
@@ -158,6 +161,7 @@ class H5DataV3(DataSet):
       timestamp = sample_counter / time_scale + time_origin
 
     """
+
     def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r',
                  time_scale=None, time_origin=None, rotate_bls=False,
                  centre_freq=None, band=None, keepdims=False, **kwargs):
@@ -190,7 +194,7 @@ class H5DataV3(DataSet):
                 group_lookup = {'AntennaPositioner': 'Antennas/' + comp_name}
                 group_name = group_lookup.get(comp_type, comp_type) if comp_type else comp_name
                 name = '/'.join((group_name, sensor_name))
-                cache[name] = SensorData(obj, name)
+                cache[name] = RecordSensorData(obj, name)
         tm_group.visititems(register_sensor)
         # Also load sensors from TelescopeState for what it's worth
         if 'TelescopeState' in f.file:
@@ -200,7 +204,7 @@ class H5DataV3(DataSet):
                 if isinstance(obj, h5py.Dataset) and obj.shape != () and \
                    set(obj.dtype.names) == {'timestamp', 'value'}:
                     name = 'TelescopeState/' + name
-                    cache[name] = TelstateSensorData(obj, name)
+                    cache[name] = H5TelstateSensorData(obj, name)
             f.file['TelescopeState'].visititems(register_telstate_sensor)
 
         # ------ Extract vis and timestamps ------
@@ -245,9 +249,10 @@ class H5DataV3(DataSet):
         sensor_start_time = 0.0
         # Pick first regular sensor with longer data record than data (hopefully straddling it)
         for sensor_name, sensor_data in cache.iteritems():
-            if sensor_name.endswith(regular_sensors) and len(sensor_data):
-                proposed_sensor_start_time = sensor_data[0]['timestamp']
-                sensor_duration = sensor_data[-1]['timestamp'] - proposed_sensor_start_time
+            if sensor_name.endswith(regular_sensors) and sensor_data:
+                sensor_times = sensor_data['timestamp']
+                proposed_sensor_start_time = sensor_times[0]
+                sensor_duration = sensor_times[-1] - proposed_sensor_start_time
                 if sensor_duration > data_duration:
                     sensor_start_time = proposed_sensor_start_time
                     break
@@ -447,13 +452,20 @@ class H5DataV3(DataSet):
         rx_table = {
             # Standard L-band receiver
             'l': dict(band='L', centre_freq=1284e6, sideband=1),
-            # Custom UHF receiver (real receiver + L-band digitiser, flipped spectrum)
-            'u': dict(band='UHF', centre_freq=428e6, sideband=-1),
+            # Standard UHF receiver
+            'u': dict(band='UHF', centre_freq=816e6, sideband=1),
             # Custom Ku receiver for RTS
             'x': dict(band='Ku', sideband=1),
         }
         spw_params = rx_table.get(band, dict(band='', sideband=1))
-        # Cater for receivers with mixers
+        # XXX Cater for future narrowband mode at some stage
+        num_chans = cbf_group.attrs['n_chans']
+        bandwidth = cbf_group.attrs['bandwidth']
+        # Work around a bc856M4k CBF bug active from 2016-04-28 to 2016-06-01 that got the bandwidth wrong
+        if bandwidth == 857152196.0:
+            logger.warning('Worked around CBF bandwidth bug (857.152 MHz -> 856.000 MHz)')
+            bandwidth = 856000000.0
+        # Cater for non-standard receivers
         if spw_params['band'] == 'Ku':
             siggen_freq = 0.0
             if 'Ancillary/siggen_ku_frequency' in self.sensor:
@@ -465,13 +477,10 @@ class H5DataV3(DataSet):
                     pass
             if siggen_freq:
                 spw_params['centre_freq'] = 100. * siggen_freq + 1284e6
-        # XXX Cater for future narrowband mode, at some stage
-        num_chans = cbf_group.attrs['n_chans']
-        bandwidth = cbf_group.attrs['bandwidth']
-        # Work around a bc856M4k CBF bug active from 2016-04-28 to 2016-06-01 that got the bandwidth wrong
-        if bandwidth == 857152196.0:
-            logger.warning('Worked around CBF bandwidth bug (857.152 MHz -> 856.000 MHz)')
-            bandwidth = 856000000.0
+        # "Fake UHF": a real receiver + L-band digitiser and flipped spectrum
+        elif spw_params['band'] == 'UHF' and bandwidth == 856e6:
+            spw_params['centre_freq'] = 428e6
+            spw_params['sideband'] = -1
         # Get channel width from original CBF parameters
         spw_params['channel_width'] = bandwidth / num_chans
         # Continue with different channel count, but invalidate centre freq (keep channel width though)
@@ -552,7 +561,7 @@ class H5DataV3(DataSet):
 
     @staticmethod
     def _get_corrprods(f, rotate_bls=False):
-        """Load the correlation products list from an open file
+        """Load the correlation products list from an open file.
 
         Parameters
         ----------
@@ -800,7 +809,7 @@ class H5DataV3(DataSet):
 
     @property
     def vis(self):
-        """Complex visibility data as a function of time, frequency and baseline.
+        r"""Complex visibility data as a function of time, frequency and baseline.
 
         The visibility data are returned as an array indexer of complex64, shape
         (*T*, *F*, *B*), with time along the first dimension, frequency along the
