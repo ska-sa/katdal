@@ -1,6 +1,14 @@
 History
 =======
 
+0.8 (2017-08-08)
+----------------
+* Fix upside-down MeerKAT images
+* SensorData rework to load gain solutions and access telstate efficiently
+* Improve mapping of sensor events onto dumps, especially for long (8 s) dumps
+* Fix NumPy 1.13 warnings and errors
+* Support UHF receivers
+
 0.7.1 (2017-01-19)
 ------------------
 
