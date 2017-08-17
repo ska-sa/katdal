@@ -27,11 +27,13 @@
         obj_ceph_conf: copy of the ceph.conf used to connect to the target ceph cluster
 """
 
+try:
+    import rados
+except ImportError:
+    rados = None
 import h5py
 import struct
-import redis
 import katsdptelstate
-import rados
 import logging
 import katsdpservices
 import sys
@@ -39,8 +41,8 @@ import time
 import numpy as np
 import shlex
 import subprocess
-import cPickle
-import os
+
+
 logging.basicConfig()
 
 logger = logging.getLogger('h5toceph')
@@ -69,7 +71,10 @@ def parse_args():
     args = parser.parse_args()
     if args.file is None:
         parser.error('argument --file is required')
-    if args.pool is None:
+    if not rados:
+        logger.warning("No Ceph installation found - building Redis DB only")
+        args.redis_only = True
+    if not args.redis_only and args.pool is None:
         parser.error('argument --pool is required')
     if args.basename is None:
         args.basename = args.file.split(".")[0]
@@ -136,8 +141,12 @@ def main():
 
     if args.redis is None:
         logger.info("Launching local Redis instance")
-        launch_cmd = "/usr/bin/redis-server --port {}".format(args.redis_port)
-        local_redis = subprocess.Popen(shlex.split(launch_cmd), stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+        try:
+            launch_cmd = "/usr/bin/redis-server --port {}".format(args.redis_port)
+            local_redis = subprocess.Popen(shlex.split(launch_cmd), stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+        except OSError:
+            launch_cmd = "/usr/local/bin/redis-server --port {}".format(args.redis_port)
+            local_redis = subprocess.Popen(shlex.split(launch_cmd), stderr=subprocess.PIPE, stdout=subprocess.PIPE)
         time.sleep(3)
         if local_redis.poll():
             logger.error("Failed to launch local Redis instance, terminating. {}".format(local_redis.communicate()))
@@ -175,7 +184,13 @@ def main():
 
     if args.redis_only:
         if args.redis is None:
-            logger.warning("Terminating locally launched redis instance")
+            logger.warning("Terminating locally launched redis instance (also saves telstate to local dump.rdb)")
+            try:
+                cli_cmd = "/usr/bin/redis-cli -p {} SHUTDOWN SAVE".format(args.redis_port)
+                subprocess.call(shlex.split(cli_cmd))
+            except OSError:
+                cli_cmd = "/usr/local/bin/redis-cli -p {} SHUTDOWN SAVE".format(args.redis_port)
+                subprocess.call(shlex.split(cli_cmd))
             local_redis.terminate()
         sys.exit(0)
     cluster = rados.Rados(conffile=args.ceph_conf)
