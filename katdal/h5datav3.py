@@ -45,11 +45,11 @@ SENSOR_PROPS = dict(DEFAULT_SENSOR_PROPS)
 SENSOR_PROPS.update({
     '*activity': {'greedy_values': ('slew', 'stop'), 'initial_value': 'slew',
                   'transform': lambda act: SIMPLIFY_STATE.get(act, 'stop')},
-    '*target': {'initial_value': '', 'transform': _robust_target},
     '*ap_indexer_position': {'initial_value': ''},
-    '*_serial_number': {'initial_value': 0},
-    '*dig_noise_diode': {'categorical': True, 'greedy_values': (True,),
-                         'initial_value': 0.0, 'transform': lambda x: x > 0.0},
+    '*noise_diode': {'categorical': True, 'greedy_values': (True,),
+                     'initial_value': 0.0, 'transform': lambda x: x > 0.0},
+    '*serial_number': {'initial_value': 0},
+    '*target': {'initial_value': '', 'transform': _robust_target},
 })
 
 SENSOR_ALIASES = {
@@ -62,6 +62,7 @@ def _calc_azel(cache, name, ant):
     real_sensor = 'Antennas/%s/%s' % (ant, 'pos_actual_scan_azim' if name.endswith('az') else 'pos_actual_scan_elev')
     cache[name] = sensor_data = katpoint.deg2rad(cache.get(real_sensor))
     return sensor_data
+
 
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel, 'Antennas/{ant}/el': _calc_azel})
@@ -441,12 +442,17 @@ class H5DataV3(DataSet):
         if not band:
             logger.warning('Could not figure out receiver band - '
                            'please provide it via band parameter')
-        # Populate antenna -> receiver mapping
+        # Populate antenna -> receiver mapping and figure out noise diode
         for ant in cam_ants:
             rx_sensor = 'Antennas/%s/rsc_rx%s_serial_number' % (ant, band)
             rx_serial = self.sensor[rx_sensor][0] if rx_sensor in self.sensor else 0
             if band:
                 self.receivers[ant] = '%s.%d' % (band, rx_serial)
+            nd_sensor = 'TelescopeState/%s_dig_%s_band_noise_diode' % (ant, band)
+            if nd_sensor in self.sensor:
+                # A sensor alias would be ideal for this but it only deals with suffixes ATM
+                new_nd_sensor = 'Antennas/%s/nd_coupler' % (ant,)
+                self.sensor[new_nd_sensor] = self.sensor.get(nd_sensor, extract=False)
         # Mapping describing current receiver information on MeerKAT
         # XXX Update this as new receivers come online
         rx_table = {
