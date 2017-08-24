@@ -558,9 +558,7 @@ class SensorCache(dict):
         self.virtual = virtual
         # Add sensor aliases
         for alias, original in aliases.iteritems():
-            for name, data in self.iteritems():
-                if name.endswith(original):
-                    self[name.replace(original, alias)] = data
+            self.add_aliases(alias, original)
 
     def __str__(self):
         """Verbose human-friendly string representation of sensor cache object."""
@@ -620,6 +618,25 @@ class SensorCache(dict):
     def iteritems(self):
         """Custom item iterator that avoids extracting sensor data."""
         return iter([(key, self.get(key, extract=False)) for key in self.iterkeys()])
+
+    def add_aliases(self, alias, original):
+        """Add alternate names / aliases for sensors.
+
+        Search for sensors with names ending in the `original` suffix and form
+        a corresponding alternate name by replacing `original` with `alias`.
+        The new aliased sensors will re-use the data of the original sensors.
+
+        Parameters
+        ----------
+        alias : string
+            The new sensor name suffix that replaces `original`
+        original : string
+            Sensors with names that end in this will get aliases
+
+        """
+        for name, data in self.iteritems():
+            if name.endswith(original):
+                self[name.replace(original, alias)] = data
 
     def get(self, name, select=False, extract=True, **kwargs):
         """Sensor values interpolated to correlator data timestamps.
