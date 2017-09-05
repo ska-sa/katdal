@@ -152,6 +152,9 @@ class H5DataV3(DataSet):
     ----------
     file : :class:`h5py.File` object
         Underlying HDF5 file, exposed via :mod:`h5py` interface
+    stream_name : str
+        Name of the L0 data stream, for finding corresponding telescope
+        state keys.
 
     Notes
     -----
@@ -174,6 +177,7 @@ class H5DataV3(DataSet):
 
         # Load main HDF5 groups
         data_group, tm_group = f['Data'], f['TelescopeModel']
+        self.stream_name = data_group.attrs.get('stream_name', 'sdp_l0')
         # Pick first group with appropriate class as CBF
         cbfs = [comp for comp in tm_group
                 if tm_group[comp].attrs.get('class') == 'CorrelatorBeamformer']
@@ -216,6 +220,7 @@ class H5DataV3(DataSet):
         self.dump_period = cbf_dump_period = cbf_group.attrs['int_time']
         if 'sdp' in tm_group:
             self.dump_period = tm_group['sdp'].attrs.get('l0_int_time', self.dump_period)
+        self.dump_period = self._get_telstate_stream_attr('int_time', self.dump_period)
         # Determine if timestamps are already aligned with middle of dumps
         try:
             ts_ref = data_group['timestamps'].attrs['timestamp_reference']
@@ -377,7 +382,7 @@ class H5DataV3(DataSet):
         ants = sorted(ants)
         cam_ants = set(ant.name for ant in ants)
         # Original list of correlation products as pairs of input labels
-        corrprods = self._get_corrprods(f)
+        corrprods = self._get_corrprods(f, self.stream_name)
         # Find names of all antennas with associated correlator data
         cbf_ants = set([cp[0][:-1] for cp in corrprods] + [cp[1][:-1] for cp in corrprods])
         # By default, only pick antennas that were in use by the script
@@ -409,16 +414,7 @@ class H5DataV3(DataSet):
         if not band:
             if 'TelescopeState' in f.file:
                 # Newer RTS, AR1 and beyond use the subarray band attribute / sensor
-                try:
-                    band = f.file['TelescopeState'].attrs['sub_band']
-                    # The telstate attributes were serialised via str() until 2016-11-29
-                    if band not in ('l', 's', 'u', 'x'):
-                        band = pickle.loads(band)
-                except (KeyError, pickle.UnpicklingError):
-                    try:
-                        band = self.sensor['TelescopeState/sub_band'][-1]
-                    except KeyError:
-                        band = ''
+                band = self._get_telstate_attr('sub_band', default='', no_unpickle=('l', 's', 'u', 'x'))
             else:
                 # Fallback for the original RTS before 2016-07-21 (not reliable)
                 # Find the most common valid indexer position in the subarray
@@ -464,7 +460,6 @@ class H5DataV3(DataSet):
             'x': dict(band='Ku', sideband=1),
         }
         spw_params = rx_table.get(band, dict(band='', sideband=1))
-        # XXX Cater for future narrowband mode at some stage
         num_chans = cbf_group.attrs['n_chans']
         bandwidth = cbf_group.attrs['bandwidth']
         # Work around a bc856M4k CBF bug active from 2016-04-28 to 2016-06-01 that got the bandwidth wrong
@@ -487,11 +482,17 @@ class H5DataV3(DataSet):
         elif spw_params['band'] == 'UHF' and bandwidth == 856e6:
             spw_params['centre_freq'] = 428e6
             spw_params['sideband'] = -1
+        # If the file has output parameters, use those instead
+        num_chans = self._get_telstate_stream_attr('n_chans', num_chans)
+        bandwidth = self._get_telstate_stream_attr('bandwidth', bandwidth)
+        stream_centre_freq = self._get_telstate_stream_attr('center_freq')
+        if stream_centre_freq is not None:
+            spw_params['centre_freq'] = stream_centre_freq
         # Get channel width from original CBF parameters
         spw_params['channel_width'] = bandwidth / num_chans
         # Continue with different channel count, but invalidate centre freq (keep channel width though)
         if num_chans != self._vis.shape[1]:
-            logger.warning('Number of channels received from correlator (%d) differs '
+            logger.warning('Number of channels received from ingest (%d) differs '
                            'from number of channels in data (%d) - trusting the latter',
                            num_chans, self._vis.shape[1])
             num_chans = self._vis.shape[1]
@@ -565,14 +566,44 @@ class H5DataV3(DataSet):
         # Apply default selection and initialise all members that depend on selection in the process
         self.select(spw=0, subarray=0, ants=obs_ants)
 
+    def _get_telstate_attr(self, key, default=None, no_unpickle=()):
+        """Retrieve an attribute from the TelescopeState.
+
+        If there is no TelescopeState group, the key is missing, or it cannot
+        be unpickled, returns `default` instead.
+
+        If the raw value is a member of `no_unpickle`, returns it directly
+        rather than attempting to unpickle it. This is to support older files
+        in which the attributes were not pickled.
+        """
+        try:
+            value = self.file['TelescopeState'].attrs[key]
+            if value in no_unpickle:
+                return value
+            else:
+                return pickle.loads(value)
+        except (KeyError, pickle.UnpicklingError):
+            # In some cases the value is placed in a sensor instead. Return
+            # the most recent value.
+            try:
+                return self.sensors['TelescopeState/' + key][-1]
+            except (KeyError, IndexError):
+                return default
+
+    def _get_telstate_stream_attr(self, key, default=None, no_unpickle=()):
+        """Retrieve a TelescopeState attribute prefixed with the output stream name."""
+        return self._get_telstate_attr(self.stream_name + '_' + key, default, no_unpickle)
+
     @staticmethod
-    def _get_corrprods(f, rotate_bls=False):
+    def _get_corrprods(f, stream_name, rotate_bls=False):
         """Load the correlation products list from an open file.
 
         Parameters
         ----------
         f : :class:`h5py.File`
             Open HDF5 file
+        stream_name : str
+            Name of the L0 stream, for fetching corresponding TelescopeState entries
         rotate_bls : {False, True}, optional
             Rotate baseline label list to work around early RTS correlator bug
 
@@ -582,9 +613,9 @@ class H5DataV3(DataSet):
             list of pairs of input labels
         """
         try:
-            # If sdp_l0_bls_ordering is present, it should be used in preference
+            # If <stream_name>_bls_ordering is present, it should be used in preference
             # to cbf_bls_ordering.
-            corrprods = pickle.loads(f['TelescopeState'].attrs['sdp_l0_bls_ordering'])
+            corrprods = pickle.loads(f['TelescopeState'].attrs[stream_name + '_bls_ordering'])
         except KeyError:
             # Prior to about Nov 2016, ingest would rewrite cbf_bls_ordering in
             # place.
@@ -627,6 +658,7 @@ class H5DataV3(DataSet):
         f, version = H5DataV3._open(filename)
         obs_params = {}
         tm_group = f['TelescopeModel']
+        stream_name = f['Data'].attrs.get('stream_name', 'sdp_l0')
         ants = []
         for name in tm_group:
             if tm_group[name].attrs.get('class') != 'AntennaPositioner':
@@ -641,7 +673,7 @@ class H5DataV3(DataSet):
             ants.append(katpoint.Antenna(ant_description))
         cam_ants = set(ant.name for ant in ants)
         # Original list of correlation products as pairs of input labels
-        corrprods = H5DataV3._get_corrprods(f)
+        corrprods = H5DataV3._get_corrprods(f, stream_name)
         # Find names of all antennas with associated correlator data
         cbf_ants = set([cp[0][:-1] for cp in corrprods] + [cp[1][:-1] for cp in corrprods])
         # By default, only pick antennas that were in use by the script
