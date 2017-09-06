@@ -492,8 +492,8 @@ class H5DataV3(DataSet):
         spw_params['channel_width'] = bandwidth / num_chans
         # Continue with different channel count, but invalidate centre freq (keep channel width though)
         if num_chans != self._vis.shape[1]:
-            logger.warning('Number of channels received from CBF / ingest (%d) differs '
-                           'from number of channels in data (%d) - trusting the latter',
+            logger.warning('Number of channels reported in metadata (%d) differs '
+                           'from actual number of channels in data (%d) - trusting the latter',
                            num_chans, self._vis.shape[1])
             num_chans = self._vis.shape[1]
             spw_params.pop('centre_freq', None)
@@ -574,12 +574,12 @@ class H5DataV3(DataSet):
 
         If the raw value is a member of `no_unpickle`, returns it directly
         rather than attempting to unpickle it. This is to support older files
-        in which the attributes were not pickled.
+        (created before 2016-11-30) in which the attributes were not pickled.
+
         """
         try:
             value = self.file['TelescopeState'].attrs[key]
             if value in no_unpickle:
-                # Telstate attributes were serialised via str() until 2016-11-29
                 return value
             else:
                 return pickle.loads(value)
