@@ -152,9 +152,8 @@ class H5DataV3(DataSet):
     ----------
     file : :class:`h5py.File` object
         Underlying HDF5 file, exposed via :mod:`h5py` interface
-    stream_name : str
-        Name of the L0 data stream, for finding corresponding telescope
-        state keys.
+    stream_name : string
+        Name of L0 data stream, for finding corresponding telescope state keys
 
     Notes
     -----
@@ -460,6 +459,7 @@ class H5DataV3(DataSet):
             'x': dict(band='Ku', sideband=1),
         }
         spw_params = rx_table.get(band, dict(band='', sideband=1))
+        # Use CBF spectral parameters by default
         num_chans = cbf_group.attrs['n_chans']
         bandwidth = cbf_group.attrs['bandwidth']
         # Work around a bc856M4k CBF bug active from 2016-04-28 to 2016-06-01 that got the bandwidth wrong
@@ -482,17 +482,17 @@ class H5DataV3(DataSet):
         elif spw_params['band'] == 'UHF' and bandwidth == 856e6:
             spw_params['centre_freq'] = 428e6
             spw_params['sideband'] = -1
-        # If the file has output parameters, use those instead
+        # If the file has SDP output stream parameters, use those instead
         num_chans = self._get_telstate_stream_attr('n_chans', num_chans)
         bandwidth = self._get_telstate_stream_attr('bandwidth', bandwidth)
         stream_centre_freq = self._get_telstate_stream_attr('center_freq')
         if stream_centre_freq is not None:
             spw_params['centre_freq'] = stream_centre_freq
-        # Get channel width from original CBF parameters
+        # Get channel width from original CBF / SDP parameters
         spw_params['channel_width'] = bandwidth / num_chans
         # Continue with different channel count, but invalidate centre freq (keep channel width though)
         if num_chans != self._vis.shape[1]:
-            logger.warning('Number of channels received from ingest (%d) differs '
+            logger.warning('Number of channels received from CBF / ingest (%d) differs '
                            'from number of channels in data (%d) - trusting the latter',
                            num_chans, self._vis.shape[1])
             num_chans = self._vis.shape[1]
@@ -579,6 +579,7 @@ class H5DataV3(DataSet):
         try:
             value = self.file['TelescopeState'].attrs[key]
             if value in no_unpickle:
+                # Telstate attributes were serialised via str() until 2016-11-29
                 return value
             else:
                 return pickle.loads(value)
