@@ -21,9 +21,9 @@ import logging
 import numpy as np
 import katpoint
 
-from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray,
-                      SpectralWindow, DEFAULT_SENSOR_PROPS,
-                      DEFAULT_VIRTUAL_SENSORS, _robust_target)
+from .dataset import (DataSet, BrokenFile, Subarray, SpectralWindow,
+                      DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
+                      _robust_target)
 from .sensordata import SensorCache
 from .categorical import CategoricalData
 from .lazy_indexer import LazyIndexer, LazyTransform
@@ -125,18 +125,12 @@ class VisibilityDataV4(DataSet):
 
     Parameters
     ----------
-    attrs : mapping from string to object
-        Metadata attributes
-    sensors : mapping from string to :class:`SensorData` objects
-        Metadata sensor cache mapping sensor names to raw sensor data
+    metadata : :class:`AttrsSensors` object
+        Metadata attributes and sensors
     timestamps : array-like of float, length *T*
         Timestamps at centroids of visibilities in UTC seconds since Unix epoch
-    vis : array-like of complex64, shape (*T*, *F*, *B*), optional
-        Complex visibility data as a function of time, frequency and baseline
-    weights : array-like of float32, shape (*T*, *F*, *B*), optional
-        Visibility weights as a function of time, frequency and baseline
-    flags : array-like of uint8, shape (*T*, *F*, *B*), optional
-        Flags as a function of time, frequency and baseline
+    data : None or :class:`VisFlagsWeights` object, optional
+        Correlator data (visibilities, flags and weights)
     ref_ant : string, optional
         Name of reference antenna, used to partition data set into scans
         (default is first antenna in use)
@@ -152,52 +146,51 @@ class VisibilityDataV4(DataSet):
         Extra keyword arguments, typically meant for other formats and ignored
 
     """
-
-    def __init__(self, attrs, sensors, timestamps,
-                 vis=None, weights=None, flags=None, ref_ant='',
+    def __init__(self, metadata, timestamps, data=None, ref_ant='',
                  time_offset=0.0, centre_freq=None, band=None, keepdims=False,
                  **kwargs):
-        name = 'v4'
+        name = metadata.name
+        if data and data.name != name:
+            name += ' | ' + data.name
         DataSet.__init__(self, name, ref_ant, time_offset)
 
         # ------ Extract vis and timestamps ------
 
         self.file = {}
         self.version = '4.0'
-        self.dump_period = attrs['sdp_l0_int_time']
+        self.dump_period = metadata.attrs['sdp_l0_int_time']
         self._timestamps = timestamps[:]
-        self._vis = vis
+        self._vis = data.vis if data else None
         self._keepdims = keepdims
 
         # Check dimensions of timestamps vs those of visibility data
         num_dumps = len(timestamps)
-        if vis and (num_dumps != vis.shape[0]):
+        if data and (num_dumps != data.shape[0]):
             raise BrokenFile('Number of timestamps received from ingest '
                              '(%d) differs from number of dumps in data (%d)' %
-                             (num_dumps, vis.shape[0]))
+                             (num_dumps, data.shape[0]))
         # The expected_dumps should always be an integer (like num_dumps),
         # unless the timestamps and/or dump period are messed up in the file,
         # so threshold of this test is a bit arbitrary (e.g. could use > 0.5)
         expected_dumps = (timestamps[-1] - timestamps[0]) / self.dump_period + 1
         if abs(expected_dumps - num_dumps) >= 0.01:
             # Warn the user, as this is anomalous
-            logger.warning("Irregular timestamps detected in dataset %r: "
-                           "expected %.3f dumps based on dump period and "
-                           "start/end times, got %d instead",
-                           name, expected_dumps, num_dumps)
+            logger.warning("Irregular timestamps detected: expected %.3f dumps "
+                           "based on dump period and start/end times, "
+                           "got %d instead", expected_dumps, num_dumps)
         self._timestamps += self.time_offset
         if self._timestamps[0] < 1e9:
-            logger.warning("Dataset %r has invalid first correlator timestamp "
-                           "(%f)", name, self._timestamps[0])
+            logger.warning("Data set has invalid first correlator timestamp "
+                           "(%f)", self._timestamps[0])
         half_dump = 0.5 * self.dump_period
         self.start_time = katpoint.Timestamp(self._timestamps[0] - half_dump)
         self.end_time = katpoint.Timestamp(self._timestamps[-1] + half_dump)
         self._time_keep = np.ones(num_dumps, dtype=np.bool)
 
         # Assemble sensor cache
-        self.sensor = SensorCache(sensors, self._timestamps, self.dump_period,
-                                  self._time_keep, SENSOR_PROPS,
-                                  VIRTUAL_SENSORS, SENSOR_ALIASES)
+        self.sensor = SensorCache(metadata.sensors, self._timestamps,
+                                  self.dump_period, self._time_keep,
+                                  SENSOR_PROPS, VIRTUAL_SENSORS, SENSOR_ALIASES)
 
         # ------ Extract flags ------
 
@@ -251,16 +244,16 @@ class VisibilityDataV4(DataSet):
         # ------ Extract subarrays ------
 
         # List of correlation products as pairs of input labels
-        corrprods = attrs['sdp_l0_bls_ordering']
+        corrprods = metadata.attrs['sdp_l0_bls_ordering']
         # Crash if there is mismatch between labels and data shape (bad labels?)
-        if vis and (len(corrprods) != vis.shape[2]):
+        if data and (len(corrprods) != data.shape[2]):
             raise BrokenFile('Number of baseline labels (containing expected '
                              'antenna names) received from correlator (%d) '
                              'differs from number of baselines in data (%d)' %
-                             (len(corrprods), vis.shape[2]))
+                             (len(corrprods), data.shape[2]))
         # Find all antennas in subarray with valid katpoint Antenna objects
         ants = []
-        for resource in attrs['sub_pool_resources'].split(','):
+        for resource in metadata.attrs['sub_pool_resources'].split(','):
             try:
                 ant_description = self.sensor.get(resource + '_observer')[0]
                 ants.append(katpoint.Antenna(ant_description))
@@ -289,7 +282,7 @@ class VisibilityDataV4(DataSet):
         # ------ Extract spectral windows / frequencies ------
 
         # Get the receiver band identity ('l', 's', 'u', 'x') if not overridden
-        band = attrs.get('sub_band', '') if not band else band
+        band = metadata.attrs.get('sub_band', '') if not band else band
         if not band:
             logger.warning('Could not figure out receiver band - '
                            'please provide it via band parameter')
@@ -316,8 +309,8 @@ class VisibilityDataV4(DataSet):
         }
         spw_params = rx_table.get(band, dict(band='', sideband=1))
         # XXX Cater for future narrowband mode at some stage
-        num_chans = attrs['cbf_n_chans']
-        bandwidth = attrs['cbf_bandwidth']
+        num_chans = metadata.attrs['cbf_n_chans']
+        bandwidth = metadata.attrs['cbf_bandwidth']
         # Cater for non-standard receivers, starting with Ku-band
         if spw_params['band'] == 'Ku':
             if 'anc_siggen_ku_frequency' in self.sensor:
@@ -331,11 +324,11 @@ class VisibilityDataV4(DataSet):
         spw_params['channel_width'] = bandwidth / num_chans
         # Continue with different channel count, but invalidate centre freq
         # (keep channel width though)
-        if vis and (num_chans != vis.shape[1]):
+        if data and (num_chans != data.shape[1]):
             logger.warning('Number of channels received from correlator (%d) '
                            'differs from number of channels in data (%d) - '
-                           'trusting the latter', num_chans, vis.shape[1])
-            num_chans = vis.shape[1]
+                           'trusting the latter', num_chans, data.shape[1])
+            num_chans = data.shape[1]
             spw_params.pop('centre_freq', None)
         # Override centre frequency if provided
         if centre_freq:
@@ -346,7 +339,7 @@ class VisibilityDataV4(DataSet):
             logger.warning('Could not figure out centre frequency, setting it to '
                            '0 Hz - please provide it via centre_freq parameter')
         spw_params['num_chans'] = num_chans
-        spw_params['product'] = attrs.get('sub_product', '')
+        spw_params['product'] = metadata.attrs.get('sub_product', '')
         # We only expect a single spectral window within a single v4 data set
         self.spectral_windows = spws = [SpectralWindow(**spw_params)]
         self.sensor['Observation/spw'] = CategoricalData(spws, [0, num_dumps])
