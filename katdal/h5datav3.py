@@ -297,14 +297,18 @@ class H5DataV3(DataSet):
         # Discard the last sample if the timestamp is a duplicate (caused by stop packet in k7_capture)
         num_dumps = (num_dumps - 1) if num_dumps > 1 and (self._timestamps[-1] == self._timestamps[-2]) else num_dumps
         self._timestamps = self._timestamps[:num_dumps]
-        # The expected_dumps should always be an integer (like num_dumps), unless the timestamps and/or dump period
-        # are messed up in the file, so the threshold of this test is a bit arbitrary (e.g. could use > 0.5)
-        expected_dumps = (self._timestamps[-1] - self._timestamps[0]) / self.dump_period + 1
-        if abs(expected_dumps - num_dumps) >= 0.01:
-            # Warn the user, as this is anomalous
-            logger.warning(("Irregular timestamps detected in file '%s': "
-                           "expected %.3f dumps based on dump period and start/end times, got %d instead") %
-                           (filename, expected_dumps, num_dumps))
+        # The expected_dumps should always be an integer (like num_dumps),
+        # unless the timestamps and/or dump period are messed up in the file,
+        # so the threshold of this test is a bit arbitrary (e.g. could use > 0.5).
+        # The last dump might only be partially filled by ingest, so ignore it.
+        if num_dumps > 1:
+            expected_dumps = (self._timestamps[-2] - self._timestamps[0]) / self.dump_period + 2
+            if abs(expected_dumps - num_dumps) >= 0.01:
+                # Warn the user, as this is anomalous
+                logger.warning("Irregular timestamps detected in file '%s': "
+                               "expected %.3f dumps based on dump period and "
+                               "start/end times, got %d instead",
+                               filename, expected_dumps, num_dumps)
         # Ensure timestamps are aligned with the middle of each dump
         self._timestamps += offset_to_middle_of_dump + self.time_offset
         if self._timestamps[0] < 1e9:
