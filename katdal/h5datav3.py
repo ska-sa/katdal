@@ -587,7 +587,7 @@ class H5DataV3(DataSet):
             # In some cases the value is placed in a sensor instead. Return
             # the most recent value.
             try:
-                return self.sensors['TelescopeState/' + key][-1]
+                return self.sensor['TelescopeState/' + key][-1]
             except (KeyError, IndexError):
                 return default
 
