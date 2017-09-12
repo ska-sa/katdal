@@ -106,30 +106,33 @@ class VisibilityDataV4(DataSet):
             name += ' | ' + data.name
         DataSet.__init__(self, name, ref_ant, time_offset)
 
-        # ------ Extract vis and timestamps ------
+        # ------ Extract timestamps ------
 
         self.file = {}
         self.version = '4.0'
-        self.dump_period = metadata.attrs['sdp_l0_int_time']
+        stream_name = 'sdp_l0'
+        self.dump_period = metadata.attrs[stream_name + '_int_time']
         self._timestamps = timestamps[:]
-        # self._vis = data.vis if data else None
         self._keepdims = keepdims
 
         # Check dimensions of timestamps vs those of visibility data
-        num_dumps = len(timestamps)
+        num_dumps = len(self._timestamps)
         if data and (num_dumps != data.shape[0]):
             raise BrokenFile('Number of timestamps received from ingest '
                              '(%d) differs from number of dumps in data (%d)' %
                              (num_dumps, data.shape[0]))
         # The expected_dumps should always be an integer (like num_dumps),
         # unless the timestamps and/or dump period are messed up in the file,
-        # so threshold of this test is a bit arbitrary (e.g. could use > 0.5)
-        expected_dumps = (timestamps[-1] - timestamps[0]) / self.dump_period + 1
-        if abs(expected_dumps - num_dumps) >= 0.01:
-            # Warn the user, as this is anomalous
-            logger.warning("Irregular timestamps detected: expected %.3f dumps "
-                           "based on dump period and start/end times, "
-                           "got %d instead", expected_dumps, num_dumps)
+        # so threshold of this test is a bit arbitrary (e.g. could use > 0.5).
+        # The last dump might only be partially filled by ingest, so ignore it.
+        if num_dumps > 1:
+            expected_dumps = 2 + (self._timestamps[-2] -
+                                  self._timestamps[0]) / self.dump_period
+            if abs(expected_dumps - num_dumps) >= 0.01:
+                # Warn the user, as this is anomalous
+                logger.warning("Irregular timestamps detected: expected %.3f "
+                               "dumps based on dump period and start/end times, "
+                               "got %d instead", expected_dumps, num_dumps)
         self._timestamps += self.time_offset
         if self._timestamps[0] < 1e9:
             logger.warning("Data set has invalid first correlator timestamp "
@@ -170,7 +173,7 @@ class VisibilityDataV4(DataSet):
         # ------ Extract subarrays ------
 
         # List of correlation products as pairs of input labels
-        corrprods = metadata.attrs['sdp_l0_bls_ordering']
+        corrprods = metadata.attrs[stream_name + '_bls_ordering']
         # Crash if there is mismatch between labels and data shape (bad labels?)
         if data and (len(corrprods) != data.shape[2]):
             raise BrokenFile('Number of baseline labels (containing expected '
@@ -234,7 +237,7 @@ class VisibilityDataV4(DataSet):
             'x': dict(band='Ku', sideband=1),
         }
         spw_params = rx_table.get(band, dict(band='', sideband=1))
-        # XXX Cater for future narrowband mode at some stage
+        # Use CBF spectral parameters by default
         num_chans = metadata.attrs['cbf_n_chans']
         bandwidth = metadata.attrs['cbf_bandwidth']
         # Cater for non-standard receivers, starting with Ku-band
@@ -246,13 +249,19 @@ class VisibilityDataV4(DataSet):
         elif spw_params['band'] == 'UHF' and bandwidth == 856e6:
             spw_params['centre_freq'] = 428e6
             spw_params['sideband'] = -1
-        # Get channel width from original CBF parameters
+        # If the file has SDP output stream parameters, use those instead
+        num_chans = metadata.attrs.get(stream_name + '_n_chans', num_chans)
+        bandwidth = metadata.attrs.get(stream_name + '_bandwidth', bandwidth)
+        stream_centre_freq = metadata.attrs.get(stream_name + '_center_freq')
+        if stream_centre_freq is not None:
+            spw_params['centre_freq'] = stream_centre_freq
+        # Get channel width from original CBF / SDP parameters
         spw_params['channel_width'] = bandwidth / num_chans
         # Continue with different channel count, but invalidate centre freq
         # (keep channel width though)
         if data and (num_chans != data.shape[1]):
-            logger.warning('Number of channels received from correlator (%d) '
-                           'differs from number of channels in data (%d) - '
+            logger.warning('Number of channels reported in metadata (%d) differs'
+                           ' from actual number of channels in data (%d) - '
                            'trusting the latter', num_chans, data.shape[1])
             num_chans = data.shape[1]
             spw_params.pop('centre_freq', None)
