@@ -19,23 +19,41 @@
 import urlparse
 
 import katsdptelstate
+import numpy as np
 
-from .dataset import AttrsSensors, VisFlagsWeights
+from .dataset import AttrsSensors
 from .sensordata import TelstateSensorData
 
 
-class DataSource(AttrsSensors, VisFlagsWeights):
-    """A generic data source presenting both correlator data and metadata."""
-    def __init__(self, attrs=None, sensors=None, timestamps=None,
-                 vis=None, flags=None, weights=None, name='container'):
-        AttrsSensors.__init__(self, attrs, sensors, name)
+class DataSource(object):
+    """A generic data source presenting both correlator data and metadata.
+
+    Parameters
+    ----------
+    metadata : :class:`AttrsSensors` object
+        Metadata attributes and sensors
+    timestamps : array-like of float, length *T*
+        Timestamps at centroids of visibilities in UTC seconds since Unix epoch
+    data : :class:`VisFlagsWeights` object, optional
+        Correlator data (visibilities, flags and weights)
+
+    """
+    def __init__(self, metadata, timestamps, data=None):
+        self.metadata = metadata
         self.timestamps = timestamps
-        VisFlagsWeights.__init__(self, vis, flags, weights, name)
+        self.data = data
+
+    @property
+    def name(self):
+        name = self.metadata.name
+        if self.data and self.data.name != name:
+            name += ' | ' + self.data.name
+        return name
 
 
 class TelstateDataSource(DataSource):
     """A data source based on :class:`katsdptelstate.TelescopeState`."""
-    def __init__(self, telstate, name='telstate'):
+    def __init__(self, telstate, source_name='telstate'):
         self.telstate = telstate
         attrs = {}
         sensors = {}
@@ -44,7 +62,8 @@ class TelstateDataSource(DataSource):
                 attrs[key] = telstate[key]
             else:
                 sensors[key] = TelstateSensorData(telstate, key)
-        DataSource.__init__(self, attrs, sensors, name=name)
+        metadata = AttrsSensors(attrs, sensors, name=source_name)
+        DataSource.__init__(self, metadata, None)
 
 
 def open_data_source(url):

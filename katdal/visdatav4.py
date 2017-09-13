@@ -26,7 +26,6 @@ from .dataset import (DataSet, BrokenFile, Subarray, SpectralWindow,
                       _robust_target)
 from .sensordata import SensorCache
 from .categorical import CategoricalData
-from .lazy_indexer import LazyIndexer, LazyTransform
 
 
 logger = logging.getLogger(__name__)
@@ -77,12 +76,8 @@ class VisibilityDataV4(DataSet):
 
     Parameters
     ----------
-    metadata : :class:`AttrsSensors` object
-        Metadata attributes and sensors
-    timestamps : array-like of float, length *T*
-        Timestamps at centroids of visibilities in UTC seconds since Unix epoch
-    data : None or :class:`VisFlagsWeights` object, optional
-        Correlator data (visibilities, flags and weights)
+    source : :class:`DataSource` object
+        Correlator data (visibilities, flags and weights) and metadata
     ref_ant : string, optional
         Name of reference antenna, used to partition data set into scans
         (default is first antenna in use)
@@ -98,29 +93,27 @@ class VisibilityDataV4(DataSet):
         Extra keyword arguments, typically meant for other formats and ignored
 
     """
-    def __init__(self, metadata, timestamps, data=None, ref_ant='',
-                 time_offset=0.0, centre_freq=None, band=None, keepdims=False,
-                 **kwargs):
-        name = metadata.name
-        if data and data.name != name:
-            name += ' | ' + data.name
-        DataSet.__init__(self, name, ref_ant, time_offset)
+    def __init__(self, source, ref_ant='', time_offset=0.0, centre_freq=None,
+                 band=None, keepdims=False, **kwargs):
+        DataSet.__init__(self, source.name, ref_ant, time_offset)
+        attrs = source.metadata.attrs
 
         # ------ Extract timestamps ------
 
+        self.source = source
         self.file = {}
         self.version = '4.0'
         stream_name = 'sdp_l0'
-        self.dump_period = metadata.attrs[stream_name + '_int_time']
-        self._timestamps = timestamps[:]
+        self.dump_period = attrs[stream_name + '_int_time']
+        self._timestamps = source.timestamps[:]
         self._keepdims = keepdims
 
         # Check dimensions of timestamps vs those of visibility data
         num_dumps = len(self._timestamps)
-        if data and (num_dumps != data.shape[0]):
+        if source.data and (num_dumps != source.data.shape[0]):
             raise BrokenFile('Number of timestamps received from ingest '
                              '(%d) differs from number of dumps in data (%d)' %
-                             (num_dumps, data.shape[0]))
+                             (num_dumps, source.data.shape[0]))
         # The expected_dumps should always be an integer (like num_dumps),
         # unless the timestamps and/or dump period are messed up in the file,
         # so threshold of this test is a bit arbitrary (e.g. could use > 0.5).
@@ -143,7 +136,7 @@ class VisibilityDataV4(DataSet):
         self._time_keep = np.ones(num_dumps, dtype=np.bool)
 
         # Assemble sensor cache
-        self.sensor = SensorCache(metadata.sensors, self._timestamps,
+        self.sensor = SensorCache(source.metadata.sensors, self._timestamps,
                                   self.dump_period, self._time_keep,
                                   SENSOR_PROPS, VIRTUAL_SENSORS, SENSOR_ALIASES)
 
@@ -173,16 +166,16 @@ class VisibilityDataV4(DataSet):
         # ------ Extract subarrays ------
 
         # List of correlation products as pairs of input labels
-        corrprods = metadata.attrs[stream_name + '_bls_ordering']
+        corrprods = attrs[stream_name + '_bls_ordering']
         # Crash if there is mismatch between labels and data shape (bad labels?)
-        if data and (len(corrprods) != data.shape[2]):
+        if source.data and (len(corrprods) != source.data.shape[2]):
             raise BrokenFile('Number of baseline labels (containing expected '
                              'antenna names) received from correlator (%d) '
                              'differs from number of baselines in data (%d)' %
-                             (len(corrprods), data.shape[2]))
+                             (len(corrprods), source.data.shape[2]))
         # Find all antennas in subarray with valid katpoint Antenna objects
         ants = []
-        for resource in metadata.attrs['sub_pool_resources'].split(','):
+        for resource in attrs['sub_pool_resources'].split(','):
             try:
                 ant_description = self.sensor.get(resource + '_observer')[0]
                 ants.append(katpoint.Antenna(ant_description))
@@ -211,7 +204,7 @@ class VisibilityDataV4(DataSet):
         # ------ Extract spectral windows / frequencies ------
 
         # Get the receiver band identity ('l', 's', 'u', 'x') if not overridden
-        band = metadata.attrs.get('sub_band', '') if not band else band
+        band = attrs.get('sub_band', '') if not band else band
         if not band:
             logger.warning('Could not figure out receiver band - '
                            'please provide it via band parameter')
@@ -238,8 +231,8 @@ class VisibilityDataV4(DataSet):
         }
         spw_params = rx_table.get(band, dict(band='', sideband=1))
         # Use CBF spectral parameters by default
-        num_chans = metadata.attrs['cbf_n_chans']
-        bandwidth = metadata.attrs['cbf_bandwidth']
+        num_chans = attrs['cbf_n_chans']
+        bandwidth = attrs['cbf_bandwidth']
         # Cater for non-standard receivers, starting with Ku-band
         if spw_params['band'] == 'Ku':
             if 'anc_siggen_ku_frequency' in self.sensor:
@@ -250,20 +243,20 @@ class VisibilityDataV4(DataSet):
             spw_params['centre_freq'] = 428e6
             spw_params['sideband'] = -1
         # If the file has SDP output stream parameters, use those instead
-        num_chans = metadata.attrs.get(stream_name + '_n_chans', num_chans)
-        bandwidth = metadata.attrs.get(stream_name + '_bandwidth', bandwidth)
-        stream_centre_freq = metadata.attrs.get(stream_name + '_center_freq')
+        num_chans = attrs.get(stream_name + '_n_chans', num_chans)
+        bandwidth = attrs.get(stream_name + '_bandwidth', bandwidth)
+        stream_centre_freq = attrs.get(stream_name + '_center_freq')
         if stream_centre_freq is not None:
             spw_params['centre_freq'] = stream_centre_freq
         # Get channel width from original CBF / SDP parameters
         spw_params['channel_width'] = bandwidth / num_chans
         # Continue with different channel count, but invalidate centre freq
         # (keep channel width though)
-        if data and (num_chans != data.shape[1]):
+        if source.data and (num_chans != source.data.shape[1]):
             logger.warning('Number of channels reported in metadata (%d) differs'
                            ' from actual number of channels in data (%d) - '
-                           'trusting the latter', num_chans, data.shape[1])
-            num_chans = data.shape[1]
+                           'trusting the latter', num_chans, source.data.shape[1])
+            num_chans = source.data.shape[1]
             spw_params.pop('centre_freq', None)
         # Override centre frequency if provided
         if centre_freq:
@@ -274,7 +267,7 @@ class VisibilityDataV4(DataSet):
             logger.warning('Could not figure out centre frequency, setting it to '
                            '0 Hz - please provide it via centre_freq parameter')
         spw_params['num_chans'] = num_chans
-        spw_params['product'] = metadata.attrs.get('sub_product', '')
+        spw_params['product'] = attrs.get('sub_product', '')
         # We only expect a single spectral window within a single v4 data set
         self.spectral_windows = spws = [SpectralWindow(**spw_params)]
         self.sensor['Observation/spw'] = CategoricalData(spws, [0, num_dumps])
