@@ -64,6 +64,7 @@ def _calc_azel(cache, name, ant):
     cache[name] = sensor_data = katpoint.deg2rad(cache.get(real_sensor))
     return sensor_data
 
+
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel, 'Antennas/{ant}/el': _calc_azel})
 
@@ -561,10 +562,9 @@ class H5DataV3(DataSet):
         self.select(spw=0, subarray=0, ants=obs_ants)
 
         # ------ Setup calibration ordering ------
-        self.calibrate = False
+        self.calibrated = False
         if 'calibrate' in kwargs.keys():
-            self.calibrate = True
-        if self.calibrate:
+            self.calibrated = True
             applycal(self)
 
     @staticmethod
@@ -778,7 +778,7 @@ class H5DataV3(DataSet):
         ----------
         dataset : :class:`h5py.Dataset` object or equivalent
             Underlying vis-like dataset on which lazy indexing will be done
-        extractor : None or function, signature ``data = f(data, keep)``, optional
+        extractor : None , list or function, signature ``data = f(data, keep)``, optional
             Transform to apply to data (`keep` is user-provided 2nd-stage index)
             (None means no transform is applied)
         dims : integer, optional
@@ -816,7 +816,6 @@ class H5DataV3(DataSet):
                 transforms.append(extractor)
         if self._keepdims:
             transforms.append(force_full_dim)
-        print 'extractor', transforms
         return LazyIndexer(dataset, stage1, transforms)
 
     @property
@@ -849,10 +848,9 @@ class H5DataV3(DataSet):
                                 convert,
                                 lambda shape: shape[:-1], np.complex64)
         transforms = [extract]
-        if self.calibrate:
+        if self.calibrated:
             transforms.append(self.cal_vis)
         return self._vislike_indexer(self._vis, transforms)
-#         return self._vislike_indexer(self._vis, extract)
 
     @property
     def weights(self):
@@ -885,10 +883,9 @@ class H5DataV3(DataSet):
                 np.ones_like(lo_res_weights, dtype=np.float32)
         extract = LazyTransform('extract_weights', transform, dtype=np.float32)
         transforms = [extract]
-        if self.calibrate:
+        if self.calibrated:
             transforms.append(self.cal_weights)
         indexer = self._vislike_indexer(self._weights, transforms)
-#         indexer = self._vislike_indexer(self._weights, extract)
         if weights_channel.name.find('dummy') < 0:
             indexer.name += ' * ' + weights_channel.name
         return indexer
