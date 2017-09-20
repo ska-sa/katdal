@@ -72,3 +72,5 @@ def open_data_source(url):
     if url_parts.scheme == 'telstate+redis':
         telstate = katsdptelstate.TelescopeState(url_parts.netloc)
         return TelstateDataSource(telstate, url)
+    else:
+        raise ValueError("Unsupported data source '%s'" % (url,))
