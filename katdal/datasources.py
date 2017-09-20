@@ -69,6 +69,6 @@ class TelstateDataSource(DataSource):
 def open_data_source(url):
     """Construct the data source described by the given URL."""
     url_parts = urlparse.urlparse(url)
-    if url_parts.scheme == 'redis':
+    if url_parts.scheme == 'telstate+redis':
         telstate = katsdptelstate.TelescopeState(url_parts.netloc)
         return TelstateDataSource(telstate, url)

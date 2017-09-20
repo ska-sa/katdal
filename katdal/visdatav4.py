@@ -83,9 +83,9 @@ class VisibilityDataV4(DataSet):
         (default is first antenna in use)
     time_offset : float, optional
         Offset to add to all correlator timestamps, in seconds
-    centre_freq : float or None, optional
+    centre_freq : float, optional
         Override centre frequency if provided, in Hz
-    band : string or None, optional
+    band : string, optional
         Override receiver band if provided (e.g. 'l') - used to find ND models
     keepdims : {False, True}, optional
         Force vis / weights / flags to be 3-dimensional, regardless of selection
@@ -185,12 +185,12 @@ class VisibilityDataV4(DataSet):
         ants = sorted(ants)
         cam_ants = set(ant.name for ant in ants)
         # Find names of all antennas with associated correlator data
-        cbf_ants = set([cp[0][:-1] for cp in corrprods] +
+        sdp_ants = set([cp[0][:-1] for cp in corrprods] +
                        [cp[1][:-1] for cp in corrprods])
         # By default, only pick antennas that were in use by the script
         obs_ants = self.obs_params.get('ants')
-        # Otherwise fall back to the list of antennas common to CAM and CBF
-        obs_ants = obs_ants.split(',') if obs_ants else list(cam_ants & cbf_ants)
+        # Otherwise fall back to the list of antennas common to CAM and SDP / CBF
+        obs_ants = obs_ants.split(',') if obs_ants else list(cam_ants & sdp_ants)
         self.ref_ant = obs_ants[0] if not ref_ant else ref_ant
 
         self.subarrays = subs = [Subarray(ants, corrprods)]

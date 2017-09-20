@@ -89,6 +89,9 @@ class VisFlagsWeights(object):
 
     """
     def __init__(self, vis, flags, weights, name='custom'):
+        if not (vis.shape == flags.shape == weights.shape):
+            raise ValueError("Shapes of vis %s, flags %s and weights %s differ"
+                             % (vis.shape, flags.shape, weights.shape))
         self.vis = vis
         self.flags = flags
         self.weights = weights
