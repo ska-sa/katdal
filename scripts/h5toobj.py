@@ -12,10 +12,10 @@
    frequencies. The chunking is chosen to produce objects of order 1MB.
    The schema used is as follows:
 
-        <obj_basename>_<ts_index>_<chunk_offset>
+        <obj_basename>_<dump_index>_<chunk_offset>
 
    obj_basename: by default the obs start time in integer seconds
-   ts_index: integer timestamp index of this object
+   dump_index: integer dump index of this object
    chunk_offset: integer start index for this frequency chunk
 
    The following useful object parameters are stored in telstate:
@@ -56,11 +56,11 @@ def parse_args():
     parser = katsdpservices.ArgumentParser()
     parser.add_argument('--file', type=str, default=None,
                         metavar='FILE', help='h5 file to process.')
-    parser.add_argument('--ceph_conf', type=str, default="/etc/ceph/ceph.conf",
+    parser.add_argument('--ceph-conf', type=str, default="/etc/ceph/ceph.conf",
                         metavar='CEPHCONF',
                         help='CEPH configuration file used for cluster connect.')
-    parser.add_argument('--ts_limit', type=int, default=0,
-                        help='Number of timestamps to process. Default is all.')
+    parser.add_argument('--max-dumps', type=int, default=0,
+                        help='Number of dumps to process. Default is all.')
     parser.add_argument('--pool', type=str, default=None, metavar='POOL',
                         help='CEPH pool to use for object storage.')
     parser.add_argument('--basename', type=str, default=None, metavar='BASENAME',
@@ -69,12 +69,12 @@ def parse_args():
     parser.add_argument('--redis', type=str, default=None,
                         help='Redis host to connect to as Telescope State. '
                              'Default is to start a new local instance.')
-    parser.add_argument('--redis_port', type=int, default=6379,
+    parser.add_argument('--redis-port', type=int, default=6379,
                         help='Port to use when connecting to Redis instance '
                              '(or creating a new one).')
     parser.add_argument('--redis-only', dest='redis_only', action='store_true',
                         help='Only (re)build Redis DB - no object creation')
-    parser.add_argument('--obj_size', type=int, default=20,
+    parser.add_argument('--obj-size', type=int, default=20,
                         help='Target obj size as a power of 2. '
                              'Default: 2**20 (1 MB)')
     args = parser.parse_args()
@@ -90,7 +90,7 @@ def parse_args():
     return args
 
 
-def gen_redis_proto(*args):
+def redis_gen_proto(*args):
     proto = ['*%d\r\n' % (len(args),)]
     proto += ['$%d\r\n%s\r\n' % (len(arg), arg) for arg in args]
     return ''.join(proto)
@@ -108,21 +108,27 @@ def redis_bulk_str(r_str, host, port):
     logger.debug("Bulk insert r_str of len %d completed: %s", len(r_str), retout)
 
 
-def write_ts(ioctx, ts_index, data, obj_base, freq_chunk):
+def pack_chunk(x):
+    return x.data
+
+
+def unpack_chunk(s, dtype, shape):
+    return np.frombuffer(s, dtype).reshape(shape)
+
+
+def write_dump(ioctx, dump_index, dump_data, obj_base, freq_chunksize):
     total_write = 0
-    write_objs = 0
-    chans = data.shape[0]
+    chans = dump_data.shape[0]
     completions = []
-    for x in np.arange(0, chans, freq_chunk):
-        to_write = data[x:x + freq_chunk].dumps()
+    for obj_count, x in enumerate(np.arange(0, chans, freq_chunksize)):
+        to_write = pack_chunk(dump_data[x:x + freq_chunksize])
         total_write += len(to_write)
-        write_objs += 1
-        c = ioctx.aio_write_full('{}_{}_{}'.format(obj_base, ts_index, x), to_write,
+        c = ioctx.aio_write_full('{}_{}_{}'.format(obj_base, dump_index, x), to_write,
                                  lambda completion: None, lambda completion: None)
         completions.append(c)
     for c in completions:
         c.wait_for_safe_and_cb()
-    return total_write, write_objs
+    return total_write, obj_count + 1
 
 
 def get_freq_chunk(data_shape, target_obj_size=20):
@@ -189,7 +195,7 @@ def main():
 
     r_str = ""
     for attr in h5_file['TelescopeState'].attrs:
-        r_str += gen_redis_proto("SET", attr, h5_file['TelescopeState'].attrs[attr])
+        r_str += redis_gen_proto("SET", attr, h5_file['TelescopeState'].attrs[attr])
     redis_bulk_str(r_str, redis_host, args.redis_port)
 
     for d_count, dset in enumerate(h5_file['TelescopeState'].keys()):
@@ -199,7 +205,7 @@ def main():
          # much quicker to read it first and then iterate
         for (timestamp, pval) in d_val:
             packed_ts = struct.pack('>d', float(timestamp))
-            r_str += gen_redis_proto("ZADD", str(dset), "0", packed_ts + pval)
+            r_str += redis_gen_proto("ZADD", str(dset), "0", packed_ts + pval)
         bss = time.time()
         redis_bulk_str(r_str, redis_host, args.redis_port)
         logger.info("Added %d items in %gs to key %s. Bulk insert time: %g",
@@ -232,13 +238,13 @@ def main():
                 args.pool, pool_stats['num_objects'],
                 pool_stats['num_bytes'] / 2 ** 30)
 
-    (freq_chunk, obj_size) = get_freq_chunk(data.shape, args.obj_size)
-    ts_limit = args.ts_limit if args.ts_limit > 0 else data.shape[0]
-    obj_count_per_ts = data.shape[1] // freq_chunk
-    obj_count = ts_limit * obj_count_per_ts
+    freq_chunksize, obj_size = get_freq_chunk(data.shape, args.obj_size)
+    max_dumps = args.max_dumps if args.max_dumps > 0 else data.shape[0]
+    obj_count_per_dump = data.shape[1] // freq_chunksize
+    obj_count = max_dumps * obj_count_per_dump
 
     ts.add("obj_basename", args.basename)
-    ts.add("obj_chunk_size", freq_chunk)
+    ts.add("obj_chunk_size", freq_chunksize)
     ts.add("obj_size", obj_size)
     ts.add("obj_count", obj_count)
     ts.add("obj_pool", args.pool)
@@ -247,25 +253,25 @@ def main():
     f.close()
     logger.info("Inserted obj schema metadata into telstate")
 
-    logger.info("Processing %d timestamps into %d objects of size %d with basename %s",
-                ts_limit, obj_count, obj_size, args.basename)
-    for ts_index, ts_slice in enumerate(data):
+    logger.info("Processing %d dumps into %d objects of size %d with basename %s",
+                max_dumps, obj_count, obj_size, args.basename)
+    for dump_index, dump_data in enumerate(data):
         st = time.time()
-        bytes_written, objs_written = write_ts(ioctx, ts_index, ts_slice,
-                                               args.basename, freq_chunk)
+        bytes_written, objs_written = write_dump(ioctx, dump_index, dump_data,
+                                                 args.basename, freq_chunksize)
         et = time.time() - st
-        if objs_written == obj_count_per_ts and \
-           bytes_written == obj_size * obj_count_per_ts:
-            logger.info("Stored ts index %d in %gs (%d objects totalling %gMBps)",
-                        ts_index, et, obj_count_per_ts,
-                        obj_count_per_ts * obj_size / (1024*1024) / et)
+        if objs_written == obj_count_per_dump and \
+           bytes_written == obj_size * obj_count_per_dump:
+            logger.info("Stored dump index %d in %gs (%d objects totalling %gMBps)",
+                        dump_index, et, obj_count_per_dump,
+                        obj_count_per_dump * obj_size / (1024*1024) / et)
         else:
             logger.error("Failed to full write ts index %d. "
                          "Wrote %d/%d objects and %d/%d bytes",
-                         ts_index, objs_written, obj_count_per_ts,
-                         bytes_written, obj_size * obj_count_per_ts)
-        if ts_index >= ts_limit - 1:
-            logger.info("Reached specified ts limit (%d).", ts_limit)
+                         dump_index, objs_written, obj_count_per_dump,
+                         bytes_written, obj_size * obj_count_per_dump)
+        if dump_index >= max_dumps - 1:
+            logger.info("Reached specified ts limit (%d).", max_dumps)
             break
     logger.info("Staging complete...")
     if args.redis is None:
