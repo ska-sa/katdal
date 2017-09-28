@@ -54,7 +54,7 @@ logger.setLevel(logging.INFO)
 
 def parse_args():
     parser = katsdpservices.ArgumentParser()
-    parser.add_argument('--file', type=str, default=None,
+    parser.add_argument('file', type=str, default=None, nargs=1,
                         metavar='FILE', help='h5 file to process.')
     parser.add_argument('--ceph-conf', type=str, default="/etc/ceph/ceph.conf",
                         metavar='CEPHCONF',
@@ -78,15 +78,13 @@ def parse_args():
                         help='Target obj size as a power of 2. '
                              'Default: 2**20 (1 MB)')
     args = parser.parse_args()
-    if args.file is None:
-        parser.error('argument --file is required')
     if not rados:
         logger.warning("No Ceph installation found - building Redis DB only")
         args.redis_only = True
     if not args.redis_only and args.pool is None:
         parser.error('argument --pool is required')
     if args.basename is None:
-        args.basename = args.file.split(".")[0]
+        args.basename = args.file[0].split(".")[0]
     return args
 
 
@@ -154,7 +152,7 @@ def get_freq_chunk(data_shape, target_obj_size=20):
 def main():
     args = parse_args()
     try:
-        h5_file = h5py.File(args.file)
+        h5_file = h5py.File(args.file[0])
     except Exception as e:
         logger.error("Failed to open specified HDF5 file. %s", e)
         sys.exit()
