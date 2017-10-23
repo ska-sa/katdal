@@ -33,6 +33,7 @@ import sys
 import time
 import shlex
 import subprocess
+import os
 
 import numpy as np
 import h5py
@@ -45,6 +46,14 @@ except ImportError:
     # librados (i.e. direct Ceph access) is only really available on Linux
     rados = None
 
+try:
+    import botocore
+except ImportError:
+    botocore = None
+else:
+    import botocore.config
+    import botocore.session
+
 
 logging.basicConfig()
 
@@ -54,35 +63,48 @@ logger.setLevel(logging.INFO)
 
 def parse_args():
     parser = katsdpservices.ArgumentParser()
-    parser.add_argument('file', type=str, default=None, nargs=1,
+    parser.add_argument('file', type=str, nargs=1,
                         metavar='FILE', help='h5 file to process.')
+    parser.add_argument('--basename', type=str, metavar='BASENAME',
+                        help='Basename to use for object naming. '
+                             'Default is to use file start time.')
+    parser.add_argument('--obj-size', type=int, default=20,
+                        help='Target obj size as a power of 2. '
+                             'Default: 2**20 (1 MB)')
+    parser.add_argument('--max-dumps', type=int, default=0,
+                        help='Number of dumps to process. Default is all.')
     parser.add_argument('--ceph-conf', type=str, default="/etc/ceph/ceph.conf",
                         metavar='CEPHCONF',
                         help='CEPH configuration file used for cluster connect.')
-    parser.add_argument('--max-dumps', type=int, default=0,
-                        help='Number of dumps to process. Default is all.')
-    parser.add_argument('--pool', type=str, default=None, metavar='POOL',
+    parser.add_argument('--ceph-pool', type=str, metavar='POOL',
                         help='CEPH pool to use for object storage.')
-    parser.add_argument('--basename', type=str, default=None, metavar='BASENAME',
-                        help='Basename to use for object naming. '
-                             'Default is to use file start time.')
-    parser.add_argument('--redis', type=str, default=None,
+    parser.add_argument('--s3-access', type=str,
+                        help='AWS access key ID')
+    parser.add_argument('--s3-secret', type=str,
+                        help='AWS secret access key')
+    parser.add_argument('--s3-url', type=str,
+                        help='S3 endpoint URL (includes leading "http")')
+    parser.add_argument('--redis', type=str,
                         help='Redis host to connect to as Telescope State. '
                              'Default is to start a new local instance.')
     parser.add_argument('--redis-port', type=int, default=6379,
                         help='Port to use when connecting to Redis instance '
                              '(or creating a new one).')
-    parser.add_argument('--redis-only', dest='redis_only', action='store_true',
+    parser.add_argument('--redis-only', action='store_true',
                         help='Only (re)build Redis DB - no object creation')
-    parser.add_argument('--obj-size', type=int, default=20,
-                        help='Target obj size as a power of 2. '
-                             'Default: 2**20 (1 MB)')
     args = parser.parse_args()
-    if not rados:
-        logger.warning("No Ceph installation found - building Redis DB only")
+    if not rados and not botocore:
+        logger.warning("No Ceph or S3 installation found - storing Redis DB only")
         args.redis_only = True
-    if not args.redis_only and args.pool is None:
-        parser.error('argument --pool is required')
+    if not args.redis_only:
+        use_s3 = None not in (args.s3_access, args.s3_secret, args.s3_url)
+        use_rados = args.ceph_pool is not None
+        if use_rados and use_s3:
+            parser.error('Please specify either --ceph-pool or --s3-*')
+        if use_rados and not rados:
+            parser.error('Cannot use Ceph as rados Python library is not installed')
+        if use_s3 and not botocore:
+            parser.error('Cannot use S3 as botocore Python library is not installed')
     if args.basename is None:
         args.basename = args.file[0].split(".")[0]
     return args
@@ -107,26 +129,70 @@ def redis_bulk_str(r_str, host, port):
 
 
 def pack_chunk(x):
-    return x.data
+    # return x.data
+    return x.tobytes()
 
 
 def unpack_chunk(s, dtype, shape):
-    return np.frombuffer(s, dtype).reshape(shape)
+    # return np.frombuffer(s, dtype).reshape(shape)
+    return np.ndarray(shape, dtype, s)
 
 
-def write_dump(ioctx, dump_index, dump_data, obj_base, freq_chunksize):
+def obj_name(obj_base, dump_index, channel_index):
+    return '{}_{}_{}'.format(obj_base, dump_index, channel_index)
+
+
+def open_rados(ceph_conf, ceph_pool):
+    cluster = rados.Rados(conffile=ceph_conf)
+    cluster.connect()
+    available_pools = cluster.list_pools()
+    if ceph_pool not in available_pools:
+        logger.error("Specified pool %s not available in this cluster (%s)",
+                     ceph_pool, available_pools)
+        sys.exit()
+    ioctx = cluster.open_ioctx(ceph_pool)
+    pool_stats = ioctx.get_stats()
+    logger.info("Connected to pool %s. Currently holds %d objects totalling %g GB",
+                ceph_pool, pool_stats['num_objects'],
+                pool_stats['num_bytes'] / 2 ** 30)
+    return ioctx
+
+
+def write_dump_rados(ioctx, dump_index, dump_data, obj_base, freq_chunksize):
     total_write = 0
     chans = dump_data.shape[0]
     completions = []
-    for obj_count, x in enumerate(np.arange(0, chans, freq_chunksize)):
-        to_write = pack_chunk(dump_data[x:x + freq_chunksize])
+    freq_chunks = np.arange(0, chans, freq_chunksize)
+    for ch in freq_chunks:
+        to_write = pack_chunk(dump_data[ch:ch + freq_chunksize])
         total_write += len(to_write)
-        c = ioctx.aio_write_full('{}_{}_{}'.format(obj_base, dump_index, x), to_write,
+        c = ioctx.aio_write_full(obj_name(obj_base, dump_index, ch), to_write,
                                  lambda completion: None, lambda completion: None)
         completions.append(c)
     for c in completions:
         c.wait_for_safe_and_cb()
-    return total_write, obj_count + 1
+    return total_write, len(freq_chunks)
+
+
+def open_s3(access, secret, url):
+    settings = dict(service_name='s3', region_name=None, endpoint_url=url,
+                    aws_access_key_id=access, aws_secret_access_key=secret,
+                    config=botocore.config.Config(max_pool_connections=200))
+    session = botocore.session.get_session()
+    client = session.create_client(**settings)
+    return client
+
+
+def write_dump_s3(client, dump_index, dump_data, obj_base, freq_chunksize):
+    total_write = 0
+    chans = dump_data.shape[0]
+    freq_chunks = np.arange(0, chans, freq_chunksize)
+    for ch in freq_chunks:
+        to_write = pack_chunk(dump_data[ch:ch + freq_chunksize])
+        total_write += len(to_write)
+        bucket, key = os.path.split(obj_name(obj_base, dump_index, ch))
+        response = client.put_object(Bucket=bucket, Key=key, Body=to_write)
+    return total_write, len(freq_chunks)
 
 
 def get_freq_chunk(data_shape, target_obj_size=20):
@@ -161,9 +227,6 @@ def main():
     except KeyError:
         logger.error("This does not appear to be a valid MeerKAT HDF5 file")
         sys.exit()
-
-    if args.redis_only:
-        logger.warning("Building Redis DB only - no data will be written...")
 
     if args.redis is None:
         logger.info("Launching local Redis instance")
@@ -210,53 +273,53 @@ def main():
                     len(d_val), time.time() - st, dset, time.time() - bss)
     logger.info("Added %d ranged keys to TelescopeState", d_count + 1)
 
+    if args.redis_only and args.redis is None:
+        logger.warning("Terminating locally launched redis instance "
+                       "(also saves telstate to local dump.rdb)")
+        try:
+            cli_cmd = "/usr/bin/redis-cli -p {} SHUTDOWN SAVE".format(args.redis_port)
+            subprocess.call(shlex.split(cli_cmd))
+        except OSError:
+            cli_cmd = "/usr/local/bin/redis-cli -p {} SHUTDOWN SAVE".format(args.redis_port)
+            subprocess.call(shlex.split(cli_cmd))
+        local_redis.terminate()
+
     if args.redis_only:
-        if args.redis is None:
-            logger.warning("Terminating locally launched redis instance "
-                           "(also saves telstate to local dump.rdb)")
-            try:
-                cli_cmd = "/usr/bin/redis-cli -p {} SHUTDOWN SAVE".format(args.redis_port)
-                subprocess.call(shlex.split(cli_cmd))
-            except OSError:
-                cli_cmd = "/usr/local/bin/redis-cli -p {} SHUTDOWN SAVE".format(args.redis_port)
-                subprocess.call(shlex.split(cli_cmd))
-            local_redis.terminate()
+        logger.warning("Building Redis DB only - no data will be written...")
         sys.exit(0)
 
-    cluster = rados.Rados(conffile=args.ceph_conf)
-    cluster.connect()
-    available_pools = cluster.list_pools()
-    if args.pool not in available_pools:
-        logger.error("Specified pool %s not available in this cluster (%s)",
-                     args.pool, available_pools)
-        sys.exit()
-    ioctx = cluster.open_ioctx(args.pool)
-    pool_stats = ioctx.get_stats()
-    logger.info("Connected to pool %s. Currently holds %d objects totalling %g GB",
-                args.pool, pool_stats['num_objects'],
-                pool_stats['num_bytes'] / 2 ** 30)
-
+    # Split visibilities into fixed-size chunks
     freq_chunksize, obj_size = get_freq_chunk(data.shape, args.obj_size)
     max_dumps = args.max_dumps if args.max_dumps > 0 else data.shape[0]
     obj_count_per_dump = data.shape[1] // freq_chunksize
     obj_count = max_dumps * obj_count_per_dump
-
     ts.add("obj_basename", args.basename)
     ts.add("obj_chunk_size", freq_chunksize)
     ts.add("obj_size", obj_size)
     ts.add("obj_count", obj_count)
-    ts.add("obj_pool", args.pool)
-    f = open(args.ceph_conf, "r")
-    ts.add("obj_ceph_conf", f.readlines())
-    f.close()
+
+    use_rados = args.ceph_pool is not None
+    if use_rados:
+        store = open_rados(args.ceph_conf, args.ceph_pool)
+        ts.add("obj_pool", args.ceph_pool)
+        with open(args.ceph_conf, "r") as ceph_conf:
+            ts.add("obj_ceph_conf", ceph_conf.readlines())
+    else:
+        store = open_s3(args.s3_access, args.s3_secret, args.s3_url)
+        ts.add("obj_s3_access", args.s3_access)
+        ts.add("obj_s3_url", args.s3_url)
     logger.info("Inserted obj schema metadata into telstate")
 
     logger.info("Processing %d dumps into %d objects of size %d with basename %s",
                 max_dumps, obj_count, obj_size, args.basename)
     for dump_index, dump_data in enumerate(data):
         st = time.time()
-        bytes_written, objs_written = write_dump(ioctx, dump_index, dump_data,
-                                                 args.basename, freq_chunksize)
+        if use_rados:
+            bytes_written, objs_written = write_dump_rados(store, dump_index, dump_data,
+                                                           args.basename, freq_chunksize)
+        else:
+            bytes_written, objs_written = write_dump_s3(store, dump_index, dump_data,
+                                                        args.basename, freq_chunksize)
         et = time.time() - st
         if objs_written == obj_count_per_dump and \
            bytes_written == obj_size * obj_count_per_dump:
