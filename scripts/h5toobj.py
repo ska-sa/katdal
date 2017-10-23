@@ -21,10 +21,13 @@
    The following useful object parameters are stored in telstate:
         obj_basename: as above
         obj_chunk_size: as above
+        obj_chunk_shape: shape of basic chunk
         obj_size: size per object (needed for reads)
         obj_count: estimated object count (set before writing in this case)
-        obj_pool: the name of the CEPH pool used
+        obj_ceph_pool: the name of the CEPH pool used
         obj_ceph_conf: copy of ceph.conf used to connect to target ceph cluster
+        obj_s3_access: S3 access key
+        obj_s3_url: S3 endpoint URL
 """
 
 import struct
