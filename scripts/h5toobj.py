@@ -39,6 +39,9 @@ import numpy as np
 import h5py
 import katsdptelstate
 import katsdpservices
+import dask
+import dask.array as da
+from dask.diagnostics import ProgressBar
 
 try:
     import rados
@@ -142,6 +145,10 @@ def obj_name(obj_base, dump_index, channel_index):
     return '{}_{}_{}'.format(obj_base, dump_index, channel_index)
 
 
+def key_to_name(key, freq_chunksize):
+    return obj_name(key[0], key[1], key[2] * freq_chunksize)
+
+
 def open_rados(ceph_conf, ceph_pool):
     cluster = rados.Rados(conffile=ceph_conf)
     cluster.connect()
@@ -158,20 +165,8 @@ def open_rados(ceph_conf, ceph_pool):
     return ioctx
 
 
-def write_dump_rados(ioctx, dump_index, dump_data, obj_base, freq_chunksize):
-    total_write = 0
-    chans = dump_data.shape[0]
-    completions = []
-    freq_chunks = np.arange(0, chans, freq_chunksize)
-    for ch in freq_chunks:
-        to_write = pack_chunk(dump_data[ch:ch + freq_chunksize])
-        total_write += len(to_write)
-        c = ioctx.aio_write_full(obj_name(obj_base, dump_index, ch), to_write,
-                                 lambda completion: None, lambda completion: None)
-        completions.append(c)
-    for c in completions:
-        c.wait_for_safe_and_cb()
-    return total_write, len(freq_chunks)
+def write_chunk_rados(ioctx, name, chunk):
+    ioctx.write_full(name, pack_chunk(chunk))
 
 
 def open_s3(access, secret, url):
@@ -183,16 +178,9 @@ def open_s3(access, secret, url):
     return client
 
 
-def write_dump_s3(client, dump_index, dump_data, obj_base, freq_chunksize):
-    total_write = 0
-    chans = dump_data.shape[0]
-    freq_chunks = np.arange(0, chans, freq_chunksize)
-    for ch in freq_chunks:
-        to_write = pack_chunk(dump_data[ch:ch + freq_chunksize])
-        total_write += len(to_write)
-        bucket, key = os.path.split(obj_name(obj_base, dump_index, ch))
-        response = client.put_object(Bucket=bucket, Key=key, Body=to_write)
-    return total_write, len(freq_chunks)
+def write_chunk_s3(client, name, chunk):
+    bucket, key = os.path.split(name)
+    client.put_object(Bucket=bucket, Key=key, Body=pack_chunk(chunk))
 
 
 def get_freq_chunk(data_shape, target_obj_size=20):
@@ -293,8 +281,12 @@ def main():
     max_dumps = args.max_dumps if args.max_dumps > 0 else data.shape[0]
     obj_count_per_dump = data.shape[1] // freq_chunksize
     obj_count = max_dumps * obj_count_per_dump
+    chunk_shape = list(data.shape)
+    chunk_shape[0] = 1
+    chunk_shape[1] = freq_chunksize
+    chunk_shape = tuple(chunk_shape)
     ts.add("obj_basename", args.basename)
-    ts.add("obj_chunk_size", freq_chunksize)
+    ts.add("obj_chunk_shape", chunk_shape)
     ts.add("obj_size", obj_size)
     ts.add("obj_count", obj_count)
 
@@ -312,29 +304,15 @@ def main():
 
     logger.info("Processing %d dumps into %d objects of size %d with basename %s",
                 max_dumps, obj_count, obj_size, args.basename)
-    for dump_index, dump_data in enumerate(data):
-        st = time.time()
-        if use_rados:
-            bytes_written, objs_written = write_dump_rados(store, dump_index, dump_data,
-                                                           args.basename, freq_chunksize)
-        else:
-            bytes_written, objs_written = write_dump_s3(store, dump_index, dump_data,
-                                                        args.basename, freq_chunksize)
-        et = time.time() - st
-        if objs_written == obj_count_per_dump and \
-           bytes_written == obj_size * obj_count_per_dump:
-            logger.info("Stored dump index %d in %gs (%d objects totalling %gMBps)",
-                        dump_index, et, obj_count_per_dump,
-                        obj_count_per_dump * obj_size / (1024*1024) / et)
-        else:
-            logger.error("Failed to full write ts index %d. "
-                         "Wrote %d/%d objects and %d/%d bytes",
-                         dump_index, objs_written, obj_count_per_dump,
-                         bytes_written, obj_size * obj_count_per_dump)
-        if dump_index >= max_dumps - 1:
-            logger.info("Reached specified ts limit (%d).", max_dumps)
-            break
+    dask_data = da.from_array(data[:max_dumps], chunk_shape, args.basename)
+    h5_chunks = dask_data.to_delayed().ravel().tolist()
+    save = write_chunk_rados if use_rados else write_chunk_s3
+    out_chunks = [dask.delayed(save)(store, key_to_name(chunk.key, freq_chunksize), chunk)
+                  for chunk in h5_chunks]
+    with ProgressBar():
+        da.compute(out_chunks, num_workers=8)
     logger.info("Staging complete...")
+
     if args.redis is None:
         raw_input("You have started a local Redis server. "
                   "Hit enter to kill this and cleanup.")
