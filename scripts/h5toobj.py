@@ -26,8 +26,6 @@
         obj_count: estimated object count (set before writing in this case)
         obj_ceph_pool: the name of the CEPH pool used
         obj_ceph_conf: copy of ceph.conf used to connect to target ceph cluster
-        obj_s3_access: S3 access key
-        obj_s3_url: S3 endpoint URL
 """
 
 import struct
@@ -84,10 +82,6 @@ def parse_args():
                         help='CEPH configuration file used for cluster connect.')
     parser.add_argument('--ceph-pool', type=str, metavar='POOL',
                         help='CEPH pool to use for object storage.')
-    parser.add_argument('--s3-access', type=str,
-                        help='AWS access key ID')
-    parser.add_argument('--s3-secret', type=str,
-                        help='AWS secret access key')
     parser.add_argument('--s3-url', type=str,
                         help='S3 endpoint URL (includes leading "http")')
     parser.add_argument('--redis', type=str,
@@ -103,7 +97,7 @@ def parse_args():
         logger.warning("No Ceph or S3 installation found - storing Redis DB only")
         args.redis_only = True
     if not args.redis_only:
-        use_s3 = None not in (args.s3_access, args.s3_secret, args.s3_url)
+        use_s3 = args.s3_url is not None
         use_rados = args.ceph_pool is not None
         if use_rados and use_s3:
             parser.error('Please specify either --ceph-pool or --s3-*')
@@ -172,12 +166,12 @@ def write_chunk_rados(ioctx, name, chunk):
     ioctx.write_full(name, pack_chunk(chunk))
 
 
-def open_s3(access, secret, url):
-    settings = dict(service_name='s3', region_name=None, endpoint_url=url,
-                    aws_access_key_id=access, aws_secret_access_key=secret,
-                    config=botocore.config.Config(max_pool_connections=200))
+def open_s3(url):
     session = botocore.session.get_session()
-    client = session.create_client(**settings)
+    config = botocore.config.Config(max_pool_connections=200,
+                                    s3={'addressing_style': 'path'})
+    client = session.create_client(service_name='s3', endpoint_url=url,
+                                   config=config)
     return client
 
 
@@ -300,9 +294,7 @@ def main():
         with open(args.ceph_conf, "r") as ceph_conf:
             ts.add("obj_ceph_conf", ceph_conf.readlines())
     else:
-        store = open_s3(args.s3_access, args.s3_secret, args.s3_url)
-        ts.add("obj_s3_access", args.s3_access)
-        ts.add("obj_s3_url", args.s3_url)
+        store = open_s3(args.s3_url)
     logger.info("Inserted obj schema metadata into telstate")
 
     logger.info("Processing %d dumps into %d objects of size %d with basename %s",
