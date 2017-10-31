@@ -92,6 +92,8 @@ def parse_args():
                              '(or creating a new one).')
     parser.add_argument('--redis-only', action='store_true',
                         help='Only (re)build Redis DB - no object creation')
+    parser.add_argument('--obj-only', action='store_true',
+                        help='Only populate object store - no Redis update')
     args = parser.parse_args()
     if not rados and not botocore:
         logger.warning("No Ceph or S3 installation found - storing Redis DB only")
@@ -213,7 +215,9 @@ def main():
         logger.error("This does not appear to be a valid MeerKAT HDF5 file")
         sys.exit()
 
-    if args.redis is None:
+    if args.obj_only:
+        redis_endpoint = args.redis = redis_host = ''
+    elif args.redis is None:
         logger.info("Launching local Redis instance")
         try:
             launch_cmd = "/usr/bin/redis-server --port {}".format(args.redis_port)
@@ -232,31 +236,35 @@ def main():
             sys.exit()
         logger.info("Local Redis instance launched successfully")
         redis_host = 'localhost'
+        redis_endpoint = '{}:{}'.format(redis_host, args.redis_port)
     else:
         redis_host = args.redis
-    ts = katsdptelstate.TelescopeState(endpoint='{}:{}'.format(redis_host,
-                                                               args.redis_port))
-    logger.info("Connected to Redis on %s:%d. DB has %d existing keys",
-                redis_host, args.redis_port, len(ts.keys()))
+        redis_endpoint = '{}:{}'.format(redis_host, args.redis_port)
+    ts = katsdptelstate.TelescopeState(redis_endpoint)
+    logger.info("Connected to Redis on %s. DB has %d existing keys",
+                redis_endpoint, len(ts.keys()))
 
     r_str = ""
     for attr in h5_file['TelescopeState'].attrs:
         r_str += redis_gen_proto("SET", attr, h5_file['TelescopeState'].attrs[attr])
-    redis_bulk_str(r_str, redis_host, args.redis_port)
-
-    for d_count, dset in enumerate(h5_file['TelescopeState'].keys()):
-        st = time.time()
-        r_str = ""
-        d_val = h5_file['TelescopeState'][dset].value
-         # much quicker to read it first and then iterate
-        for (timestamp, pval) in d_val:
-            packed_ts = struct.pack('>d', float(timestamp))
-            r_str += redis_gen_proto("ZADD", str(dset), "0", packed_ts + pval)
-        bss = time.time()
+    if redis_endpoint:
         redis_bulk_str(r_str, redis_host, args.redis_port)
-        logger.info("Added %d items in %gs to key %s. Bulk insert time: %g",
-                    len(d_val), time.time() - st, dset, time.time() - bss)
-    logger.info("Added %d ranged keys to TelescopeState", d_count + 1)
+
+    if not args.obj_only:
+        for d_count, dset in enumerate(h5_file['TelescopeState'].keys()):
+            st = time.time()
+            r_str = ""
+            d_val = h5_file['TelescopeState'][dset].value
+             # much quicker to read it first and then iterate
+            for (timestamp, pval) in d_val:
+                packed_ts = struct.pack('>d', float(timestamp))
+                r_str += redis_gen_proto("ZADD", str(dset), "0", packed_ts + pval)
+            bss = time.time()
+            if redis_endpoint:
+                redis_bulk_str(r_str, redis_host, args.redis_port)
+                logger.info("Added %d items in %gs to key %s. Bulk insert time: %g",
+                            len(d_val), time.time() - st, dset, time.time() - bss)
+        logger.info("Added %d ranged keys to TelescopeState", d_count + 1)
 
     if args.redis_only and args.redis is None:
         logger.warning("Terminating locally launched redis instance "
