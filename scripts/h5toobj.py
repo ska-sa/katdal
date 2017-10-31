@@ -34,7 +34,7 @@ import sys
 import time
 import shlex
 import subprocess
-import os
+import functools
 
 import numpy as np
 import h5py
@@ -141,7 +141,7 @@ def unpack_chunk(s, dtype, shape):
 
 
 def obj_name(obj_base, dump_index, channel_index):
-    return '{}_{}_{}'.format(obj_base, dump_index, channel_index)
+    return '{}_{:05d}_{:05d}'.format(obj_base, dump_index, channel_index)
 
 
 def key_to_name(key, freq_chunksize):
@@ -178,7 +178,7 @@ def open_s3(url):
 
 
 def write_chunk_s3(client, name, chunk):
-    bucket, key = os.path.split(name)
+    bucket, key = name.split('/', 1)
     client.put_object(Bucket=bucket, Key=key, Body=pack_chunk(chunk))
 
 
@@ -202,7 +202,16 @@ def get_freq_chunk(data_shape, target_obj_size=20):
     return chunk_size, real_obj_size
 
 
-def main():
+def create_dask_chunks(arr, chunk_shape, basename, save, chunk_name):
+    # Add sentinel string to avoid confusion between input and output chunks
+    # Without it chunk_name will be replaced by cached dataset in call to save()
+    arr_name = 'src_' + basename
+    arr_dask = da.from_array(arr, chunk_shape[:len(arr.shape)], arr_name)
+    arr_chunks = arr_dask.to_delayed().ravel().tolist()
+    return [save(chunk_name(chunk)[4:], chunk) for chunk in arr_chunks]
+
+
+if __name__ == '__main__':
     args = parse_args()
     try:
         h5_file = h5py.File(args.file[0])
@@ -210,7 +219,7 @@ def main():
         logger.error("Failed to open specified HDF5 file. %s", e)
         sys.exit()
     try:
-        data = h5_file['Data/correlator_data']
+        vis = h5_file['Data/correlator_data']
     except KeyError:
         logger.error("This does not appear to be a valid MeerKAT HDF5 file")
         sys.exit()
@@ -282,17 +291,19 @@ def main():
         sys.exit(0)
 
     # Split visibilities into fixed-size chunks
-    freq_chunksize, obj_size = get_freq_chunk(data.shape, args.obj_size)
-    max_dumps = args.max_dumps if args.max_dumps > 0 else data.shape[0]
-    obj_count_per_dump = data.shape[1] // freq_chunksize
-    obj_count = max_dumps * obj_count_per_dump
-    chunk_shape = list(data.shape)
-    chunk_shape[0] = 1
-    chunk_shape[1] = freq_chunksize
-    chunk_shape = tuple(chunk_shape)
+    freq_chunksize, obj_size = get_freq_chunk(vis.shape, args.obj_size)
+    max_dumps = args.max_dumps if args.max_dumps > 0 else vis.shape[0]
+    # Each vis chunk has a corresponding flags and weights chunk
+    obj_count_per_dump = 3 * vis.shape[1] // freq_chunksize
+    # There is also a timestamps chunk and a weights_channel chunk
+    obj_count = max_dumps * obj_count_per_dump + 2
+    vis_chunk_shape = list(vis.shape)
+    vis_chunk_shape[0] = 1
+    vis_chunk_shape[1] = freq_chunksize
+    vis_chunk_shape = tuple(vis_chunk_shape)
     ts.add("obj_basename", args.basename)
-    ts.add("obj_chunk_shape", chunk_shape)
-    ts.add("obj_size", obj_size)
+    ts.add("obj_vis_chunk_shape", vis_chunk_shape)
+    ts.add("obj_vis_chunk_size", obj_size)
     ts.add("obj_count", obj_count)
 
     use_rados = args.ceph_pool is not None
@@ -305,22 +316,28 @@ def main():
         store = open_s3(args.s3_url)
     logger.info("Inserted obj schema metadata into telstate")
 
-    logger.info("Processing %d dumps into %d objects of size %d with basename %s",
-                max_dumps, obj_count, obj_size, args.basename)
-    dask_data = da.from_array(data[:max_dumps], chunk_shape, args.basename)
-    h5_chunks = dask_data.to_delayed().ravel().tolist()
-    save = write_chunk_rados if use_rados else write_chunk_s3
-    out_chunks = [dask.delayed(save)(store, key_to_name(chunk.key, freq_chunksize), chunk)
-                  for chunk in h5_chunks]
+    logger.info("Processing %d dumps into %d objects with basename %s (vis chunks are %d bytes each)",
+                max_dumps, obj_count, args.basename, obj_size)
+    save = functools.partial(write_chunk_rados, store) if use_rados else \
+        functools.partial(write_chunk_s3, store)
+    dask_save = dask.delayed(save, pure=False, traverse=False)
+
+    obj_chunks = []
+    for dataset in ('timestamps', 'correlator_data', 'weights', 'weights_channel', 'flags'):
+        arr = h5_file['Data'][dataset]
+        basename = args.basename + '_' + dataset
+        if dataset in ('timestamps', 'weights_channel'):
+            chunk_shape = arr.shape
+            chunk_name = lambda chunk: chunk.key[0]
+        else:
+            chunk_shape = vis_chunk_shape
+            chunk_name = lambda chunk: key_to_name(chunk.key, freq_chunksize)
+        obj_chunks.extend(create_dask_chunks(arr, chunk_shape, basename, dask_save, chunk_name))
     with ProgressBar():
-        da.compute(out_chunks, num_workers=8)
+        da.compute(obj_chunks, num_workers=8)
     logger.info("Staging complete...")
 
     if args.redis is None:
         raw_input("You have started a local Redis server. "
                   "Hit enter to kill this and cleanup.")
         local_redis.terminate()
-
-
-if __name__ == '__main__':
-    main()
