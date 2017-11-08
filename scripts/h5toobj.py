@@ -35,6 +35,7 @@ import time
 import shlex
 import subprocess
 import functools
+from base64 import b64encode, b64decode
 
 import numpy as np
 import h5py
@@ -57,6 +58,11 @@ except ImportError:
 else:
     import botocore.config
     import botocore.session
+
+try:
+    from cStringIO import StringIO
+except ImportError:
+    from io import BytesIO as StringIO
 
 
 logging.basicConfig()
@@ -130,18 +136,34 @@ def redis_bulk_str(r_str, host, port):
     logger.debug("Bulk insert r_str of len %d completed: %s", len(r_str), retout)
 
 
-def pack_chunk(x):
-    # return x.data
-    return x.tobytes()
+def pack_chunk_metadata(arr):
+    metadata = np.lib.format.header_data_from_array_1_0(arr)
+    buf = StringIO()
+    np.lib.format.write_array_header_2_0(buf, metadata)
+    buf.seek(0)
+    return b64encode(buf.read())
 
 
-def unpack_chunk(s, dtype, shape):
-    # return np.frombuffer(s, dtype).reshape(shape)
-    return np.ndarray(shape, dtype, s)
+def unpack_chunk_metadata(metadata_str):
+    buf = StringIO(b64decode(metadata_str))
+    version = np.lib.format.read_magic(buf)
+    assert version == (2, 0), "Expected NPY version 2.0, got %d.%d" % version
+    shape, fortran_order, dtype = np.lib.format.read_array_header_2_0(buf)
+    order = 'F' if fortran_order else 'C'
+    return shape, dtype, order
+
+
+def pack_chunk(arr):
+    return StringIO(arr.data), pack_chunk_metadata(arr)
+
+
+def unpack_chunk(data_str, metadata_str):
+    shape, dtype, order = unpack_chunk_metadata(metadata_str)
+    return np.ndarray(shape, dtype, data_str, order=order)
 
 
 def obj_name(obj_base, dump_index, channel_index):
-    return '{}_{:05d}_{:05d}'.format(obj_base, dump_index, channel_index)
+    return '{}/{:05d}_{:05d}'.format(obj_base, dump_index, channel_index)
 
 
 def key_to_name(key, freq_chunksize):
@@ -165,7 +187,10 @@ def open_rados(ceph_conf, ceph_pool):
 
 
 def write_chunk_rados(ioctx, name, chunk):
-    ioctx.write_full(name, pack_chunk(chunk))
+    data_fp, metadata_str = pack_chunk(chunk)
+    data_str = data_fp.read()
+    ioctx.write_full(name, data_str)
+    ioctx.set_xattr(name, "npy_header", metadata_str)
 
 
 def open_s3(url):
@@ -179,7 +204,19 @@ def open_s3(url):
 
 def write_chunk_s3(client, name, chunk):
     bucket, key = name.split('/', 1)
-    client.put_object(Bucket=bucket, Key=key, Body=pack_chunk(chunk))
+    data_fp, metadata_str = pack_chunk(chunk)
+    client.put_object(Bucket=bucket, Key=key, Body=data_fp,
+                      Metadata={'npy_header': metadata_str})
+
+
+def read_chunk_s3(client, name):
+    bucket, key = name.split('/', 1)
+    response = client.get_object(Bucket=bucket, Key=key)
+    stream = response['Body']
+    data_str = stream.read()
+    stream.close()
+    metadata_str = response['Metadata']['npy_header']
+    return unpack_chunk(data_str, metadata_str)
 
 
 def get_freq_chunk(data_shape, target_obj_size=20):
@@ -325,7 +362,7 @@ if __name__ == '__main__':
     obj_chunks = []
     for dataset in ('timestamps', 'correlator_data', 'weights', 'weights_channel', 'flags'):
         arr = h5_file['Data'][dataset]
-        basename = args.basename + '_' + dataset
+        basename = args.basename + '/' + dataset
         if dataset in ('timestamps', 'weights_channel'):
             chunk_shape = arr.shape
             chunk_name = lambda chunk: chunk.key[0]
