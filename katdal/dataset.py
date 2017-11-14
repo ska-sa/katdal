@@ -54,6 +54,54 @@ def array_equal(a1, a2):
         return (a1.shape == a2.shape) and np.all(a1 == a2)
 
 
+class AttrsSensors(object):
+    """Metadata in the form of attributes and sensors.
+
+    Parameters
+    ----------
+    attrs : mapping from string to object
+        Metadata attributes
+    sensors : mapping from string to :class:`SensorData` objects
+        Metadata sensor cache mapping sensor names to raw sensor data
+    name : string, optional
+        Identifier that describes the origin of the metadata (backend-specific)
+
+    """
+    def __init__(self, attrs, sensors, name='custom'):
+        self.attrs = attrs
+        self.sensors = sensors
+        self.name = name
+
+
+class VisFlagsWeights(object):
+    """Correlator data in the form of visibilities, flags and weights.
+
+    Parameters
+    ----------
+    vis : array-like of complex64, shape (*T*, *F*, *B*)
+        Complex visibility data as a function of time, frequency and baseline
+    flags : array-like of uint8, shape (*T*, *F*, *B*)
+        Flags as a function of time, frequency and baseline
+    weights : array-like of float32, shape (*T*, *F*, *B*)
+        Visibility weights as a function of time, frequency and baseline
+    name : string, optional
+        Identifier that describes the origin of the data (backend-specific)
+
+    """
+    def __init__(self, vis, flags, weights, name='custom'):
+        if not (vis.shape == flags.shape == weights.shape):
+            raise ValueError("Shapes of vis %s, flags %s and weights %s differ"
+                             % (vis.shape, flags.shape, weights.shape))
+        self.vis = vis
+        self.flags = flags
+        self.weights = weights
+        self.name = name
+
+    @property
+    def shape(self):
+        return self.vis.shape
+
+
 class Subarray(object):
     """Subarray specification.
 
@@ -642,8 +690,9 @@ class DataSet(object):
             Select antennas by name or object
         inputs : string or sequence of strings, optional
             Select inputs by label
-        pol : {'H', 'V', 'HH', 'VV', 'HV', 'VH'}, optional
-            Select polarisation term
+        pol : string or sequence of strings
+              {'H', 'V', 'HH', 'VV', 'HV', 'VH'}, optional
+            Select polarisation terms
 
         weights : 'all' or string or sequence of strings, optional
             List of names of weights to be multiplied together, as a sequence
@@ -807,10 +856,24 @@ class DataSet(object):
                 self._corrprod_keep &= [(inpA in inps and inpB in inps)
                                         for inpA, inpB in self.subarrays[self.subarray].corr_products]
             elif k == 'pol':
-                polAB = v.lower()
-                polAB = polAB * 2 if polAB in ('h', 'v') else polAB
-                self._corrprod_keep &= [(inpA[-1] == polAB[0] and inpB[-1] == polAB[1])
-                                        for inpA, inpB in self.subarrays[self.subarray].corr_products]
+                pols = [i.strip() for i in v.split(',')] if isinstance(v, basestring) else v if is_iterable(v) else [v]
+                # Lower case and strip out empty strings
+                pols = [i.lower() for i in pols if i]
+
+                # Proceed if we have a selection
+                if len(pols) > 0:
+                    # If given a selection assume we keep nothing
+                    keep = np.zeros(self._corrprod_keep.shape, dtype=np.bool)
+
+                    # or separate polarisation selections together
+                    for polAB in pols:
+                        polAB = polAB * 2 if polAB in ('h', 'v') else polAB
+                        keep |= [(inpA[-1] == polAB[0] and inpB[-1] == polAB[1])
+                                               for inpA, inpB in self.subarrays[self.subarray].corr_products]
+
+                    # and into final corrprod selection
+                    self._corrprod_keep &= keep
+
             # Selections that affect weights and flags
             elif k == 'weights':
                 self._weights_keep = v
