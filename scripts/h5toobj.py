@@ -1,31 +1,30 @@
 #!/usr/bin/env python
 
-"""Simple script to take an HDF5 file and chunk it into objects,
-   and populate a specified (or managed) Redis instance to hold
-   telescope state and other metadata.
+"""Simple script to take an HDF5 file and chunk it into objects.
 
-   The primary use is for testing the coming katdal access layer
-   that will wrap up such an object+Redis dataset and provide
-   the usual standard access.
+This also populates a specified (or managed) Redis instance to hold
+telescope state and other metadata.
 
-   Objects are stored in chunks of all baselines for obj_chunk_size
-   frequencies. The chunking is chosen to produce objects of order 1MB.
-   The schema used is as follows:
+The primary use is for testing the coming katdal access layer that will
+wrap up such an object+Redis dataset and provide the usual standard access.
 
-        <obj_basename>_<dump_index>_<chunk_offset>
+Objects are stored in chunks split over time and frequency but not baseline.
+The chunking is chosen to produce objects with sizes on the order of 1 MB.
+The schema used is as follows:
 
-   obj_basename: by default the obs start time in integer seconds
-   dump_index: integer dump index of this object
-   chunk_offset: integer start index for this frequency chunk
+  <obj_basename>/<dataset_name>[/<index1>_<index2>_<...>]
 
-   The following useful object parameters are stored in telstate:
-        obj_basename: as above
-        obj_chunk_size: as above
-        obj_chunk_shape: shape of basic chunk
-        obj_size: size per object (needed for reads)
-        obj_count: estimated object count (set before writing in this case)
-        obj_ceph_pool: the name of the CEPH pool used
-        obj_ceph_conf: copy of ceph.conf used to connect to target ceph cluster
+  - obj_basename: for S3 this defaults to '<bucket>/<program_block>/<stream>'
+  - dataset_name: 'correlator_data' / 'weights' / 'flags' / etc.
+  - indexN: chunk start index along N'th dimension (suppressed if 1 chunk only)
+
+The following useful object parameters are stored in telstate, prefixed by
+'<program_block>.<stream>.':
+
+  - ceph_pool: the name of the CEPH pool used
+  - ceph_conf: copy of ceph.conf used to connect to target CEPH cluster
+  - s3_endpoint: endpoint URL of S3 object store
+  - <dataset_name>: dict containing chunk info (dtype, shape and chunks)
 """
 
 import struct
@@ -37,7 +36,7 @@ import subprocess
 import functools
 
 import numpy as np
-import h5py
+import katdal
 import katsdptelstate
 import katsdpservices
 import dask
@@ -73,20 +72,19 @@ logger.setLevel(logging.INFO)
 def parse_args():
     parser = katsdpservices.ArgumentParser()
     parser.add_argument('file', type=str, nargs=1,
-                        metavar='FILE', help='h5 file to process.')
+                        metavar='FILE', help='HDF5 file to process')
     parser.add_argument('--basename', type=str, metavar='BASENAME',
-                        help='Basename to use for object naming. '
-                             'Default is to use file start time.')
-    parser.add_argument('--obj-size', type=int, default=20,
-                        help='Target obj size as a power of 2. '
-                             'Default: 2**20 (1 MB)')
+                        help='Base name for objects (should include bucket '
+                             'name for S3 object store)')
+    parser.add_argument('--obj-size', type=float, default=2.0,
+                        help='Target object size in MB')
     parser.add_argument('--max-dumps', type=int, default=0,
                         help='Number of dumps to process. Default is all.')
     parser.add_argument('--ceph-conf', type=str, default="/etc/ceph/ceph.conf",
                         metavar='CEPHCONF',
-                        help='CEPH configuration file used for cluster connect.')
+                        help='CEPH configuration file used for cluster connect')
     parser.add_argument('--ceph-pool', type=str, metavar='POOL',
-                        help='CEPH pool to use for object storage.')
+                        help='CEPH pool to use for object storage')
     parser.add_argument('--s3-url', type=str,
                         help='S3 endpoint URL (includes leading "http")')
     parser.add_argument('--redis', type=str,
@@ -94,7 +92,7 @@ def parse_args():
                              'Default is to start a new local instance.')
     parser.add_argument('--redis-port', type=int, default=6379,
                         help='Port to use when connecting to Redis instance '
-                             '(or creating a new one).')
+                             '(or creating a new one)')
     parser.add_argument('--redis-only', action='store_true',
                         help='Only (re)build Redis DB - no object creation')
     parser.add_argument('--obj-only', action='store_true',
@@ -135,26 +133,6 @@ def redis_bulk_str(r_str, host, port):
     logger.debug("Bulk insert r_str of len %d completed: %s", len(r_str), retout)
 
 
-def pack_chunk(arr):
-    shape_str = repr(arr.shape)
-    dtype_str = repr(np.lib.format.dtype_to_descr(arr.dtype))
-    return StringIO(arr.data), shape_str, dtype_str
-
-
-def unpack_chunk(data_str, shape_str, dtype_str):
-    shape = np.safe_eval(shape_str)
-    dtype = np.dtype(np.safe_eval(dtype_str))
-    return np.ndarray(shape, dtype, data_str)
-
-
-def obj_name(obj_base, dump_index, channel_index):
-    return '{}/{:05d}_{:05d}'.format(obj_base, dump_index, channel_index)
-
-
-def key_to_name(key, freq_chunksize):
-    return obj_name(key[0], key[1], key[2] * freq_chunksize)
-
-
 def open_rados(ceph_conf, ceph_pool):
     cluster = rados.Rados(conffile=ceph_conf)
     cluster.connect()
@@ -172,11 +150,9 @@ def open_rados(ceph_conf, ceph_pool):
 
 
 def write_chunk_rados(ioctx, name, chunk):
-    data_fp, shape_str, dtype_str = pack_chunk(chunk)
+    data_fp = StringIO(chunk.data)
     data_str = data_fp.read()
     ioctx.write_full(name, data_str)
-    ioctx.set_xattr(name, "shape", shape_str)
-    ioctx.set_xattr(name, "dtype", dtype_str)
 
 
 def open_s3(url):
@@ -190,55 +166,34 @@ def open_s3(url):
 
 def write_chunk_s3(client, name, chunk):
     bucket, key = name.split('/', 1)
-    data_fp, shape_str, dtype_str = pack_chunk(chunk)
-    client.put_object(Bucket=bucket, Key=key, Body=data_fp,
-                      Metadata={'shape': shape_str, 'dtype': dtype_str})
+    data_fp = StringIO(chunk.data)
+    client.put_object(Bucket=bucket, Key=key, Body=data_fp)
 
 
-def read_chunk_s3(client, name):
-    bucket, key = name.split('/', 1)
-    response = client.get_object(Bucket=bucket, Key=key)
-    stream = response['Body']
-    data_str = stream.read()
-    stream.close()
-    shape_str = response['Metadata']['shape']
-    dtype_str = response['Metadata']['dtype']
-    return unpack_chunk(data_str, shape_str, dtype_str)
-
-
-def get_freq_chunk(data_shape, target_obj_size=20):
-    """Get a frequency chunking that results in slices into this array
-       being as close to 1MB as possible. Baselines are always grouped
-       into a single object, so outliers in baseline number may produce
-       objects much smaller or larger than 1MB"""
-    bytes_per_baseline = data_shape[2] * data_shape[3] * 4
-    logger.info("Bytes per baseline: %d", bytes_per_baseline)
-    channels = data_shape[1]
-    for chunk_power in range(int(np.log2(channels)) + 1):
-        chunk_size = 2 ** chunk_power
-        if (chunk_size * bytes_per_baseline) >= 2 ** target_obj_size:
-            break
-    real_obj_size = len(np.zeros((chunk_size, data_shape[2], data_shape[3]),
-                                 dtype=np.float32).dumps())
-     # figure out what the real written size of each dumps'ed object will be
-    logger.info("Using chunk size %d giving obj size %d",
-                chunk_size, real_obj_size)
-    return chunk_size, real_obj_size
-
-
-def create_dask_chunks(arr, chunk_shape, basename, save, chunk_name):
-    # Add sentinel string to avoid confusion between input and output chunks
-    # Without it chunk_name will be replaced by cached dataset in call to save()
-    arr_name = 'src_' + basename
-    arr_dask = da.from_array(arr, chunk_shape[:len(arr.shape)], arr_name)
-    arr_chunks = arr_dask.to_delayed().ravel().tolist()
-    return [save(chunk_name(chunk)[4:], chunk) for chunk in arr_chunks]
+def generate_chunks(shape, dtype, target_object_size, dims_to_split=(0, 1)):
+    """"""
+    dataset_size = np.prod(shape) * dtype.itemsize
+    num_chunks = np.ceil(dataset_size / float(target_object_size))
+    chunks = [(s,) for s in shape]
+    for dim in dims_to_split:
+        if dim >= len(shape):
+            continue
+        if num_chunks > 0.5 * shape[dim]:
+            chunk_sizes = (1,) * shape[dim]
+        else:
+            items = np.arange(shape[dim])
+            chunk_indices = np.array_split(items, num_chunks)
+            chunk_sizes = tuple([len(chunk) for chunk in chunk_indices])
+        chunks[dim] = chunk_sizes
+        num_chunks = np.ceil(num_chunks / len(chunk_sizes))
+    return tuple(chunks)
 
 
 if __name__ == '__main__':
     args = parse_args()
     try:
-        h5_file = h5py.File(args.file[0])
+        f = katdal.open(args.file[0])
+        h5_file = f.file
     except Exception as e:
         logger.error("Failed to open specified HDF5 file. %s", e)
         sys.exit()
@@ -314,51 +269,58 @@ if __name__ == '__main__':
         logger.warning("Building Redis DB only - no data will be written...")
         sys.exit(0)
 
-    # Split visibilities into fixed-size chunks
-    freq_chunksize, obj_size = get_freq_chunk(vis.shape, args.obj_size)
+    program_block = f.experiment_id
+    stream = 'sdp_l0'
+    ts_prefix = program_block + '.' + stream + '.'
     max_dumps = args.max_dumps if args.max_dumps > 0 else vis.shape[0]
-    # Each vis chunk has a corresponding flags and weights chunk
-    obj_count_per_dump = 3 * vis.shape[1] // freq_chunksize
-    # There is also a timestamps chunk and a weights_channel chunk
-    obj_count = max_dumps * obj_count_per_dump + 2
-    vis_chunk_shape = list(vis.shape)
-    vis_chunk_shape[0] = 1
-    vis_chunk_shape[1] = freq_chunksize
-    vis_chunk_shape = tuple(vis_chunk_shape)
-    ts.add("obj_basename", args.basename)
-    ts.add("obj_vis_chunk_shape", vis_chunk_shape)
-    ts.add("obj_vis_chunk_size", obj_size)
-    ts.add("obj_count", obj_count)
 
     use_rados = args.ceph_pool is not None
     if use_rados:
         store = open_rados(args.ceph_conf, args.ceph_pool)
-        ts.add("obj_pool", args.ceph_pool)
+        ts.add(ts_prefix + "ceph_pool", args.ceph_pool, immutable=True)
         with open(args.ceph_conf, "r") as ceph_conf:
-            ts.add("obj_ceph_conf", ceph_conf.readlines())
+            ts.add(ts_prefix + "ceph_conf", ceph_conf.readlines(), immutable=True)
+        save = functools.partial(write_chunk_rados, store)
     else:
         store = open_s3(args.s3_url)
-    logger.info("Inserted obj schema metadata into telstate")
+        ts.add(ts_prefix + "s3_endpoint", args.s3_url, immutable=True)
+        save = functools.partial(write_chunk_s3, store)
 
-    logger.info("Processing %d dumps into %d objects with basename %s (vis chunks are %d bytes each)",
-                max_dumps, obj_count, args.basename, obj_size)
-    save = functools.partial(write_chunk_rados, store) if use_rados else \
-        functools.partial(write_chunk_s3, store)
-    dask_save = dask.delayed(save, pure=False, traverse=False)
-
-    obj_chunks = []
-    for dataset in ('timestamps', 'correlator_data', 'weights', 'weights_channel', 'flags'):
+    target_object_size = args.obj_size * 2 ** 20
+    dask_graph = {}
+    schedule = dask.threaded.get
+    output_keys = []
+    for dataset in ('timestamps', 'correlator_data', 'weights',
+                    'weights_channel', 'flags'):
         arr = h5_file['Data'][dataset]
-        basename = args.basename + '/' + dataset
-        if dataset in ('timestamps', 'weights_channel'):
-            chunk_shape = arr.shape
-            chunk_name = lambda chunk: chunk.key[0]
-        else:
-            chunk_shape = vis_chunk_shape
-            chunk_name = lambda chunk: key_to_name(chunk.key, freq_chunksize)
-        obj_chunks.extend(create_dask_chunks(arr, chunk_shape, basename, dask_save, chunk_name))
+        dask_graph[dataset] = arr
+        basename = '/'.join((args.basename, program_block, stream, dataset))
+        shape = (min(arr.shape[0], max_dumps),) + arr.shape[1:]
+        chunks = generate_chunks(shape, arr.dtype, target_object_size)
+        num_chunks = np.prod([len(c) for c in chunks])
+        chunk_size = np.prod([c[0] for c in chunks]) * arr.dtype.itemsize
+        logger.info("Splitting dataset %r with shape %s into %d chunk(s) of "
+                    "~%d bytes each", basename, shape, num_chunks, chunk_size)
+        dask_info = {'dtype': arr.dtype, 'shape': shape, 'chunks': chunks}
+        ts.add(ts_prefix + dataset, dask_info, immutable=True)
+        last_index_per_dim = [np.r_[0, np.cumsum(c)[:-1]][-1] for c in chunks]
+        widths = [len(str(i)) for i in last_index_per_dim]
+        for slices in da.core.slices_from_chunks(chunks):
+            index = [s.start for s in slices]
+            if index[0] >= max_dumps:
+                continue
+            if chunks == tuple([(s,) for s in shape]):
+                obj_name = basename
+            else:
+                index_str = '_'.join(["{:0{width}d}".format(i, width=w)
+                                      for (i, w) in zip(index, widths)])
+                obj_name = basename + '/' + index_str
+            key = (dataset,) + tuple(index)
+            load_chunk = (da.core.getter, dataset, slices)
+            dask_graph[key] = (save, obj_name, load_chunk)
+            output_keys.append(key)
     with ProgressBar():
-        da.compute(obj_chunks, num_workers=8)
+        schedule(dask_graph, output_keys)
     logger.info("Staging complete...")
 
     if args.redis is None:
