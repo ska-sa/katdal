@@ -12,9 +12,9 @@ Objects are stored in chunks split over time and frequency but not baseline.
 The chunking is chosen to produce objects with sizes on the order of 1 MB.
 The schema used is as follows:
 
-  <obj_basename>/<dataset_name>[/<index1>_<index2>_<...>]
+  <obj_base_name>/<dataset_name>[/<index1>_<index2>_<...>]
 
-  - obj_basename: for S3 this defaults to '<bucket>/<program_block>/<stream>'
+  - obj_base_name: for S3 this defaults to '<bucket>/<program_block>/<stream>'
   - dataset_name: 'correlator_data' / 'weights' / 'flags' / etc.
   - indexN: chunk start index along N'th dimension (suppressed if 1 chunk only)
 
@@ -34,6 +34,7 @@ import time
 import shlex
 import subprocess
 import functools
+from itertools import product
 
 import numpy as np
 import katdal
@@ -73,7 +74,7 @@ def parse_args():
     parser = katsdpservices.ArgumentParser()
     parser.add_argument('file', type=str, nargs=1,
                         metavar='FILE', help='HDF5 file to process')
-    parser.add_argument('--basename', type=str, metavar='BASENAME',
+    parser.add_argument('--base-name', type=str, metavar='BASENAME',
                         help='Base name for objects (should include bucket '
                              'name for S3 object store)')
     parser.add_argument('--obj-size', type=float, default=2.0,
@@ -110,8 +111,8 @@ def parse_args():
             parser.error('Cannot use Ceph as rados Python library is not installed')
         if use_s3 and not botocore:
             parser.error('Cannot use S3 as botocore Python library is not installed')
-    if args.basename is None:
-        args.basename = args.file[0].split(".")[0]
+    if args.base_name is None:
+        args.base_name = args.file[0].split(".")[0]
     return args
 
 
@@ -187,6 +188,23 @@ def generate_chunks(shape, dtype, target_object_size, dims_to_split=(0, 1)):
         chunks[dim] = chunk_sizes
         num_chunks = np.ceil(num_chunks / len(chunk_sizes))
     return tuple(chunks)
+
+
+def dask_from_chunks(chunks, out_name, base_name):
+    single_chunk = all(len(c) == 1 for c in chunks)
+    last_index_per_dim = [np.r_[0, np.cumsum(c)[:-1]][-1] for c in chunks]
+    widths = [len(str(i)) for i in last_index_per_dim]
+    keys = list(product([out_name], *[range(len(bds)) for bds in chunks]))
+    all_slices = da.core.slices_from_chunks(chunks)
+    for key, slices in zip(keys, all_slices):
+        index = [s.start for s in slices]
+        if single_chunk:
+            obj_name = base_name
+        else:
+            index_str = '_'.join(["{:0{width}d}".format(i, width=w)
+                                  for (i, w) in zip(index, widths)])
+            obj_name = base_name + '/' + index_str
+        yield key, slices, obj_name
 
 
 if __name__ == '__main__':
@@ -294,31 +312,19 @@ if __name__ == '__main__':
                     'weights_channel', 'flags'):
         arr = h5_file['Data'][dataset]
         dask_graph[dataset] = arr
-        basename = '/'.join((args.basename, program_block, stream, dataset))
+        base_name = '/'.join((args.base_name, program_block, stream, dataset))
         shape = (min(arr.shape[0], max_dumps),) + arr.shape[1:]
         chunks = generate_chunks(shape, arr.dtype, target_object_size)
         num_chunks = np.prod([len(c) for c in chunks])
         chunk_size = np.prod([c[0] for c in chunks]) * arr.dtype.itemsize
         logger.info("Splitting dataset %r with shape %s into %d chunk(s) of "
-                    "~%d bytes each", basename, shape, num_chunks, chunk_size)
+                    "~%d bytes each", base_name, shape, num_chunks, chunk_size)
         dask_info = {'dtype': arr.dtype, 'shape': shape, 'chunks': chunks}
         ts_pbs.add(dataset, dask_info, immutable=True)
-        last_index_per_dim = [np.r_[0, np.cumsum(c)[:-1]][-1] for c in chunks]
-        widths = [len(str(i)) for i in last_index_per_dim]
-        for slices in da.core.slices_from_chunks(chunks):
-            index = [s.start for s in slices]
-            if index[0] >= max_dumps:
-                continue
-            if chunks == tuple([(s,) for s in shape]):
-                obj_name = basename
-            else:
-                index_str = '_'.join(["{:0{width}d}".format(i, width=w)
-                                      for (i, w) in zip(index, widths)])
-                obj_name = basename + '/' + index_str
-            key = (dataset,) + tuple(index)
-            load_chunk = (da.core.getter, dataset, slices)
-            dask_graph[key] = (save, obj_name, load_chunk)
-            output_keys.append(key)
+        dsk = {k: (save, obj, (da.core.getter, dataset, s))
+               for k, s, obj in dask_from_chunks(chunks, dataset, base_name)}
+        dask_graph.update(dsk)
+        output_keys.extend(dsk.keys())
     with ProgressBar():
         schedule(dask_graph, output_keys)
     logger.info("Staging complete...")
