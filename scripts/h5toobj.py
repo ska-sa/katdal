@@ -271,19 +271,19 @@ if __name__ == '__main__':
 
     program_block = f.experiment_id
     stream = 'sdp_l0'
-    ts_prefix = program_block + '.' + stream + '.'
+    ts_pbs = ts.view(program_block + '.' + stream)
     max_dumps = args.max_dumps if args.max_dumps > 0 else vis.shape[0]
 
     use_rados = args.ceph_pool is not None
     if use_rados:
         store = open_rados(args.ceph_conf, args.ceph_pool)
-        ts.add(ts_prefix + "ceph_pool", args.ceph_pool, immutable=True)
+        ts_pbs.add("ceph_pool", args.ceph_pool, immutable=True)
         with open(args.ceph_conf, "r") as ceph_conf:
-            ts.add(ts_prefix + "ceph_conf", ceph_conf.readlines(), immutable=True)
+            ts_pbs.add("ceph_conf", ceph_conf.readlines(), immutable=True)
         save = functools.partial(write_chunk_rados, store)
     else:
         store = open_s3(args.s3_url)
-        ts.add(ts_prefix + "s3_endpoint", args.s3_url, immutable=True)
+        ts_pbs.add("s3_endpoint", args.s3_url, immutable=True)
         save = functools.partial(write_chunk_s3, store)
 
     target_object_size = args.obj_size * 2 ** 20
@@ -302,7 +302,7 @@ if __name__ == '__main__':
         logger.info("Splitting dataset %r with shape %s into %d chunk(s) of "
                     "~%d bytes each", basename, shape, num_chunks, chunk_size)
         dask_info = {'dtype': arr.dtype, 'shape': shape, 'chunks': chunks}
-        ts.add(ts_prefix + dataset, dask_info, immutable=True)
+        ts_pbs.add(dataset, dask_info, immutable=True)
         last_index_per_dim = [np.r_[0, np.cumsum(c)[:-1]][-1] for c in chunks]
         widths = [len(str(i)) for i in last_index_per_dim]
         for slices in da.core.slices_from_chunks(chunks):
