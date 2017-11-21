@@ -303,6 +303,8 @@ if __name__ == '__main__':
         store = open_s3(args.s3_url)
         ts_pbs.add("s3_endpoint", args.s3_url, immutable=True)
         save = functools.partial(write_chunk_s3, store)
+    # Convert HDF5 visibilities to complex64 on the fly
+    vis_save = lambda obj, x: save(obj, x.view(np.complex64)[..., 0])
 
     target_object_size = args.obj_size * 2 ** 20
     dask_graph = {}
@@ -314,14 +316,19 @@ if __name__ == '__main__':
         dask_graph[dataset] = arr
         base_name = '/'.join((args.base_name, program_block, stream, dataset))
         shape = (min(arr.shape[0], max_dumps),) + arr.shape[1:]
-        chunks = generate_chunks(shape, arr.dtype, target_object_size)
+        dtype = arr.dtype
+        if dataset == 'correlator_data':
+            shape = shape[:-1]
+            dtype = np.dtype(np.complex64)
+        chunks = generate_chunks(shape, dtype, target_object_size)
         num_chunks = np.prod([len(c) for c in chunks])
-        chunk_size = np.prod([c[0] for c in chunks]) * arr.dtype.itemsize
+        chunk_size = np.prod([c[0] for c in chunks]) * dtype.itemsize
         logger.info("Splitting dataset %r with shape %s into %d chunk(s) of "
                     "~%d bytes each", base_name, shape, num_chunks, chunk_size)
-        dask_info = {'dtype': arr.dtype, 'shape': shape, 'chunks': chunks}
+        dask_info = {'dtype': dtype, 'shape': shape, 'chunks': chunks}
         ts_pbs.add(dataset, dask_info, immutable=True)
-        dsk = {k: (save, obj, (da.core.getter, dataset, s))
+        obj_save = vis_save if dataset == 'correlator_data' else save
+        dsk = {k: (obj_save, obj, (da.core.getter, dataset, s))
                for k, s, obj in dask_from_chunks(chunks, dataset, base_name)}
         dask_graph.update(dsk)
         output_keys.extend(dsk.keys())
