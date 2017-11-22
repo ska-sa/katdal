@@ -35,6 +35,7 @@ import shlex
 import subprocess
 import functools
 from itertools import product
+import io
 
 import numpy as np
 import katdal
@@ -57,11 +58,6 @@ except ImportError:
 else:
     import botocore.config
     import botocore.session
-
-try:
-    from cStringIO import StringIO
-except ImportError:
-    from io import BytesIO as StringIO
 
 
 logging.basicConfig()
@@ -151,7 +147,7 @@ def open_rados(ceph_conf, ceph_pool):
 
 
 def write_chunk_rados(ioctx, name, chunk):
-    data_fp = StringIO(chunk.data)
+    data_fp = io.BytesIO(chunk.data)
     data_str = data_fp.read()
     ioctx.write_full(name, data_str)
 
@@ -167,7 +163,7 @@ def open_s3(url):
 
 def write_chunk_s3(client, name, chunk):
     bucket, key = name.split('/', 1)
-    data_fp = StringIO(chunk.data)
+    data_fp = io.BytesIO(chunk.data)
     client.put_object(Bucket=bucket, Key=key, Body=data_fp)
 
 
@@ -212,13 +208,13 @@ if __name__ == '__main__':
     try:
         f = katdal.open(args.file[0])
         h5_file = f.file
-    except Exception as e:
-        logger.error("Failed to open specified HDF5 file. %s", e)
+    except Exception:
+        logger.exception("Failed to open specified HDF5 file")
         sys.exit()
     try:
         vis = h5_file['Data/correlator_data']
     except KeyError:
-        logger.error("This does not appear to be a valid MeerKAT HDF5 file")
+        logger.exception("This does not appear to be a valid MeerKAT HDF5 file")
         sys.exit()
 
     if args.obj_only:
