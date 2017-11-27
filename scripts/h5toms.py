@@ -20,6 +20,7 @@
 # 1 and 2) or MeerKAT HDF5 file (version 3) using the casapy table tools
 # in the ms_extra module (or pyrap/casacore if casapy is not available).
 
+from collections import namedtuple
 import itertools
 import os
 import shutil
@@ -34,7 +35,6 @@ import katpoint
 import katdal
 from katdal import averager
 from katdal import ms_extra
-
 
 tag_to_intent = {'gaincal': 'CALIBRATE_PHASE,CALIBRATE_AMPLI',
                  'bpcal': 'CALIBRATE_BANDPASS,CALIBRATE_FLUX',
@@ -111,6 +111,60 @@ if not ms_extra.casacore_binding:
 else:
     print "Using '%s' casacore binding to produce MS" % (ms_extra.casacore_binding,)
 
+def antenna_indices(na, no_auto_corr):
+  """ Get default antenna1 and antenna2 arrays """
+  return np.triu_indices(na, 1 if no_auto_corr else 0)
+
+def corrprod_index_and_missing_mask(h5):
+  """
+  Return the correlator product index and mask representing
+  missing correlator products
+  """
+  corrprod_to_index = dict([(tuple(cp), ind) for cp, ind
+      in zip(h5.corr_products, range(len(h5.corr_products)))])
+
+  # ==========================================
+  # Generate per-baseline antenna pairs and
+  # correlator product indices
+  # ==========================================
+
+  # Generate baseline antenna pairs
+  auto_cor = options.no_auto == False
+  ant1_index, ant2_index = antenna_indices(len(h5.ants), auto_cor)
+  ant1 = [h5.ants[a1] for a1 in ant1_index]
+  ant2 = [h5.ants[a2] for a2 in ant2_index]
+
+  def _cp_index(a1, a2, pol):
+      """
+      Create individual correlator product index
+      from antenna pair and polarisation
+      """
+      a1 = "%s%s" % (a1.name, pol[0].lower())
+      a2 = "%s%s" % (a2.name, pol[1].lower())
+
+      return corrprod_to_index.get((a1, a2))
+
+  nbl = ant1_index.size
+  npol = len(pols_to_use)
+
+  # Create actual correlator product index
+  cp_index = [_cp_index(a1, a2, p)
+                 for a1, a2 in itertools.izip(ant1, ant2)
+                 for p in pols_to_use]
+
+  # Identify missing correlator products
+  missing_cp = np.logical_not([i is not None for i in cp_index])
+  
+  # Now create ndarray containing all integers
+  # missing_cp will be used to identify bad entries
+  cp_index = np.asarray([i if i else 0 for i in cp_index])
+
+  CPInfo = namedtuple("CPInfo", ["ant1_index", "ant2_index",
+                                "ant1", "ant2",
+                                "cp_index", "missing_cp"])
+
+  return CPInfo(ant1_index, ant2_index, ant1, ant2, cp_index, missing_cp)
+
 # Open HDF5 file
 # if len(args) == 1: args = args[0]
 # katdal can handle a list of files, which get virtually concatenated internally
@@ -166,11 +220,6 @@ for win in range(len(h5.spectral_windows)):
     # The first step is to copy the blank template MS to our desired output (making sure it's not already there)
     if os.path.exists(ms_name):
         raise RuntimeError("MS '%s' already exists - please remove it before running this script" % (ms_name,))
-    try:
-        shutil.copytree(options.blank_ms, ms_name)
-    except OSError:
-        raise RuntimeError("Failed to copy blank MS from %s to %s - please check presence "
-                           "of blank MS and/or permissions" % (options.blank_ms, ms_name))
 
     print "Will create MS output in", ms_name
 
@@ -224,18 +273,22 @@ for win in range(len(h5.spectral_windows)):
     # Are we averaging?
     average_data = False
 
+    # Determine the number of channels
+    nchan = len(h5.channels)
+
     # Work out channel average and frequency increment
     if options.chanbin > 1:
         average_data = True
         # Check how many channels we are dropping
-        numchans = len(h5.channels)
-        chan_remainder = numchans % options.chanbin
+        chan_remainder = nchan % options.chanbin
+        avg_nchan = int(nchan / min(nchan, options.chanbin))
         print "Averaging %s channels, output ms will have %s channels." % \
-              (options.chanbin, int(numchans / min(numchans, options.chanbin)))
+              (options.chanbin, avg_nchan)
         if chan_remainder > 0:
             print "The last %s channels in the data will be dropped during averaging " \
-                  "(%s does not divide %s)." % (chan_remainder, options.chanbin, numchans)
+                  "(%s does not divide %s)." % (chan_remainder, options.chanbin, nchan)
         chan_av = options.chanbin
+        nchan = avg_nchan
     else:
         # No averaging in channel
         chan_av = 1
@@ -272,6 +325,33 @@ for win in range(len(h5.spectral_windows)):
     # Version 1 and 2 files are KAT-7; the rest are MeerKAT
     telescope_name = 'KAT-7' if h5.version[0] in '12' else 'MeerKAT'
 
+    # before resetting ms_dict, copy subset to caltable dictionary
+    if options.caltables:
+        caltable_dict = {}
+        caltable_dict['ANTENNA'] = ms_dict['ANTENNA']
+        caltable_dict['OBSERVATION'] = ms_dict['OBSERVATION']
+
+    ms_dict = {}
+    # increment scans sequentially in the ms
+    scan_itr = 1
+    print "\nIterating through scans in file(s)...\n"
+
+    cp_info = corrprod_index_and_missing_mask(h5)
+    nbl = cp_info.ant1_index.size
+    npol = len(pols_to_use)
+
+    field_names, field_centers, field_times = [], [], []
+    obs_modes = ['UNKNOWN']
+    total_size = 0
+
+    # Create the MeasurementSet
+    table_desc, dminfo = ms_extra.kat_ms_desc_and_dminfo(nbl=nbl,
+      nchan=nchan, ncorr=npol, model_data=options.model_data)
+    ms_extra.create_ms(ms_name, table_desc, dminfo)
+
+    #  prepare to write main dict
+    main_table = ms_extra.open_main(ms_name, verbose=options.verbose)
+
     ms_dict = {}
     ms_dict['ANTENNA'] = ms_extra.populate_antenna_dict([ant.name for ant in h5.ants],
                                                         [ant.position_ecef for ant in h5.ants],
@@ -286,60 +366,6 @@ for win in range(len(h5.spectral_windows)):
     print "Writing static meta data..."
     ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
 
-    # before resetting ms_dict, copy subset to caltable dictionary
-    if options.caltables:
-        caltable_dict = {}
-        caltable_dict['ANTENNA'] = ms_dict['ANTENNA']
-        caltable_dict['OBSERVATION'] = ms_dict['OBSERVATION']
-
-    ms_dict = {}
-    # increment scans sequentially in the ms
-    scan_itr = 1
-    print "\nIterating through scans in file(s)...\n"
-    #  prepare to write main dict
-    main_table = ms_extra.open_main(ms_name, verbose=options.verbose)
-    corrprod_to_index = dict([(tuple(cp), ind) for cp, ind in zip(h5.corr_products, range(len(h5.corr_products)))])
-
-    # ==========================================
-    # Generate per-baseline antenna pairs and
-    # correlator product indices
-    # ==========================================
-
-    # Generate baseline antenna pairs
-    na = len(h5.ants)
-    ant1_index, ant2_index = np.triu_indices(na, 1 if options.no_auto else 0)
-    ant1 = [h5.ants[a1] for a1 in ant1_index]
-    ant2 = [h5.ants[a2] for a2 in ant2_index]
-
-    def _cp_index(a1, a2, pol):
-        """
-        Create individual correlator product index
-        from antenna pair and polarisation
-        """
-        a1 = "%s%s" % (a1.name, pol[0].lower())
-        a2 = "%s%s" % (a2.name, pol[1].lower())
-
-        return corrprod_to_index.get((a1, a2))
-
-    nbl = ant1_index.size
-    npol = len(pols_to_use)
-
-    # Create actual correlator product index
-    cp_index = np.asarray([_cp_index(a1, a2, p)
-                           for a1, a2 in itertools.izip(ant1, ant2)
-                           for p in pols_to_use])
-
-    # Identify missing correlator products
-    # Reshape for broadcast on time and frequency dimensions
-    missing_cp = np.logical_not([i is not None for i in cp_index])
-
-    # Zero any None indices, but use the above masks to reason
-    # about there existence in later code
-    cp_index[missing_cp] = 0
-
-    field_names, field_centers, field_times = [], [], []
-    obs_modes = ['UNKNOWN']
-    total_size_mb = 0.0
 
     for scan_ind, scan_state, target in h5.scans():
         s = time.time()
@@ -361,7 +387,7 @@ for win in range(len(h5.spectral_windows)):
         # Get the average dump time for this scan (equal to scan length if the dump period is longer than a scan)
         dump_time_width = min(time_av, scan_len * h5.dump_period)
 
-        scan_size_mb = 0.0
+        scan_size = 0
         # Get UTC timestamps
         utc_seconds = h5.timestamps[:]
         # Update field lists if this is a new target
@@ -377,11 +403,9 @@ for win in range(len(h5.spectral_windows)):
         field_id = field_names.index(target.name)
 
         # Determine the observation tag for this scan
-        obs_tag = []
-        for tag in target.tags:
-            if tag in tag_to_intent:
-                obs_tag.append(tag_to_intent[tag])
-        obs_tag = ','.join(obs_tag)
+        obs_tag = ','.join(tag_to_intent[tag] for tag in target.tags
+                                            if tag in tag_to_intent)
+
         # add tag to obs_modes list
         if obs_tag and obs_tag not in obs_modes:
             obs_modes.append(obs_tag)
@@ -410,15 +434,15 @@ for win in range(len(h5.spectral_windows)):
             # Select correlator products
             # cp_index could be used above when the LazyIndexer
             # supports advanced integer indices
-            vis_data = scan_data[:, :, cp_index]
+            vis_data = scan_data[:, :, cp_info.cp_index]
 
-            weight_data = scan_weight_data[:, :, cp_index]
-            flag_data = scan_flag_data[:, :, cp_index]
+            weight_data = scan_weight_data[:, :, cp_info.cp_index]
+            flag_data = scan_flag_data[:, :, cp_info.cp_index]
 
             # Zero and flag any missing correlator products
-            vis_data[:, :, missing_cp] = 0 + 0j
-            weight_data[:, :, missing_cp] = 0
-            flag_data[:, :, missing_cp] = True
+            vis_data[:, :, cp_info.missing_cp] = 0 + 0j
+            weight_data[:, :, cp_info.missing_cp] = 0
+            flag_data[:, :, cp_info.missing_cp] = True
 
             out_utc = utc_seconds[ltime:utime]
 
@@ -462,9 +486,9 @@ for win in range(len(h5.spectral_windows)):
 
             # Iterate through baselines, computing UVW coordinates
             # for a chunk of timesteps
-            uvw_coordinates = np.concatenate([
-                _create_uvw(a1, a2, out_utc)[:, np.newaxis, :]
-                for a1, a2 in itertools.izip(ant1, ant2)], axis=1).reshape(-1, 3)
+            uvw_coordinates = np.concatenate([_create_uvw(a1, a2, out_utc)[:, np.newaxis, :]
+                        for a1, a2 in itertools.izip(cp_info.ant1, cp_info.ant2)],
+                          axis=1).reshape(-1, 3)
 
             # Convert averaged UTC timestamps to MJD seconds.
             # Blow time up to (ntime*nbl,)
@@ -474,8 +498,8 @@ for win in range(len(h5.spectral_windows)):
             out_mjd = np.broadcast_to(out_mjd[:, np.newaxis], (tdiff, nbl)).ravel()
 
             # Repeat antenna indices to (ntime*nbl,)
-            a1 = np.broadcast_to(ant1_index[np.newaxis, :], (tdiff, nbl)).ravel()
-            a2 = np.broadcast_to(ant2_index[np.newaxis, :], (tdiff, nbl)).ravel()
+            a1 = np.broadcast_to(cp_info.ant1_index[np.newaxis, :], (tdiff, nbl)).ravel()
+            a2 = np.broadcast_to(cp_info.ant2_index[np.newaxis, :], (tdiff, nbl)).ravel()
 
             # Blow field ID up to (ntime*nbl,)
             big_field_id = np.full((tdiff * nbl,), field_id, dtype=np.int32)
@@ -492,32 +516,37 @@ for win in range(len(h5.spectral_windows)):
                 # corrected data set copied from vis_data
                 corrected_data = vis_data
 
-            # write the data to the ms.
-            main_dict = ms_extra.populate_main_dict(uvw_coordinates, vis_data, flag_data,
-                                                    out_mjd, a1, a2,
-                                                    dump_time_width, big_field_id, big_state_id,
-                                                    big_scan_itr, model_data, corrected_data)
+            # Populate dictionary for write to MS
+            main_dict = ms_extra.populate_main_dict(uvw_coordinates, vis_data,
+                                flag_data, out_mjd, a1, a2,
+                                dump_time_width, big_field_id, big_state_id,
+                                big_scan_itr, model_data, corrected_data)
+
+            # Write data to MS.
             ms_extra.write_rows(main_table, main_dict, verbose=options.verbose)
 
-            # Increment the filesize.
-            scan_size_mb += vis_data.dtype.itemsize * vis_data.size / (1024.0 * 1024.0)
-            scan_size_mb += weight_data.dtype.itemsize * weight_data.size / (1024.0 * 1024.0)
-            scan_size_mb += flag_data.dtype.itemsize * flag_data.size / (1024.0 * 1024.0)
-
-            if options.model_data:
-                scan_size_mb += model_data.dtype.itemsize * model_data.size / (1024.0 * 1024.0)
-                scan_size_mb += corrected_data.dtype.itemsize * corrected_data.size / (1024.0 * 1024.0)
+            # Calculate bytes written from the summed arrays in the dict
+            scan_size += sum(a.nbytes for a in main_dict.itervalues()
+                              if isinstance(a, np.ndarray))
 
         s1 = time.time() - s
-        if average_data and utc_seconds.shape != ntime_av:
-            print "Averaged %s x %s second dumps to %s x %s second dumps" % \
-                  (np.shape(utc_seconds)[0], h5.dump_period, ntime_av, dump_time_width)
-        print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (scan_size_mb, s1, scan_size_mb / s1)
-        scan_itr += 1
-        total_size_mb += scan_size_mb
 
-    if total_size_mb == 0.0:
-        raise RuntimeError("No usable data found in HDF5 file (pick another reference antenna, maybe?)")
+        if average_data and utc_seconds.shape != ntime_av:
+            print "Averaged %s x %s second dumps to %s x %s second dumps" % (
+                                    np.shape(utc_seconds)[0], h5.dump_period,
+                                    ntime_av, dump_time_width)
+
+        scan_size_mb = float(scan_size) / (1024**2)
+
+        print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (
+                                    scan_size_mb, s1, scan_size_mb / s1)
+
+        scan_itr += 1
+        total_size += scan_size
+
+    if total_size == 0:
+        raise RuntimeError("No usable data found in HDF5 file "
+                           "(pick another reference antenna, maybe?)")
 
     # Remove spaces from source names, unless otherwise specified
     field_names = [f.replace(' ', '') for f in field_names] if not options.keep_spaces else field_names

@@ -25,6 +25,7 @@ This can use either casapy (the default) or pyrap to create the MS.
 #
 
 import sys
+import os
 import os.path
 from copy import deepcopy
 
@@ -43,26 +44,6 @@ except:
         casacore_binding = 'pyrap'
     except ImportError:
         casacore_binding = ''
-
-# Table descriptions for the standard MS tables
-# ---------------------------------------------
-# These dicts are used to create a new MS via pyrap. They are obtained by first
-# creating a blank MS in CASA, using::
-#
-#   sm.open('blank.ms')
-#   sm.close()
-#
-# The structure of this MS is then extracted in pyrap by getting the description
-# of the MAIN and sub-tables::
-#
-#   import pyrap.tables as tables
-#   import os
-#   ms_name = 'blank.ms'
-#   ms_desc = {'MAIN' : tables.table(ms_name).getdesc(actual=False)}
-#   for sub_table in os.walk(ms_name).next()[1]:
-#       ms_desc[sub_table] = tables.table(os.path.join(ms_name, sub_table)).getdesc(actual=False)
-#   ...
-#
 
 
 def std_scalar(comment, valueType='integer', option=0, **kwargs):
@@ -93,156 +74,195 @@ def tiled_array(comment, valueType, ndim, dataManagerGroup, **kwargs):
 def define_hypercolumn(desc):
     """Add hypercolumn definitions to table description."""
     desc['_define_hypercolumn_'] = dict([(v['dataManagerGroup'],
-                                          dict(HCdatanames=[k], HCndim=v['ndim'] + 1, HCcoordnames=[], HCidnames=[]))
+                                          dict(HCdatanames=[k], HCndim=v['ndim'] + 1))
                                          for k, v in desc.iteritems() if v['dataManagerType'] == 'TiledShapeStMan'])
 
-ms_desc = {}
-
-ms_desc['MAIN'] = {
-    'ANTENNA1': std_scalar('ID of first antenna in interferometer'),
-    'ANTENNA2': std_scalar('ID of second antenna in interferometer'),
-    'ARRAY_ID': std_scalar('ID of array or subarray'),
-    'CORRECTED_DATA': tiled_array('The corrected data column', 'complex', 2, 'CorrectedDataColumn'),
-    'DATA': tiled_array('The data column', 'complex', 2, 'dataHyperColumn'),
-    'DATA_DESC_ID': std_scalar('The data description table index'),
-    'EXPOSURE': std_scalar('The effective integration time', 'double'),
-    'FEED1': std_scalar('The feed index for ANTENNA1'),
-    'FEED2': std_scalar('The feed index for ANTENNA2'),
-    'FIELD_ID': std_scalar('Unique id for this pointing'),
-    'FLAG': tiled_array('The data flags, array of bools with same shape as data', 'boolean', 2, 'FlagColumn'),
-    'FLAG_CATEGORY': tiled_array('The flag category, NUM_CAT flags for each datum', 'boolean', 3, 'flagHyperColumn'),
-    'FLAG_ROW': std_scalar('Row flag - flag all data in this row if True', valueType='boolean'),
-    'IMAGING_WEIGHT': tiled_array('Weight set by imaging task (e.g. uniform weighting)',
-                                  'float', 1, 'imWeightHyperColumn'),
-    'INTERVAL': std_scalar('The sampling interval', 'double'),
-    'MODEL_DATA': tiled_array('The model data column', 'complex', 2, 'ModelDataColumn'),
-    'OBSERVATION_ID': std_scalar('ID for this observation, index in OBSERVATION table'),
-    'PROCESSOR_ID': std_scalar('Id for backend processor, index in PROCESSOR table'),
-    'SCAN_NUMBER': std_scalar('Sequential scan number from on-line system'),
-    'SIGMA': tiled_array('Estimated rms noise for channel with unity bandpass response', 'float', 1, 'SigmaColumn'),
-    'STATE_ID': std_scalar('ID for this observing state'),
-    'TIME': std_scalar('Modified Julian Day', 'double'),
-    'TIME_CENTROID': std_scalar('Modified Julian Day', 'double'),
-    'UVW': fixed_array('Vector with uvw coordinates (in meters)', 'double', [3]),
-    'WEIGHT': tiled_array('Weight for each polarization spectrum', 'float', 1, 'WeightColumn'),
+# Map Measurement Set string types to numpy types
+MS_TO_NP_TYPE_MAP = {
+    'INT' : np.int32,
+    'FLOAT' : np.float32,
+    'DOUBLE' : np.float64,
+    'BOOLEAN' : np.bool,
+    'COMPLEX' : np.complex64,
+    'DCOMPLEX' : np.complex128
 }
 
-ms_desc['ANTENNA'] = {
-    'DISH_DIAMETER': std_scalar('Physical diameter of dish', 'double'),
-    'FLAG_ROW': std_scalar('Flag for this row', 'boolean'),
-    'MOUNT': std_scalar('Mount type e.g. alt-az, equatorial, etc.', 'string'),
-    'NAME': std_scalar('Antenna name, e.g. VLA22, CA03', 'string'),
-    'OFFSET': fixed_array('Axes offset of mount to FEED REFERENCE point', 'double', [3]),
-    'POSITION': fixed_array('Antenna X,Y,Z phase reference position', 'double', [3]),
-    'STATION': std_scalar('Station (antenna pad) name', 'string'),
-    'TYPE': std_scalar('Antenna type (e.g. SPACE-BASED)', 'string'),
-}
+def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
+    """
+    Creates Table Description and Data Manager Information objecs that
+    describe a MeasurementSet suitable for holding MeerKAT data.
 
-ms_desc['FEED'] = {
-    'ANTENNA_ID': std_scalar('ID of antenna in this array'),
-    'BEAM_ID': std_scalar('Id for BEAM model'),
-    'BEAM_OFFSET': std_array('Beam position offset (on sky but in antennareference frame)', 'double', 2),
-    'FEED_ID': std_scalar('Feed id'),
-    'INTERVAL': std_scalar('Interval for which this set of parameters is accurate', 'double'),
-    'NUM_RECEPTORS': std_scalar('Number of receptors on this feed (probably 1 or 2'),
-    'POLARIZATION_TYPE': std_array('Type of polarization to which a given RECEPTOR responds', 'string', 1),
-    'POL_RESPONSE': std_array('D-matrix i.e. leakage between two receptors', 'complex', 2),
-    'POSITION': fixed_array('Position of feed relative to feed reference position', 'double', [3]),
-    'RECEPTOR_ANGLE': std_array('The reference angle for polarization', 'double', 1),
-    'SPECTRAL_WINDOW_ID': std_scalar('ID for this spectral window setup'),
-    'TIME': std_scalar('Midpoint of time for which this set of parameters is accurate', 'double'),
-}
+    Creates additional DATA, IMAGING_WEIGHT and possibly
+    MODEL_DATA and CORRECTED_DATA columns.
 
-ms_desc['DATA_DESCRIPTION'] = {
-    'FLAG_ROW': std_scalar('Flag this row', 'boolean'),
-    'POLARIZATION_ID': std_scalar('Pointer to polarization table'),
-    'SPECTRAL_WINDOW_ID': std_scalar('Pointer to spectralwindow table'),
-}
+    Columns are given fixed shapes defined by the arguments to this function.
 
-ms_desc['POLARIZATION'] = {
-    'CORR_PRODUCT': std_array('Indices describing receptors of feed going into correlation', 'integer', 2),
-    'CORR_TYPE': std_array('The polarization type for each correlation product, as a Stokes enum.', 'integer', 1),
-    'FLAG_ROW': std_scalar('Row flag', 'boolean'),
-    'NUM_CORR': std_scalar('Number of correlation products'),
-}
+    :param nbl: Number of baselines.
+    :param nchan: Number of channels.
+    :param ncorr: Number of correlations.
+    :param model_data: Boolean indicated whether MODEL_DATA and CORRECTED_DATA
+                        should be added to the Measurement Set.
+    :return: Returns a tuple containing a table description describing
+            the extra columns and hypercolumns, as well as a Data Manager
+            description.
+    """
 
-ms_desc['OBSERVATION'] = {
-    'FLAG_ROW': std_scalar('Row flag', 'boolean'),
-    'LOG': std_array('Observing log', 'string', 1),
-    'PROJECT': std_scalar('Project identification string', 'string'),
-    'OBSERVER': std_scalar('Name of observer(s)', 'string'),
-    'RELEASE_DATE': std_scalar('Release date when data becomes public', 'double'),
-    'SCHEDULE': std_array('Observing schedule', 'string', 1),
-    'SCHEDULE_TYPE': std_scalar('Observing schedule type', 'string'),
-    'TELESCOPE_NAME': std_scalar('Telescope Name (e.g. WSRT, VLBA)', 'string'),
-    'TIME_RANGE': fixed_array('Start and end of observation', 'double', [2]),
-}
+    if not casacore_binding == 'pyrap':
+        raise ValueError("kat_ms_desc_and_dminfo requires the "
+                        "casacore binding to operate")
 
-ms_desc['SPECTRAL_WINDOW'] = {
-    'CHAN_FREQ': std_array('Center frequencies for each channel in the data matrix', 'double', 1),
-    'CHAN_WIDTH': std_array('Channel width for each channel', 'double', 1),
-    'EFFECTIVE_BW': std_array('Effective noise bandwidth of each channel', 'double', 1),
-    'FLAG_ROW': std_scalar('Row flag', 'boolean'),
-    'FREQ_GROUP': std_scalar('Frequency group'),
-    'FREQ_GROUP_NAME': std_scalar('Frequency group name', 'string'),
-    'IF_CONV_CHAIN': std_scalar('The IF conversion chain number'),
-    'MEAS_FREQ_REF': std_scalar('Frequency Measure reference'),
-    'NAME': std_scalar('Spectral window name', 'string'),
-    'NET_SIDEBAND': std_scalar('Net sideband'),
-    'NUM_CHAN': std_scalar('Number of spectral channels'),
-    'REF_FREQUENCY': std_scalar('The reference frequency', 'double'),
-    'RESOLUTION': std_array('The effective noise bandwidth for each channel', 'double', 1),
-    'TOTAL_BANDWIDTH': std_scalar('The total bandwidth for this window', 'double'),
-}
+    # Columns that will be modified.
+    # We want to keep things like their
+    # keywords, dims and shapes
+    modify_columns = { "WEIGHT", "SIGMA", "FLAG", "FLAG_CATEGORY",
+                                    "UVW", "ANTENNA1", "ANTENNA2" }
 
-ms_desc['FIELD'] = {
-    'CODE': std_scalar('Special characteristics of field, e.g. Bandpass calibrator', 'string'),
-    'DELAY_DIR': std_array('Direction of delay center (e.g. RA, DEC)as polynomial in time.', 'double', 2),
-    'FLAG_ROW': std_scalar('Row Flag', 'boolean'),
-    'NAME': std_scalar('Name of this field', 'string'),
-    'NUM_POLY': std_scalar('Polynomial order of _DIR columns'),
-    'PHASE_DIR': std_array('Direction of phase center (e.g. RA, DEC).', 'double', 2),
-    'REFERENCE_DIR': std_array('Direction of REFERENCE center (e.g. RA, DEC).as polynomial in time.', 'double', 2),
-    'SOURCE_ID': std_scalar('Source id'),
-    'TIME': std_scalar('Time origin for direction and rate', 'double'),
-}
+    # Get the required table descriptor for an MS
+    table_desc = tables.required_ms_desc("MAIN")
 
-ms_desc['STATE'] = {
-    'SIG': std_scalar('True if the source signal is being observed.'),
-    'REF': std_scalar('True for a reference phase.'),
-    'CAL': std_scalar('Noise calibration temperature (zero if not added).'),
-    'LOAD': std_scalar('Load temperature (zero if no load).'),
-    'SUB_SCAN': std_scalar('Sub-scan number, relative to the SCAN_NUMBER in MAIN.'),
-    'OBS_MODE': std_scalar('Observing mode, defined by a set of reserved keywords.'),
-    'FLAG_ROW': std_scalar('Row Flag', 'boolean'),
-}
+    # Take columns we wish to modify
+    extra_table_desc = { c: d for c, d in table_desc.iteritems()
+                                        if c in modify_columns }
 
-ms_desc['SOURCE'] = {
-    'DIRECTION': std_array('Source direction at specified time', 'double', 2),
-    'PROPER_MOTION': std_array('Source proper motion at specified time', 'double', 2),
-    'SOURCE_ID': std_scalar('Source identifier as specified in FIELD table', 'integer'),
-    'TIME': std_scalar('Mid point of time interval for which this row is valid', 'double'),
-    'CALIBRATION_GROUP': std_scalar('Cal group to which this source belongs', 'integer'),
-    'NAME': std_scalar('Name of this source', 'string'),
-    'NUM_LINES': std_scalar('Number of line transitions associated with this source', 'integer'),
-    'REST_FREQUENCY': std_scalar('Rest frequency of line', 'double'),
-    'SYSVEL': std_scalar('Systemic velocity of line', 'double'),
-}
+    # Used to set the SPEC for each Data Manager Group
+    dmgroup_spec = {}
 
-ms_desc['POINTING'] = {
-    'ANTENNA_ID': std_scalar('Antenna Id'),
-    'DIRECTION': std_array('Antenna pointing direction as polynomial in time', 'double', 2),
-    'INTERVAL': std_scalar('Time interval', 'double'),
-    'NAME': std_scalar('Pointing position name', 'string'),
-    'NUM_POLY': std_scalar('Series order'),
-    'TARGET': std_array('target direction as polynomial in time', 'double', -1),
-    'TIME': std_scalar('Time interval midpoint', 'double'),
-    'TIME_ORIGIN': std_scalar('Time origin for direction', 'double'),
-    'TRACKING': std_scalar('Tracking flag - True if on position', 'boolean'),
-}
+    def dmspec(coldesc, tile_mem_limit=None):
+        """
+        Create data manager spec for a given column description,
+        mostly by adding a DEFAULTTILESHAPE that fits into the
+        supplied memory limit.
+        """
 
-for sub_table in ms_desc:
-    define_hypercolumn(ms_desc[sub_table])
+        # Choose 4MB if none given
+        if tile_mem_limit is None:
+            tile_mem_limit = 4*1024*1024
+
+        # Get the reversed column shape. DEFAULTTILESHAPE is deep in
+        # casacore and its necessary to specify their ordering here
+        # ntilerows is the dim that will change least quickly
+        rev_shape = list(reversed(coldesc["shape"]))
+
+        ntilerows = 1
+        np_dtype = MS_TO_NP_TYPE_MAP[coldesc["valueType"].upper()]
+        nbytes = np.dtype(np_dtype).itemsize
+
+        # Try bump up the number of rows in our tiles while they're
+        # below the memory limit for the tile
+        while np.product(rev_shape + [2*ntilerows])*nbytes < tile_mem_limit:
+            ntilerows *= 2
+
+        return { "DEFAULTTILESHAPE" : np.int32(rev_shape + [ntilerows]) }
+
+    # Update existing columns with shape and data manager information
+    dm_group = 'UVW'
+    shape = [3]
+    extra_table_desc["UVW"].update(options=0,
+        shape=shape, ndim=len(shape),
+        dataManagerGroup=dm_group,
+        dataManagerType='TiledColumnStMan')
+    dmgroup_spec[dm_group] = dmspec(extra_table_desc["UVW"])
+
+    dm_group = 'Weight'
+    shape = [ncorr]
+    extra_table_desc["WEIGHT"].update(options=4,
+        shape=shape, ndim=len(shape),
+        dataManagerGroup=dm_group,
+        dataManagerType='TiledColumnStMan')
+    dmgroup_spec[dm_group] = dmspec(extra_table_desc["WEIGHT"])
+
+    dm_group = 'Sigma'
+    shape = [ncorr]
+    extra_table_desc["SIGMA"].update(options=4,
+        shape=shape, ndim=len(shape),
+        dataManagerGroup=dm_group,
+        dataManagerType='TiledColumnStMan')
+    dmgroup_spec[dm_group] = dmspec(extra_table_desc["SIGMA"])
+
+
+    dm_group = 'Flag'
+    shape=[nchan, ncorr]
+    extra_table_desc["FLAG"].update(options=4,
+        shape=shape, ndim=len(shape),
+        dataManagerGroup=dm_group,
+        dataManagerType='TiledColumnStMan')
+    dmgroup_spec[dm_group] = dmspec(extra_table_desc["FLAG"])
+
+
+    dm_group = 'FlagCategory'
+    shape = [1, nchan, ncorr]
+    extra_table_desc["FLAG_CATEGORY"].update(options=4,
+        keywords={},
+        shape=shape, ndim=len(shape),
+        dataManagerGroup=dm_group,
+        dataManagerType='TiledColumnStMan')
+    dmgroup_spec[dm_group] = dmspec(extra_table_desc["FLAG_CATEGORY"])
+
+
+    # Create new columns for integration into the MS
+    additional_columns = []
+
+    dm_group = 'Data'
+    shape = [nchan, ncorr]
+    desc = tables.tablecreatearraycoldesc("DATA", 0+0j,
+            comment="The Visibility DATA Column",
+            options=4, valuetype='complex',
+            keywords={ "UNIT": "Jy" },
+            shape=shape, ndim=len(shape),
+            datamanagergroup=dm_group,
+            datamanagertype='TiledColumnStMan')
+    dmgroup_spec[dm_group] = dmspec(desc["desc"])
+    additional_columns.append(desc)
+
+    dm_group = 'ImagingWeight'
+    shape = [nchan]
+    desc = tables.tablecreatearraycoldesc("IMAGING_WEIGHT", 0,
+            comment="Weight set by imaging task (e.g. uniform weighting)",
+            options=4, valuetype='float',
+            shape=shape, ndim=len(shape),
+            datamanagergroup=dm_group,
+            datamanagertype='TiledColumnStMan')
+    dmgroup_spec[dm_group] = dmspec(desc["desc"])
+    additional_columns.append(desc)
+
+    # Add MODEL_DATA and CORRECTED_DATA if requested
+    if model_data == True:
+        dm_group = 'ModelData'
+        shape=[nchan, ncorr]
+        desc = tables.tablecreatearraycoldesc("MODEL_DATA", 0+0j,
+                comment="The Visibility MODEL_DATA Column",
+                options=4, valuetype='complex',
+                keywords={ "UNIT": "Jy" },
+                shape=shape, ndim=len(shape),
+                datamanagergroup=dm_group,
+                datamanagertype='TiledColumnStMan')
+        dmgroup_spec[dm_group] = dmspec(desc["desc"])
+        additional_columns.append(desc)
+
+        dm_group = 'CorrectedData'
+        shape=[nchan, ncorr]
+        desc = tables.tablecreatearraycoldesc("CORRECTED_DATA", 0+0j,
+                comment="The Visibility CORRECTED_DATA Column",
+                options=4, valuetype='complex',
+                keywords={ "UNIT": "Jy" },
+                shape=shape, ndim=len(shape),
+                datamanagergroup=dm_group,
+                datamanagertype='TiledColumnStMan')
+        dmgroup_spec[dm_group] = dmspec(desc["desc"])
+        additional_columns.append(desc)
+
+    # Update extra table description with additional columns
+    extra_table_desc.update(tables.maketabdesc(additional_columns))
+
+    # Update the original table descriptor with modifications/additions
+    # Need this to construct a complete Data Manager specification
+    # that includes the original columns
+    table_desc.update(extra_table_desc)
+
+    # Construct DataManager Specification
+    dminfo = tables.makedminfo(table_desc, dmgroup_spec)
+
+    return extra_table_desc, dminfo
 
 caltable_desc = {}
 caltable_desc['TIME'] = std_scalar('Timestamp of solution', 'double', option=5)
@@ -272,15 +292,30 @@ if casacore_binding == 'casapy':
         success = tb.open(filename, nomodify=readonly, **kwargs)
         return tb if success else None
 
+    def create_ms(filename, table_desc=None, dm_info=None):
+        raise NotImplementedError("create_ms not implemented for casapy")
+
 elif casacore_binding == 'pyrap':
     def open_table(filename, readonly=False, ack=False, **kwargs):
         t = tables.table(filename, readonly=readonly, ack=ack, **kwargs)
 
         return t if type(t) == tables.table else None
 
+    def create_ms(filename, table_desc=None, dm_info=None):
+        with tables.default_ms(filename, table_desc, dm_info) as T:
+            # Add the SOURCE subtable
+            source_filename = os.path.join(os.getcwd(), filename, "SOURCE")
+            tables.default_ms_subtable("SOURCE", source_filename)
+            T.putkeyword("SOURCE", "Table: %s" % source_filename)
+
 else:
     def open_table(filename, readonly=False):
-        raise ImportError("Cannot open MS '%s', as neither casapy nor pyrap were found" % (filename,))
+        raise NotImplementedError("Cannot open MS '%s', as neither "
+                                    "casapy nor pyrap were found" % (filename,))
+
+    def create_ms(filename, table_desc=None, dm_info=None):
+        raise NotImplementedError("Cannot create MS '%s', as neither "
+                                    "casapy nor pyrap were found" % (filename,))
 
 
 # -------- Routines that create MS data structures in dictionaries -----------

@@ -1,6 +1,12 @@
 History
 =======
 
+0.9 (xxxx-yy-zz)
+----------------
+* Utilise python-casacore and casacore internals to create Measurement Sets,
+  rather than conditioning blank.ms. Requires casacore 2.3.0 and
+  python-casacore 2.2.1.
+
 0.8 (2017-08-08)
 ----------------
 * Fix upside-down MeerKAT images
