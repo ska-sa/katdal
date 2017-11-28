@@ -38,6 +38,10 @@ class TestRadosChunkStore(object):
         except (ImportError, OSError, IOError):
             raise SkipTest('Rados not installed or cluster misconfigured / down')
 
+    def array_name(self, path):
+        namespace = 'katdal_test_chunkstore_rados'
+        return self.store.join(namespace, path)
+
     def test_store(self):
         # Pretend that rados is not installed
         real_rados = katdal.chunkstore_rados.rados
@@ -48,11 +52,13 @@ class TestRadosChunkStore(object):
     def test_put_and_get(self):
         s = (slice(3, 5),)
         desired = self.x[s]
-        self.store.put('x', s, desired)
-        actual = self.store.get('x', s, desired.dtype)
+        name = self.array_name('x')
+        self.store.put(name, s, desired)
+        actual = self.store.get(name, s, desired.dtype)
         assert_array_equal(actual, desired, "Error storing x[%s]" % (s,))
         s = (slice(1, 4), slice(1, 3), slice(1, 2))
         desired = self.y[s]
-        self.store.put('y', s, desired)
-        actual = self.store.get('y', s, desired.dtype)
+        name = self.array_name('y')
+        self.store.put(name, s, desired)
+        actual = self.store.get(name, s, desired.dtype)
         assert_array_equal(actual, desired, "Error storing y[%s]" % (s,))
