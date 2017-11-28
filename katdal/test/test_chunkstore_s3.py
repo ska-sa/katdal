@@ -66,7 +66,10 @@ class TestS3ChunkStore(object):
         # Now start up store
         self.x = np.arange(10)
         self.y = np.arange(24.).reshape(4, 3, 2)
-        self.store = S3ChunkStore(url)
+        try:
+            self.store = S3ChunkStore(url)
+        except ImportError:
+            raise SkipTest('S3 botocore dependency not installed')
 
     def teardown(self):
         if self.fakes3:

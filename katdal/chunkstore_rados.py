@@ -39,29 +39,38 @@ class RadosChunkStore(ChunkStore):
 
     Parameters
     ----------
-    ceph_conf : string
-        Path to the ceph.conf config file used to connect to target Ceph cluster
-    ceph_pool : string
+    conf : string or dict
+        Path to the Ceph configuration file or config dict version of that file
+    pool : string
         Name of the Ceph pool
+    keyring : string, optional
+        Path to the client keyring file (if not provided by `conf` or override)
 
     Raises
     ------
     ImportError
         If rados is not installed (it's an optional dependency otherwise)
+    OSError
+        If connection to Ceph cluster failed (e.g. bad config or cluster down)
     IOError
         If requested Ceph pool is not available in cluster
     """
 
-    def __init__(self, ceph_conf, ceph_pool):
+    def __init__(self, conf, pool, keyring=None):
         if not rados:
             raise ImportError('Please install rados for katdal RADOS support')
-        cluster = rados.Rados(conffile=ceph_conf)
+        if isinstance(conf, dict):
+            cluster = rados.Rados(conf=conf)
+        else:
+            cluster = rados.Rados(conffile=conf)
+        if keyring:
+            cluster.conf_set('keyring', keyring)
         cluster.connect()
         available_pools = cluster.list_pools()
-        if ceph_pool not in available_pools:
+        if pool not in available_pools:
             raise IOError("Specified pool %s not available in this cluster (%s)"
-                          % (ceph_pool, available_pools))
-        self.ioctx = cluster.open_ioctx(ceph_pool)
+                          % (pool, available_pools))
+        self.ioctx = cluster.open_ioctx(pool)
 
     def get(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get`."""
