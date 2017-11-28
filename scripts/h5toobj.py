@@ -66,9 +66,11 @@ def parse_args():
                         help='Number of dumps to process. Default is all.')
     parser.add_argument('--ceph-conf', type=str, default="/etc/ceph/ceph.conf",
                         metavar='CEPHCONF',
-                        help='CEPH configuration file used for cluster connect')
+                        help='Ceph configuration file used for cluster connect')
     parser.add_argument('--ceph-pool', type=str, metavar='POOL',
-                        help='CEPH pool to use for object storage')
+                        help='Ceph pool to use for object storage')
+    parser.add_argument('--ceph-keyring',
+                        help='Ceph keyring to use for object storage')
     parser.add_argument('--s3-url', type=str,
                         help='S3 endpoint URL (includes leading "http")')
     parser.add_argument('--redis', type=str,
@@ -223,7 +225,8 @@ if __name__ == '__main__':
 
     use_rados = args.ceph_pool is not None
     if use_rados:
-        obj_store = RadosChunkStore(args.ceph_conf, args.ceph_pool)
+        obj_store = RadosChunkStore(args.ceph_conf, args.ceph_pool,
+                                    args.ceph_keyring)
         pool_stats = obj_store.ioctx.get_stats()
         logger.info("Connected to pool %s. Currently holds %d objects "
                     "totalling %g GB", args.ceph_pool,
