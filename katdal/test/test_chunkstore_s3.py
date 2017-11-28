@@ -19,13 +19,13 @@
 import tempfile
 import shutil
 import subprocess
-import requests
 import time
 
 import numpy as np
 from numpy.testing import assert_array_equal
 from nose import SkipTest
 from nose.tools import assert_raises
+import requests
 
 import katdal.chunkstore_s3
 from katdal.chunkstore_s3 import S3ChunkStore
