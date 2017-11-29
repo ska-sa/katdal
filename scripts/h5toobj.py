@@ -39,7 +39,7 @@ import numpy as np
 import katdal
 from katdal.chunkstore_rados import RadosChunkStore
 from katdal.chunkstore_s3 import S3ChunkStore
-from katdal.chunkstore import DictOfArraysChunkStore
+from katdal.chunkstore import DictChunkStore
 import katsdptelstate
 import katsdpservices
 import dask
@@ -242,7 +242,7 @@ if __name__ == '__main__':
     dask_graph = {}
     schedule = dask.threaded.get
     output_keys = []
-    h5_store = DictOfArraysChunkStore(**h5_file['Data'])
+    h5_store = DictChunkStore(**h5_file['Data'])
     for dataset in h5_store.arrays:
         dataset = str(dataset)
         arr = h5_store.arrays[dataset]

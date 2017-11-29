@@ -95,7 +95,7 @@ class ChunkStore(object):
         return ChunkStore.join(array_name, idx)
 
 
-class DictOfArraysChunkStore(ChunkStore):
+class DictChunkStore(ChunkStore):
     """A store of chunks (i.e. N-dimensional arrays) based on a dict of arrays.
 
     This interprets all keyword arguments as NumPy arrays and stores them in

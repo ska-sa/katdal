@@ -20,14 +20,14 @@ import numpy as np
 from numpy.testing import assert_array_equal
 from nose.tools import assert_raises
 
-from katdal.chunkstore import ChunkStore, DictOfArraysChunkStore
+from katdal.chunkstore import ChunkStore, DictChunkStore
 
 
-class TestDictOfArraysChunkStore(object):
+class TestDictChunkStore(object):
     def setup(self):
         self.x = np.arange(10)
         self.y = np.arange(24.).reshape(4, 3, 2)
-        self.store = DictOfArraysChunkStore(x=self.x, y=self.y)
+        self.store = DictChunkStore(x=self.x, y=self.y)
 
     def test_store(self):
         store = ChunkStore()
