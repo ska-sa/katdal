@@ -38,7 +38,7 @@ class ChunkStore(object):
     arrays for the user.
     """
 
-    def get(self, array_name, slices, dtype=None):
+    def get(self, array_name, slices, dtype):
         """Get chunk from the store.
 
         Parameters
@@ -47,13 +47,18 @@ class ChunkStore(object):
             Identifier of parent array `x` of chunk
         slices : sequence of slice objects
             Identifier of individual chunk, to be extracted as `x[slices]`
-        dtype : :class:`numpy.dtype` object, optional
-            Dtype of array (useful if unknown or different to that of `x`)
+        dtype : :class:`numpy.dtype` object
+            Dtype of array `x`
 
         Returns
         -------
         chunk : :class:`numpy.ndarray` object
             Chunk as ndarray with dtype `dtype` and shape dictated by `slices`
+
+        Raises
+        ------
+        ValueError
+            If requested `dtype` does not match underlying parent array dtype
         """
         raise NotImplementedError
 
@@ -100,15 +105,12 @@ class DictOfArraysChunkStore(ChunkStore):
     def __init__(self, **kwargs):
         self.arrays = kwargs
 
-    def get(self, array_name, slices, dtype=None):
+    def get(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get`."""
         chunk = self.arrays[array_name][slices]
-        # If the requested dtype differs from the underlying type, do a view
-        if dtype is not None and dtype != chunk.dtype:
-            chunk = chunk.view(dtype)
-            # In addition, merge the final dimension if new dtype swallows it
-            if len(slices) == chunk.ndim - 1:
-                chunk = chunk.squeeze(axis=-1)
+        if dtype != chunk.dtype:
+            raise ValueError('Requested dtype %s differs from chunk dtype %s'
+                             % (dtype, chunk.dtype))
         return chunk
 
     def put(self, array_name, slices, chunk):

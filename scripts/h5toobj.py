@@ -248,11 +248,13 @@ if __name__ == '__main__':
         arr = h5_store.arrays[dataset]
         dtype = arr.dtype
         shape = arr.shape
+        get = h5_store.get
         if dataset == 'correlator_data':
+            # Convert from 2x float32 to complex64 (and swallow last dimension)
             dtype = np.dtype(np.complex64)
             shape = shape[:-1]
-        copy_dataset = 'copy_' + dataset
-        dask_graph[copy_dataset] = arr
+            get = lambda d, s, t: h5_store.get(d, s + (slice(0, 2),),
+                                               arr.dtype).view(t)[..., 0]
         base_name = obj_store.join(args.base_name, program_block, stream, dataset)
         shape = (min(shape[0], max_dumps),) + shape[1:]
         chunks = generate_chunks(shape, dtype, target_object_size)
@@ -262,8 +264,8 @@ if __name__ == '__main__':
                     "~%d bytes each", base_name, shape, num_chunks, chunk_size)
         dask_info = {'dtype': dtype, 'shape': shape, 'chunks': chunks}
         ts_pbs.add(dataset, dask_info, immutable=True)
-        dsk = {k: (obj_store.put, base_name, s, (h5_store.get, dataset, s, dtype))
-               for k, s in dsk_from_chunks(chunks, copy_dataset)}
+        dsk = {k: (obj_store.put, base_name, s, (get, dataset, s, dtype))
+               for k, s in dsk_from_chunks(chunks, 'copy_' + dataset)}
         dask_graph.update(dsk)
         output_keys.extend(dsk.keys())
     with ProgressBar():

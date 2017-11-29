@@ -53,11 +53,15 @@ class NpyFileChunkStore(ChunkStore):
             raise IOError('Directory %r does not exist' % (path,))
         self.path = path
 
-    def get(self, array_name, slices, dtype=None):
+    def get(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get`."""
         chunk_name = ChunkStore.chunk_name(array_name, slices)
         filename = os.path.join(self.path, chunk_name) + '.npy'
-        return np.load(filename)
+        chunk = np.load(filename)
+        if dtype != chunk.dtype:
+            raise ValueError('Requested dtype %s differs from NPY file dtype %s'
+                             % (dtype, chunk.dtype))
+        return chunk
 
     def put(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put`."""

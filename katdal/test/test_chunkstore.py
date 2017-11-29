@@ -43,10 +43,6 @@ class TestDictOfArraysChunkStore(object):
         actual = self.store.get('y', s, np.dtype(np.float))
         desired = self.y[s]
         assert_array_equal(actual, desired, "Error getting y[%s]" % (s,))
-        s = (slice(0, 2), slice(0, 3))
-        actual = self.store.get('y', s, np.dtype(np.complex))
-        desired = self.y.view(np.complex)[..., 0][s]
-        assert_array_equal(actual, desired, "Error getting complex y[%s]" % (s,))
 
     def test_put(self):
         s = (slice(3, 5),)
@@ -55,7 +51,7 @@ class TestDictOfArraysChunkStore(object):
         desired = np.array([0, 1, 2, 0, 1])
         assert_array_equal(actual, desired, "Error putting x[%s]" % (s,))
         s = (slice(0, 2), slice(0, 3))
-        self.store.put('y', s, np.zeros((2, 3), dtype=np.complex))
+        self.store.put('y', s, np.zeros((2, 3, 2), dtype=np.dtype(np.float)))
         actual = self.y[:2, :3, :]
         desired = np.zeros((2, 3, 2))
-        assert_array_equal(actual, desired, "Error putting complex y[%s]" % (s,))
+        assert_array_equal(actual, desired, "Error putting y[%s]" % (s,))
