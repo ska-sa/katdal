@@ -17,6 +17,7 @@
 """A store of chunks (i.e. N-dimensional arrays) based on the Amazon S3 API."""
 
 import io
+import contextlib
 
 import numpy as np
 try:
@@ -74,22 +75,16 @@ class S3ChunkStore(ChunkStore):
         chunk_name = ChunkStore.chunk_name(array_name, slices)
         bucket, key = ChunkStore.split(chunk_name, 1)
         response = self.client.get_object(Bucket=bucket, Key=key)
-        stream = response['Body']
-        # Read data buffer and convert to ndarray without further copying
-        data_str = stream.read()
-        stream.close()
+        with contextlib.closing(response['Body']) as stream:
+            data_str = stream.read()
         return np.ndarray(shape, dtype, data_str)
 
     def put(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put`."""
         chunk_name = ChunkStore.chunk_name(array_name, slices)
         bucket, key = ChunkStore.split(chunk_name, 1)
-        # Only copy the data buffer if array is discontiguous
-        if chunk.flags.contiguous:
-            data = io.BytesIO(chunk.data)
-        else:
-            data = chunk.tobytes()
-        self.client.put_object(Bucket=bucket, Key=key, Body=data)
+        data_str = chunk.tobytes()
+        self.client.put_object(Bucket=bucket, Key=key, Body=data_str)
 
     get.__doc__ = ChunkStore.get.__doc__
     put.__doc__ = ChunkStore.put.__doc__

@@ -57,7 +57,7 @@ class NpyFileChunkStore(ChunkStore):
         """See the docstring of :meth:`ChunkStore.get`."""
         chunk_name = ChunkStore.chunk_name(array_name, slices)
         filename = os.path.join(self.path, chunk_name) + '.npy'
-        chunk = np.load(filename)
+        chunk = np.load(filename, allow_pickle=False)
         if dtype != chunk.dtype:
             raise ValueError('Requested dtype %s differs from NPY file dtype %s'
                              % (dtype, chunk.dtype))
@@ -68,10 +68,13 @@ class NpyFileChunkStore(ChunkStore):
         chunk_name = ChunkStore.chunk_name(array_name, slices)
         filename = os.path.join(self.path, chunk_name) + '.npy'
         # Ensure any subdirectories are in place
-        dirname, _ = os.path.split(filename)
-        if not os.path.isdir(dirname):
-            os.makedirs(dirname)
-        np.save(filename, chunk)
+        try:
+            os.makedirs(os.path.dirname(filename))
+        except OSError as e:
+            # Be happy if someone already created the path
+            if e.errno != os.errno.EEXIST:
+                raise
+        np.save(filename, chunk, allow_pickle=False)
 
     get.__doc__ = ChunkStore.get.__doc__
     put.__doc__ = ChunkStore.put.__doc__
