@@ -20,56 +20,53 @@ import tempfile
 import shutil
 import subprocess
 import time
+import re
 
 import numpy as np
 from numpy.testing import assert_array_equal
 from nose import SkipTest
-from nose.tools import assert_raises
-import requests
 
-import katdal.chunkstore_s3
 from katdal.chunkstore_s3 import S3ChunkStore
 
 
 class TestS3ChunkStore(object):
-    def setup(self):
-        """Start Fake S3 service running on temp dir, and ChunkStore on that."""
-        self.tempdir = tempfile.mkdtemp()
-        host = 'localhost'
-        # Choose a random port and hope it's available
-        port = np.random.randint(10000, 60000)
-        url = "http://%s:%d" % (host, port)
+    def start_fakes3(self, host):
+        """Start Fake S3 service as `host` and return its URL."""
         try:
-            self.fakes3 = subprocess.Popen(['fakes3', 'server', '-H', host,
-                                            '-p', str(port), '-r', self.tempdir])
+            # Port number is automatically assigned
+            self.fakes3 = subprocess.Popen(['fakes3', 'server',
+                                            '-r', self.tempdir, '-p', '0',
+                                            '-a', host, '-H', host],
+                                           stdout=subprocess.PIPE,
+                                           stderr=subprocess.PIPE, bufsize=1)
         except OSError:
-            self.fakes3 = None
-            self.teardown()
             raise SkipTest('Could not start fakes3 server (is it installed?)')
         start = time.time()
         # Give up after waiting a few seconds for Fake S3
-        while time.time() - start <= 10:
-            try:
-                response = requests.get(url, timeout=0.5)
-            except requests.exceptions.ConnectionError:
-                time.sleep(0.3)
-            else:
-                # In case there is already another service on this port (even S3)
-                if response.reason == 'OK':
-                    break
-                else:
-                    self.teardown()
-                    raise SkipTest('Unexpected response from fakes3 server')
-        else:
-            self.teardown()
-            raise SkipTest('Could not connect to fakes3 server')
-        # Now start up store
+        while time.time() - start <= 5:
+            # Look for assigned port number in fakes3 stderr output
+            line = self.fakes3.stderr.readline().strip()
+            ports_found = re.search(r' port=(\d{4,5})$', line)
+            if ports_found:
+                port = ports_found.groups()[0]
+                return 'http://%s:%s' % (host, port)
+        raise SkipTest('Could not connect to fakes3 server')
+
+    def setup(self):
+        """Start Fake S3 service running on temp dir, and ChunkStore on that."""
+        self.tempdir = tempfile.mkdtemp()
+        self.fakes3 = None
         self.x = np.arange(10)
         self.y = np.arange(24.).reshape(4, 3, 2)
         try:
-            self.store = S3ChunkStore(url)
-        except ImportError:
-            raise SkipTest('S3 botocore dependency not installed')
+            url = self.start_fakes3('localhost')
+            try:
+                self.store = S3ChunkStore(url)
+            except ImportError:
+                raise SkipTest('S3 botocore dependency not installed')
+        except Exception:
+            self.teardown()
+            raise
 
     def teardown(self):
         if self.fakes3:
@@ -80,13 +77,6 @@ class TestS3ChunkStore(object):
     def array_name(self, path):
         bucket = 'katdal-unittest'
         return self.store.join(bucket, path)
-
-    def test_store(self):
-        # Pretend that botocore is not installed
-        real_botocore = katdal.chunkstore_s3.botocore
-        katdal.chunkstore_s3.botocore = None
-        assert_raises(ImportError, S3ChunkStore, 'blah')
-        katdal.chunkstore_s3.botocore = real_botocore
 
     def test_put_and_get(self):
         s = (slice(3, 5),)

@@ -16,7 +16,6 @@
 
 """A store of chunks (i.e. N-dimensional arrays) based on the Amazon S3 API."""
 
-import io
 import contextlib
 
 import numpy as np
