@@ -44,20 +44,23 @@ class NpyFileChunkStore(ChunkStore):
 
     Raises
     ------
-    IOError
+    OSError
         If path does not exist / is not readable
     """
 
     def __init__(self, path):
         if not os.path.isdir(path):
-            raise IOError('Directory %r does not exist' % (path,))
+            raise OSError('Directory %r does not exist' % (path,))
         self.path = path
 
     def get(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get`."""
         chunk_name = ChunkStore.chunk_name(array_name, slices)
         filename = os.path.join(self.path, chunk_name) + '.npy'
-        chunk = np.load(filename, allow_pickle=False)
+        try:
+            chunk = np.load(filename, allow_pickle=False)
+        except IOError as e:
+            raise OSError(e)
         if dtype != chunk.dtype:
             raise ValueError('Requested dtype %s differs from NPY file dtype %s'
                              % (dtype, chunk.dtype))
@@ -74,7 +77,10 @@ class NpyFileChunkStore(ChunkStore):
             # Be happy if someone already created the path
             if e.errno != os.errno.EEXIST:
                 raise
-        np.save(filename, chunk, allow_pickle=False)
+        try:
+            np.save(filename, chunk, allow_pickle=False)
+        except IOError as e:
+            raise OSError(e)
 
     get.__doc__ = ChunkStore.get.__doc__
     put.__doc__ = ChunkStore.put.__doc__

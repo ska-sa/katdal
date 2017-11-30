@@ -26,8 +26,17 @@ except ImportError:
 else:
     import botocore.config
     import botocore.session
+    from botocore.exceptions import EndpointConnectionError, ClientError
 
 from .chunkstore import ChunkStore
+
+
+@contextlib.contextmanager
+def _convert_botocore_errors():
+    try:
+        yield
+    except (EndpointConnectionError, ClientError) as e:
+        raise OSError(e)
 
 
 class S3ChunkStore(ChunkStore):
@@ -57,6 +66,8 @@ class S3ChunkStore(ChunkStore):
     ------
     ImportError
         If botocore is not installed (it's an optional dependency otherwise)
+    OSError
+        If S3 server interaction failed (it's down, authentication failed, etc)
     """
 
     def __init__(self, url):
@@ -67,13 +78,17 @@ class S3ChunkStore(ChunkStore):
                                         s3={'addressing_style': 'path'})
         self.client = session.create_client(service_name='s3',
                                             endpoint_url=url, config=config)
+        # Quick smoke test to see if the S3 server is available
+        with _convert_botocore_errors():
+            self.client.list_buckets()
 
     def get(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get`."""
         shape = tuple([s.stop - s.start for s in slices])
         chunk_name = ChunkStore.chunk_name(array_name, slices)
         bucket, key = ChunkStore.split(chunk_name, 1)
-        response = self.client.get_object(Bucket=bucket, Key=key)
+        with _convert_botocore_errors():
+            response = self.client.get_object(Bucket=bucket, Key=key)
         with contextlib.closing(response['Body']) as stream:
             data_str = stream.read()
         return np.ndarray(shape, dtype, data_str)
@@ -83,7 +98,8 @@ class S3ChunkStore(ChunkStore):
         chunk_name = ChunkStore.chunk_name(array_name, slices)
         bucket, key = ChunkStore.split(chunk_name, 1)
         data_str = chunk.tobytes()
-        self.client.put_object(Bucket=bucket, Key=key, Body=data_str)
+        with _convert_botocore_errors():
+            self.client.put_object(Bucket=bucket, Key=key, Body=data_str)
 
     get.__doc__ = ChunkStore.get.__doc__
     put.__doc__ = ChunkStore.put.__doc__

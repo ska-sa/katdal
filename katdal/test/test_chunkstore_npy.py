@@ -38,7 +38,7 @@ class TestNpyFileChunkStore(object):
         shutil.rmtree(self.tempdir)
 
     def test_store(self):
-        assert_raises(IOError, NpyFileChunkStore, 'hahahahaha')
+        assert_raises(OSError, NpyFileChunkStore, 'hahahahaha')
 
     def test_put_and_get(self):
         s = (slice(3, 5),)

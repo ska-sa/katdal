@@ -30,12 +30,11 @@ class TestRadosChunkStore(object):
         self.x = np.arange(10)
         self.y = np.arange(24.).reshape(4, 3, 2)
         # Test configuration on seekat cluster (run this on appropriate machine!)
-        conf = '/etc/ceph/seekat.conf'
+        conf = '/etc/ceph/ceph.conf'
         pool = 'test_katdal'
-        keyring = '/home/kat/.ceph/seekat.client.admin.keyring'
         try:
-            self.store = RadosChunkStore(conf, pool, keyring)
-        except (ImportError, OSError, IOError):
+            self.store = RadosChunkStore(conf, pool)
+        except (ImportError, OSError):
             raise SkipTest('Rados not installed or cluster misconfigured / down')
 
     def array_name(self, path):

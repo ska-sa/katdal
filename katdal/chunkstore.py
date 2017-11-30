@@ -57,6 +57,8 @@ class ChunkStore(object):
 
         Raises
         ------
+        OSError
+            If requested chunk was not found in store (or connection failed)
         ValueError
             If requested `dtype` does not match underlying parent array dtype
         """
@@ -107,7 +109,11 @@ class DictChunkStore(ChunkStore):
 
     def get(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get`."""
-        chunk = self.arrays[array_name][slices]
+        try:
+            chunk = self.arrays[array_name][slices]
+        except KeyError:
+            raise OSError('Array %r not found in DictChunkStore which has %s' %
+                          (array_name, self.arrays.keys()))
         if dtype != chunk.dtype:
             raise ValueError('Requested dtype %s differs from chunk dtype %s'
                              % (dtype, chunk.dtype))

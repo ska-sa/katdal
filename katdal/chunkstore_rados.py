@@ -16,6 +16,8 @@
 
 """A store of chunks (i.e. N-dimensional arrays) based on the Ceph RADOS API."""
 
+import contextlib
+
 import numpy as np
 try:
     import rados
@@ -24,6 +26,14 @@ except ImportError:
     rados = None
 
 from .chunkstore import ChunkStore
+
+
+@contextlib.contextmanager
+def _convert_rados_errors():
+    try:
+        yield
+    except rados.ObjectNotFound as e:
+        raise OSError(e)
 
 
 class RadosChunkStore(ChunkStore):
@@ -51,9 +61,7 @@ class RadosChunkStore(ChunkStore):
     ImportError
         If rados is not installed (it's an optional dependency otherwise)
     OSError
-        If connection to Ceph cluster failed (e.g. bad config or cluster down)
-    IOError
-        If requested Ceph pool is not available in cluster
+        If connection to Ceph cluster failed or pool is not available
     """
 
     def __init__(self, conf, pool, keyring=None):
@@ -65,26 +73,25 @@ class RadosChunkStore(ChunkStore):
             cluster = rados.Rados(conffile=conf)
         if keyring:
             cluster.conf_set('keyring', keyring)
-        cluster.connect()
-        available_pools = cluster.list_pools()
-        if pool not in available_pools:
-            raise IOError("Specified pool %s not available in this cluster (%s)"
-                          % (pool, available_pools))
-        self.ioctx = cluster.open_ioctx(pool)
+        with _convert_rados_errors():
+            cluster.connect()
+            self.ioctx = cluster.open_ioctx(pool)
 
     def get(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get`."""
         shape = tuple([s.stop - s.start for s in slices])
         key = ChunkStore.chunk_name(array_name, slices)
         num_bytes = np.prod(shape) * dtype.itemsize
-        data_str = self.ioctx.read(key, num_bytes)
+        with _convert_rados_errors():
+            data_str = self.ioctx.read(key, num_bytes)
         return np.ndarray(shape, dtype, data_str)
 
     def put(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put`."""
         key = ChunkStore.chunk_name(array_name, slices)
         data_str = chunk.tobytes()
-        self.ioctx.write_full(key, data_str)
+        with _convert_rados_errors():
+            self.ioctx.write_full(key, data_str)
 
     get.__doc__ = ChunkStore.get.__doc__
     put.__doc__ = ChunkStore.put.__doc__
