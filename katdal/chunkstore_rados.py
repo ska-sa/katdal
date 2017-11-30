@@ -32,7 +32,7 @@ from .chunkstore import ChunkStore
 def _convert_rados_errors():
     try:
         yield
-    except rados.ObjectNotFound as e:
+    except (rados.TimedOut, rados.ObjectNotFound) as e:
         raise OSError(e)
 
 
@@ -55,6 +55,8 @@ class RadosChunkStore(ChunkStore):
         Name of the Ceph pool
     keyring : string, optional
         Path to the client keyring file (if not provided by `conf` or override)
+    timeout : float, optional
+        RADOS client timeout, in seconds (set to None to leave unchanged)
 
     Raises
     ------
@@ -64,7 +66,7 @@ class RadosChunkStore(ChunkStore):
         If connection to Ceph cluster failed or pool is not available
     """
 
-    def __init__(self, conf, pool, keyring=None):
+    def __init__(self, conf, pool, keyring=None, timeout=5.):
         if not rados:
             raise ImportError('Please install rados for katdal RADOS support')
         if isinstance(conf, dict):
@@ -73,6 +75,8 @@ class RadosChunkStore(ChunkStore):
             cluster = rados.Rados(conffile=conf)
         if keyring:
             cluster.conf_set('keyring', keyring)
+        if timeout is not None:
+            cluster.conf_set('client mount timeout', str(timeout))
         with _convert_rados_errors():
             cluster.connect()
             self.ioctx = cluster.open_ioctx(pool)
