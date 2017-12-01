@@ -33,9 +33,9 @@ class NpyFileChunkStore(ChunkStore):
     "<array>" is the name of the parent array of the chunk and "<idx>" is
     the index string of each chunk (e.g. "00001_00512").
 
-    For a description of the ``.npy`` format, see the module docstring
-    of `numpy.lib.format` or the NumPy Enhancement Proposal
-    http://docs.scipy.org/doc/numpy/neps/npy-format.html
+    For a description of the ``.npy`` format, see :py:mod:`numpy.lib.format`
+    or the relevant NumPy Enhancement Proposal
+    `here <http://docs.scipy.org/doc/numpy/neps/npy-format.html>`_.
 
     Parameters
     ----------

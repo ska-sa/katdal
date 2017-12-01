@@ -16,10 +16,6 @@
 
 """Base class for accessing a store of chunks (i.e. N-dimensional arrays)."""
 
-CHUNK_NAME_SEP = '/'
-# Width is large enough to store any dump / channel / corrprod index for MeerKAT
-CHUNK_NAME_INDEX_WIDTH = 5
-
 
 class ChunkStore(object):
     """Base class for accessing a store of chunks (i.e. N-dimensional arrays).
@@ -35,7 +31,20 @@ class ChunkStore(object):
     chunks and dtype) are stored elsewhere. The metadata is used to identify
     chunks, while the chunk store takes care of storing and retrieving
     bytestrings of actual chunk data. These are packaged back into NumPy
-    arrays for the user.
+    arrays for the user. Each array can only be stored once, with a unique
+    chunking scheme (i.e. different chunking of the same data is disallowed).
+
+    The naming scheme for arrays and chunks is reasonably generic but has
+    some restrictions:
+
+    - Names are treated like paths with components and a standard separator
+    - The chunk name is formed by appending a string of indices to the array name
+    - It is discouraged to have an array name that is a prefix of another name
+    - Each chunk store has its own restrictions on valid characters in names:
+      some treat names as URLs while others treat them as filenames. A safe
+      choice for name components should be the valid characters for S3 buckets:
+
+      VALID_BUCKET = re.compile(r'^[a-zA-Z0-9.\-_]{1,255}$')
     """
 
     def get(self, array_name, slices, dtype):
@@ -78,21 +87,25 @@ class ChunkStore(object):
         """
         raise NotImplementedError
 
-    @staticmethod
-    def join(*names):
+    NAME_SEP = '/'
+    # Width sufficient to store any dump / channel / corrprod index for MeerKAT
+    NAME_INDEX_WIDTH = 5
+
+    @classmethod
+    def join(cls, *names):
         """Join components of chunk name with supported separator."""
-        return CHUNK_NAME_SEP.join(names)
+        return cls.NAME_SEP.join(names)
 
-    @staticmethod
-    def split(name, maxsplit=-1):
+    @classmethod
+    def split(cls, name, maxsplit=-1):
         """Split chunk name into components based on supported separator."""
-        return name.split(CHUNK_NAME_SEP, maxsplit)
+        return name.split(cls.NAME_SEP, maxsplit)
 
-    @staticmethod
-    def chunk_name(array_name, slices):
+    @classmethod
+    def chunk_name(cls, array_name, slices):
         """Form chunk name from array name and `slices` chunk identifier."""
         index = [s.start for s in slices]
-        idx = '_'.join(["{:0{width}d}".format(i, width=CHUNK_NAME_INDEX_WIDTH)
+        idx = '_'.join(["{:0{width}d}".format(i, width=cls.NAME_INDEX_WIDTH)
                         for i in index])
         return ChunkStore.join(array_name, idx)
 
