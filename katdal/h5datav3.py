@@ -596,7 +596,7 @@ class H5DataV3(DataSet):
             # the most recent value.
             try:
                 return self.sensor['TelescopeState/' + key][-1]
-            except (KeyError, IndexError):
+            except (KeyError, IndexError, TypeError):
                 return default
 
     def _get_telstate_stream_attr(self, key, default=None, no_unpickle=()):
