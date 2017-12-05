@@ -168,36 +168,3 @@ class ChunkStore(object):
             raise ValueError('Chunk {!r}: Requested dtype {} cannot contain '
                              'objects'.format(chunk_name, dtype))
         return chunk_name, shape
-
-
-class DictChunkStore(ChunkStore):
-    """A store of chunks (i.e. N-dimensional arrays) based on a dict of arrays.
-
-    This interprets all keyword arguments as NumPy arrays and stores them in
-    an `arrays` dict. Each array is identified by its corresponding keyword.
-    """
-
-    def __init__(self, **kwargs):
-        self.arrays = kwargs
-
-    def get(self, array_name, slices, dtype):
-        """See the docstring of :meth:`ChunkStore.get`."""
-        chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
-        try:
-            chunk = self.arrays[array_name][slices]
-        except KeyError:
-            raise OSError('Array {!r} not found in DictChunkStore which has {}'
-                          .format(array_name, self.arrays.keys()))
-        if dtype != chunk.dtype:
-            raise ValueError('Chunk {!r}: requested dtype {} differs from '
-                             'actual dtype {}'
-                             .format(chunk_name, dtype, chunk.dtype))
-        return chunk
-
-    def put(self, array_name, slices, chunk):
-        """See the docstring of :meth:`ChunkStore.put`."""
-        self.chunk_metadata(array_name, slices, chunk=chunk)
-        self.get(array_name, slices, chunk.dtype)[:] = chunk
-
-    get.__doc__ = ChunkStore.get.__doc__
-    put.__doc__ = ChunkStore.put.__doc__
