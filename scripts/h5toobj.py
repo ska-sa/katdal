@@ -55,7 +55,7 @@ import numpy as np
 import katdal
 from katdal.chunkstore_rados import RadosChunkStore
 from katdal.chunkstore_s3 import S3ChunkStore
-from katdal.chunkstore import DictChunkStore
+from katdal.chunkstore_dict import DictChunkStore
 import katsdptelstate
 import katsdpservices
 import dask
@@ -149,9 +149,8 @@ def generate_chunks(shape, dtype, target_object_size, dims_to_split=(0, 1)):
 
 def dsk_from_chunks(chunks, out_name):
     keys = list(product([out_name], *[range(len(bds)) for bds in chunks]))
-    all_slices = da.core.slices_from_chunks(chunks)
-    for key, slices in zip(keys, all_slices):
-        yield key, slices
+    slices = da.core.slices_from_chunks(chunks)
+    return zip(keys, slices)
 
 
 if __name__ == '__main__':
@@ -246,7 +245,7 @@ if __name__ == '__main__':
         pool_stats = obj_store.ioctx.get_stats()
         logger.info("Connected to pool %s. Currently holds %d objects "
                     "totalling %g GB", args.ceph_pool,
-                    pool_stats['num_objects'], pool_stats['num_bytes'] / 2**30)
+                    pool_stats['num_objects'], pool_stats['num_bytes'] / 1e9)
         ts_pbs.add("ceph_pool", args.ceph_pool, immutable=True)
         with open(args.ceph_conf, "r") as ceph_conf:
             ts_pbs.add("ceph_conf", ceph_conf.readlines(), immutable=True)
@@ -259,9 +258,8 @@ if __name__ == '__main__':
     schedule = dask.threaded.get
     output_keys = []
     h5_store = DictChunkStore(**h5_file['Data'])
-    for dataset in h5_store.arrays:
+    for dataset, arr in h5_store.arrays.iteritems():
         dataset = str(dataset)
-        arr = h5_store.arrays[dataset]
         dtype = arr.dtype
         shape = arr.shape
         get = h5_store.get
@@ -270,14 +268,14 @@ if __name__ == '__main__':
             dtype = np.dtype(np.complex64)
             shape = shape[:-1]
             get = lambda d, s, t: h5_store.get(d, s + (slice(0, 2),),
-                                               arr.dtype).view(t)[..., 0]
+                                               np.dtype(np.float32)).view(t)[..., 0]
         base_name = obj_store.join(args.base_name, program_block, stream, dataset)
         shape = (min(shape[0], max_dumps),) + shape[1:]
         chunks = generate_chunks(shape, dtype, target_object_size)
         num_chunks = np.prod([len(c) for c in chunks])
         chunk_size = np.prod([c[0] for c in chunks]) * dtype.itemsize
-        logger.info("Splitting dataset %r with shape %s into %d chunk(s) of "
-                    "~%d bytes each", base_name, shape, num_chunks, chunk_size)
+        logger.info("Splitting dataset %r with shape %s and dtype %s into %d chunk(s) of "
+                    "~%d bytes each", base_name, shape, dtype, num_chunks, chunk_size)
         dask_info = {'dtype': dtype, 'shape': shape, 'chunks': chunks}
         ts_pbs.add(dataset, dask_info, immutable=True)
         dsk = {k: (obj_store.put, base_name, s, (get, dataset, s, dtype))
