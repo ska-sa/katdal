@@ -29,11 +29,12 @@ from .chunkstore import ChunkStore
 
 
 @contextlib.contextmanager
-def _convert_rados_errors():
+def _convert_rados_errors(chunk_name=None):
     try:
         yield
     except (rados.TimedOut, rados.ObjectNotFound) as e:
-        raise OSError(e)
+        prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
+        raise OSError(prefix + str(e))
 
 
 class RadosChunkStore(ChunkStore):
@@ -85,7 +86,7 @@ class RadosChunkStore(ChunkStore):
         """See the docstring of :meth:`ChunkStore.get`."""
         key, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         num_bytes = np.prod(shape) * dtype.itemsize
-        with _convert_rados_errors():
+        with _convert_rados_errors(key):
             data_str = self.ioctx.read(key, num_bytes)
         return np.ndarray(shape, dtype, data_str)
 
@@ -93,7 +94,7 @@ class RadosChunkStore(ChunkStore):
         """See the docstring of :meth:`ChunkStore.put`."""
         key, shape = self.chunk_name(array_name, slices, chunk=chunk)
         data_str = chunk.tobytes()
-        with _convert_rados_errors():
+        with _convert_rados_errors(key):
             self.ioctx.write_full(key, data_str)
 
     get.__doc__ = ChunkStore.get.__doc__

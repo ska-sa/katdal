@@ -32,11 +32,12 @@ from .chunkstore import ChunkStore
 
 
 @contextlib.contextmanager
-def _convert_botocore_errors():
+def _convert_botocore_errors(chunk_name=None):
     try:
         yield
     except (EndpointConnectionError, ClientError) as e:
-        raise OSError(e)
+        prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
+        raise OSError(prefix + str(e))
 
 
 class S3ChunkStore(ChunkStore):
@@ -86,7 +87,7 @@ class S3ChunkStore(ChunkStore):
         """See the docstring of :meth:`ChunkStore.get`."""
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         bucket, key = self.split(chunk_name, 1)
-        with _convert_botocore_errors():
+        with _convert_botocore_errors(chunk_name):
             response = self.client.get_object(Bucket=bucket, Key=key)
         with contextlib.closing(response['Body']) as stream:
             data_str = stream.read()
@@ -97,7 +98,7 @@ class S3ChunkStore(ChunkStore):
         chunk_name, shape = self.chunk_metadata(array_name, slices, chunk=chunk)
         bucket, key = self.split(chunk_name, 1)
         data_str = chunk.tobytes()
-        with _convert_botocore_errors():
+        with _convert_botocore_errors(chunk_name):
             self.client.put_object(Bucket=bucket, Key=key, Body=data_str)
 
     get.__doc__ = ChunkStore.get.__doc__

@@ -15,10 +15,20 @@
 ################################################################################
 
 import os
+import contextlib
 
 import numpy as np
 
 from .chunkstore import ChunkStore
+
+
+@contextlib.contextmanager
+def _convert_npy_errors(chunk_name=None):
+    try:
+        yield
+    except IOError as e:
+        prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
+        raise OSError(prefix + str(e))
 
 
 class NpyFileChunkStore(ChunkStore):
@@ -57,10 +67,8 @@ class NpyFileChunkStore(ChunkStore):
         """See the docstring of :meth:`ChunkStore.get`."""
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         filename = os.path.join(self.path, chunk_name) + '.npy'
-        try:
+        with _convert_npy_errors(chunk_name):
             chunk = np.load(filename, allow_pickle=False)
-        except IOError as e:
-            raise OSError(e)
         if dtype != chunk.dtype:
             raise ValueError('Requested dtype %s differs from NPY file dtype %s'
                              % (dtype, chunk.dtype))
@@ -77,10 +85,8 @@ class NpyFileChunkStore(ChunkStore):
             # Be happy if someone already created the path
             if e.errno != os.errno.EEXIST:
                 raise
-        try:
+        with _convert_npy_errors(chunk_name):
             np.save(filename, chunk, allow_pickle=False)
-        except IOError as e:
-            raise OSError(e)
 
     get.__doc__ = ChunkStore.get.__doc__
     put.__doc__ = ChunkStore.put.__doc__
