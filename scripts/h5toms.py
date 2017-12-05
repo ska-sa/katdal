@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 ################################################################################
-# Copyright (c) 2011-2016, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2011-2018, National Research Foundation (Square Kilometre Array)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -154,7 +154,7 @@ def corrprod_index_and_missing_mask(h5):
 
   # Identify missing correlator products
   missing_cp = np.logical_not([i is not None for i in cp_index])
-  
+
   # Now create ndarray containing all integers
   # missing_cp will be used to identify bad entries
   cp_index = np.asarray([i if i else 0 for i in cp_index])
