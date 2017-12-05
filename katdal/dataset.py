@@ -445,7 +445,7 @@ class DataSet(object):
         self.channels = np.empty(0, dtype=np.int)
 
         self.dump_period = 0.0
-        self.sensor = None
+        self.sensor = {}
         self.catalogue = katpoint.Catalogue()
         self.start_time = katpoint.Timestamp(0.0)
         self.end_time = katpoint.Timestamp(0.0)
@@ -603,7 +603,7 @@ class DataSet(object):
         if time_keep is not None:
             self._time_keep = time_keep
             # Ensure that sensor cache gets updated time selection
-            if self.sensor is not None:
+            if not self.sensor:
                 self.sensor._set_keep(self._time_keep)
         if freq_keep is not None:
             self._freq_keep = freq_keep
