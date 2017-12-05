@@ -33,6 +33,20 @@ class TestDictChunkStore(object):
         store = ChunkStore()
         assert_raises(NotImplementedError, store.get, 1, 2, 3)
         assert_raises(NotImplementedError, store.put, 1, 2, 3)
+        # Bad slice specifications
+        assert_raises(ValueError, store.chunk_metadata, "x", 3)
+        assert_raises(ValueError, store.chunk_metadata, "x", [3, 2])
+        assert_raises(ValueError, store.chunk_metadata, "x", slice(10))
+        assert_raises(ValueError, store.chunk_metadata, "x", [slice(10)])
+        assert_raises(ValueError, store.chunk_metadata, "x", [slice(0, 10, 2)])
+        # Chunk mismatch
+        assert_raises(ValueError, store.chunk_metadata, "x", [slice(0, 10, 1)],
+                      chunk=np.ones(11))
+        # Bad dtype
+        assert_raises(ValueError, store.chunk_metadata, "x", [slice(0, 10, 1)],
+                      chunk=np.array(10 * [{}]))
+        assert_raises(ValueError, store.chunk_metadata, "x", [slice(0, 2)],
+                      dtype=np.dtype(np.object))
 
     def test_get(self):
         s = (slice(3, 5),)
@@ -50,7 +64,7 @@ class TestDictChunkStore(object):
         actual = self.x[:5]
         desired = np.array([0, 1, 2, 0, 1])
         assert_array_equal(actual, desired, "Error putting x[%s]" % (s,))
-        s = (slice(0, 2), slice(0, 3))
+        s = (slice(0, 2), slice(0, 3), slice(0, 2))
         self.store.put('y', s, np.zeros((2, 3, 2), dtype=np.dtype(np.float)))
         actual = self.y[:2, :3, :]
         desired = np.zeros((2, 3, 2))

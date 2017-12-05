@@ -83,8 +83,7 @@ class RadosChunkStore(ChunkStore):
 
     def get(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get`."""
-        shape = tuple([s.stop - s.start for s in slices])
-        key = ChunkStore.chunk_name(array_name, slices)
+        key, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         num_bytes = np.prod(shape) * dtype.itemsize
         with _convert_rados_errors():
             data_str = self.ioctx.read(key, num_bytes)
@@ -92,7 +91,7 @@ class RadosChunkStore(ChunkStore):
 
     def put(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put`."""
-        key = ChunkStore.chunk_name(array_name, slices)
+        key, shape = self.chunk_name(array_name, slices, chunk=chunk)
         data_str = chunk.tobytes()
         with _convert_rados_errors():
             self.ioctx.write_full(key, data_str)

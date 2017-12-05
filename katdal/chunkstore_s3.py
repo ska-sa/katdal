@@ -84,9 +84,8 @@ class S3ChunkStore(ChunkStore):
 
     def get(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get`."""
-        shape = tuple([s.stop - s.start for s in slices])
-        chunk_name = ChunkStore.chunk_name(array_name, slices)
-        bucket, key = ChunkStore.split(chunk_name, 1)
+        chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
+        bucket, key = self.split(chunk_name, 1)
         with _convert_botocore_errors():
             response = self.client.get_object(Bucket=bucket, Key=key)
         with contextlib.closing(response['Body']) as stream:
@@ -95,8 +94,8 @@ class S3ChunkStore(ChunkStore):
 
     def put(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put`."""
-        chunk_name = ChunkStore.chunk_name(array_name, slices)
-        bucket, key = ChunkStore.split(chunk_name, 1)
+        chunk_name, shape = self.chunk_metadata(array_name, slices, chunk=chunk)
+        bucket, key = self.split(chunk_name, 1)
         data_str = chunk.tobytes()
         with _convert_botocore_errors():
             self.client.put_object(Bucket=bucket, Key=key, Body=data_str)

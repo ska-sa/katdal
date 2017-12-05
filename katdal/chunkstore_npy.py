@@ -55,7 +55,7 @@ class NpyFileChunkStore(ChunkStore):
 
     def get(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get`."""
-        chunk_name = ChunkStore.chunk_name(array_name, slices)
+        chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         filename = os.path.join(self.path, chunk_name) + '.npy'
         try:
             chunk = np.load(filename, allow_pickle=False)
@@ -68,7 +68,7 @@ class NpyFileChunkStore(ChunkStore):
 
     def put(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put`."""
-        chunk_name = ChunkStore.chunk_name(array_name, slices)
+        chunk_name, shape = self.chunk_metadata(array_name, slices, chunk=chunk)
         filename = os.path.join(self.path, chunk_name) + '.npy'
         # Ensure any subdirectories are in place
         try:
