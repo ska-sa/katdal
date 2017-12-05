@@ -603,7 +603,7 @@ class DataSet(object):
         if time_keep is not None:
             self._time_keep = time_keep
             # Ensure that sensor cache gets updated time selection
-            if not self.sensor:
+            if self.sensor:
                 self.sensor._set_keep(self._time_keep)
         if freq_keep is not None:
             self._freq_keep = freq_keep
