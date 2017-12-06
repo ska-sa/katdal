@@ -17,20 +17,10 @@
 """A store of chunks (i.e. N-dimensional arrays) based on NPY files."""
 
 import os
-import contextlib
 
 import numpy as np
 
-from .chunkstore import ChunkStore
-
-
-@contextlib.contextmanager
-def _convert_npy_errors(chunk_name=None):
-    try:
-        yield
-    except IOError as e:
-        prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
-        raise OSError(prefix + str(e))
+from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound
 
 
 class NpyFileChunkStore(ChunkStore):
@@ -61,15 +51,16 @@ class NpyFileChunkStore(ChunkStore):
     """
 
     def __init__(self, path):
+        super(NpyFileChunkStore, self).__init__({IOError: ChunkNotFound})
         if not os.path.isdir(path):
-            raise OSError('Directory %r does not exist' % (path,))
+            raise StoreUnavailable('Directory %r does not exist' % (path,))
         self.path = path
 
     def get(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get`."""
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         filename = os.path.join(self.path, chunk_name) + '.npy'
-        with _convert_npy_errors(chunk_name):
+        with self._standard_errors(chunk_name):
             chunk = np.load(filename, allow_pickle=False)
         if dtype != chunk.dtype:
             raise ValueError('Requested dtype %s differs from NPY file dtype %s'
@@ -87,7 +78,7 @@ class NpyFileChunkStore(ChunkStore):
             # Be happy if someone already created the path
             if e.errno != os.errno.EEXIST:
                 raise
-        with _convert_npy_errors(chunk_name):
+        with self._standard_errors(chunk_name):
             np.save(filename, chunk, allow_pickle=False)
 
     get.__doc__ = ChunkStore.get.__doc__

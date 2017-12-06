@@ -19,15 +19,18 @@
 import numpy as np
 from nose.tools import assert_raises
 
-from katdal.chunkstore import ChunkStore
+from katdal.chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound
 
 
 class TestChunkStore(object):
 
-    def test_store(self):
+    def test_get_put(self):
         store = ChunkStore()
         assert_raises(NotImplementedError, store.get, 1, 2, 3)
         assert_raises(NotImplementedError, store.put, 1, 2, 3)
+
+    def test_metadata_validation(self):
+        store = ChunkStore()
         # Bad slice specifications
         assert_raises(ValueError, store.chunk_metadata, "x", 3)
         assert_raises(ValueError, store.chunk_metadata, "x", [3, 2])
@@ -42,3 +45,14 @@ class TestChunkStore(object):
                       chunk=np.array(10 * [{}]))
         assert_raises(ValueError, store.chunk_metadata, "x", [slice(0, 2)],
                       dtype=np.dtype(np.object))
+
+    def test_standard_errors(self):
+        error_map = {ZeroDivisionError: StoreUnavailable,
+                     KeyError: ChunkNotFound}
+        store = ChunkStore(error_map)
+        with assert_raises(StoreUnavailable):
+            with store._standard_errors():
+                1 / 0
+        with assert_raises(ChunkNotFound):
+            with store._standard_errors():
+                {}['ha']

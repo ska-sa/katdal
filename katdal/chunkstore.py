@@ -16,6 +16,17 @@
 
 """Base class for accessing a store of chunks (i.e. N-dimensional arrays)."""
 
+import contextlib
+
+
+class StoreUnavailable(OSError):
+    """The interaction with the underlying storage medium failed, e.g. due
+       to it being offline, authentication failure, misconfiguration, etc."""
+
+
+class ChunkNotFound(KeyError):
+    """The store was accessible but a chunk with the given name was not found."""
+
 
 class ChunkStore(object):
     """Base class for accessing a store of chunks (i.e. N-dimensional arrays).
@@ -45,7 +56,17 @@ class ChunkStore(object):
       choice for name components should be the valid characters for S3 buckets:
 
       VALID_BUCKET = re.compile(r'^[a-zA-Z0-9.\-_]{1,255}$')
+
+    Parameters
+    ----------
+    error_map : dict mapping :class:`Exception` to :class:`Exception`, optional
+        Dict that maps store-specific errors to standard ChunkStore errors
     """
+
+    def __init__(self, error_map=None):
+        if error_map is None:
+            error_map = {OSError: StoreUnavailable, KeyError: ChunkNotFound}
+        self._error_map = error_map
 
     def get(self, array_name, slices, dtype):
         """Get chunk from the store.
@@ -69,8 +90,10 @@ class ChunkStore(object):
         ValueError
             If requested `dtype` does not match underlying parent array dtype
             or `slices` has wrong specification
-        OSError
-            If requested chunk was not found in store (or connection failed)
+        :exc:`chunkstore.StoreUnavailable`
+            If interaction with chunk store failed (offline, bad auth, bad config)
+        :exc:`chunkstore.ChunkNotFound`
+            If requested chunk was not found in store
         """
         raise NotImplementedError
 
@@ -90,8 +113,10 @@ class ChunkStore(object):
         ------
         ValueError
             If `slices` is wrong or its shape does not match that of `chunk`
-        OSError
-            If connection to store failed (or `array_name` is incompatible)
+        :exc:`chunkstore.StoreUnavailable`
+            If interaction with chunk store failed (offline, bad auth, bad config)
+        :exc:`chunkstore.ChunkNotFound`
+            If `array_name` is incompatible with store
         """
         raise NotImplementedError
 
@@ -168,3 +193,22 @@ class ChunkStore(object):
             raise ValueError('Chunk {!r}: Requested dtype {} cannot contain '
                              'objects'.format(chunk_name, dtype))
         return chunk_name, shape
+
+    @contextlib.contextmanager
+    def _standard_errors(self, chunk_name=None):
+        """Catch store-specific errors and turn them into standard errors.
+
+        This uses the internal error map to remap store-specific exceptions
+        to standard ChunkStore ones.
+
+        Parameters
+        ----------
+        chunk_name : string, optional
+            Full chunk name, used as prefix to error message if available
+        """
+        try:
+            yield
+        except tuple(self._error_map) as e:
+            ChunkStoreError = self._error_map[type(e)]
+            prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
+            raise ChunkStoreError(prefix + str(e))

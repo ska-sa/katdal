@@ -16,7 +16,7 @@
 
 """A store of chunks (i.e. N-dimensional arrays) based on a dict of arrays."""
 
-from .chunkstore import ChunkStore
+from .chunkstore import ChunkStore, ChunkNotFound
 
 
 class DictChunkStore(ChunkStore):
@@ -24,19 +24,22 @@ class DictChunkStore(ChunkStore):
 
     This interprets all keyword arguments as NumPy arrays and stores them in
     an `arrays` dict. Each array is identified by its corresponding keyword.
+    New arrays cannot be added via :meth:`put` - they all need to be in place
+    at store initialisation (or can be added afterwards via direct insertion
+    into the `arrays` dict). The `put` method is only useful for in-place
+    modification of existing arrays.
     """
 
     def __init__(self, **kwargs):
+        error_map = {KeyError: ChunkNotFound, IndexError: ChunkNotFound}
+        super(DictChunkStore, self).__init__(error_map)
         self.arrays = kwargs
 
     def get(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get`."""
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
-        try:
+        with self._standard_errors(chunk_name):
             chunk = self.arrays[array_name][slices]
-        except KeyError:
-            raise OSError('Array {!r} not found in DictChunkStore which has {}'
-                          .format(array_name, self.arrays.keys()))
         if dtype != chunk.dtype:
             raise ValueError('Chunk {!r}: requested dtype {} differs from '
                              'actual dtype {}'

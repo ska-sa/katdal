@@ -26,18 +26,9 @@ except ImportError:
 else:
     import botocore.config
     import botocore.session
-    from botocore.exceptions import EndpointConnectionError, ClientError
+    from botocore.exceptions import EndpointConnectionError
 
-from .chunkstore import ChunkStore
-
-
-@contextlib.contextmanager
-def _convert_botocore_errors(chunk_name=None):
-    try:
-        yield
-    except (EndpointConnectionError, ClientError) as e:
-        prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
-        raise OSError(prefix + str(e))
+from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound
 
 
 class S3ChunkStore(ChunkStore):
@@ -74,20 +65,26 @@ class S3ChunkStore(ChunkStore):
     def __init__(self, url):
         if not botocore:
             raise ImportError('Please install botocore for katdal S3 support')
+        error_map = {EndpointConnectionError: StoreUnavailable,
+                     ValueError: StoreUnavailable}
+        super(S3ChunkStore, self).__init__(error_map)
         session = botocore.session.get_session()
         config = botocore.config.Config(max_pool_connections=200,
                                         s3={'addressing_style': 'path'})
-        self.client = session.create_client(service_name='s3',
-                                            endpoint_url=url, config=config)
-        # Quick smoke test to see if the S3 server is available
-        with _convert_botocore_errors():
+        with self._standard_errors():
+            self.client = session.create_client(service_name='s3',
+                                                endpoint_url=url, config=config)
+            # Quick smoke test to see if the S3 server is available
             self.client.list_buckets()
+        # Add dynamically generated exceptions after client is built
+        self._error_map[self.client.exceptions.NoSuchKey] = ChunkNotFound
+        self._error_map[self.client.exceptions.NoSuchBucket] = ChunkNotFound
 
     def get(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get`."""
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         bucket, key = self.split(chunk_name, 1)
-        with _convert_botocore_errors(chunk_name):
+        with self._standard_errors(chunk_name):
             response = self.client.get_object(Bucket=bucket, Key=key)
         with contextlib.closing(response['Body']) as stream:
             data_str = stream.read()
@@ -98,7 +95,7 @@ class S3ChunkStore(ChunkStore):
         chunk_name, shape = self.chunk_metadata(array_name, slices, chunk=chunk)
         bucket, key = self.split(chunk_name, 1)
         data_str = chunk.tobytes()
-        with _convert_botocore_errors(chunk_name):
+        with self._standard_errors(chunk_name):
             self.client.put_object(Bucket=bucket, Key=key, Body=data_str)
 
     get.__doc__ = ChunkStore.get.__doc__

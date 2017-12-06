@@ -16,8 +16,6 @@
 
 """A store of chunks (i.e. N-dimensional arrays) based on the Ceph RADOS API."""
 
-import contextlib
-
 import numpy as np
 try:
     import rados
@@ -25,16 +23,7 @@ except ImportError:
     # librados (i.e. direct Ceph access) is only really available on Linux
     rados = None
 
-from .chunkstore import ChunkStore
-
-
-@contextlib.contextmanager
-def _convert_rados_errors(chunk_name=None):
-    try:
-        yield
-    except (rados.TimedOut, rados.ObjectNotFound) as e:
-        prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
-        raise OSError(prefix + str(e))
+from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound
 
 
 class RadosChunkStore(ChunkStore):
@@ -70,6 +59,10 @@ class RadosChunkStore(ChunkStore):
     def __init__(self, conf, pool, keyring=None, timeout=5.):
         if not rados:
             raise ImportError('Please install rados for katdal RADOS support')
+        # At the start, a missing config file also triggers ObjectNotFound
+        error_map = {rados.TimedOut: StoreUnavailable,
+                     rados.ObjectNotFound: StoreUnavailable}
+        super(RadosChunkStore, self).__init__(error_map)
         if isinstance(conf, dict):
             cluster = rados.Rados(conf=conf)
         else:
@@ -78,15 +71,17 @@ class RadosChunkStore(ChunkStore):
             cluster.conf_set('keyring', keyring)
         if timeout is not None:
             cluster.conf_set('client mount timeout', str(timeout))
-        with _convert_rados_errors():
+        with self._standard_errors():
             cluster.connect()
             self.ioctx = cluster.open_ioctx(pool)
+        # From now on, ObjectNotFound refers to RADOS objects i.e. chunks
+        self._error_map[rados.ObjectNotFound] = ChunkNotFound
 
     def get(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get`."""
         key, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         num_bytes = np.prod(shape) * dtype.itemsize
-        with _convert_rados_errors(key):
+        with self._standard_errors(key):
             data_str = self.ioctx.read(key, num_bytes)
         return np.ndarray(shape, dtype, data_str)
 
@@ -94,7 +89,7 @@ class RadosChunkStore(ChunkStore):
         """See the docstring of :meth:`ChunkStore.put`."""
         key, shape = self.chunk_name(array_name, slices, chunk=chunk)
         data_str = chunk.tobytes()
-        with _convert_rados_errors(key):
+        with self._standard_errors(key):
             self.ioctx.write_full(key, data_str)
 
     get.__doc__ = ChunkStore.get.__doc__
