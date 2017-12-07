@@ -62,9 +62,18 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         try:
             url = self.start_fakes3('localhost')
             try:
-                self.store = S3ChunkStore(url)
+                self.store = S3ChunkStore.from_url(url)
             except ImportError:
                 raise SkipTest('S3 botocore dependency not installed')
+            except StoreUnavailable:
+                # Simplified client setup with dummy authentication keys,
+                # useful for Jenkins that doesn't have any S3 credentials
+                session = botocore.session.get_session()
+                client = session.create_client(service_name='s3',
+                                               endpoint_url=url,
+                                               aws_access_key_id='blah',
+                                               aws_secret_access_key='blah')
+                self.store = S3ChunkStore(client)
         except Exception:
             self.teardown()
             raise
@@ -88,4 +97,4 @@ class TestDudS3ChunkStore(object):
             raise SkipTest('S3 botocore dependency not installed')
 
     def test_store_unavailable(self):
-        assert_raises(StoreUnavailable, S3ChunkStore, 'hahahahahaha')
+        assert_raises(StoreUnavailable, S3ChunkStore.from_url, 'hahahahahaha')

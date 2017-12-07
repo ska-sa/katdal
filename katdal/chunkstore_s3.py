@@ -26,7 +26,7 @@ except ImportError:
 else:
     import botocore.config
     import botocore.session
-    from botocore.exceptions import EndpointConnectionError
+    from botocore.exceptions import EndpointConnectionError, NoCredentialsError
 
 from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk
 
@@ -34,51 +34,65 @@ from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk
 class S3ChunkStore(ChunkStore):
     """A store of chunks (i.e. N-dimensional arrays) based on the Amazon S3 API.
 
-    S3 authentication (i.e. the access + secret keys) is handled externally
-    via the botocore config file or environment variables. The full identifier
-    of each chunk (the "chunk name") is given by
-
-      "<bucket>/<path>/<idx>"
-
-    where "<bucket>" refers to the relevant S3 bucket, "<bucket>/<path>" is the
-    name of the parent array of the chunk and "<idx>" is the index string
-    of each chunk (e.g. "00001_00512"). The corresponding S3 key string of
-    a chunk is therefore "<path>/<idx>".
-
     This object encapsulates the S3 client / session and its underlying
     connection pool, which allows subsequent get and put calls to share the
     connections.
 
+    The full identifier of each chunk (the "chunk name") is given by
+
+      "<bucket>/<path>/<idx>"
+
+    where "<bucket>" refers to the relevant S3 bucket, "<bucket>/<path>" is
+    the name of the parent array of the chunk and "<idx>" is the index string
+    of each chunk (e.g. "00001_00512"). The corresponding S3 key string of
+    a chunk is therefore "<path>/<idx>".
+
     Parameters
     ----------
-    url : string
-        Endpoint of S3 service, e.g. 'http://127.0.0.1:9000'
-
-    Raises
-    ------
-    ImportError
-        If botocore is not installed (it's an optional dependency otherwise)
-    :exc:`chunkstore.StoreUnavailable`
-        If S3 server interaction failed (it's down, authentication failed, etc)
+    client : :class:`botocore.client.S3` object
+        Pre-configured botocore S3 client
     """
 
-    def __init__(self, url):
+    def __init__(self, client):
+        error_map = {EndpointConnectionError: StoreUnavailable,
+                     client.exceptions.NoSuchKey: ChunkNotFound,
+                     client.exceptions.NoSuchBucket: ChunkNotFound}
+        super(S3ChunkStore, self).__init__(error_map)
+        self.client = client
+
+    @classmethod
+    def from_url(cls, url):
+        """Construct S3 chunk store from endpoint URL.
+
+        S3 authentication (i.e. the access + secret keys) is handled externally
+        via the botocore config file or environment variables.
+
+        Parameters
+        ----------
+        url : string
+            Endpoint of S3 service, e.g. 'http://127.0.0.1:9000'
+
+        Raises
+        ------
+        ImportError
+            If botocore is not installed (it's an optional dependency otherwise)
+        :exc:`chunkstore.StoreUnavailable`
+            If S3 server interaction failed (it's down, no authentication, etc)
+        """
         if not botocore:
             raise ImportError('Please install botocore for katdal S3 support')
-        error_map = {EndpointConnectionError: StoreUnavailable,
-                     ValueError: StoreUnavailable}
-        super(S3ChunkStore, self).__init__(error_map)
         session = botocore.session.get_session()
         config = botocore.config.Config(max_pool_connections=200,
                                         s3={'addressing_style': 'path'})
-        with self._standard_errors():
-            self.client = session.create_client(service_name='s3',
-                                                endpoint_url=url, config=config)
+        error_map = {EndpointConnectionError: StoreUnavailable,
+                     NoCredentialsError: StoreUnavailable,
+                     ValueError: StoreUnavailable}
+        with ChunkStore(error_map)._standard_errors():
+            client = session.create_client(service_name='s3',
+                                           endpoint_url=url, config=config)
             # Quick smoke test to see if the S3 server is available
-            self.client.list_buckets()
-        # Add dynamically generated exceptions after client is built
-        self._error_map[self.client.exceptions.NoSuchKey] = ChunkNotFound
-        self._error_map[self.client.exceptions.NoSuchBucket] = ChunkNotFound
+            client.list_buckets()
+        return cls(client)
 
     def get(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get`."""

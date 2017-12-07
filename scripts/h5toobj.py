@@ -250,7 +250,7 @@ if __name__ == '__main__':
         with open(args.ceph_conf, "r") as ceph_conf:
             ts_pbs.add("ceph_conf", ceph_conf.readlines(), immutable=True)
     else:
-        obj_store = S3ChunkStore(args.s3_url)
+        obj_store = S3ChunkStore.from_url(args.s3_url)
         ts_pbs.add("s3_endpoint", args.s3_url, immutable=True)
 
     target_object_size = args.obj_size * 2 ** 20

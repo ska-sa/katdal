@@ -86,7 +86,7 @@ class ChunkStoreTestBase(object):
         self.store.put(name, s, desired)
         actual = self.store.get(name, s, desired.dtype)
         assert_array_equal(actual, desired, "Error storing x[%s]" % (s,))
-        # Try a different, larger dtype
+        # Stored object has fewer bytes than expected (and wrong dtype)
         assert_raises(BadChunk, self.store.get, name, s, self.y.dtype)
         # Check basic put + get on 3-D float
         s = (slice(3, 7), slice(2, 5), slice(1, 2))
@@ -95,5 +95,5 @@ class ChunkStoreTestBase(object):
         self.store.put(name, s, desired)
         actual = self.store.get(name, s, desired.dtype)
         assert_array_equal(actual, desired, "Error storing y[%s]" % (s,))
-        # Try a different, smaller dtype
+        # Stored object has more bytes than expected (and wrong dtype)
         assert_raises(BadChunk, self.store.get, name, s, self.x.dtype)
