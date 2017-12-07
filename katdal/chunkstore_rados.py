@@ -59,19 +59,19 @@ class RadosChunkStore(ChunkStore):
     def __init__(self, conf, pool, keyring=None, timeout=5.):
         if not rados:
             raise ImportError('Please install rados for katdal RADOS support')
-        # At the start, a missing config file also triggers ObjectNotFound
+        # A missing config file or pool also triggers ObjectNotFound
         error_map = {rados.TimedOut: StoreUnavailable,
                      rados.ObjectNotFound: StoreUnavailable}
         super(RadosChunkStore, self).__init__(error_map)
-        if isinstance(conf, dict):
-            cluster = rados.Rados(conf=conf)
-        else:
-            cluster = rados.Rados(conffile=conf)
-        if keyring:
-            cluster.conf_set('keyring', keyring)
-        if timeout is not None:
-            cluster.conf_set('client mount timeout', str(timeout))
         with self._standard_errors():
+            if isinstance(conf, dict):
+                cluster = rados.Rados(conf=conf)
+            else:
+                cluster = rados.Rados(conffile=conf)
+            if keyring:
+                cluster.conf_set('keyring', keyring)
+            if timeout is not None:
+                cluster.conf_set('client mount timeout', str(timeout))
             cluster.connect()
             self.ioctx = cluster.open_ioctx(pool)
         # From now on, ObjectNotFound refers to RADOS objects i.e. chunks
@@ -87,7 +87,7 @@ class RadosChunkStore(ChunkStore):
 
     def put(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put`."""
-        key, shape = self.chunk_name(array_name, slices, chunk=chunk)
+        key, shape = self.chunk_metadata(array_name, slices, chunk=chunk)
         data_str = chunk.tobytes()
         with self._standard_errors(key):
             self.ioctx.write_full(key, data_str)

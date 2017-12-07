@@ -22,14 +22,17 @@ import subprocess
 import time
 import re
 
-import numpy as np
-from numpy.testing import assert_array_equal
 from nose import SkipTest
+from nose.tools import assert_raises
 
-from katdal.chunkstore_s3 import S3ChunkStore
+from katdal.chunkstore_s3 import S3ChunkStore, botocore
+from katdal.chunkstore import StoreUnavailable
+from katdal.test.test_chunkstore import ChunkStoreTestBase
 
 
-class TestS3ChunkStore(object):
+class TestS3ChunkStore(ChunkStoreTestBase):
+    """Tests connecting to an actual (fake) S3 service, implying a slower setup."""
+
     def start_fakes3(self, host):
         """Start Fake S3 service as `host` and return its URL."""
         try:
@@ -56,8 +59,6 @@ class TestS3ChunkStore(object):
         """Start Fake S3 service running on temp dir, and ChunkStore on that."""
         self.tempdir = tempfile.mkdtemp()
         self.fakes3 = None
-        self.x = np.arange(10)
-        self.y = np.arange(24.).reshape(4, 3, 2)
         try:
             url = self.start_fakes3('localhost')
             try:
@@ -78,16 +79,13 @@ class TestS3ChunkStore(object):
         bucket = 'katdal-unittest'
         return self.store.join(bucket, path)
 
-    def test_put_and_get(self):
-        s = (slice(3, 5),)
-        desired = self.x[s]
-        name = self.array_name('x')
-        self.store.put(name, s, desired)
-        actual = self.store.get(name, s, desired.dtype)
-        assert_array_equal(actual, desired, "Error storing x[%s]" % (s,))
-        s = (slice(1, 4), slice(1, 3), slice(1, 2))
-        desired = self.y[s]
-        name = self.array_name('y')
-        self.store.put(name, s, desired)
-        actual = self.store.get(name, s, desired.dtype)
-        assert_array_equal(actual, desired, "Error storing y[%s]" % (s,))
+
+class TestDudS3ChunkStore(object):
+    """Tests that don't need an S3 connection, only a 'dud' store."""
+
+    def setup(self):
+        if not botocore:
+            raise SkipTest('S3 botocore dependency not installed')
+
+    def test_store_unavailable(self):
+        assert_raises(StoreUnavailable, S3ChunkStore, 'hahahahahaha')

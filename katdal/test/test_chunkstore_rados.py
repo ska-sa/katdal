@@ -16,48 +16,42 @@
 
 """Tests for :py:mod:`katdal.chunkstore_s3`."""
 
-import numpy as np
-from numpy.testing import assert_array_equal
 from nose import SkipTest
 from nose.tools import assert_raises
 
 import katdal.chunkstore_rados
-from katdal.chunkstore_rados import RadosChunkStore
+from katdal.chunkstore_rados import RadosChunkStore, rados
+from katdal.chunkstore import StoreUnavailable
+from katdal.test.test_chunkstore import ChunkStoreTestBase
 
 
-class TestRadosChunkStore(object):
+class TestRadosChunkStore(ChunkStoreTestBase):
+    """Tests connecting to an actual RADOS service, implying a slower setup."""
+
     def setup(self):
-        self.x = np.arange(10)
-        self.y = np.arange(24.).reshape(4, 3, 2)
-        # Test configuration on seekat cluster (run this on appropriate machine!)
+        # Look for default Ceph installation but expect a special test pool
         conf = '/etc/ceph/ceph.conf'
         pool = 'test_katdal'
         try:
             self.store = RadosChunkStore(conf, pool)
-        except (ImportError, OSError):
+        except (ImportError, StoreUnavailable):
             raise SkipTest('Rados not installed or cluster misconfigured / down')
 
     def array_name(self, path):
         namespace = 'katdal_test_chunkstore_rados'
         return self.store.join(namespace, path)
 
-    def test_store(self):
+
+class TestDudRadosChunkStore(object):
+    """Tests that don't need a RADOS connection, only a 'dud' store."""
+
+    def setup(self):
+        if not rados:
+            raise SkipTest('Rados not installed')
+
+    def test_store_unavailable(self):
         # Pretend that rados is not installed
-        real_rados = katdal.chunkstore_rados.rados
         katdal.chunkstore_rados.rados = None
         assert_raises(ImportError, RadosChunkStore, 'blah', 'blah')
-        katdal.chunkstore_rados.rados = real_rados
-
-    def test_put_and_get(self):
-        s = (slice(3, 5),)
-        desired = self.x[s]
-        name = self.array_name('x')
-        self.store.put(name, s, desired)
-        actual = self.store.get(name, s, desired.dtype)
-        assert_array_equal(actual, desired, "Error storing x[%s]" % (s,))
-        s = (slice(1, 4), slice(1, 3), slice(1, 2))
-        desired = self.y[s]
-        name = self.array_name('y')
-        self.store.put(name, s, desired)
-        actual = self.store.get(name, s, desired.dtype)
-        assert_array_equal(actual, desired, "Error storing y[%s]" % (s,))
+        katdal.chunkstore_rados.rados = rados
+        assert_raises(StoreUnavailable, RadosChunkStore, 'blah', 'blah')

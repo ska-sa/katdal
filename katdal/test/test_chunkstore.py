@@ -17,14 +17,16 @@
 """Tests for :py:mod:`katdal.chunkstore`."""
 
 import numpy as np
+from numpy.testing import assert_array_equal
 from nose.tools import assert_raises
 
 from katdal.chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound
 
 
 class TestChunkStore(object):
+    """This tests the base class functionality."""
 
-    def test_get_put(self):
+    def test_put_and_get(self):
         store = ChunkStore()
         assert_raises(NotImplementedError, store.get, 1, 2, 3)
         assert_raises(NotImplementedError, store.put, 1, 2, 3)
@@ -56,3 +58,33 @@ class TestChunkStore(object):
         with assert_raises(ChunkNotFound):
             with store._standard_errors():
                 {}['ha']
+
+
+class ChunkStoreTestBase(object):
+    """Standard test performed on all types of ChunkStore.
+
+    Put everything in a single test as setup and teardown can be quite costly.
+    """
+
+    def __init__(self):
+        self.x = np.arange(10)
+        self.y = np.arange(96.).reshape(8, 6, 2)
+
+    def array_name(self, name):
+        return name
+
+    def test_put_and_get(self):
+        assert_raises(ChunkNotFound, self.store.get, 'haha',
+                      (slice(0, 1),), np.dtype(np.float))
+        s = (slice(3, 5),)
+        desired = self.x[s]
+        name = self.array_name('x')
+        self.store.put(name, s, desired)
+        actual = self.store.get(name, s, desired.dtype)
+        assert_array_equal(actual, desired, "Error storing x[%s]" % (s,))
+        s = (slice(3, 7), slice(2, 5), slice(1, 2))
+        desired = self.y[s]
+        name = self.array_name('y')
+        self.store.put(name, s, desired)
+        actual = self.store.get(name, s, desired.dtype)
+        assert_array_equal(actual, desired, "Error storing y[%s]" % (s,))
