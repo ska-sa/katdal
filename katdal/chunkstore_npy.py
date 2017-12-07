@@ -20,7 +20,7 @@ import os
 
 import numpy as np
 
-from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound
+from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk
 
 
 class NpyFileChunkStore(ChunkStore):
@@ -46,7 +46,7 @@ class NpyFileChunkStore(ChunkStore):
 
     Raises
     ------
-    OSError
+    :exc:`chunkstore.StoreUnavailable`
         If path does not exist / is not readable
     """
 
@@ -63,8 +63,8 @@ class NpyFileChunkStore(ChunkStore):
         with self._standard_errors(chunk_name):
             chunk = np.load(filename, allow_pickle=False)
         if dtype != chunk.dtype:
-            raise ValueError('Requested dtype %s differs from NPY file dtype %s'
-                             % (dtype, chunk.dtype))
+            raise BadChunk('Requested dtype %s differs from NPY file dtype %s'
+                           % (dtype, chunk.dtype))
         return chunk
 
     def put(self, array_name, slices, chunk):

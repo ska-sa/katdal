@@ -28,7 +28,7 @@ else:
     import botocore.session
     from botocore.exceptions import EndpointConnectionError
 
-from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound
+from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk
 
 
 class S3ChunkStore(ChunkStore):
@@ -58,7 +58,7 @@ class S3ChunkStore(ChunkStore):
     ------
     ImportError
         If botocore is not installed (it's an optional dependency otherwise)
-    OSError
+    :exc:`chunkstore.StoreUnavailable`
         If S3 server interaction failed (it's down, authentication failed, etc)
     """
 
@@ -88,6 +88,12 @@ class S3ChunkStore(ChunkStore):
             response = self.client.get_object(Bucket=bucket, Key=key)
         with contextlib.closing(response['Body']) as stream:
             data_str = stream.read()
+        expected_bytes = np.prod(shape) * dtype.itemsize
+        if len(data_str) != expected_bytes:
+            raise BadChunk('Chunk {!r}: dtype {} and shape {} implies an '
+                           'object size of {} bytes, got {} bytes instead'
+                           .format(chunk_name, dtype, shape, expected_bytes,
+                                   len(data_str)))
         return np.ndarray(shape, dtype, data_str)
 
     def put(self, array_name, slices, chunk):

@@ -20,7 +20,8 @@ import numpy as np
 from numpy.testing import assert_array_equal
 from nose.tools import assert_raises
 
-from katdal.chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound
+from katdal.chunkstore import (ChunkStore, StoreUnavailable,
+                               ChunkNotFound, BadChunk)
 
 
 class TestChunkStore(object):
@@ -34,18 +35,18 @@ class TestChunkStore(object):
     def test_metadata_validation(self):
         store = ChunkStore()
         # Bad slice specifications
-        assert_raises(ValueError, store.chunk_metadata, "x", 3)
-        assert_raises(ValueError, store.chunk_metadata, "x", [3, 2])
-        assert_raises(ValueError, store.chunk_metadata, "x", slice(10))
-        assert_raises(ValueError, store.chunk_metadata, "x", [slice(10)])
-        assert_raises(ValueError, store.chunk_metadata, "x", [slice(0, 10, 2)])
+        assert_raises(BadChunk, store.chunk_metadata, "x", 3)
+        assert_raises(BadChunk, store.chunk_metadata, "x", [3, 2])
+        assert_raises(BadChunk, store.chunk_metadata, "x", slice(10))
+        assert_raises(BadChunk, store.chunk_metadata, "x", [slice(10)])
+        assert_raises(BadChunk, store.chunk_metadata, "x", [slice(0, 10, 2)])
         # Chunk mismatch
-        assert_raises(ValueError, store.chunk_metadata, "x", [slice(0, 10, 1)],
+        assert_raises(BadChunk, store.chunk_metadata, "x", [slice(0, 10, 1)],
                       chunk=np.ones(11))
         # Bad dtype
-        assert_raises(ValueError, store.chunk_metadata, "x", [slice(0, 10, 1)],
+        assert_raises(BadChunk, store.chunk_metadata, "x", [slice(0, 10, 1)],
                       chunk=np.array(10 * [{}]))
-        assert_raises(ValueError, store.chunk_metadata, "x", [slice(0, 2)],
+        assert_raises(BadChunk, store.chunk_metadata, "x", [slice(0, 2)],
                       dtype=np.dtype(np.object))
 
     def test_standard_errors(self):
@@ -67,24 +68,32 @@ class ChunkStoreTestBase(object):
     """
 
     def __init__(self):
-        self.x = np.arange(10)
+        # Pick arrays with differently sized dtypes and dimensions
+        self.x = np.ones(10, dtype=np.bool)
         self.y = np.arange(96.).reshape(8, 6, 2)
 
     def array_name(self, name):
         return name
 
     def test_put_and_get(self):
+        # Look for non-existent chunk
         assert_raises(ChunkNotFound, self.store.get, 'haha',
                       (slice(0, 1),), np.dtype(np.float))
+        # Check basic put + get on 1-D bool
         s = (slice(3, 5),)
         desired = self.x[s]
         name = self.array_name('x')
         self.store.put(name, s, desired)
         actual = self.store.get(name, s, desired.dtype)
         assert_array_equal(actual, desired, "Error storing x[%s]" % (s,))
+        # Try a different, larger dtype
+        assert_raises(BadChunk, self.store.get, name, s, self.y.dtype)
+        # Check basic put + get on 3-D float
         s = (slice(3, 7), slice(2, 5), slice(1, 2))
         desired = self.y[s]
         name = self.array_name('y')
         self.store.put(name, s, desired)
         actual = self.store.get(name, s, desired.dtype)
         assert_array_equal(actual, desired, "Error storing y[%s]" % (s,))
+        # Try a different, smaller dtype
+        assert_raises(BadChunk, self.store.get, name, s, self.x.dtype)

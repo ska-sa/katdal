@@ -16,7 +16,7 @@
 
 """A store of chunks (i.e. N-dimensional arrays) based on a dict of arrays."""
 
-from .chunkstore import ChunkStore, ChunkNotFound
+from .chunkstore import ChunkStore, ChunkNotFound, BadChunk
 
 
 class DictChunkStore(ChunkStore):
@@ -41,9 +41,9 @@ class DictChunkStore(ChunkStore):
         with self._standard_errors(chunk_name):
             chunk = self.arrays[array_name][slices]
         if dtype != chunk.dtype:
-            raise ValueError('Chunk {!r}: requested dtype {} differs from '
-                             'actual dtype {}'
-                             .format(chunk_name, dtype, chunk.dtype))
+            raise BadChunk('Chunk {!r}: requested dtype {} differs from '
+                           'actual dtype {}'
+                           .format(chunk_name, dtype, chunk.dtype))
         return chunk
 
     def put(self, array_name, slices, chunk):

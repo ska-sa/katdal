@@ -28,6 +28,10 @@ class ChunkNotFound(KeyError):
     """The store was accessible but a chunk with the given name was not found."""
 
 
+class BadChunk(ValueError):
+    """The chunk is malformed, e.g. bad dtype or slices, wrong buffer size."""
+
+
 class ChunkStore(object):
     """Base class for accessing a store of chunks (i.e. N-dimensional arrays).
 
@@ -65,7 +69,8 @@ class ChunkStore(object):
 
     def __init__(self, error_map=None):
         if error_map is None:
-            error_map = {OSError: StoreUnavailable, KeyError: ChunkNotFound}
+            error_map = {OSError: StoreUnavailable, KeyError: ChunkNotFound,
+                         ValueError: BadChunk}
         self._error_map = error_map
 
     def get(self, array_name, slices, dtype):
@@ -87,9 +92,9 @@ class ChunkStore(object):
 
         Raises
         ------
-        ValueError
-            If requested `dtype` does not match underlying parent array dtype
-            or `slices` has wrong specification
+        :exc:`chunkstore.BadChunk`
+            If requested `dtype` does not match underlying parent array dtype,
+            `slices` has wrong specification or stored buffer has wrong size
         :exc:`chunkstore.StoreUnavailable`
             If interaction with chunk store failed (offline, bad auth, bad config)
         :exc:`chunkstore.ChunkNotFound`
@@ -111,7 +116,7 @@ class ChunkStore(object):
 
         Raises
         ------
-        ValueError
+        :exc:`chunkstore.BadChunk`
             If `slices` is wrong or its shape does not match that of `chunk`
         :exc:`chunkstore.StoreUnavailable`
             If interaction with chunk store failed (offline, bad auth, bad config)
@@ -163,7 +168,7 @@ class ChunkStore(object):
 
         Raises
         ------
-        ValueError
+        :exc:`chunkstore.BadChunk`
             If `slices` has wrong specification or its shape does not match
             that of `chunk`, or any dtype contains objects
 
@@ -171,27 +176,27 @@ class ChunkStore(object):
         try:
             shape = tuple([s.stop - s.start for s in slices])
         except (TypeError, AttributeError):
-            raise ValueError('Array {!r}: chunk ID should be a sequence of '
-                             'slice objects, not {}'.format(array_name, slices))
+            raise BadChunk('Array {!r}: chunk ID should be a sequence of '
+                           'slice objects, not {}'.format(array_name, slices))
         # Verify that all slice strides are unity (i.e. it's a "simple" slice)
         if not all([s.step in (1, None) for s in slices]):
-            raise ValueError('Array {!r}: chunk ID {} contains non-unit strides'
-                             .format(array_name, slices))
+            raise BadChunk('Array {!r}: chunk ID {} contains non-unit strides'
+                           .format(array_name, slices))
         # Construct chunk name from array_name + slices
         index = [s.start for s in slices]
         idxstr = '_'.join(["{:0{width}d}".format(i, width=cls.NAME_INDEX_WIDTH)
                            for i in index])
         chunk_name = cls.join(array_name, idxstr)
         if chunk is not None and chunk.shape != shape:
-            raise ValueError('Chunk {!r}: shape {} implied by slices does not '
-                             'match actual shape {}'
-                             .format(chunk_name, shape, chunk.shape))
+            raise BadChunk('Chunk {!r}: shape {} implied by slices does not '
+                           'match actual shape {}'
+                           .format(chunk_name, shape, chunk.shape))
         if chunk is not None and chunk.dtype.hasobject:
-            raise ValueError('Chunk {!r}: actual dtype {} cannot contain '
-                             'objects'.format(chunk_name, chunk.dtype))
+            raise BadChunk('Chunk {!r}: actual dtype {} cannot contain '
+                           'objects'.format(chunk_name, chunk.dtype))
         if dtype is not None and dtype.hasobject:
-            raise ValueError('Chunk {!r}: Requested dtype {} cannot contain '
-                             'objects'.format(chunk_name, dtype))
+            raise BadChunk('Chunk {!r}: Requested dtype {} cannot contain '
+                           'objects'.format(chunk_name, dtype))
         return chunk_name, shape
 
     @contextlib.contextmanager

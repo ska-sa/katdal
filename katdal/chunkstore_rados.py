@@ -23,7 +23,7 @@ except ImportError:
     # librados (i.e. direct Ceph access) is only really available on Linux
     rados = None
 
-from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound
+from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk
 
 
 class RadosChunkStore(ChunkStore):
@@ -52,7 +52,7 @@ class RadosChunkStore(ChunkStore):
     ------
     ImportError
         If rados is not installed (it's an optional dependency otherwise)
-    OSError
+    :exc:`chunkstore.StoreUnavailable`
         If connection to Ceph cluster failed or pool is not available
     """
 
@@ -82,7 +82,12 @@ class RadosChunkStore(ChunkStore):
         key, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         num_bytes = np.prod(shape) * dtype.itemsize
         with self._standard_errors(key):
-            data_str = self.ioctx.read(key, num_bytes)
+            # Try to read an extra byte to see if data is longer than expected
+            data_str = self.ioctx.read(key, num_bytes + 1)
+        if len(data_str) != num_bytes:
+            raise BadChunk('Chunk {!r}: dtype {} and shape {} implies an '
+                           'object size of {} bytes, got {} bytes instead'
+                           .format(key, dtype, shape, num_bytes, len(data_str)))
         return np.ndarray(shape, dtype, data_str)
 
     def put(self, array_name, slices, chunk):
