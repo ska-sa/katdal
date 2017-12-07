@@ -56,4 +56,7 @@ setup(name="katdal",
       setup_requires=['katversion'],
       use_katversion=True,
       install_requires=['numpy', 'katpoint', 'h5py'],
+      extras_require={
+        'ms': ['python-casacore >= 2.2.1']
+      },
       tests_require=['nose'])
