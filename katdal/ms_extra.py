@@ -57,7 +57,6 @@ except:
                                               % (req_ver, pyc_ver))
 
 
-
 def std_scalar(comment, valueType='integer', option=0, **kwargs):
     """Description for standard scalar column."""
     return dict(comment=comment, valueType=valueType, dataManagerType='StandardStMan',
