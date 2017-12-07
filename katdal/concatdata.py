@@ -580,7 +580,7 @@ class ConcatenatedDataSet(DataSet):
             for n, d in enumerate(self.datasets):
                 d._set_keep(time_keep=self._time_keep[self._segments[n]:self._segments[n + 1]])
             # Ensure that sensor cache gets updated time selection
-            if self.sensor is not None:
+            if self.sensor:
                 self.sensor._set_keep(self._time_keep)
         if freq_keep is not None:
             self._freq_keep = freq_keep

@@ -44,6 +44,20 @@ except:
         casacore_binding = 'pyrap'
     except ImportError:
         casacore_binding = ''
+    else:
+        # Perform python-casacore version checks
+        from pkg_resources import parse_version
+        import casacore
+
+        pyc_ver = parse_version(casacore.__version__)
+        req_ver = parse_version("2.2.1")
+
+        if not pyc_ver >= req_ver:
+            raise ImportError("python-casacore %s is required, "
+                              "but the current version is %s. "
+                              "Note that python-casacore %s "
+                              "requires at least casacore 2.3.0."
+                                      % (req_ver, pyc_ver, req_ver))
 
 
 def std_scalar(comment, valueType='integer', option=0, **kwargs):
