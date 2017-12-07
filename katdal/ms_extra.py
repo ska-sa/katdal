@@ -46,14 +46,15 @@ except:
         casacore_binding = ''
     else:
         # Perform python-casacore version checks
-        import pkg_resources
-        pyc_dist = pkg_resources.get_distribution('python-casacore')
-        pyc_ver = pkg_resources.parse_version(pyc_dist.version)
-        req_ver = pkg_resources.parse_version("2.2.1")
+        from pkg_resources import parse_version
+        import casacore
+
+        pyc_ver = parse_version(casacore.__version__)
+        req_ver = parse_version("2.2.1")
 
         if not pyc_ver >= req_ver:
             raise ImportError("python-casacore '%s' is required, "
-                              "but the current version is '%s'"
+                              "but the current version is '%s'."
                                               % (req_ver, pyc_ver))
 
 
