@@ -1,6 +1,9 @@
+botocore==1.8.9
 Cython
+docutils
 future
 h5py
+jmespath==0.9.3
 katversion
 numpy
 pkginfo
