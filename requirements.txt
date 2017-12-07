@@ -8,5 +8,6 @@ katversion
 numpy
 pkginfo
 pyephem
+python-dateutil
 six
 git+ssh://git@github.com/ska-sa/katpoint#egg=katpoint
