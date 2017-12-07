@@ -57,7 +57,7 @@ except:
                               "but the current version is %s. "
                               "Note that python-casacore %s "
                               "requires at least casacore 2.3.0."
-                                      % (req_ver, pyc_ver,req_ver))
+                                      % (req_ver, pyc_ver, req_ver))
 
 
 def std_scalar(comment, valueType='integer', option=0, **kwargs):
