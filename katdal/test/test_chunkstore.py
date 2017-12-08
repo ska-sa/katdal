@@ -97,3 +97,15 @@ class ChunkStoreTestBase(object):
         assert_array_equal(actual, desired, "Error storing y[%s]" % (s,))
         # Stored object has more bytes than expected (and wrong dtype)
         assert_raises(BadChunk, self.store.get, name, s, self.x.dtype)
+        # Try a chunk with zero size
+        s = (slice(4, 7), slice(3, 3), slice(0, 2))
+        desired = self.y[s]
+        name = self.array_name('y')
+        self.store.put(name, s, desired)
+        actual = self.store.get(name, s, desired.dtype)
+        assert_array_equal(actual, desired, "Error storing y[%s]" % (s,))
+        # Try an empty slice (not allowed)
+        s = ()
+        desired = self.x[s]
+        name = self.array_name('x')
+        assert_raises(BadChunk, self.store.put, name, s, desired)
