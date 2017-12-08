@@ -22,4 +22,4 @@ from katdal.test.test_chunkstore import ChunkStoreTestBase
 
 class TestDictChunkStore(ChunkStoreTestBase):
     def setup(self):
-        self.store = DictChunkStore(x=self.x, y=self.y)
+        self.store = DictChunkStore(**vars(self))

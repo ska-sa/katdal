@@ -100,7 +100,7 @@ class RadosChunkStore(ChunkStore):
     def get(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get`."""
         key, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
-        num_bytes = np.prod(shape) * dtype.itemsize
+        num_bytes = int(np.prod(shape)) * dtype.itemsize
         with self._standard_errors(key):
             # Try to read an extra byte to see if data is more than expected
             data_str = self.ioctx.read(key, num_bytes + 1)

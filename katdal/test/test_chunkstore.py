@@ -43,6 +43,7 @@ class TestChunkStore(object):
         # Chunk mismatch
         assert_raises(BadChunk, store.chunk_metadata, "x", [slice(0, 10, 1)],
                       chunk=np.ones(11))
+        assert_raises(BadChunk, store.chunk_metadata, "x", (), chunk=np.ones(5))
         # Bad dtype
         assert_raises(BadChunk, store.chunk_metadata, "x", [slice(0, 10, 1)],
                       chunk=np.array(10 * [{}]))
@@ -71,41 +72,36 @@ class ChunkStoreTestBase(object):
         # Pick arrays with differently sized dtypes and dimensions
         self.x = np.ones(10, dtype=np.bool)
         self.y = np.arange(96.).reshape(8, 6, 2)
+        self.z = np.array(2.)
 
     def array_name(self, name):
         return name
+
+    def put_and_get(self, var_name, slices):
+        array_name = self.array_name(var_name)
+        chunk = getattr(self, var_name)[slices]
+        self.store.put(array_name, slices, chunk)
+        chunk_retrieved = self.store.get(array_name, slices, chunk.dtype)
+        assert_array_equal(chunk_retrieved, chunk,
+                           "Error storing {}[{}]".format(var_name, slices))
 
     def test_put_and_get(self):
         # Look for non-existent chunk
         assert_raises(ChunkNotFound, self.store.get, 'haha',
                       (slice(0, 1),), np.dtype(np.float))
         # Check basic put + get on 1-D bool
-        s = (slice(3, 5),)
-        desired = self.x[s]
         name = self.array_name('x')
-        self.store.put(name, s, desired)
-        actual = self.store.get(name, s, desired.dtype)
-        assert_array_equal(actual, desired, "Error storing x[%s]" % (s,))
+        s = (slice(3, 5),)
+        self.put_and_get('x', s)
         # Stored object has fewer bytes than expected (and wrong dtype)
         assert_raises(BadChunk, self.store.get, name, s, self.y.dtype)
         # Check basic put + get on 3-D float
-        s = (slice(3, 7), slice(2, 5), slice(1, 2))
-        desired = self.y[s]
         name = self.array_name('y')
-        self.store.put(name, s, desired)
-        actual = self.store.get(name, s, desired.dtype)
-        assert_array_equal(actual, desired, "Error storing y[%s]" % (s,))
+        s = (slice(3, 7), slice(2, 5), slice(1, 2))
+        self.put_and_get('y', s)
         # Stored object has more bytes than expected (and wrong dtype)
         assert_raises(BadChunk, self.store.get, name, s, self.x.dtype)
         # Try a chunk with zero size
-        s = (slice(4, 7), slice(3, 3), slice(0, 2))
-        desired = self.y[s]
-        name = self.array_name('y')
-        self.store.put(name, s, desired)
-        actual = self.store.get(name, s, desired.dtype)
-        assert_array_equal(actual, desired, "Error storing y[%s]" % (s,))
-        # Try an empty slice (not allowed)
-        s = ()
-        desired = self.x[s]
-        name = self.array_name('x')
-        assert_raises(BadChunk, self.store.put, name, s, desired)
+        self.put_and_get('y', (slice(4, 7), slice(3, 3), slice(0, 2)))
+        # Try an empty slice on a zero-dimensional array (but why?)
+        self.put_and_get('z', ())

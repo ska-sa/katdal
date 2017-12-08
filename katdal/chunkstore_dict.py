@@ -39,7 +39,9 @@ class DictChunkStore(ChunkStore):
         """See the docstring of :meth:`ChunkStore.get`."""
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         with self._standard_errors(chunk_name):
-            chunk = self.arrays[array_name][slices]
+            array = self.arrays[array_name]
+            # Ensure that chunk is array (otherwise 0-dim array becomes number)
+            chunk = array[slices] if slices != () else array
         if dtype != chunk.dtype:
             raise BadChunk('Chunk {!r}: requested dtype {} differs from '
                            'actual dtype {}'
@@ -49,7 +51,7 @@ class DictChunkStore(ChunkStore):
     def put(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put`."""
         self.chunk_metadata(array_name, slices, chunk=chunk)
-        self.get(array_name, slices, chunk.dtype)[:] = chunk
+        self.get(array_name, slices, chunk.dtype)[()] = chunk
 
     get.__doc__ = ChunkStore.get.__doc__
     put.__doc__ = ChunkStore.put.__doc__

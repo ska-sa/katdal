@@ -109,7 +109,7 @@ class S3ChunkStore(ChunkStore):
             response = self.client.get_object(Bucket=bucket, Key=key)
         with contextlib.closing(response['Body']) as stream:
             data_str = stream.read()
-        expected_bytes = np.prod(shape) * dtype.itemsize
+        expected_bytes = int(np.prod(shape)) * dtype.itemsize
         if len(data_str) != expected_bytes:
             raise BadChunk('Chunk {!r}: dtype {} and shape {} implies an '
                            'object size of {} bytes, got {} bytes instead'
