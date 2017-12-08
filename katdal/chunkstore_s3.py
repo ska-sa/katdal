@@ -51,9 +51,16 @@ class S3ChunkStore(ChunkStore):
     ----------
     client : :class:`botocore.client.S3` object
         Pre-configured botocore S3 client
+
+    Raises
+    ------
+    ImportError
+        If botocore is not installed (it's an optional dependency otherwise)
     """
 
     def __init__(self, client):
+        if not botocore:
+            raise ImportError('Please install botocore for katdal S3 support')
         error_map = {EndpointConnectionError: StoreUnavailable,
                      client.exceptions.NoSuchKey: ChunkNotFound,
                      client.exceptions.NoSuchBucket: ChunkNotFound}

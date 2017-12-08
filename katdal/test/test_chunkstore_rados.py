@@ -30,10 +30,10 @@ class TestRadosChunkStore(ChunkStoreTestBase):
 
     def setup(self):
         # Look for default Ceph installation but expect a special test pool
-        conf = '/etc/ceph/ceph.conf'
+        config = '/etc/ceph/ceph.conf'
         pool = 'test_katdal'
         try:
-            self.store = RadosChunkStore(conf, pool)
+            self.store = RadosChunkStore.from_config(config, pool)
         except (ImportError, StoreUnavailable):
             raise SkipTest('Rados not installed or cluster misconfigured / down')
 
@@ -52,6 +52,6 @@ class TestDudRadosChunkStore(object):
     def test_store_unavailable(self):
         # Pretend that rados is not installed
         katdal.chunkstore_rados.rados = None
-        assert_raises(ImportError, RadosChunkStore, 'blah', 'blah')
+        assert_raises(ImportError, RadosChunkStore, None)
         katdal.chunkstore_rados.rados = rados
-        assert_raises(StoreUnavailable, RadosChunkStore, 'blah', 'blah')
+        assert_raises(StoreUnavailable, RadosChunkStore.from_config, 'x', 'y')

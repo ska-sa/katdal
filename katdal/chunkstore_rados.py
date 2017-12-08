@@ -39,50 +39,70 @@ class RadosChunkStore(ChunkStore):
 
     Parameters
     ----------
-    conf : string or dict
-        Path to the Ceph configuration file or config dict version of that file
-    pool : string
-        Name of the Ceph pool
-    keyring : string, optional
-        Path to the client keyring file (if not provided by `conf` or override)
-    timeout : float, optional
-        RADOS client timeout, in seconds (set to None to leave unchanged)
+    ioctx : :class:`rados.Ioctx` object
+        RADOS input/output context (ioctx) used to read from / write to Ceph
 
     Raises
     ------
     ImportError
         If rados is not installed (it's an optional dependency otherwise)
-    :exc:`chunkstore.StoreUnavailable`
-        If connection to Ceph cluster failed or pool is not available
     """
 
-    def __init__(self, conf, pool, keyring=None, timeout=5.):
+    def __init__(self, ioctx):
+        if not rados:
+            raise ImportError('Please install rados for katdal RADOS support')
+        # From now on, ObjectNotFound refers to RADOS objects i.e. chunks
+        error_map = {rados.TimedOut: StoreUnavailable,
+                     rados.ObjectNotFound: ChunkNotFound}
+        super(RadosChunkStore, self).__init__(error_map)
+        self.ioctx = ioctx
+
+    @classmethod
+    def from_config(cls, config, pool, keyring=None, timeout=5.):
+        """Construct RADOS chunk store from config and specified pool.
+
+        Parameters
+        ----------
+        config : string or dict
+            Path to Ceph configuration file or config dict version of that file
+        pool : string
+            Name of the Ceph pool
+        keyring : string, optional
+            Path to client keyring file (if not provided by `conf` or override)
+        timeout : float, optional
+            RADOS client timeout, in seconds (set to None to leave unchanged)
+
+        Raises
+        ------
+        ImportError
+            If rados is not installed (it's an optional dependency otherwise)
+        :exc:`chunkstore.StoreUnavailable`
+            If connection to Ceph cluster failed or pool is not available
+        """
         if not rados:
             raise ImportError('Please install rados for katdal RADOS support')
         # A missing config file or pool also triggers ObjectNotFound
         error_map = {rados.TimedOut: StoreUnavailable,
                      rados.ObjectNotFound: StoreUnavailable}
-        super(RadosChunkStore, self).__init__(error_map)
-        with self._standard_errors():
-            if isinstance(conf, dict):
-                cluster = rados.Rados(conf=conf)
+        with ChunkStore(error_map)._standard_errors():
+            if isinstance(config, dict):
+                cluster = rados.Rados(conf=config)
             else:
-                cluster = rados.Rados(conffile=conf)
+                cluster = rados.Rados(conffile=config)
             if keyring:
                 cluster.conf_set('keyring', keyring)
             if timeout is not None:
                 cluster.conf_set('client mount timeout', str(timeout))
             cluster.connect()
-            self.ioctx = cluster.open_ioctx(pool)
-        # From now on, ObjectNotFound refers to RADOS objects i.e. chunks
-        self._error_map[rados.ObjectNotFound] = ChunkNotFound
+            ioctx = cluster.open_ioctx(pool)
+        return cls(ioctx)
 
     def get(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get`."""
         key, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         num_bytes = np.prod(shape) * dtype.itemsize
         with self._standard_errors(key):
-            # Try to read an extra byte to see if data is longer than expected
+            # Try to read an extra byte to see if data is more than expected
             data_str = self.ioctx.read(key, num_bytes + 1)
         if len(data_str) != num_bytes:
             raise BadChunk('Chunk {!r}: dtype {} and shape {} implies an '
