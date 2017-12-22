@@ -3,6 +3,7 @@ import itertools
 import random
 
 import numpy as np
+import six
 from six.moves import range
 from ephem.stars import stars
 
@@ -34,168 +35,319 @@ ANTENNA_DESCRIPTIONS = [
     'm056, -30:42:39.8, 21:26:38.0, 1035.0, 13.5, 1598.4195 466.6315 -0.502 5873.236 5854.456, -0:25:01.4 0 0:02:18.3 0:07:57.5 -0:00:19.6 0:00:57.1 0:12:21.6 0:01:28.5, 1.22'
 ]
 
-MEERKAT_LOW_FREQ = .856e9
-MEERKAT_BANDWIDTH = .856e9
-MEERKAT_CENTRE_FREQ = MEERKAT_LOW_FREQ + MEERKAT_BANDWIDTH / 2.
-MEERKAT_CHANNELS = 4096
-MEERKAT_CHANNEL_WIDTH = MEERKAT_BANDWIDTH / MEERKAT_CHANNELS
+DEFAULT_SUBARRAYS = [{
+    'antenna' : ANTENNA_DESCRIPTIONS,
+    # Auto-generated from 'antenna'
+    # 'corr_products' : [],
+}]
 
-NTARGETS = 5
-UNIQUE_STARS = random.sample(stars.keys(), NTARGETS)
-TARGETS = [katpoint.Target('%s, star' % t) for t in UNIQUE_STARS]
+DEFAULT_SPWS = [{
+    'centre_freq' : .856e9 + .856e9 / 2.,
+    'num_chans' : 32768,
+    'channel_width' : .856e9 / 32768,
+    'sideband' : 1,
+    'band' : 'L',
+}]
 
-EPOCH = datetime.utcfromtimestamp(0)
-OBSERVATION_START = (datetime.now() - EPOCH).total_seconds()
+# Pick 10 random ephem stars as katpoint targets
+_NR_OF_DEFAULT_TARGETS = 10
+DEFAULT_TARGETS = [katpoint.Target("%s, star" % t) for t in
+                    random.sample(stars.keys(), _NR_OF_DEFAULT_TARGETS)]
 
-DUMP_PERIOD = 4.0
-SLEW_TRACK_DUMPS = (('slew', 5), ('track', 45))
-DUMPS = [(e, nd, t) for t in TARGETS for e, nd in SLEW_TRACK_DUMPS]*20
+# Slew for 1 dumps then track for 4 on random targets
+_SLEW_TRACK_DUMPS = (('slew', 1), ('track', 4))
+DEFAULT_DUMPS = [(e, nd, t) for t in DEFAULT_TARGETS
+                            for e, nd in _SLEW_TRACK_DUMPS]*20
 
-def _create_refant_data(mock, ants, ndumps):
-    """
-    Setup reference antenna and related sensors
-    """
-
-    # Reference antenna and it's sensor data
-    mock.ref_ant = ants[0].name
-
-    def _generate_ref_ant_compound_scans():
-        """
-        Divide dumps into periods of slewing and tracking at a target,
-        yielding (dump_index, 'slew'/'track', target).
-        """
-        dump_index = 0
-
-        for event, dumps, target in DUMPS:
-            yield dump_index, event, target
-            dump_index += dumps
-
-    # Generate compound scans for the reference antenna
-    ref_ant_compound_scans = list(_generate_ref_ant_compound_scans())
-
-    # Labels seem to only involve tracks, separate them out
-    label_scans = [tup for tup in ref_ant_compound_scans if tup[1] == 'track']
-    events, values, _ = zip(*label_scans)
-    label = CategoricalData(values, events + (ndumps,))
-
-    # Generate dump indexes (events) and 'slew'/'track' (values)
-    # and targets for the reference antenna
-    events, values, targets = zip(*(_generate_ref_ant_compound_scans()))
-    refant = CategoricalData(values, events + (ndumps,))
-    # DO THIS BCOS h5datav3.py does it
-    refant.add_unmatched(label.events)
-    #mock.sensor['Antennas/%s/activity' % mock.ref_ant] = refant
-
-    # Derive scan states and indices from reference antenna data
-    scan_index = CategoricalData(range(len(refant)), refant.events)
-
-    mock.sensor['Observation/scan_state'] = refant
-    mock.sensor['Observation/scan_index'] = scan_index
-
-    # DO THIS BCOS h5datav3.py does it
-    label.align(refant.events)
-
-    # First track event unlikely to happen at dump 0
-    if label.events[0] > 0:
-        label.add(0, '')
-
-    # Derive compound scan index from the label
-    compscan_index = CategoricalData(range(len(label)), label.events)
-    mock.sensor['Observation/label'] = label
-    mock.sensor['Observation/compscan_index'] = compscan_index
-
-    # Create categorical data for our targets
-    targets = CategoricalData(targets, (events + (ndumps,)))
-    # DO THIS BCOS h5datav3.py does it
-    targets.align(refant.events)
-
-    target_index = CategoricalData(targets.indices, targets.events)
-
-    mock.sensor['Observation/target'] = targets
-    mock.sensor['Observation/target_index'] = target_index
+DEFAULT_TIMESTAMPS = {
+    # Auto-generated from current time
+    #'start_time' : 1.0,
+    'dump_period' : 4.0,
+}
 
 class MockDataSet(DataSet):
-    def __init__(self):
+    def __init__(self, **kwargs):
+        """
+        Parameters
+        ----------
+        timestamps (optional) : dict
+            Dictionary defining the start time and dump rate of the observation.
+            Defaults to the current time and 4 second dump rates.
+        subarrays (optional): list of dict
+            List of dictionaries, each defining a subarray.
+        spws (optional): list of dict
+            List of dictionaries, each defining a spectral window.
+            Defaults to MeerKAT 32K L band
+        dumps (optional): list of tuples
+            List of (event, number of dumps, target) tuples
+        """
         super(MockDataSet, self).__init__(name='mock')
         self.observer = 'mock'
         self.description = "Mock observation"
 
-        ndumps = sum(d for _, d, _ in DUMPS)
+        # Obtain any custom instructions for builiding
+        # the mock observation
+        timestamp_defs = kwargs.pop('timestamps', DEFAULT_TIMESTAMPS)
+        subarray_defs = kwargs.pop('subarrays', DEFAULT_SUBARRAYS)
+        dump_defs = kwargs.pop('dumps', DEFAULT_DUMPS)
+        spw_defs = kwargs.pop('spws', DEFAULT_SPWS)
 
-        # Observation times
-        self.start_time = katpoint.Timestamp(OBSERVATION_START)
-        self.end_time = self.start_time + DUMP_PERIOD*ndumps
-        self.dump_period = DUMP_PERIOD
-        self.dumps = np.arange(ndumps)
-
-        self._timestamps = np.arange(ndumps*DUMP_PERIOD, step=DUMP_PERIOD) + self.start_time.secs
+        self._create_targets(dump_defs)
+        self._create_timestamps(timestamp_defs, dump_defs)
 
         # Now create the sensors cache now that
         # we have dump period and timestamps
-        cache = {}
-        self.sensor = SensorCache(cache, self._timestamps, self.dump_period,
+        self.sensor = SensorCache({}, self._timestamps, self.dump_period,
                                     keep=self._time_keep, props=SENSOR_PROPS,
                                     virtual=VIRTUAL_SENSORS)
 
-        # Antenna and their sensor data
-        ants = [katpoint.Antenna(d) for d in ANTENNA_DESCRIPTIONS]
+        self._create_subarrays(subarray_defs)
+        self._create_spectral_windows(spw_defs)
+        self._create_antenna_sensors(self.ants)
 
-        for ant in ants:
-            ant_catdata = CategoricalData([ant], [0, ndumps])
-            self.sensor['Antennas/%s/antenna' % (ant.name,)] = ant_catdata
+        try:
+            ref_ant = self.ants[0]
+        except IndexError:
+            raise ValueError("No antenna were defined "
+                             "for the default subarray")
 
-        _create_refant_data(self, ants, ndumps)
-
-        # Generate correlation products for all antenna pairs
-        # auto-correlations included
-        corr_products = np.array([
-            (a1.name + c1, a2.name + c2)
-                for i1, a1 in enumerate(ants)
-                for i2, a2 in enumerate(ants[i1:])
-                for c1 in ('h', 'v')
-                for c2 in ('h', 'v')],
-            dtype='|S5')
-
-        # Single Subarray formed from all correlation products
-        subarray = Subarray(ants, corr_products)
-        self.subarrays = [subarray]
-        self.subarray = 0
-        self.inputs = subarray.inputs
-        self.ants = subarray.ants
-        self.corr_products = subarray.corr_products
-
-        subarray_catdata = CategoricalData(self.subarrays, [0, ndumps])
-        subarray_index_catdata = CategoricalData([self.subarray], [0, ndumps])
-        self.sensor['Observation/subarray'] = subarray_catdata
-        self.sensor['Observation/subarray_index'] = subarray_index_catdata
-
-        # Single MEERKAT SPW and associated sensors
-        spw = SpectralWindow(MEERKAT_CENTRE_FREQ, MEERKAT_CHANNEL_WIDTH,
-                                                        MEERKAT_CHANNELS)
-
-        self.spectral_windows = [spw]
-        self.spw = 0
-        self.channel_width = spw.channel_width
-        self.freqs = self.channel_freqs = spw.channel_freqs
-        self.channels = np.arange(MEERKAT_CHANNELS)
-
-        spw_catdata = CategoricalData(self.spectral_windows, [0, ndumps])
-        spw_index_catdata = CategoricalData([self.spw], [0, ndumps])
-        self.sensor['Observation/spw'] = spw_catdata
-        self.sensor['Observation/spw_index'] = spw_index_catdata
-
-        # Add targets to catalogue
-        for t in TARGETS:
-            self.catalogue.add(t)
+        self._create_scans(ref_ant, dump_defs)
 
         ncorrproducts = self.corr_products.shape[0]
         nchan = self.channels.shape[0]
 
         # Select everything upfront (weights + flags already set to all in superclass)
-        self._time_keep = np.ones(ndumps, dtype=np.bool)
+        self._time_keep = np.ones(self._ndumps, dtype=np.bool)
         self._corrprod_keep = np.ones(ncorrproducts, dtype=np.bool)
         self._freq_keep = np.ones(nchan, dtype=np.bool)
         self.select(spw=0, subarray=0)
+
+    def _create_targets(self, dump_defs):
+        """
+        Iterates through dumps, adding targets to the catalogue.
+
+        Parameters
+        ----------
+        dump_defs : list of tuples
+            List of (event, number of dumps, target) tuples
+        """
+        for _, _, target in dump_defs:
+            if target not in self.catalogue:
+                self.catalogue.add(target)
+
+    def _create_timestamps(self, timestamp_defs, dump_defs):
+        """
+        Creates observation starting and ending times,
+        as well as the dump period, indices and timestamps
+        and number of dumps.
+
+        Parameters
+        ----------
+        timestamp_defs : dict
+            Dictionary { 'start_time' : float, 'dump_period' : float}
+        dump_defs : list of tuples
+            List of (event, number of dumps, target) tuples
+        """
+        try:
+            start_time = timestamp_defs.pop('start_time')
+        except KeyError:
+            epoch = datetime.utcfromtimestamp(0)
+            start_time = (datetime.now() - epoch).total_seconds()
+
+        dump_period = timestamp_defs.pop('dump_period', 4.0)
+
+        self._ndumps = ndumps = sum(nd for _, nd, _ in dump_defs)
+
+        # Observation times
+        self.start_time = katpoint.Timestamp(start_time)
+        self.end_time = self.start_time + dump_period*ndumps
+        self.dump_period = dump_period
+        self.dumps = np.arange(ndumps)
+        self._timestamps = np.arange(self.start_time, self.end_time, step=dump_period)
+
+    def _create_subarrays(self, subarray_defs):
+        """
+        Create subarrays, setting default subarray properties
+        for this dataset to the first subarray.
+
+        Parameters
+        ----------
+        subarray_defs : list of dicts
+            List of subarray definition dictionaries
+            { 'antenna' : list, 'corr_products' : list}
+        """
+
+        subarrays = []
+
+        for subarray_def in subarray_defs:
+            try:
+                ants = subarray_def.pop('antenna')
+            except KeyError as e:
+                raise KeyError("Subarray definition '%s' "
+                               "missing '%s'" % e.message)
+
+            ants = [a if isinstance(a, katpoint.Antenna)
+                      else katpoint.Antenna(a) for a in ants]
+
+            try:
+                corr_products = subarray_def.pop('corr_products')
+            except KeyError as e:
+                # Generate correlation products for all antenna pairs
+                # including auto-correlations
+                corr_products = np.array([
+                    (a1.name + c1, a2.name + c2)
+                        for i, a1 in enumerate(ants)
+                        for a2 in ants[i:]
+                        for c1 in ('h', 'v')
+                        for c2 in ('h', 'v')],
+                    dtype='|S5')
+
+            subarrays.append(Subarray(ants, corr_products))
+
+        try:
+            subarray = subarrays[0]
+        except IndexError:
+            raise ValueError("No subarrays where defined in '%s'" % subarray_defs)
+
+        self.subarrays = subarrays
+        self.subarray = 0
+        self.inputs = subarray.inputs
+        self.ants = subarray.ants
+        self.corr_products = subarray.corr_products
+
+        subarray_catdata = CategoricalData(self.subarrays, [0, self._ndumps])
+        subarray_index_catdata = CategoricalData([self.subarray], [0, self._ndumps])
+        self.sensor['Observation/subarray'] = subarray_catdata
+        self.sensor['Observation/subarray_index'] = subarray_index_catdata
+
+    def _create_spectral_windows(self, spw_defs):
+        """
+        Create spectral windows, setting the default spectral windows
+        for this dataset to the first spectral window.
+
+        Parameters
+        ----------
+        spw_defs : list of dictionaries
+            List of dictionaries defining a spectral window
+        """
+        spws = []
+
+        if not isinstance(spw_defs, (tuple, list)):
+            spw_defs = [spw_defs]
+
+        for spw_def in spw_defs:
+            try:
+                # Obtain the bare minimum
+                centre_freq = spw_def.pop('centre_freq')
+                channel_width = spw_def.pop('channel_width')
+                num_chans = spw_def.pop('num_chans')
+            except KeyError as e:
+                raise KeyError("Spectral Window definition '%s' "
+                               "missing '%s'" % (spw_def, e.message))
+
+            spw = SpectralWindow(centre_freq, channel_width, num_chans,
+                                                              **spw_def)
+            spws.append(spw)
+
+        try:
+            spw = spws[0]
+        except IndexError:
+            raise ValueError("No Spectral Windows were defined")
+
+        self.spectral_windows = spws
+        self.spw = 0
+        self.channel_width = spw.channel_width
+        self.freqs = self.channel_freqs = spw.channel_freqs
+        self.channels = np.arange(spw.num_chans)
+
+        spw_catdata = CategoricalData(self.spectral_windows, [0, self._ndumps])
+        spw_index_catdata = CategoricalData([self.spw], [0, self._ndumps])
+        self.sensor['Observation/spw'] = spw_catdata
+        self.sensor['Observation/spw_index'] = spw_index_catdata
+
+    def _create_antenna_sensors(self, antenna):
+        """
+        Create antenna sensors.
+
+        Parameters
+        ----------
+        antenna : list of :class:`katpoint.Antenna`
+            Antenna objects
+        """
+        for ant in antenna:
+            ant_catdata = CategoricalData([ant], [0, self._ndumps])
+            self.sensor['Antennas/%s/antenna' % (ant.name,)] = ant_catdata
+
+
+    def _create_scans(self, ref_ant, dumps_def):
+        """
+        Setup reference antenna, as well as scans
+        associated with it
+
+        Parameters
+        ----------
+        ref_ant : :class:`katpoint.Antenna`
+            Reference antenna
+        dump_defs : list of tuples
+            List of (event, number of dumps, target) tuples
+
+        """
+        self.ref_ant = ref_ant
+
+        def _generate_ref_ant_compound_scans():
+            """
+            Divide dumps into periods of slewing and tracking at a target,
+            yielding (dump_index, 'slew'/'track', target).
+            """
+            dump_index = 0
+
+            for event, dumps, target in dumps_def:
+                yield dump_index, event, target
+                dump_index += dumps
+
+        # Generate compound scans for the reference antenna
+        ref_ant_compound_scans = list(_generate_ref_ant_compound_scans())
+
+        # Labels seem to only involve tracks, separate them out
+        label_scans = [tup for tup in ref_ant_compound_scans if tup[1] == 'track']
+        events, values, _ = zip(*label_scans)
+        label = CategoricalData(values, events + (self._ndumps,))
+
+        # Generate dump indexes (events) and 'slew'/'track' (values)
+        # and targets for the reference antenna
+        events, values, targets = zip(*(_generate_ref_ant_compound_scans()))
+        refant = CategoricalData(values, events + (self._ndumps,))
+        # DO THIS BCOS h5datav3.py does it
+        refant.add_unmatched(label.events)
+        self.sensor['Antennas/%s/activity' % self.ref_ant] = refant
+
+        # Derive scan states and indices from reference antenna data
+        scan_index = CategoricalData(range(len(refant)), refant.events)
+
+        self.sensor['Observation/scan_state'] = refant
+        self.sensor['Observation/scan_index'] = scan_index
+
+        # DO THIS BCOS h5datav3.py does it
+        label.align(refant.events)
+
+        # First track event unlikely to happen at dump 0
+        if label.events[0] > 0:
+            label.add(0, '')
+
+        # Derive compound scan index from the label
+        compscan_index = CategoricalData(range(len(label)), label.events)
+        self.sensor['Observation/label'] = label
+        self.sensor['Observation/compscan_index'] = compscan_index
+
+        # Create categorical data for our targets
+        targets = CategoricalData(targets, (events + (self._ndumps,)))
+        # DO THIS BCOS h5datav3.py does it
+        targets.align(refant.events)
+
+        target_index = CategoricalData(targets.indices, targets.events)
+
+        self.sensor['Observation/target'] = targets
+        self.sensor['Observation/target_index'] = target_index
 
     @property
     def timestamps(self):
@@ -203,6 +355,7 @@ class MockDataSet(DataSet):
 
     @property
     def vis(self):
+        # Visibilities of form (scan + dump*1j)
         vis = np.empty(self.shape, dtype=np.complex64)
         vis[:,:,:].real = np.full(self.shape, self.scan_indices[0])
         vis[:,:,:].imag = self.dumps[:,None,None]
@@ -211,6 +364,6 @@ class MockDataSet(DataSet):
 
 mock = MockDataSet()
 for si, state, target in mock.scans():
-    print mock._selection
     print si, state, target, mock.shape
+    print mock.vis[:]
 
