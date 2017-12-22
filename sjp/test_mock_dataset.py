@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta
 import itertools
+import random
 
 import numpy as np
 from six.moves import range
-import ephem
+from ephem.stars import stars
 
 from katdal.dataset import (DataSet, Subarray,
                         SpectralWindow)
@@ -36,14 +37,16 @@ ANTENNA_DESCRIPTIONS = [
 MEERKAT_LOW_FREQ = .856e9
 MEERKAT_BANDWIDTH = .856e9
 MEERKAT_CENTRE_FREQ = MEERKAT_LOW_FREQ + MEERKAT_BANDWIDTH / 2.
-MEERKAT_CHANNELS = 32768
+MEERKAT_CHANNELS = 4096
 MEERKAT_CHANNEL_WIDTH = MEERKAT_BANDWIDTH / MEERKAT_CHANNELS
+
+NTARGETS = 5
+UNIQUE_STARS = random.sample(stars.keys(), NTARGETS)
+TARGETS = [katpoint.Target('%s, star' % t) for t in UNIQUE_STARS]
 
 EPOCH = datetime.utcfromtimestamp(0)
 OBSERVATION_START = (datetime.now() - EPOCH).total_seconds()
 
-
-TARGETS = [katpoint.Target('%s, star' % t) for t in ('Achernar', 'Rigel', 'Sirius', 'Procyon')]
 DUMP_PERIOD = 4.0
 SLEW_TRACK_DUMPS = (('slew', 5), ('track', 45))
 DUMPS = [(e, nd, t) for t in TARGETS for e, nd in SLEW_TRACK_DUMPS]*20
@@ -205,8 +208,9 @@ class MockDataSet(DataSet):
         vis[:,:,:].imag = self.dumps[:,None,None]
         return vis
 
-mock = MockDataSet()
 
+mock = MockDataSet()
 for si, state, target in mock.scans():
     print mock._selection
     print si, state, target, mock.shape
+
