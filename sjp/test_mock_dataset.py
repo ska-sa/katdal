@@ -46,10 +46,7 @@ OBSERVATION_START = (OBSERVATION_START - EPOCH).total_seconds()
 OBSERVATION_END = (OBSERVATION_END - EPOCH).total_seconds()
 OBSERVATION_LENGTH = OBSERVATION_LENGTH.total_seconds()
 
-TARGETS = [ephem.star(t) for t in ('Achernar', 'Rigel', 'Sirius', 'Procyon')]
-[t.compute() for t in TARGETS]
-TARGETS = ['%s, radec, %s, %s' % (t.name, t.ra, t.dec) for t in TARGETS]
-TARGETS = [katpoint.Target(t) for t in TARGETS]
+TARGETS = [katpoint.Target('%s, star' % t) for t in ('Achernar', 'Rigel', 'Sirius', 'Procyon')]
 
 # Number of compound scans
 NCOMPOUNDSCANS = 1000
