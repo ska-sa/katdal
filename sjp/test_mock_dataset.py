@@ -30,7 +30,8 @@ ANTENNA_DESCRIPTIONS = [
     'm050, -30:42:39.8, 21:26:38.0, 1035.0, 13.5, -2052.322 -843.685 -2.0395 5882.69 5882.889, 0:26:30.1 0 -0:01:18.0 -0:05:14.5 -0:00:01.8 -0:00:13.0 -0:12:05.9 0:02:41.4, 1.22',
     'm054, -30:42:39.8, 21:26:38.0, 1035.0, 13.5, 871.9915 -499.8355 5.8945 5878.312 5878.298, 0:01:58.0 0 -0:06:01.7 -0:03:59.5 0:00:35.1 -0:00:45.8 0:06:50.6 -0:00:58.1, 1.22',
     'm055, -30:42:39.8, 21:26:38.0, 1035.0, 13.5, 1201.798 96.4835 2.577 5849.908 5850.499, -0:00:02.5 0 0:02:37.7 -0:05:55.1 -0:00:01.2 0:01:30.5 0:06:12.9 0:03:27.3, 1.22',
-    'm056, -30:42:39.8, 21:26:38.0, 1035.0, 13.5, 1598.4195 466.6315 -0.502 5873.236 5854.456, -0:25:01.4 0 0:02:18.3 0:07:57.5 -0:00:19.6 0:00:57.1 0:12:21.6 0:01:28.5, 1.22']
+    'm056, -30:42:39.8, 21:26:38.0, 1035.0, 13.5, 1598.4195 466.6315 -0.502 5873.236 5854.456, -0:25:01.4 0 0:02:18.3 0:07:57.5 -0:00:19.6 0:00:57.1 0:12:21.6 0:01:28.5, 1.22'
+]
 
 MEERKAT_LOW_FREQ = .856e9
 MEERKAT_BANDWIDTH = .856e9
@@ -39,17 +40,13 @@ MEERKAT_CHANNELS = 32768
 MEERKAT_CHANNEL_WIDTH = MEERKAT_BANDWIDTH / MEERKAT_CHANNELS
 
 EPOCH = datetime.utcfromtimestamp(0)
-OBSERVATION_START = datetime.now()
-OBSERVATION_LENGTH = timedelta(hours=8)
-OBSERVATION_END = OBSERVATION_START + OBSERVATION_LENGTH
-OBSERVATION_START = (OBSERVATION_START - EPOCH).total_seconds()
-OBSERVATION_END = (OBSERVATION_END - EPOCH).total_seconds()
-OBSERVATION_LENGTH = OBSERVATION_LENGTH.total_seconds()
+OBSERVATION_START = (datetime.now() - EPOCH).total_seconds()
+
 
 TARGETS = [katpoint.Target('%s, star' % t) for t in ('Achernar', 'Rigel', 'Sirius', 'Procyon')]
-
-# Number of compound scans
-NCOMPOUNDSCANS = 1000
+DUMP_PERIOD = 4.0
+SLEW_TRACK_DUMPS = (('slew', 5), ('track', 45))
+DUMPS = [(e, nd, t) for t in TARGETS for e, nd in SLEW_TRACK_DUMPS]*20
 
 def _create_refant_data(mock, ants, ndumps):
     """
@@ -59,25 +56,19 @@ def _create_refant_data(mock, ants, ndumps):
     # Reference antenna and it's sensor data
     mock.ref_ant = ants[0].name
 
-    def _generate_ref_ant_compound_scans(ndumps):
+    def _generate_ref_ant_compound_scans():
         """
         Divide dumps into periods of slewing and tracking at a target,
         yielding (dump_index, 'slew'/'track', target).
         """
+        dump_index = 0
 
-        target_cycler = itertools.cycle(TARGETS)
-        dumps_per_compscan = ndumps / float(NCOMPOUNDSCANS+1)
-        slew_start = 0
-        track_start = int(0.15*dumps_per_compscan)
-
-        dump_range = range(0, ndumps, int(dumps_per_compscan))
-
-        for i, target in zip(dump_range, target_cycler):
-            yield (i + slew_start, 'slew', target)
-            yield (i + track_start, 'track', target)
+        for event, dumps, target in DUMPS:
+            yield dump_index, event, target
+            dump_index += dumps
 
     # Generate compound scans for the reference antenna
-    ref_ant_compound_scans = list(_generate_ref_ant_compound_scans(ndumps))
+    ref_ant_compound_scans = list(_generate_ref_ant_compound_scans())
 
     # Labels seem to only involve tracks, separate them out
     label_scans = [tup for tup in ref_ant_compound_scans if tup[1] == 'track']
@@ -86,7 +77,7 @@ def _create_refant_data(mock, ants, ndumps):
 
     # Generate dump indexes (events) and 'slew'/'track' (values)
     # and targets for the reference antenna
-    events, values, targets = zip(*(_generate_ref_ant_compound_scans(ndumps)))
+    events, values, targets = zip(*(_generate_ref_ant_compound_scans()))
     refant = CategoricalData(values, events + (ndumps,))
     # DO THIS BCOS h5datav3.py does it
     refant.add_unmatched(label.events)
@@ -126,15 +117,15 @@ class MockDataSet(DataSet):
         self.observer = 'mock'
         self.description = "Mock observation"
 
+        ndumps = sum(d for _, d, _ in DUMPS)
+
         # Observation times
         self.start_time = katpoint.Timestamp(OBSERVATION_START)
-        self.end_time = katpoint.Timestamp(OBSERVATION_END)
-        self.dump_period = 4.0
-        self.dumps = np.arange(OBSERVATION_LENGTH / self.dump_period)
-        ndumps = self.dumps.shape[0]
-        self._timestamps = np.linspace(OBSERVATION_START, OBSERVATION_END,
-                                            num=ndumps, endpoint=True)
+        self.end_time = self.start_time + DUMP_PERIOD*ndumps
+        self.dump_period = DUMP_PERIOD
+        self.dumps = np.arange(ndumps)
 
+        self._timestamps = np.arange(ndumps*DUMP_PERIOD, step=DUMP_PERIOD) + self.start_time.secs
 
         # Now create the sensors cache now that
         # we have dump period and timestamps
@@ -219,5 +210,3 @@ mock = MockDataSet()
 for si, state, target in mock.scans():
     print mock._selection
     print si, state, target, mock.shape
-    vis = mock.vis
-    print vis[0,0,0], vis[-1,0,0]
