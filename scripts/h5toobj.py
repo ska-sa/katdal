@@ -240,8 +240,8 @@ if __name__ == '__main__':
 
     use_rados = args.ceph_pool is not None
     if use_rados:
-        obj_store = RadosChunkStore(args.ceph_conf, args.ceph_pool,
-                                    args.ceph_keyring)
+        obj_store = RadosChunkStore.from_config(args.ceph_conf, args.ceph_pool,
+                                                args.ceph_keyring)
         pool_stats = obj_store.ioctx.get_stats()
         logger.info("Connected to pool %s. Currently holds %d objects "
                     "totalling %g GB", args.ceph_pool,
