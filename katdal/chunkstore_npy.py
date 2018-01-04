@@ -53,7 +53,7 @@ class NpyFileChunkStore(ChunkStore):
     def __init__(self, path):
         super(NpyFileChunkStore, self).__init__({IOError: ChunkNotFound})
         if not os.path.isdir(path):
-            raise StoreUnavailable('Directory %r does not exist' % (path,))
+            raise StoreUnavailable('Directory {!r} does not exist'.format(path))
         self.path = path
 
     def get(self, array_name, slices, dtype):
@@ -63,8 +63,8 @@ class NpyFileChunkStore(ChunkStore):
         with self._standard_errors(chunk_name):
             chunk = np.load(filename, allow_pickle=False)
         if dtype != chunk.dtype:
-            raise BadChunk('Requested dtype %s differs from NPY file dtype %s'
-                           % (dtype, chunk.dtype))
+            raise BadChunk('Requested dtype {} differs from NPY file dtype {}'
+                           .format(dtype, chunk.dtype))
         return chunk
 
     def put(self, array_name, slices, chunk):

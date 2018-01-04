@@ -99,6 +99,7 @@ class RadosChunkStore(ChunkStore):
 
     def get(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get`."""
+        dtype = np.dtype(dtype)
         key, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         num_bytes = int(np.prod(shape)) * dtype.itemsize
         with self._standard_errors(key):

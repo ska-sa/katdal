@@ -41,7 +41,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
                                             '-r', self.tempdir, '-p', '0',
                                             '-a', host, '-H', host],
                                            stdout=subprocess.PIPE,
-                                           stderr=subprocess.PIPE, bufsize=1)
+                                           stderr=subprocess.PIPE)
         except OSError:
             raise SkipTest('Could not start fakes3 server (is it installed?)')
         start = time.time()
@@ -51,7 +51,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             line = self.fakes3.stderr.readline().strip()
             ports_found = re.search(r' port=(\d{4,5})$', line)
             if ports_found:
-                port = ports_found.groups()[0]
+                port = ports_found.group(1)
                 return 'http://%s:%s' % (host, port)
         raise SkipTest('Could not connect to fakes3 server')
 
@@ -97,4 +97,4 @@ class TestDudS3ChunkStore(object):
             raise SkipTest('S3 botocore dependency not installed')
 
     def test_store_unavailable(self):
-        assert_raises(StoreUnavailable, S3ChunkStore.from_url, 'hahahahahaha')
+        assert_raises(StoreUnavailable, S3ChunkStore.from_url, 'http://i.nvalid/')

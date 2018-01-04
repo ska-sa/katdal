@@ -18,10 +18,11 @@
 
 import contextlib
 
+import numpy as np
+
 
 class StoreUnavailable(OSError):
-    """The interaction with the underlying storage medium failed, e.g. due
-       to it being offline, authentication failure, misconfiguration, etc."""
+    """Could not access underlying storage medium (offline, auth failed, etc)."""
 
 
 class ChunkNotFound(KeyError):
@@ -82,7 +83,7 @@ class ChunkStore(object):
             Identifier of parent array `x` of chunk
         slices : sequence of unit-stride slice objects
             Identifier of individual chunk, to be extracted as `x[slices]`
-        dtype : :class:`numpy.dtype` object
+        dtype : :class:`numpy.dtype` object or equivalent
             Data type of array `x`
 
         Returns
@@ -156,7 +157,7 @@ class ChunkStore(object):
             Identifier of individual chunk, to be extracted as `x[slices]`
         chunk : :class:`numpy.ndarray` object, optional
             Actual chunk data as ndarray (used to validate shape / dtype)
-        dtype : :class:`numpy.dtype` object, optional
+        dtype : :class:`numpy.dtype` object or equivalent, optional
             Data type of array `x` (used for validation only)
 
         Returns
@@ -174,7 +175,7 @@ class ChunkStore(object):
 
         """
         try:
-            shape = tuple([s.stop - s.start for s in slices])
+            shape = tuple(s.stop - s.start for s in slices)
         except (TypeError, AttributeError):
             raise BadChunk('Array {!r}: chunk ID should be a sequence of '
                            'slice objects, not {}'.format(array_name, slices))
@@ -194,7 +195,7 @@ class ChunkStore(object):
         if chunk is not None and chunk.dtype.hasobject:
             raise BadChunk('Chunk {!r}: actual dtype {} cannot contain '
                            'objects'.format(chunk_name, chunk.dtype))
-        if dtype is not None and dtype.hasobject:
+        if dtype is not None and np.dtype(dtype).hasobject:
             raise BadChunk('Chunk {!r}: Requested dtype {} cannot contain '
                            'objects'.format(chunk_name, dtype))
         return chunk_name, shape

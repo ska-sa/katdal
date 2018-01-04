@@ -103,6 +103,7 @@ class S3ChunkStore(ChunkStore):
 
     def get(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get`."""
+        dtype = np.dtype(dtype)
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         bucket, key = self.split(chunk_name, 1)
         with self._standard_errors(chunk_name):
