@@ -19,9 +19,11 @@
 import numpy as np
 try:
     import rados
-except ImportError:
+    _rados_import_error = None
+except ImportError as e:
     # librados (i.e. direct Ceph access) is only really available on Linux
     rados = None
+    _rados_import_error = e
 
 from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk
 
@@ -50,7 +52,7 @@ class RadosChunkStore(ChunkStore):
 
     def __init__(self, ioctx):
         if not rados:
-            raise ImportError('Please install rados for katdal RADOS support')
+            raise _rados_import_error
         # From now on, ObjectNotFound refers to RADOS objects i.e. chunks
         error_map = {rados.TimedOut: StoreUnavailable,
                      rados.ObjectNotFound: ChunkNotFound}
@@ -81,10 +83,7 @@ class RadosChunkStore(ChunkStore):
         """
         if not rados:
             raise ImportError('Please install rados for katdal RADOS support')
-        # A missing config file or pool also triggers ObjectNotFound
-        error_map = {rados.TimedOut: StoreUnavailable,
-                     rados.ObjectNotFound: StoreUnavailable}
-        with ChunkStore(error_map)._standard_errors():
+        try:
             if isinstance(config, dict):
                 cluster = rados.Rados(conf=config)
             else:
@@ -95,6 +94,9 @@ class RadosChunkStore(ChunkStore):
                 cluster.conf_set('client mount timeout', str(timeout))
             cluster.connect()
             ioctx = cluster.open_ioctx(pool)
+        # A missing config file or pool also triggers ObjectNotFound
+        except (rados.TimedOut, rados.ObjectNotFound) as e:
+            raise StoreUnavailable(str(e))
         return cls(ioctx)
 
     def get(self, array_name, slices, dtype):

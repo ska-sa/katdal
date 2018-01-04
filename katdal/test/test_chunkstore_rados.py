@@ -52,6 +52,8 @@ class TestDudRadosChunkStore(object):
     def test_store_unavailable(self):
         # Pretend that rados is not installed
         katdal.chunkstore_rados.rados = None
+        katdal.chunkstore_rados._rados_import_error = ImportError()
         assert_raises(ImportError, RadosChunkStore, None)
         katdal.chunkstore_rados.rados = rados
+        katdal.chunkstore_rados._rados_import_error = None
         assert_raises(StoreUnavailable, RadosChunkStore.from_config, 'x', 'y')

@@ -215,6 +215,12 @@ class ChunkStore(object):
         try:
             yield
         except tuple(self._error_map) as e:
-            ChunkStoreError = self._error_map[type(e)]
+            try:
+                ChunkStoreError = self._error_map[type(e)]
+            except KeyError:
+                # The exception has to be a subclass of one of the error_map
+                # keys, so pick the first one found
+                FirstBase = next(c for c in self._error_map if isinstance(e, c))
+                ChunkStoreError = self._error_map[FirstBase]
             prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
             raise ChunkStoreError(prefix + str(e))

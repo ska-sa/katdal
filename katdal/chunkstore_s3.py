@@ -21,8 +21,10 @@ import contextlib
 import numpy as np
 try:
     import botocore
-except ImportError:
+    _botocore_import_error = None
+except ImportError as e:
     botocore = None
+    _botocore_import_error = e
 else:
     import botocore.config
     import botocore.session
@@ -60,7 +62,7 @@ class S3ChunkStore(ChunkStore):
 
     def __init__(self, client):
         if not botocore:
-            raise ImportError('Please install botocore for katdal S3 support')
+            raise _botocore_import_error
         error_map = {EndpointConnectionError: StoreUnavailable,
                      client.exceptions.NoSuchKey: ChunkNotFound,
                      client.exceptions.NoSuchBucket: ChunkNotFound}
@@ -91,14 +93,13 @@ class S3ChunkStore(ChunkStore):
         session = botocore.session.get_session()
         config = botocore.config.Config(max_pool_connections=200,
                                         s3={'addressing_style': 'path'})
-        error_map = {EndpointConnectionError: StoreUnavailable,
-                     NoCredentialsError: StoreUnavailable,
-                     ValueError: StoreUnavailable}
-        with ChunkStore(error_map)._standard_errors():
+        try:
             client = session.create_client(service_name='s3',
                                            endpoint_url=url, config=config)
             # Quick smoke test to see if the S3 server is available
             client.list_buckets()
+        except (EndpointConnectionError, NoCredentialsError, ValueError) as e:
+            raise StoreUnavailable(str(e))
         return cls(client)
 
     def get(self, array_name, slices, dtype):
