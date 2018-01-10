@@ -103,14 +103,19 @@ class RadosChunkStore(ChunkStore):
         """See the docstring of :meth:`ChunkStore.get`."""
         dtype = np.dtype(dtype)
         key, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
-        num_bytes = int(np.prod(shape)) * dtype.itemsize
+        expected_bytes = int(np.prod(shape)) * dtype.itemsize
         with self._standard_errors(key):
             # Try to read an extra byte to see if data is more than expected
-            data_str = self.ioctx.read(key, num_bytes + 1)
-        if len(data_str) != num_bytes:
+            data_str = self.ioctx.read(key, expected_bytes + 1)
+        actual_bytes = len(data_str)
+        if actual_bytes != expected_bytes:
+            # Get the actual value via stat() to improve error reporting
+            if actual_bytes > expected_bytes:
+                actual_bytes, _ = self.ioctx.stat(key)
             raise BadChunk('Chunk {!r}: dtype {} and shape {} implies an '
                            'object size of {} bytes, got {} bytes instead'
-                           .format(key, dtype, shape, num_bytes, len(data_str)))
+                           .format(key, dtype, shape, expected_bytes,
+                                   actual_bytes))
         return np.ndarray(shape, dtype, data_str)
 
     def put(self, array_name, slices, chunk):
