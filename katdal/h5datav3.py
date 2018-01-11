@@ -495,7 +495,7 @@ class H5DataV3(DataSet):
             spw_params['centre_freq'] = 428e6
             spw_params['sideband'] = -1
         stream_centre_freq = self._get_telstate_stream_attr(
-            'center_freq', cbf_group=cbf_group, sdp_group=sdp_group, required=False)
+            'center_freq', sdp_group=sdp_group, required=False)
         if stream_centre_freq is not None:
             spw_params['centre_freq'] = stream_centre_freq
         # Get channel width from original CBF / SDP parameters
@@ -656,10 +656,10 @@ class H5DataV3(DataSet):
                     'cbf_' + instrument + '_' + key, NOTFOUND, no_unpickle)
                 if value is not NOTFOUND:
                     return value
-        value = self._get_telstate_attr('cbf_' + key, NOTFOUND, no_unpickle)
-        if value is not NOTFOUND:
-            return value
         if cbf_group is not None:
+            value = self._get_telstate_attr('cbf_' + key, NOTFOUND, no_unpickle)
+            if value is not NOTFOUND:
+                return value
             try:
                 return cbf_group.attrs[key]
             except KeyError:
