@@ -112,6 +112,10 @@ def dummy_dataset(name, shape, dtype, value):
     return dummy_file.create_dataset(name, shape=shape, maxshape=shape,
                                      dtype=dtype, fillvalue=value, compression='gzip')
 
+
+class AttributeFound(Exception):
+    """This indicates that an attribute has been found and contains its value."""
+
 # -------------------------------------------------------------------------------------------------
 # -- CLASS :  H5DataV3
 # -------------------------------------------------------------------------------------------------
@@ -176,7 +180,7 @@ class H5DataV3(DataSet):
 
         # Load main HDF5 groups
         data_group, tm_group = f['Data'], f['TelescopeModel']
-        self.stream_name = data_group.attrs.get('stream_name', 'sdp_l0')
+        self.stream_name = str(data_group.attrs.get('stream_name', 'sdp_l0'))
         # Pick first group with appropriate class as CBF
         cbfs = [comp for comp in tm_group
                 if tm_group[comp].attrs.get('class') == 'CorrelatorBeamformer']
@@ -217,8 +221,7 @@ class H5DataV3(DataSet):
 
         # Get SDP L0 dump period if available, else fall back to CBF dump period
         cbf_dump_period = cbf_group.attrs.get('int_time')
-        self.dump_period = self._get_telstate_stream_attr(
-            'int_time', cbf_group=cbf_group, sdp_group=sdp_group)
+        self.dump_period = self._get_l0_attr('int_time', cbf_group, sdp_group)
         # Determine if timestamps are already aligned with middle of dumps
         try:
             ts_ref = data_group['timestamps'].attrs['timestamp_reference']
@@ -243,8 +246,8 @@ class H5DataV3(DataSet):
         # Resynthesise timestamps from sample counter based on a different
         # scale factor or origin. For this we need to get the CBF scale factor
         # and origin, ignoring any SDP parameters.
-        old_scale = self._get_telstate_cbf_attr('scale_factor_timestamp', cbf_group=cbf_group)
-        old_origin = self._get_telstate_cbf_attr('sync_time', cbf_group=cbf_group)
+        old_scale = self._get_cbf_attr('scale_factor_timestamp', cbf_group)
+        old_origin = self._get_cbf_attr('sync_time', cbf_group)
         # If no new scale factor or origin is given, just use old ones - timestamps should be identical
         time_scale = old_scale if time_scale is None else time_scale
         time_origin = old_origin if time_origin is None else time_origin
@@ -420,7 +423,8 @@ class H5DataV3(DataSet):
         if not band:
             if 'TelescopeState' in f.file:
                 # Newer RTS, AR1 and beyond use the subarray band attribute / sensor
-                band = self._get_telstate_attr('sub_band', default='', no_unpickle=('l', 's', 'u', 'x'))
+                band = self._get_telstate_attr('sub_band', default='',
+                                               no_unpickle=('l', 's', 'u', 'x'))
             else:
                 # Fallback for the original RTS before 2016-07-21 (not reliable)
                 # Find the most common valid indexer position in the subarray
@@ -470,10 +474,8 @@ class H5DataV3(DataSet):
             'x': dict(band='Ku', sideband=1),
         }
         spw_params = rx_table.get(band, dict(band='', sideband=1))
-        num_chans = self._get_telstate_stream_attr(
-            'n_chans', cbf_group=cbf_group, sdp_group=sdp_group)
-        bandwidth = self._get_telstate_stream_attr(
-            'bandwidth', cbf_group=cbf_group, sdp_group=sdp_group)
+        num_chans = self._get_l0_attr('n_chans', cbf_group, sdp_group)
+        bandwidth = self._get_l0_attr('bandwidth', cbf_group, sdp_group)
         # Work around a bc856M4k CBF bug active from 2016-04-28 to 2016-06-01 that got the bandwidth wrong
         if bandwidth == 857152196.0:
             logger.warning('Worked around CBF bandwidth bug (857.152 MHz -> 856.000 MHz)')
@@ -494,10 +496,10 @@ class H5DataV3(DataSet):
         elif spw_params['band'] == 'UHF' and bandwidth == 856e6:
             spw_params['centre_freq'] = 428e6
             spw_params['sideband'] = -1
-        stream_centre_freq = self._get_telstate_stream_attr(
-            'center_freq', sdp_group=sdp_group, required=False)
-        if stream_centre_freq is not None:
-            spw_params['centre_freq'] = stream_centre_freq
+        l0_centre_freq = self._get_l0_attr('center_freq', sdp_group=sdp_group,
+                                           required=False)
+        if l0_centre_freq is not None:
+            spw_params['centre_freq'] = l0_centre_freq
         # Get channel width from original CBF / SDP parameters
         spw_params['channel_width'] = bandwidth / num_chans
         # Continue with different channel count, but invalidate centre freq (keep channel width though)
@@ -585,7 +587,6 @@ class H5DataV3(DataSet):
         If the raw value is a member of `no_unpickle`, returns it directly
         rather than attempting to unpickle it. This is to support older files
         (created before 2016-11-30) in which the attributes were not pickled.
-
         """
         try:
             value = self.file['TelescopeState'].attrs[key]
@@ -601,9 +602,42 @@ class H5DataV3(DataSet):
             except (KeyError, IndexError):
                 return default
 
-    def _get_telstate_cbf_attr(self, key, default=None, no_unpickle=(), required=True,
-                               cbf_group=None):
-        """Retrieve a TelescopeState attribute associated with the CBF stream.
+    def _raise_if_attr_found(self, *attr_name_parts, **kwargs):
+        """Look for attribute and if found, return value by raising exception.
+
+        Parameters
+        ----------
+        attr_name_parts : sequence of strings
+            Join these with '_' to form attribute name (last part is base name)
+        h5_group : :class:`h5py.Group`, optional, keyword-only
+            HDF5 group in TelescopeModel to use instead of TelescopeState
+
+        Raises
+        ------
+        AttributeFound(value)
+            If attribute is found, return value via exception (else do nothing)
+        """
+        attr_name = '_'.join(attr_name_parts)
+        key = attr_name_parts[-1]
+        h5_group = kwargs.get('h5_group')
+        if h5_group is not None:
+            try:
+                value = h5_group.attrs[attr_name]
+            except KeyError:
+                pass
+            else:
+                logger.debug("Found %s=%s in h5.file[%r].attrs[%r]",
+                             key, value, h5_group.name, attr_name)
+                raise AttributeFound(value)
+        else:
+            NOTFOUND = object()     # Dummy to distinguish "not found" from None
+            value = self._get_telstate_attr(attr_name, NOTFOUND)
+            if value is not NOTFOUND:
+                logger.debug('Found %s=%s in telstate[%r]', key, value, attr_name)
+                raise AttributeFound(value)
+
+    def _get_cbf_attr(self, key, cbf_group=None, required=True, default=None):
+        """Retrieve attribute associated with the CBF stream.
 
         It is searched for in several places, using the first match from the
         following:
@@ -613,97 +647,78 @@ class H5DataV3(DataSet):
           only each time).
         - :samp:`{instrument}_{key}` in TelescopeState, where `instrument`
           is the CBF instrument of the root stream.
-        - :samp:`cbf_{key}` in TelescopeState
-        - :samp:`{key}` in `cbf_group`, if given
+        - :samp:`cbf_{key}` in TelescopeState, if `cbf_group` is given
+        - :samp:`{key}` in `cbf_group` in TelescopeModel, if given
         - `default`, unless `required` is true
 
         Parameters
         ----------
-        default : object, optional
-            Value to return if the key is not found and `required` is false
-        no_unpickle : sequence, optional
-            If the raw value is a member of `no_unpickle`, returns it directly
-            rather than attempting to unpickle it. This is to support older files
-            (created before 2016-11-30) in which the attributes were not pickled.
+        key : string
+            Base name of the attribute
+        cbf_group : :class:`h5py.Group`, optional
+            HDF5 group for the CBF in TelescopeModel
         required : bool, optional
             If true (default), raise :exc:`BrokenFile` if the key is not found
-        cbf_group : :class:`h5py.Group`, optional
-            HDF5 group for the CBF in TelescopeModel.
+        default : object, optional
+            Value to return if the key is not found and `required` is false
         """
-        NOTFOUND = object()     # Dummy to distinguish not found from None
         srcs = self._get_telstate_attr(self.stream_name + '_src_streams')
         stream = None
         counter = 10   # Sanity check to catch loops in _src_streams
-        while srcs:
-            stream = srcs[0]
-            value = self._get_telstate_attr(stream + '_' + key, NOTFOUND, no_unpickle)
-            if value is not NOTFOUND:
-                return value
-            value = self._get_telstate_attr('cbf_' + stream + '_' + key, NOTFOUND, no_unpickle)
-            if value is not NOTFOUND:
-                return value
-            srcs = self._get_telstate_attr(stream + '_src_streams')
-            counter -= 1
-            if counter == 0:
-                raise BrokenFile('Too many levels of streams in *_src_streams')
-        if stream is not None:
-            instrument = self._get_telstate_attr(stream + '_instrument_dev_name')
-            if instrument:
-                value = self._get_telstate_attr(instrument + '_' + key, NOTFOUND, no_unpickle)
-                if value is not NOTFOUND:
-                    return value
-                value = self._get_telstate_attr(
-                    'cbf_' + instrument + '_' + key, NOTFOUND, no_unpickle)
-                if value is not NOTFOUND:
-                    return value
-        if cbf_group is not None:
-            value = self._get_telstate_attr('cbf_' + key, NOTFOUND, no_unpickle)
-            if value is not NOTFOUND:
-                return value
-            try:
-                return cbf_group.attrs[key]
-            except KeyError:
-                pass
+        try:
+            while srcs:
+                stream = srcs[0]
+                self._raise_if_attr_found(stream, key)
+                self._raise_if_attr_found('cbf', stream, key)
+                srcs = self._get_telstate_attr(stream + '_src_streams')
+                counter -= 1
+                if counter == 0:
+                    raise BrokenFile('Too many levels of streams in *_src_streams')
+            if stream is not None:
+                instrument = self._get_telstate_attr(stream + '_instrument_dev_name')
+                if instrument:
+                    self._raise_if_attr_found(instrument, key)
+                    self._raise_if_attr_found('cbf', instrument, key)
+            if cbf_group is not None:
+                self._raise_if_attr_found('cbf', key)
+                self._raise_if_attr_found(key, h5_group=cbf_group)
+        except AttributeFound as exc:
+            return exc.args[0]
         if required:
             raise BrokenFile('File does not contain {!r}'.format(key))
         return default
 
-    def _get_telstate_stream_attr(self, key, default=None, no_unpickle=(), required=True,
-                                  cbf_group=None, sdp_group=None):
-        """Retrieve a TelescopeState attribute prefixed with the output stream name.
+    def _get_l0_attr(self, key, cbf_group=None, sdp_group=None, required=True,
+                     default=None):
+        """Retrieve attribute associated with the L0 data stream.
 
         It is searched for in several places, using the first match from the
         following:
 
         - :samp:`{stream_name}_{key}` in TelescopeState
-        - :samp:`l0_{key}` in `sdp_group`, if given
-        - Places searched by :meth:`_get_telstate_cbf_attr`
+        - :samp:`l0_{key}` in `sdp_group` in TelescopeModel, if given
+        - Places searched by :meth:`_get_cbf_attr`
 
         Parameters
         ----------
-        default : object, optional
-            Value to return if the key is not found and `required` is false
-        no_unpickle : sequence, optional
-            If the raw value is a member of `no_unpickle`, returns it directly
-            rather than attempting to unpickle it. This is to support older files
-            (created before 2016-11-30) in which the attributes were not pickled.
+        key : string
+            Base name of the attribute
+        cbf_group : :class:`h5py.Group`, optional
+            HDF5 group for the CBF in TelescopeModel
+        sdp_group : :class:`h5py.Group`, optional
+            HDF5 group for the SDP in TelescopeModel
         required : bool, optional
             If true (default), raise :exc:`BrokenFile` if the key is not found
-        cbf_group : :class:`h5py.Group`, optional
-            HDF5 group for the CBF in TelescopeModel.
-        sdp_group : :class:`h5py.Group`, optional
-            HDF5 group for the SDP in TelescopeModel.
+        default : object, optional
+            Value to return if the key is not found and `required` is false
         """
-        NOTFOUND = object()     # Dummy to distinguish not found from None
-        value = self._get_telstate_attr(self.stream_name + '_' + key, NOTFOUND, no_unpickle)
-        if value is not NOTFOUND:
-            return value
-        if sdp_group is not None:
-            try:
-                return sdp_group.attrs['l0_' + key]
-            except KeyError:
-                pass
-        return self._get_telstate_cbf_attr(key, default, no_unpickle, required, cbf_group)
+        try:
+            self._raise_if_attr_found(self.stream_name, key)
+            if sdp_group is not None:
+                self._raise_if_attr_found('l0', key, h5_group=sdp_group)
+        except AttributeFound as exc:
+            return exc.args[0]
+        return self._get_cbf_attr(key, cbf_group, required, default)
 
     @staticmethod
     def _get_corrprods(f, stream_name, rotate_bls=False):
