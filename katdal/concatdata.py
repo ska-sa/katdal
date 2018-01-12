@@ -189,7 +189,7 @@ class ConcatenatedLazyIndexer(LazyIndexer):
         dtypes = set([indexer.dtype for indexer in self.indexers])
         if len(dtypes) == 1:
             return dtypes.pop()
-        elif np.all([np.issubdtype(dtype, np.str) for dtype in dtypes]):
+        elif np.all([np.issubdtype(dtype, np.string_) for dtype in dtypes]):
             # Strings of different lengths have different dtypes (e.g. '|S1' vs '|S10') but can be safely concatenated
             return np.dtype('|S%d' % (max([dt.itemsize for dt in dtypes]),))
         else:

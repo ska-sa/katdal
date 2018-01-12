@@ -389,15 +389,15 @@ def dummy_sensor_data(name, value=None, dtype=np.float64, timestamp=0.0):
 
     """
     if value is None:
-        if np.issubdtype(dtype, np.float):
-            value = np.nan
-        elif np.issubdtype(dtype, np.int):
-            value = -1
-        elif np.issubdtype(dtype, np.str):
+        if np.issubdtype(dtype, np.floating):
+            value = np.dtype(dtype).type(np.nan)
+        elif np.issubdtype(dtype, np.integer):
+            value = np.dtype(dtype).type(-1)
+        elif np.issubdtype(dtype, np.string_):
             # Order is important here, because np.str is a subtype of np.bool,
             # but not the other way around...
             value = ''
-        elif np.issubdtype(dtype, np.bool):
+        elif np.issubdtype(dtype, np.bool_):
             value = False
     else:
         dtype = infer_dtype([value])
@@ -719,7 +719,7 @@ class SensorCache(dict):
             # If this is the first time any sensor is accessed, obtain all data timestamps via indexer
             self.timestamps = self.timestamps[:] if not isinstance(self.timestamps, np.ndarray) else self.timestamps
             # Determine if sensor produces categorical or numerical data (by default, float data are non-categorical)
-            categ = props.get('categorical', not np.issubdtype(sensor_data.dtype, np.float))
+            categ = props.get('categorical', not np.issubdtype(sensor_data.dtype, np.floating))
             props['categorical'] = categ
             if categ:
                 sensor_data = sensor_to_categorical(sensor_data['timestamp'], sensor_data['value'],
