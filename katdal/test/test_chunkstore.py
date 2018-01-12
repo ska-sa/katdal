@@ -27,10 +27,10 @@ from katdal.chunkstore import (ChunkStore, StoreUnavailable,
 class TestChunkStore(object):
     """This tests the base class functionality."""
 
-    def test_put_and_get(self):
+    def test_put_and_get_chunk(self):
         store = ChunkStore()
-        assert_raises(NotImplementedError, store.get, 1, 2, 3)
-        assert_raises(NotImplementedError, store.put, 1, 2, 3)
+        assert_raises(NotImplementedError, store.get_chunk, 1, 2, 3)
+        assert_raises(NotImplementedError, store.put_chunk, 1, 2, 3)
 
     def test_metadata_validation(self):
         store = ChunkStore()
@@ -77,31 +77,31 @@ class ChunkStoreTestBase(object):
     def array_name(self, name):
         return name
 
-    def put_and_get(self, var_name, slices):
+    def put_and_get_chunk(self, var_name, slices):
         array_name = self.array_name(var_name)
         chunk = getattr(self, var_name)[slices]
-        self.store.put(array_name, slices, chunk)
-        chunk_retrieved = self.store.get(array_name, slices, chunk.dtype)
+        self.store.put_chunk(array_name, slices, chunk)
+        chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk,
                            "Error storing {}[{}]".format(var_name, slices))
 
-    def test_put_and_get(self):
+    def test_put_and_get_chunk(self):
         # Look for non-existent chunk
-        assert_raises(ChunkNotFound, self.store.get, 'haha',
+        assert_raises(ChunkNotFound, self.store.get_chunk, 'haha',
                       (slice(0, 1),), np.dtype(np.float))
         # Check basic put + get on 1-D bool
         name = self.array_name('x')
         s = (slice(3, 5),)
-        self.put_and_get('x', s)
+        self.put_and_get_chunk('x', s)
         # Stored object has fewer bytes than expected (and wrong dtype)
-        assert_raises(BadChunk, self.store.get, name, s, self.y.dtype)
+        assert_raises(BadChunk, self.store.get_chunk, name, s, self.y.dtype)
         # Check basic put + get on 3-D float
         name = self.array_name('y')
         s = (slice(3, 7), slice(2, 5), slice(1, 2))
-        self.put_and_get('y', s)
+        self.put_and_get_chunk('y', s)
         # Stored object has more bytes than expected (and wrong dtype)
-        assert_raises(BadChunk, self.store.get, name, s, self.x.dtype)
+        assert_raises(BadChunk, self.store.get_chunk, name, s, self.x.dtype)
         # Try a chunk with zero size
-        self.put_and_get('y', (slice(4, 7), slice(3, 3), slice(0, 2)))
+        self.put_and_get_chunk('y', (slice(4, 7), slice(3, 3), slice(0, 2)))
         # Try an empty slice on a zero-dimensional array (but why?)
-        self.put_and_get('z', ())
+        self.put_and_get_chunk('z', ())

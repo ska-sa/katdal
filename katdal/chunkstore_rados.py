@@ -99,7 +99,7 @@ class RadosChunkStore(ChunkStore):
             raise StoreUnavailable(str(e))
         return cls(ioctx)
 
-    def get(self, array_name, slices, dtype):
+    def get_chunk(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get`."""
         dtype = np.dtype(dtype)
         key, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
@@ -118,12 +118,12 @@ class RadosChunkStore(ChunkStore):
                                    actual_bytes))
         return np.ndarray(shape, dtype, data_str)
 
-    def put(self, array_name, slices, chunk):
+    def put_chunk(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put`."""
         key, shape = self.chunk_metadata(array_name, slices, chunk=chunk)
         data_str = chunk.tobytes()
         with self._standard_errors(key):
             self.ioctx.write_full(key, data_str)
 
-    get.__doc__ = ChunkStore.get.__doc__
-    put.__doc__ = ChunkStore.put.__doc__
+    get_chunk.__doc__ = ChunkStore.get_chunk.__doc__
+    put_chunk.__doc__ = ChunkStore.put_chunk.__doc__

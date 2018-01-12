@@ -74,7 +74,7 @@ class ChunkStore(object):
                          ValueError: BadChunk}
         self._error_map = error_map
 
-    def get(self, array_name, slices, dtype):
+    def get_chunk(self, array_name, slices, dtype):
         """Get chunk from the store.
 
         Parameters
@@ -103,7 +103,7 @@ class ChunkStore(object):
         """
         raise NotImplementedError
 
-    def put(self, array_name, slices, chunk):
+    def put_chunk(self, array_name, slices, chunk):
         """Put chunk into the store.
 
         Parameters
