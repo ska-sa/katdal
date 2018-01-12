@@ -113,7 +113,7 @@ def dummy_dataset(name, shape, dtype, value):
                                      dtype=dtype, fillvalue=value, compression='gzip')
 
 
-class AttributeFound(Exception):
+class _AttributeFound(Exception):
     """This indicates that an attribute has been found and contains its value."""
 
 # -------------------------------------------------------------------------------------------------
@@ -614,7 +614,7 @@ class H5DataV3(DataSet):
 
         Raises
         ------
-        AttributeFound(value)
+        _AttributeFound(value)
             If attribute is found, return value via exception (else do nothing)
         """
         attr_name = '_'.join(attr_name_parts)
@@ -628,13 +628,13 @@ class H5DataV3(DataSet):
             else:
                 logger.debug("Found %s=%s in h5.file[%r].attrs[%r]",
                              key, value, h5_group.name, attr_name)
-                raise AttributeFound(value)
+                raise _AttributeFound(value)
         else:
             NOTFOUND = object()     # Dummy to distinguish "not found" from None
             value = self._get_telstate_attr(attr_name, NOTFOUND)
             if value is not NOTFOUND:
                 logger.debug('Found %s=%s in telstate[%r]', key, value, attr_name)
-                raise AttributeFound(value)
+                raise _AttributeFound(value)
 
     def _get_cbf_attr(self, key, cbf_group=None, required=True, default=None):
         """Retrieve attribute associated with the CBF stream.
@@ -682,7 +682,7 @@ class H5DataV3(DataSet):
             if cbf_group is not None:
                 self._raise_if_attr_found('cbf', key)
                 self._raise_if_attr_found(key, h5_group=cbf_group)
-        except AttributeFound as exc:
+        except _AttributeFound as exc:
             return exc.args[0]
         if required:
             raise BrokenFile('File does not contain {!r}'.format(key))
@@ -716,7 +716,7 @@ class H5DataV3(DataSet):
             self._raise_if_attr_found(self.stream_name, key)
             if sdp_group is not None:
                 self._raise_if_attr_found('l0', key, h5_group=sdp_group)
-        except AttributeFound as exc:
+        except _AttributeFound as exc:
             return exc.args[0]
         return self._get_cbf_attr(key, cbf_group, required, default)
 
