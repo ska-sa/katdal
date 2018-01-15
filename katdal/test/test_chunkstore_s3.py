@@ -92,5 +92,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         return self.store.join(bucket, path)
 
     def test_store_unavailable(self):
+        # Drastically reduce the default botocore timeout of nearly 7 seconds
         assert_raises(StoreUnavailable, S3ChunkStore.from_url,
-                      'http://i.nvalid/')
+                      'http://i.nvalid/',
+                      connect_timeout=0.1, retries={'max_attempts': 0})

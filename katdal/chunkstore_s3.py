@@ -70,16 +70,22 @@ class S3ChunkStore(ChunkStore):
         self.client = client
 
     @classmethod
-    def from_url(cls, url):
+    def from_url(cls, url, **kwargs):
         """Construct S3 chunk store from endpoint URL.
 
         S3 authentication (i.e. the access + secret keys) is handled externally
-        via the botocore config file or environment variables.
+        via the botocore config file or environment variables. Extra keyword
+        arguments are interpreted as botocore config settings (see
+        :class:`botocore.config.Config`) or arguments to the client creation
+        method (see :meth:`botocore.session.Session.create_client`), in that
+        order, overriding the defaults.
 
         Parameters
         ----------
         url : string
             Endpoint of S3 service, e.g. 'http://127.0.0.1:9000'
+        kwargs : dict
+            Extra keyword arguments: config settings or create_client arguments
 
         Raises
         ------
@@ -90,12 +96,21 @@ class S3ChunkStore(ChunkStore):
         """
         if not botocore:
             raise ImportError('Please install botocore for katdal S3 support')
+        config_kwargs = dict(max_pool_connections=200,
+                             s3={'addressing_style': 'path'})
+        client_kwargs = {}
+        # Split keyword arguments into config settings and create_client args
+        for k, v in kwargs.items():
+            if k in botocore.config.Config.OPTION_DEFAULTS:
+                config_kwargs[k] = v
+            else:
+                client_kwargs[k] = v
         session = botocore.session.get_session()
-        config = botocore.config.Config(max_pool_connections=200,
-                                        s3={'addressing_style': 'path'})
+        config = botocore.config.Config(**config_kwargs)
         try:
             client = session.create_client(service_name='s3',
-                                           endpoint_url=url, config=config)
+                                           endpoint_url=url, config=config,
+                                           **client_kwargs)
             # Quick smoke test to see if the S3 server is available
             client.list_buckets()
         except (EndpointConnectionError, NoCredentialsError, ValueError) as e:
