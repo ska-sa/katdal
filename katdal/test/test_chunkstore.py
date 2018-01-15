@@ -63,10 +63,10 @@ class TestChunkStore(object):
 
 
 class ChunkStoreTestBase(object):
-    """Standard test performed on all types of ChunkStore.
+    """Standard tests performed on all types of ChunkStore."""
 
-    Put everything in a single test as setup and teardown can be quite costly.
-    """
+    # Instance of store instantiated once per class via class-level fixture
+    store = None
 
     def __init__(self):
         # Pick arrays with differently sized dtypes and dimensions

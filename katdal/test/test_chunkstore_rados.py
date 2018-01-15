@@ -26,28 +26,21 @@ from katdal.test.test_chunkstore import ChunkStoreTestBase
 
 
 class TestRadosChunkStore(ChunkStoreTestBase):
-    """Tests connecting to an actual RADOS service, implying a slower setup."""
+    """Test Ceph functionality by connecting to an actual RADOS service."""
 
-    def setup(self):
+    @classmethod
+    def setup_class(cls):
         # Look for default Ceph installation but expect a special test pool
         config = '/etc/ceph/ceph.conf'
         pool = 'test_katdal'
         try:
-            self.store = RadosChunkStore.from_config(config, pool)
+            cls.store = RadosChunkStore.from_config(config, pool)
         except (ImportError, StoreUnavailable):
             raise SkipTest('Rados not installed or cluster misconfigured / down')
 
     def array_name(self, path):
         namespace = 'katdal_test_chunkstore_rados'
         return self.store.join(namespace, path)
-
-
-class TestDudRadosChunkStore(object):
-    """Tests that don't need a RADOS connection, only a 'dud' store."""
-
-    def setup(self):
-        if not rados:
-            raise SkipTest('Rados not installed')
 
     def test_store_unavailable(self):
         # Pretend that rados is not installed
