@@ -111,7 +111,8 @@ class RadosChunkStore(ChunkStore):
         if actual_bytes != expected_bytes:
             # Get the actual value via stat() to improve error reporting
             if actual_bytes > expected_bytes:
-                actual_bytes, _ = self.ioctx.stat(key)
+                with self._standard_errors(key):
+                    actual_bytes, _ = self.ioctx.stat(key)
             raise BadChunk('Chunk {!r}: dtype {} and shape {} implies an '
                            'object size of {} bytes, got {} bytes instead'
                            .format(key, dtype, shape, expected_bytes,

@@ -85,22 +85,27 @@ class ChunkStoreTestBase(object):
         assert_array_equal(chunk_retrieved, chunk,
                            "Error storing {}[{}]".format(var_name, slices))
 
-    def test_put_and_get_chunk(self):
-        # Look for non-existent chunk
+    def test_chunk_non_existent(self):
         assert_raises(ChunkNotFound, self.store.get_chunk, 'haha',
                       (slice(0, 1),), np.dtype(np.float))
+
+    def test_chunk_bool_1dim_and_too_small(self):
         # Check basic put + get on 1-D bool
         name = self.array_name('x')
         s = (slice(3, 5),)
         self.put_and_get_chunk('x', s)
         # Stored object has fewer bytes than expected (and wrong dtype)
         assert_raises(BadChunk, self.store.get_chunk, name, s, self.y.dtype)
+
+    def test_chunk_float_3dim_and_too_large(self):
         # Check basic put + get on 3-D float
         name = self.array_name('y')
         s = (slice(3, 7), slice(2, 5), slice(1, 2))
         self.put_and_get_chunk('y', s)
         # Stored object has more bytes than expected (and wrong dtype)
         assert_raises(BadChunk, self.store.get_chunk, name, s, self.x.dtype)
+
+    def test_chunk_zero_size(self):
         # Try a chunk with zero size
         self.put_and_get_chunk('y', (slice(4, 7), slice(3, 3), slice(0, 2)))
         # Try an empty slice on a zero-dimensional array (but why?)
