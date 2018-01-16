@@ -1,11 +1,14 @@
 History
 =======
 
-0.9 (xxxx-yy-zz)
+0.9 (2018-01-16)
 ----------------
-* Utilise python-casacore and casacore internals to create Measurement Sets,
-  rather than conditioning blank.ms. Requires casacore 2.3.0 and
-  python-casacore 2.2.1.
+* New ChunkStore and telstate-based parser for future v4 format
+* Use python-casacore (>=2.2.1) to create Measurement Sets instead of blank.ms
+* Read new-style noise diode sensor names, serial numbers and L0 stream metadata
+* Select multiple polarisations (useful for cross-pol)
+* Relax the "expected number of dumps" check to avoid spurious warnings
+* Fix NumPy 1.14 warnings
 
 0.8 (2017-08-08)
 ----------------
