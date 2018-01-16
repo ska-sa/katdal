@@ -31,38 +31,40 @@ from katdal.test.test_chunkstore import ChunkStoreTestBase
 
 
 class TestS3ChunkStore(ChunkStoreTestBase):
-    """Tests connecting to an actual (fake) S3 service, implying a slower setup."""
+    """Test S3 functionality against an actual (fake) S3 service."""
 
-    def start_fakes3(self, host):
+    @classmethod
+    def start_fakes3(cls, host):
         """Start Fake S3 service as `host` and return its URL."""
         try:
             # Port number is automatically assigned
-            self.fakes3 = subprocess.Popen(['fakes3', 'server',
-                                            '-r', self.tempdir, '-p', '0',
-                                            '-a', host, '-H', host],
-                                           stdout=subprocess.PIPE,
-                                           stderr=subprocess.PIPE)
+            cls.fakes3 = subprocess.Popen(['fakes3', 'server',
+                                           '-r', cls.tempdir, '-p', '0',
+                                           '-a', host, '-H', host],
+                                          stdout=subprocess.PIPE,
+                                          stderr=subprocess.PIPE)
         except OSError:
             raise SkipTest('Could not start fakes3 server (is it installed?)')
         start = time.time()
         # Give up after waiting a few seconds for Fake S3
         while time.time() - start <= 5:
             # Look for assigned port number in fakes3 stderr output
-            line = self.fakes3.stderr.readline().strip()
+            line = cls.fakes3.stderr.readline().strip()
             ports_found = re.search(r' port=(\d{4,5})$', line)
             if ports_found:
                 port = ports_found.group(1)
                 return 'http://%s:%s' % (host, port)
         raise SkipTest('Could not connect to fakes3 server')
 
-    def setup(self):
+    @classmethod
+    def setup_class(cls):
         """Start Fake S3 service running on temp dir, and ChunkStore on that."""
-        self.tempdir = tempfile.mkdtemp()
-        self.fakes3 = None
+        cls.tempdir = tempfile.mkdtemp()
+        cls.fakes3 = None
         try:
-            url = self.start_fakes3('localhost')
+            url = cls.start_fakes3('localhost')
             try:
-                self.store = S3ChunkStore.from_url(url)
+                cls.store = S3ChunkStore.from_url(url)
             except ImportError:
                 raise SkipTest('S3 botocore dependency not installed')
             except StoreUnavailable:
@@ -73,28 +75,24 @@ class TestS3ChunkStore(ChunkStoreTestBase):
                                                endpoint_url=url,
                                                aws_access_key_id='blah',
                                                aws_secret_access_key='blah')
-                self.store = S3ChunkStore(client)
+                cls.store = S3ChunkStore(client)
         except Exception:
-            self.teardown()
+            cls.teardown_class()
             raise
 
-    def teardown(self):
-        if self.fakes3:
-            self.fakes3.terminate()
-            self.fakes3.wait()
-        shutil.rmtree(self.tempdir)
+    @classmethod
+    def teardown_class(cls):
+        if cls.fakes3:
+            cls.fakes3.terminate()
+            cls.fakes3.wait()
+        shutil.rmtree(cls.tempdir)
 
     def array_name(self, path):
         bucket = 'katdal-unittest'
         return self.store.join(bucket, path)
 
-
-class TestDudS3ChunkStore(object):
-    """Tests that don't need an S3 connection, only a 'dud' store."""
-
-    def setup(self):
-        if not botocore:
-            raise SkipTest('S3 botocore dependency not installed')
-
     def test_store_unavailable(self):
-        assert_raises(StoreUnavailable, S3ChunkStore.from_url, 'http://i.nvalid/')
+        # Drastically reduce the default botocore timeout of nearly 7 seconds
+        assert_raises(StoreUnavailable, S3ChunkStore.from_url,
+                      'http://apparently.invalid/',
+                      connect_timeout=0.1, retries={'max_attempts': 0})

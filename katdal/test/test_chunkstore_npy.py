@@ -27,19 +27,17 @@ from katdal.test.test_chunkstore import ChunkStoreTestBase
 
 
 class TestNpyFileChunkStore(ChunkStoreTestBase):
-    """Tests interacting with an actual temp dir, implying a slower setup."""
+    """Test NPY file functionality using a temporary directory."""
 
-    def setup(self):
+    @classmethod
+    def setup_class(cls):
         """Create temp dir to store NPY files and build ChunkStore on that."""
-        self.tempdir = tempfile.mkdtemp()
-        self.store = NpyFileChunkStore(self.tempdir)
+        cls.tempdir = tempfile.mkdtemp()
+        cls.store = NpyFileChunkStore(cls.tempdir)
 
-    def teardown(self):
-        shutil.rmtree(self.tempdir)
-
-
-class TestDudNpyFileChunkStore(object):
-    """Tests that don't need a temp dir, only a 'dud' store."""
+    @classmethod
+    def teardown_class(cls):
+        shutil.rmtree(cls.tempdir)
 
     def test_store_unavailable(self):
         assert_raises(StoreUnavailable, NpyFileChunkStore, 'hahahahahaha')

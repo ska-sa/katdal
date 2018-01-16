@@ -35,7 +35,7 @@ class DictChunkStore(ChunkStore):
         super(DictChunkStore, self).__init__(error_map)
         self.arrays = kwargs
 
-    def get(self, array_name, slices, dtype):
+    def get_chunk(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get`."""
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         with self._standard_errors(chunk_name):
@@ -48,10 +48,10 @@ class DictChunkStore(ChunkStore):
                            .format(chunk_name, dtype, chunk.dtype))
         return chunk
 
-    def put(self, array_name, slices, chunk):
+    def put_chunk(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put`."""
         self.chunk_metadata(array_name, slices, chunk=chunk)
-        self.get(array_name, slices, chunk.dtype)[()] = chunk
+        self.get_chunk(array_name, slices, chunk.dtype)[()] = chunk
 
-    get.__doc__ = ChunkStore.get.__doc__
-    put.__doc__ = ChunkStore.put.__doc__
+    get_chunk.__doc__ = ChunkStore.get_chunk.__doc__
+    put_chunk.__doc__ = ChunkStore.put_chunk.__doc__

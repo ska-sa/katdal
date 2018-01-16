@@ -26,14 +26,15 @@ from katdal.test.test_chunkstore import ChunkStoreTestBase
 
 
 class TestRadosChunkStore(ChunkStoreTestBase):
-    """Tests connecting to an actual RADOS service, implying a slower setup."""
+    """Test Ceph functionality by connecting to an actual RADOS service."""
 
-    def setup(self):
+    @classmethod
+    def setup_class(cls):
         # Look for default Ceph installation but expect a special test pool
         config = '/etc/ceph/ceph.conf'
         pool = 'test_katdal'
         try:
-            self.store = RadosChunkStore.from_config(config, pool)
+            cls.store = RadosChunkStore.from_config(config, pool)
         except (ImportError, StoreUnavailable):
             raise SkipTest('Rados not installed or cluster misconfigured / down')
 
@@ -41,19 +42,20 @@ class TestRadosChunkStore(ChunkStoreTestBase):
         namespace = 'katdal_test_chunkstore_rados'
         return self.store.join(namespace, path)
 
-
-class TestDudRadosChunkStore(object):
-    """Tests that don't need a RADOS connection, only a 'dud' store."""
-
-    def setup(self):
-        if not rados:
-            raise SkipTest('Rados not installed')
-
     def test_store_unavailable(self):
-        # Pretend that rados is not installed
+        # Pretend that rados is not installed (make sure to restore it)
         katdal.chunkstore_rados.rados = None
         katdal.chunkstore_rados._rados_import_error = ImportError()
-        assert_raises(ImportError, RadosChunkStore, None)
-        katdal.chunkstore_rados.rados = rados
-        katdal.chunkstore_rados._rados_import_error = None
+        try:
+            assert_raises(ImportError, RadosChunkStore, None)
+        finally:
+            katdal.chunkstore_rados.rados = rados
+            katdal.chunkstore_rados._rados_import_error = None
+        # Missing config file
         assert_raises(StoreUnavailable, RadosChunkStore.from_config, 'x', 'y')
+        # Bad config (unknown config variable)
+        assert_raises(StoreUnavailable, RadosChunkStore.from_config,
+                      {'mon_hos': ''}, 'y')
+        # Config OK but host not found (use Test-Net IP from RFC5737)
+        assert_raises(StoreUnavailable, RadosChunkStore.from_config,
+                      {'mon_host': '192.0.2.1'}, 'y', 'z', timeout=0.1)
