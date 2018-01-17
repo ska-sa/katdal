@@ -16,9 +16,13 @@
 
 """Base class for accessing a store of chunks (i.e. N-dimensional arrays)."""
 
+from __future__ import division
+
 import contextlib
 
 import numpy as np
+import dask
+import dask.array as da
 
 
 class StoreUnavailable(OSError):
@@ -31,6 +35,43 @@ class ChunkNotFound(KeyError):
 
 class BadChunk(ValueError):
     """The chunk is malformed, e.g. bad dtype or slices, wrong buffer size."""
+
+
+def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=(0, 1)):
+    """Generate dask chunk specification from ndarray parameters.
+
+    Parameters
+    ----------
+    shape : sequence of int
+        Array shape
+    dtype : :class:`numpy.dtype` object or equivalent
+        Array data type
+    max_chunk_size : float or int
+        Upper limit on chunk size (if allowed by `dims_to_split`), in bytes
+    dims_to_split : sequence of int
+        Indices of dimensions that may be split into chunks
+
+    Returns
+    -------
+    chunks : tuple of tuple of int
+        Dask chunk specification, indicating chunk sizes along each dimension
+    """
+    dataset_size = np.prod(shape) * np.dtype(dtype).itemsize
+    num_chunks = np.ceil(dataset_size / max_chunk_size)
+    chunks = [(s,) for s in shape]
+    for dim in dims_to_split:
+        if dim >= len(shape):
+            continue
+        if num_chunks > shape[dim] / 2:
+            # Split the dimension into the maximum number of chunks
+            chunk_sizes = (1,) * shape[dim]
+        else:
+            items = np.arange(shape[dim])
+            chunk_indices = np.array_split(items, np.ceil(num_chunks))
+            chunk_sizes = tuple([len(chunk) for chunk in chunk_indices])
+        chunks[dim] = chunk_sizes
+        num_chunks /= len(chunk_sizes)
+    return tuple(chunks)
 
 
 class ChunkStore(object):
@@ -125,6 +166,16 @@ class ChunkStore(object):
             If `array_name` is incompatible with store
         """
         raise NotImplementedError
+
+    def put_chunk_noraise(self, array_name, slices, chunk):
+        """Put chunk into store but return any exceptions instead of raising."""
+        try:
+            self.put_chunk(array_name, slices, chunk)
+            # Return result as ndarray with same number of (singleton)
+            # dimensions as chunk to enable assembly into a dask array
+            return np.array(None).reshape(len(slices) * (1,))
+        except Exception as err:
+            return np.array(err).reshape(len(slices) * (1,))
 
     NAME_SEP = '/'
     # Width sufficient to store any dump / channel / corrprod index for MeerKAT
@@ -224,3 +275,61 @@ class ChunkStore(object):
                 ChunkStoreError = self._error_map[FirstBase]
             prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
             raise ChunkStoreError(prefix + str(e))
+
+    def get_dask_array(self, array_name, chunks, dtype):
+        """Get dask array from the store.
+
+        Parameters
+        ----------
+        array_name : string
+            Identifier of array in chunk store
+        chunks : tuple of tuples of ints
+            Chunk specification
+        dtype : :class:`numpy.dtype` object or equivalent
+            Data type of array
+
+        Returns
+        -------
+        array : :class:`dask.array.Array` object
+            Dask array
+
+        Raises
+        ------
+        :exc:`chunkstore.StoreUnavailable`
+            If interaction with chunk store failed (offline, bad auth, bad config)
+        :exc:`chunkstore.ChunkNotFound`
+            If requested chunk was not found in store
+        """
+        # Use dask utility function that forms the core of da.from_array
+        dask_graph = da.core.getem(array_name, chunks, self.get_chunk)
+        # Tweak parameter list of get_chunk() to include dtype
+        dask_graph = {k: v + (dtype,) for k, v in dask_graph.items()}
+        return da.Array(dask_graph, array_name, chunks, dtype)
+
+    def put_dask_array(self, array_name, array):
+        """Put dask array into the store.
+
+        Parameters
+        ----------
+        array_name : string
+            Identifier of array in chunk store
+        array : :class:`dask.array.Array` object
+            Dask input array
+
+        Raises
+        ------
+        :exc:`chunkstore.StoreUnavailable`
+            If interaction with chunk store failed (offline, bad auth, bad config)
+        :exc:`chunkstore.ChunkNotFound`
+            If `array_name` is incompatible with store
+        """
+        dask_graph = dask.sharedict.ShareDict()
+        dask_graph.update(array.dask)
+        # Construct output graph on same chunks as input, but with new name
+        graph = da.core.getem(array_name, array.chunks, self.put_chunk_noraise)
+        # Set chunk parameter of put_chunk() to corresponding key in input array
+        graph = {k: v + ((array.name,) + k[1:],) for k, v in graph.items()}
+        dask_graph.update(graph)
+        # The success array has one element per chunk in the input array
+        out_chunks = tuple(len(c) * (1,) for c in array.chunks)
+        return da.Array(dask_graph, array_name, out_chunks, np.object)

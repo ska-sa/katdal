@@ -62,4 +62,4 @@ setup(name="katdal",
         # rados is not in PyPI but available as Debian package python-rados
         'rados': ['rados']
       },
-      tests_require=['nose'])
+      tests_require=['nose', 'dask[array]'])

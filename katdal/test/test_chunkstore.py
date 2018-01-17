@@ -18,10 +18,28 @@
 
 import numpy as np
 from numpy.testing import assert_array_equal
-from nose.tools import assert_raises
+from nose.tools import assert_raises, assert_equal, assert_is_instance
+import dask.array as da
 
-from katdal.chunkstore import (ChunkStore, StoreUnavailable,
-                               ChunkNotFound, BadChunk)
+from katdal.chunkstore import (ChunkStore, generate_chunks,
+                               StoreUnavailable, ChunkNotFound, BadChunk)
+
+
+def test_generate_chunks():
+    shape = (10, 8192, 144)
+    dtype = np.complex64
+    chunks = generate_chunks(shape, dtype, 3e6)
+    assert_equal(chunks, (10 * (1,), 4 * (2048,), (144,)))
+    chunks = generate_chunks(shape, dtype, 3e6, (0, 10))
+    assert_equal(chunks, (10 * (1,), (8192,), (144,)))
+    chunks = generate_chunks(shape, dtype, 1e6)
+    assert_equal(chunks, (10 * (1,), 2 * (820,) + 8 * (819,), (144,)))
+    chunks = generate_chunks(shape, dtype, 1e6, ())
+    assert_equal(chunks, ((10,), (8192,), (144,)))
+    chunks = generate_chunks(shape, dtype, 94371840)
+    assert_equal(chunks, ((10,), (8192,), (144,)))
+    chunks = generate_chunks(shape, dtype, 94371840 - 1)
+    assert_equal(chunks, ((5, 5), (8192,), (144,)))
 
 
 class TestChunkStore(object):
@@ -31,6 +49,9 @@ class TestChunkStore(object):
         store = ChunkStore()
         assert_raises(NotImplementedError, store.get_chunk, 1, 2, 3)
         assert_raises(NotImplementedError, store.put_chunk, 1, 2, 3)
+        result = store.put_chunk_noraise("x", (slice(1, 2), slice(10, 20)), [])
+        assert_array_equal(result.shape, (1, 1))
+        assert_is_instance(result[0, 0], NotImplementedError)
 
     def test_metadata_validation(self):
         store = ChunkStore()
@@ -52,7 +73,7 @@ class TestChunkStore(object):
 
     def test_standard_errors(self):
         error_map = {ZeroDivisionError: StoreUnavailable,
-                     KeyError: ChunkNotFound}
+                     LookupError: ChunkNotFound}
         store = ChunkStore(error_map)
         with assert_raises(StoreUnavailable):
             with store._standard_errors():
@@ -73,6 +94,7 @@ class ChunkStoreTestBase(object):
         self.x = np.ones(10, dtype=np.bool)
         self.y = np.arange(96.).reshape(8, 6, 2)
         self.z = np.array(2.)
+        self.dask_x = np.arange(960.).reshape(8, 60, 2)
 
     def array_name(self, name):
         return name
@@ -84,6 +106,20 @@ class ChunkStoreTestBase(object):
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk,
                            "Error storing {}[{}]".format(var_name, slices))
+
+    def put_and_get_dask_array(self, var_name):
+        array_name = self.array_name(var_name)
+        array = getattr(self, var_name)
+        chunks = generate_chunks(array.shape, array.dtype, array.nbytes / 10.)
+        divisions_per_dim = [len(c) for c in chunks]
+        dask_array = da.from_array(array, chunks)
+        push = self.store.put_dask_array(array_name, dask_array)
+        results = push.compute()
+        assert_array_equal(results, np.tile(None, divisions_per_dim))
+        pull = self.store.get_dask_array(array_name, chunks, array.dtype)
+        array_retrieved = pull.compute()
+        assert_array_equal(array_retrieved, array,
+                           "Error storing {} / {}".format(var_name, chunks))
 
     def test_chunk_non_existent(self):
         assert_raises(ChunkNotFound, self.store.get_chunk, 'haha',
@@ -110,3 +146,6 @@ class ChunkStoreTestBase(object):
         self.put_and_get_chunk('y', (slice(4, 7), slice(3, 3), slice(0, 2)))
         # Try an empty slice on a zero-dimensional array (but why?)
         self.put_and_get_chunk('z', ())
+
+    def test_dask_array(self):
+        self.put_and_get_dask_array('dask_x')
