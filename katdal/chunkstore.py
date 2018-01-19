@@ -19,6 +19,7 @@
 from __future__ import division
 
 import contextlib
+import functools
 
 import numpy as np
 import dask
@@ -320,9 +321,8 @@ class ChunkStore(object):
             If requested chunk was not found in store
         """
         # Use dask utility function that forms the core of da.from_array
-        dask_graph = da.core.getem(array_name, chunks, self.get_chunk)
-        # Tweak parameter list of get_chunk() to include dtype
-        dask_graph = {k: v + (dtype,) for k, v in dask_graph.items()}
+        getter = functools.partial(self.get_chunk, dtype=dtype)
+        dask_graph = da.core.getem(array_name, chunks, getter)
         return da.Array(dask_graph, array_name, chunks, dtype)
 
     def put_dask_array(self, array_name, array):
@@ -335,20 +335,26 @@ class ChunkStore(object):
         array : :class:`dask.array.Array` object
             Dask input array
 
-        Raises
-        ------
-        :exc:`chunkstore.StoreUnavailable`
-            If interaction with chunk store failed (offline, bad auth, bad config)
-        :exc:`chunkstore.ChunkNotFound`
-            If `array_name` is incompatible with store
+        Returns
+        -------
+        success : :class:`dask.array.Array` object
+            Dask array indicating success of the transfer of each chunk
+            (None indicates success, otherwise there is an exception object)
         """
         dask_graph = dask.sharedict.ShareDict()
         dask_graph.update(array.dask)
+        # Give better names to these two very similar variables
+        in_name = array.name
+        out_name = array_name
+        # Disambiguate out_name to avoid clashes in the dask graph
+        if out_name == in_name:
+            out_name = 'store-' + out_name
         # Construct output graph on same chunks as input, but with new name
-        graph = da.core.getem(array_name, array.chunks, self.put_chunk_noraise)
+        graph = da.core.getem(array_name, array.chunks, self.put_chunk_noraise,
+                              out_name=out_name)
         # Set chunk parameter of put_chunk() to corresponding key in input array
-        graph = {k: v + ((array.name,) + k[1:],) for k, v in graph.items()}
+        graph = {k: v + ((in_name,) + k[1:],) for k, v in graph.items()}
         dask_graph.update(graph)
         # The success array has one element per chunk in the input array
         out_chunks = tuple(len(c) * (1,) for c in array.chunks)
-        return da.Array(dask_graph, array_name, out_chunks, np.object)
+        return da.Array(dask_graph, out_name, out_chunks, np.object)

@@ -98,7 +98,7 @@ class ChunkStoreTestBase(object):
         self.x = np.ones(10, dtype=np.bool)
         self.y = np.arange(96.).reshape(8, 6, 2)
         self.z = np.array(2.)
-        self.dask_x = np.arange(960.).reshape(8, 60, 2)
+        self.big_y = np.arange(960.).reshape(8, 60, 2)
 
     def array_name(self, name):
         return name
@@ -157,4 +157,4 @@ class ChunkStoreTestBase(object):
         assert_is_instance(result[0, 0], BadChunk)
 
     def test_dask_array(self):
-        self.put_and_get_dask_array('dask_x')
+        self.put_and_get_dask_array('big_y')
