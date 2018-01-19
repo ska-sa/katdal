@@ -56,9 +56,6 @@ class TestChunkStore(object):
         store = ChunkStore()
         assert_raises(NotImplementedError, store.get_chunk, 1, 2, 3)
         assert_raises(NotImplementedError, store.put_chunk, 1, 2, 3)
-        result = store.put_chunk_noraise("x", (slice(1, 2), slice(10, 20)), [])
-        assert_array_equal(result.shape, (1, 1))
-        assert_is_instance(result[0, 0], NotImplementedError)
 
     def test_metadata_validation(self):
         store = ChunkStore()
@@ -153,6 +150,11 @@ class ChunkStoreTestBase(object):
         self.put_and_get_chunk('y', (slice(4, 7), slice(3, 3), slice(0, 2)))
         # Try an empty slice on a zero-dimensional array (but why?)
         self.put_and_get_chunk('z', ())
+
+    def test_put_chunk_noraise(self):
+        result = self.store.put_chunk_noraise("x", (1, 2), [])
+        assert_array_equal(result.shape, (1, 1))
+        assert_is_instance(result[0, 0], BadChunk)
 
     def test_dask_array(self):
         self.put_and_get_dask_array('dask_x')

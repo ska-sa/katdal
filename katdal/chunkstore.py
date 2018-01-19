@@ -25,15 +25,19 @@ import dask
 import dask.array as da
 
 
-class StoreUnavailable(OSError):
+class ChunkStoreError(Exception):
+    """"Base class for all standard ChunkStore errors."""
+
+
+class StoreUnavailable(OSError, ChunkStoreError):
     """Could not access underlying storage medium (offline, auth failed, etc)."""
 
 
-class ChunkNotFound(KeyError):
+class ChunkNotFound(KeyError, ChunkStoreError):
     """The store was accessible but a chunk with the given name was not found."""
 
 
-class BadChunk(ValueError):
+class BadChunk(ValueError, ChunkStoreError):
     """The chunk is malformed, e.g. bad dtype or slices, wrong buffer size."""
 
 
@@ -183,13 +187,14 @@ class ChunkStore(object):
 
     def put_chunk_noraise(self, array_name, slices, chunk):
         """Put chunk into store but return any exceptions instead of raising."""
+        singleton_shape = len(slices) * (1,)
         try:
             self.put_chunk(array_name, slices, chunk)
             # Return result as ndarray with same number of (singleton)
             # dimensions as chunk to enable assembly into a dask array
-            return np.array(None).reshape(len(slices) * (1,))
-        except Exception as err:
-            return np.array(err).reshape(len(slices) * (1,))
+            return np.empty(singleton_shape, object)
+        except ChunkStoreError as err:
+            return np.full(singleton_shape, err, object)
 
     NAME_SEP = '/'
     # Width sufficient to store any dump / channel / corrprod index for MeerKAT
@@ -281,14 +286,14 @@ class ChunkStore(object):
             yield
         except tuple(self._error_map) as e:
             try:
-                ChunkStoreError = self._error_map[type(e)]
+                StandardisedError = self._error_map[type(e)]
             except KeyError:
                 # The exception has to be a subclass of one of the error_map
                 # keys, so pick the first one found
                 FirstBase = next(c for c in self._error_map if isinstance(e, c))
-                ChunkStoreError = self._error_map[FirstBase]
+                StandardisedError = self._error_map[FirstBase]
             prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
-            raise ChunkStoreError(prefix + str(e))
+            raise StandardisedError(prefix + str(e))
 
     def get_dask_array(self, array_name, chunks, dtype):
         """Get dask array from the store.
