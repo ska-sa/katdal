@@ -37,7 +37,13 @@ class BadChunk(ValueError):
     """The chunk is malformed, e.g. bad dtype or slices, wrong buffer size."""
 
 
-def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=(0, 1)):
+def _ceil_power_of_two(x):
+    """The smallest power of two greater than or equal to `x`."""
+    return 2 ** int(np.ceil(np.log2(x)))
+
+
+def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
+                    power_of_two=False):
     """Generate dask chunk specification from ndarray parameters.
 
     Parameters
@@ -48,14 +54,18 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=(0, 1)):
         Array data type
     max_chunk_size : float or int
         Upper limit on chunk size (if allowed by `dims_to_split`), in bytes
-    dims_to_split : sequence of int
-        Indices of dimensions that may be split into chunks
+    dims_to_split : sequence of int, optional
+        Indices of dimensions that may be split into chunks (default all dims)
+    power_of_two : bool, optional
+        True if chunk size should be a power of two on dimensions that allow it
 
     Returns
     -------
     chunks : tuple of tuple of int
         Dask chunk specification, indicating chunk sizes along each dimension
     """
+    if dims_to_split is None:
+        dims_to_split = range(len(shape))
     dataset_size = np.prod(shape) * np.dtype(dtype).itemsize
     num_chunks = np.ceil(dataset_size / max_chunk_size)
     chunks = [(s,) for s in shape]
@@ -66,8 +76,12 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=(0, 1)):
             # Split the dimension into the maximum number of chunks
             chunk_sizes = (1,) * shape[dim]
         else:
+            if power_of_two and _ceil_power_of_two(shape[dim]) == shape[dim]:
+                chunks_per_dim = _ceil_power_of_two(num_chunks)
+            else:
+                chunks_per_dim = np.ceil(num_chunks)
             items = np.arange(shape[dim])
-            chunk_indices = np.array_split(items, np.ceil(num_chunks))
+            chunk_indices = np.array_split(items, chunks_per_dim)
             chunk_sizes = tuple([len(chunk) for chunk in chunk_indices])
         chunks[dim] = chunk_sizes
         num_chunks /= len(chunk_sizes)

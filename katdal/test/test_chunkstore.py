@@ -28,6 +28,7 @@ from katdal.chunkstore import (ChunkStore, generate_chunks,
 def test_generate_chunks():
     shape = (10, 8192, 144)
     dtype = np.complex64
+    nbytes = np.prod(shape) * np.dtype(dtype).itemsize
     chunks = generate_chunks(shape, dtype, 3e6)
     assert_equal(chunks, (10 * (1,), 4 * (2048,), (144,)))
     chunks = generate_chunks(shape, dtype, 3e6, (0, 10))
@@ -36,10 +37,16 @@ def test_generate_chunks():
     assert_equal(chunks, (10 * (1,), 2 * (820,) + 8 * (819,), (144,)))
     chunks = generate_chunks(shape, dtype, 1e6, ())
     assert_equal(chunks, ((10,), (8192,), (144,)))
-    chunks = generate_chunks(shape, dtype, 94371840)
+    chunks = generate_chunks(shape, dtype, nbytes)
     assert_equal(chunks, ((10,), (8192,), (144,)))
-    chunks = generate_chunks(shape, dtype, 94371840 - 1)
+    chunks = generate_chunks(shape, dtype, nbytes - 1)
     assert_equal(chunks, ((5, 5), (8192,), (144,)))
+    chunks = generate_chunks(shape, dtype, 1e6,
+                             dims_to_split=[1], power_of_two=True)
+    assert_equal(chunks, ((10,), 128 * (64,), (144,)))
+    chunks = generate_chunks(shape, dtype, nbytes / 16,
+                             dims_to_split=[1], power_of_two=True)
+    assert_equal(chunks, ((10,), 16 * (512,), (144,)))
 
 
 class TestChunkStore(object):
