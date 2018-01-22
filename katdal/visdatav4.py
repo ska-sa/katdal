@@ -211,11 +211,8 @@ class VisibilityDataV4(DataSet):
         # Populate antenna -> receiver mapping and figure out noise diode
         for ant in cam_ants:
             # Try sanitised version of RX serial number first
-            rx_sensor = 'TelescopeState/%s_rx_serial_number' % (ant,)
+            rx_sensor = 'TelescopeState/%s_rsc_rx%s_serial_number' % (ant, band)
             rx_serial = self.sensor[rx_sensor][0] if rx_sensor in self.sensor else 0
-            if rx_serial == 0:
-                rx_sensor = 'Antennas/%s/rsc_rx%s_serial_number' % (ant, band)
-                rx_serial = self.sensor[rx_sensor][0] if rx_sensor in self.sensor else 0
             if band:
                 self.receivers[ant] = '%s.%d' % (band, rx_serial)
             nd_sensor = 'TelescopeState/%s_dig_%s_band_noise_diode' % (ant, band)
