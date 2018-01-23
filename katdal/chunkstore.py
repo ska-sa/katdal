@@ -24,6 +24,7 @@ import functools
 import numpy as np
 import dask
 import dask.array as da
+import toolz
 
 
 class ChunkStoreError(Exception):
@@ -42,9 +43,9 @@ class BadChunk(ValueError, ChunkStoreError):
     """The chunk is malformed, e.g. bad dtype or slices, wrong buffer size."""
 
 
-def _ceil_power_of_two(x):
-    """The smallest power of two greater than or equal to `x`."""
-    return 2 ** int(np.ceil(np.log2(x)))
+def _floor_power_of_two(x):
+    """The largest power of two smaller than or equal to `x`."""
+    return 2 ** int(np.floor(np.log2(x)))
 
 
 def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
@@ -62,7 +63,8 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
     dims_to_split : sequence of int, optional
         Indices of dimensions that may be split into chunks (default all dims)
     power_of_two : bool, optional
-        True if chunk size should be a power of two on dimensions that allow it
+        True if chunk size should be rounded down to a power of two
+        (the last chunk size along each dimension will potentially be smaller)
 
     Returns
     -------
@@ -72,8 +74,11 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
     if dims_to_split is None:
         dims_to_split = range(len(shape))
     dataset_size = np.prod(shape) * np.dtype(dtype).itemsize
-    num_chunks = np.ceil(dataset_size / max_chunk_size)
+    # The ideal number of chunks to achieve requested chunk size (can be float)
+    num_chunks = dataset_size / max_chunk_size
+    # Start with the whole array as a single big chunk
     chunks = [(s,) for s in shape]
+    # Split the array greedily along each dimension, in order of `dims_to_split`
     for dim in dims_to_split:
         if dim >= len(shape):
             continue
@@ -81,14 +86,17 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
             # Split the dimension into the maximum number of chunks
             chunk_sizes = (1,) * shape[dim]
         else:
-            if power_of_two and _ceil_power_of_two(shape[dim]) == shape[dim]:
-                chunks_per_dim = _ceil_power_of_two(num_chunks)
-            else:
-                chunks_per_dim = np.ceil(num_chunks)
             items = np.arange(shape[dim])
-            chunk_indices = np.array_split(items, chunks_per_dim)
+            if power_of_two:
+                # Chunk sizes will be (2^P, 2^P, 2^P, ..., 1 <= M <= 2^P)
+                chunksize_per_dim = _floor_power_of_two(shape[dim] / num_chunks)
+                chunk_indices = toolz.partition_all(chunksize_per_dim, items)
+            else:
+                # Chunk sizes generally will be (N, N, N, ..., N-1, N-1)
+                chunk_indices = np.array_split(items, np.ceil(num_chunks))
             chunk_sizes = tuple([len(chunk) for chunk in chunk_indices])
         chunks[dim] = chunk_sizes
+        # Update number of remaining chunks to realise
         num_chunks /= len(chunk_sizes)
     return tuple(chunks)
 
@@ -346,9 +354,9 @@ class ChunkStore(object):
         # Give better names to these two very similar variables
         in_name = array.name
         out_name = array_name
-        # Disambiguate out_name to avoid clashes in the dask graph
-        if out_name == in_name:
-            out_name = 'store-' + out_name
+        # Make out_name reasonably unique to avoid clashes and caches
+        token = da.core.tokenize(object())[:8]
+        out_name = 'store-{}-{}'.format(out_name, token)
         # Construct output graph on same chunks as input, but with new name
         graph = da.core.getem(array_name, array.chunks, self.put_chunk_noraise,
                               out_name=out_name)
