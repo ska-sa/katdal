@@ -20,6 +20,7 @@ from __future__ import division
 
 import contextlib
 import functools
+import uuid
 
 import numpy as np
 import dask
@@ -354,9 +355,8 @@ class ChunkStore(object):
         # Give better names to these two very similar variables
         in_name = array.name
         out_name = array_name
-        # Make out_name reasonably unique to avoid clashes and caches
-        token = da.core.tokenize(object())[:8]
-        out_name = 'store-{}-{}'.format(out_name, token)
+        # Make out_name unique to avoid clashes and caches
+        out_name = 'store-{}-{}'.format(out_name, uuid.uuid4().hex)
         # Construct output graph on same chunks as input, but with new name
         graph = da.core.getem(array_name, array.chunks, self.put_chunk_noraise,
                               out_name=out_name)

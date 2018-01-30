@@ -25,43 +25,52 @@ from katdal.chunkstore import (ChunkStore, generate_chunks,
                                StoreUnavailable, ChunkNotFound, BadChunk)
 
 
-def test_generate_chunks():
-    shape = (10, 8192, 144)
-    dtype = np.complex64
-    nbytes = np.prod(shape) * np.dtype(dtype).itemsize
-    # Basic check
-    chunks = generate_chunks(shape, dtype, 3e6)
-    assert_equal(chunks, (10 * (1,), 4 * (2048,), (144,)))
-    # Check that bad dims_to_split are ignored
-    chunks = generate_chunks(shape, dtype, 3e6, (0, 10))
-    assert_equal(chunks, (10 * (1,), (8192,), (144,)))
-    # Uneven chunks in the final split
-    chunks = generate_chunks(shape, dtype, 1e6)
-    assert_equal(chunks, (10 * (1,), 2 * (820,) + 8 * (819,), (144,)))
-    # Corner case: don't select any dimensions to split -> one chunk
-    chunks = generate_chunks(shape, dtype, 1e6, ())
-    assert_equal(chunks, ((10,), (8192,), (144,)))
-    # Corner case: all bytes results in one chunk
-    chunks = generate_chunks(shape, dtype, nbytes)
-    assert_equal(chunks, ((10,), (8192,), (144,)))
-    # Corner case: one byte less than the full size results in a split
-    chunks = generate_chunks(shape, dtype, nbytes - 1)
-    assert_equal(chunks, ((5, 5), (8192,), (144,)))
-    # Check power_of_two
-    chunks = generate_chunks(shape, dtype, 1e6,
-                             dims_to_split=[1], power_of_two=True)
-    assert_equal(chunks, ((10,), 128 * (64,), (144,)))
-    chunks = generate_chunks(shape, dtype, nbytes / 16,
-                             dims_to_split=[1], power_of_two=True)
-    assert_equal(chunks, ((10,), 16 * (512,), (144,)))
-    # Check power_of_two when dimension is not a power-of-two itself
-    chunks = generate_chunks((10, 32768 - 2048, 144), dtype, nbytes / 10,
-                             dims_to_split=(0, 1), power_of_two=True)
-    assert_equal(chunks, (10 * (1,), 3 * (8192,) + (6144,), (144,)))
-    # Check swapping the order of dims_to_split
-    chunks = generate_chunks((10, 32768 - 2048, 144), dtype, nbytes / 10,
-                             dims_to_split=(1, 0), power_of_two=True)
-    assert_equal(chunks, ((10,), 60 * (512,), (144,)))
+class TestGenerateChunks(object):
+    """Test the `generate_chunks` function."""
+    def __init__(self):
+        self.shape = (10, 8192, 144)
+        self.dtype = np.complex64
+        self.nbytes = np.prod(self.shape) * np.dtype(self.dtype).itemsize
+
+    def test_basic(self):
+        # Basic check
+        chunks = generate_chunks(self.shape, self.dtype, 3e6)
+        assert_equal(chunks, (10 * (1,), 4 * (2048,), (144,)))
+        # Check that bad dims_to_split are ignored
+        chunks = generate_chunks(self.shape, self.dtype, 3e6, (0, 10))
+        assert_equal(chunks, (10 * (1,), (8192,), (144,)))
+        # Uneven chunks in the final split
+        chunks = generate_chunks(self.shape, self.dtype, 1e6)
+        assert_equal(chunks, (10 * (1,), 2 * (820,) + 8 * (819,), (144,)))
+
+    def test_corner_cases(self):
+        # Corner case: don't select any dimensions to split -> one chunk
+        chunks = generate_chunks(self.shape, self.dtype, 1e6, ())
+        assert_equal(chunks, ((10,), (8192,), (144,)))
+        # Corner case: all bytes results in one chunk
+        chunks = generate_chunks(self.shape, self.dtype, self.nbytes)
+        assert_equal(chunks, ((10,), (8192,), (144,)))
+        # Corner case: one byte less than the full size results in a split
+        chunks = generate_chunks(self.shape, self.dtype, self.nbytes - 1)
+        assert_equal(chunks, ((5, 5), (8192,), (144,)))
+
+    def test_power_of_two(self):
+        # Check power_of_two
+        chunks = generate_chunks(self.shape, self.dtype, 1e6,
+                                 dims_to_split=[1], power_of_two=True)
+        assert_equal(chunks, ((10,), 128 * (64,), (144,)))
+        chunks = generate_chunks(self.shape, self.dtype, self.nbytes / 16,
+                                 dims_to_split=[1], power_of_two=True)
+        assert_equal(chunks, ((10,), 16 * (512,), (144,)))
+        # Check power_of_two when dimension is not a power-of-two itself
+        shape = (10, 32768 - 2048, 144)
+        chunks = generate_chunks(shape, self.dtype, self.nbytes / 10,
+                                 dims_to_split=(0, 1), power_of_two=True)
+        assert_equal(chunks, (10 * (1,), 3 * (8192,) + (6144,), (144,)))
+        # Check swapping the order of dims_to_split
+        chunks = generate_chunks(shape, self.dtype, self.nbytes / 10,
+                                 dims_to_split=(1, 0), power_of_two=True)
+        assert_equal(chunks, ((10,), 60 * (512,), (144,)))
 
 
 class TestChunkStore(object):
