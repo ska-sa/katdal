@@ -123,6 +123,7 @@ class ChunkStoreTestBase(object):
         self.y = np.arange(96.).reshape(8, 6, 2)
         self.z = np.array(2.)
         self.big_y = np.arange(960.).reshape(8, 60, 2)
+        self.big_y2 = np.arange(960).reshape(8, 60, 2)
 
     def array_name(self, name):
         return name
@@ -136,29 +137,34 @@ class ChunkStoreTestBase(object):
         assert_array_equal(chunk_retrieved, chunk,
                            "Error storing {}[{}]".format(var_name, slices))
 
-    def put_and_get_dask_array(self, var_name, offset_in_chunks=()):
-        """Put dask array into store (with offset), get it back and compare."""
+    def make_dask_array(self, var_name, slices=()):
+        """Turn (part of) an existing ndarray into a dask array."""
         array_name = self.array_name(var_name)
         array = getattr(self, var_name)
+        # The chunking is determined by full array to keep things predictable
         chunks = generate_chunks(array.shape, array.dtype, array.nbytes / 10.)
-        offset = ()
-        if offset_in_chunks:
-            offset = tuple(np.cumsum(np.r_[0, ch])[of]
-                           for ch, of in zip(chunks, offset_in_chunks))
-            chunks = tuple(ch[of:] for ch, of in zip(chunks, offset_in_chunks))
-            offset_slice = tuple(slice(start, None) for start in offset)
-            array = array[offset_slice]
-        divisions_per_dim = [len(c) for c in chunks]
-        dask_array = da.from_array(array, chunks)
+        dask_array = da.from_array(array, chunks)[slices]
+        offset = tuple(s.start for s in slices)
+        return array_name, dask_array, offset
+
+    def put_dask_array(self, var_name, slices=()):
+        """Put (part of) an array into store via dask."""
+        array_name, dask_array, offset = self.make_dask_array(var_name, slices)
         push = self.store.put_dask_array(array_name, dask_array, offset)
         results = push.compute()
+        divisions_per_dim = [len(c) for c in dask_array.chunks]
         assert_array_equal(results, np.tile(None, divisions_per_dim))
-        pull = self.store.get_dask_array(array_name, chunks, array.dtype,
-                                         offset)
+
+    def get_dask_array(self, var_name, slices=()):
+        """Get (part of) an array from store via dask and compare."""
+        array_name, dask_array, offset = self.make_dask_array(var_name, slices)
+        pull = self.store.get_dask_array(array_name, dask_array.chunks,
+                                         dask_array.dtype, offset)
         array_retrieved = pull.compute()
+        array = dask_array.compute()
         assert_array_equal(array_retrieved, array,
-                           "Error storing {} / {} / {}"
-                           .format(var_name, chunks, offset))
+                           "Error retrieving {} / {} / {}"
+                           .format(array_name, offset, dask_array.chunks))
 
     def test_chunk_non_existent(self):
         assert_raises(ChunkNotFound, self.store.get_chunk, 'haha',
@@ -191,6 +197,15 @@ class ChunkStoreTestBase(object):
         assert_array_equal(result.shape, (1, 1))
         assert_is_instance(result[0, 0], BadChunk)
 
-    def test_dask_array(self):
-        self.put_and_get_dask_array('big_y')
-        self.put_and_get_dask_array('big_y', offset_in_chunks=(3, 1, 0))
+    def test_dask_array_basic(self):
+        self.put_dask_array('big_y')
+        self.get_dask_array('big_y')
+        self.get_dask_array('big_y', np.s_[0:3, 0:30, 0:2])
+
+    def test_dask_array_put_parts_get_whole(self):
+        # Split big array into quarters along existing chunks and reassemble
+        self.put_dask_array('big_y2', np.s_[0:3,  0:30, 0:2])
+        self.put_dask_array('big_y2', np.s_[3:8,  0:30, 0:2])
+        self.put_dask_array('big_y2', np.s_[0:3, 30:60, 0:2])
+        self.put_dask_array('big_y2', np.s_[3:8, 30:60, 0:2])
+        self.get_dask_array('big_y2')
