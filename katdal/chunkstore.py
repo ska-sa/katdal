@@ -16,21 +16,102 @@
 
 """Base class for accessing a store of chunks (i.e. N-dimensional arrays)."""
 
+from __future__ import division
+
 import contextlib
+import functools
+import uuid
 
 import numpy as np
+import dask
+import dask.array as da
+import toolz
 
 
-class StoreUnavailable(OSError):
+class ChunkStoreError(Exception):
+    """"Base class for all standard ChunkStore errors."""
+
+
+class StoreUnavailable(OSError, ChunkStoreError):
     """Could not access underlying storage medium (offline, auth failed, etc)."""
 
 
-class ChunkNotFound(KeyError):
+class ChunkNotFound(KeyError, ChunkStoreError):
     """The store was accessible but a chunk with the given name was not found."""
 
 
-class BadChunk(ValueError):
+class BadChunk(ValueError, ChunkStoreError):
     """The chunk is malformed, e.g. bad dtype or slices, wrong buffer size."""
+
+
+def _floor_power_of_two(x):
+    """The largest power of two smaller than or equal to `x`."""
+    return 2 ** int(np.floor(np.log2(x)))
+
+
+def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
+                    power_of_two=False):
+    """Generate dask chunk specification from ndarray parameters.
+
+    Parameters
+    ----------
+    shape : sequence of int
+        Array shape
+    dtype : :class:`numpy.dtype` object or equivalent
+        Array data type
+    max_chunk_size : float or int
+        Upper limit on chunk size (if allowed by `dims_to_split`), in bytes
+    dims_to_split : sequence of int, optional
+        Indices of dimensions that may be split into chunks (default all dims)
+    power_of_two : bool, optional
+        True if chunk size should be rounded down to a power of two
+        (the last chunk size along each dimension will potentially be smaller)
+
+    Returns
+    -------
+    chunks : tuple of tuple of int
+        Dask chunk specification, indicating chunk sizes along each dimension
+    """
+    if dims_to_split is None:
+        dims_to_split = range(len(shape))
+    dataset_size = np.prod(shape) * np.dtype(dtype).itemsize
+    # The ideal number of chunks to achieve requested chunk size (can be float)
+    num_chunks = dataset_size / max_chunk_size
+    # Start with the whole array as a single big chunk
+    chunks = [(s,) for s in shape]
+    # Split the array greedily along each dimension, in order of `dims_to_split`
+    for dim in dims_to_split:
+        if dim >= len(shape):
+            continue
+        if num_chunks > shape[dim] / 2:
+            # Split the dimension into the maximum number of chunks
+            chunk_sizes = (1,) * shape[dim]
+        else:
+            items = np.arange(shape[dim])
+            if power_of_two:
+                # Chunk sizes will be (2^P, 2^P, 2^P, ..., 1 <= M <= 2^P)
+                chunksize_per_dim = _floor_power_of_two(shape[dim] / num_chunks)
+                chunk_indices = toolz.partition_all(chunksize_per_dim, items)
+            else:
+                # Chunk sizes generally will be (N, N, N, ..., N-1, N-1)
+                chunk_indices = np.array_split(items, np.ceil(num_chunks))
+            chunk_sizes = tuple([len(chunk) for chunk in chunk_indices])
+        chunks[dim] = chunk_sizes
+        # Update number of remaining chunks to realise
+        num_chunks /= len(chunk_sizes)
+    return tuple(chunks)
+
+
+def _add_offset_to_slices(func, offset):
+    """Modify chunk getter/putter to add an offset to its `slices` parameter."""
+    offset_slices = tuple(slice(start, None) for start in offset)
+
+    def func_with_offset(array_name, slices, *args, **kwargs):
+        """Shift `slices` to start at `offset`."""
+        slices = da.core.fuse_slice(offset_slices, slices)
+        return func(array_name, slices, *args, **kwargs)
+
+    return func_with_offset
 
 
 class ChunkStore(object):
@@ -126,6 +207,17 @@ class ChunkStore(object):
         """
         raise NotImplementedError
 
+    def put_chunk_noraise(self, array_name, slices, chunk):
+        """Put chunk into store but return any exceptions instead of raising."""
+        singleton_shape = len(slices) * (1,)
+        try:
+            self.put_chunk(array_name, slices, chunk)
+            # Return result as ndarray with same number of (singleton)
+            # dimensions as chunk to enable assembly into a dask array
+            return np.empty(singleton_shape, object)
+        except ChunkStoreError as err:
+            return np.full(singleton_shape, err, object)
+
     NAME_SEP = '/'
     # Width sufficient to store any dump / channel / corrprod index for MeerKAT
     NAME_INDEX_WIDTH = 5
@@ -216,11 +308,81 @@ class ChunkStore(object):
             yield
         except tuple(self._error_map) as e:
             try:
-                ChunkStoreError = self._error_map[type(e)]
+                StandardisedError = self._error_map[type(e)]
             except KeyError:
                 # The exception has to be a subclass of one of the error_map
                 # keys, so pick the first one found
                 FirstBase = next(c for c in self._error_map if isinstance(e, c))
-                ChunkStoreError = self._error_map[FirstBase]
+                StandardisedError = self._error_map[FirstBase]
             prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
-            raise ChunkStoreError(prefix + str(e))
+            raise StandardisedError(prefix + str(e))
+
+    def get_dask_array(self, array_name, chunks, dtype, offset=()):
+        """Get dask array from the store.
+
+        Parameters
+        ----------
+        array_name : string
+            Identifier of array in chunk store
+        chunks : tuple of tuples of ints
+            Chunk specification
+        dtype : :class:`numpy.dtype` object or equivalent
+            Data type of array
+        offset : tuple of int, optional
+            Offset to add to each dimension when addressing chunks in store
+
+        Returns
+        -------
+        array : :class:`dask.array.Array` object
+            Dask array
+
+        Raises
+        ------
+        :exc:`chunkstore.StoreUnavailable`
+            If interaction with chunk store failed (offline, bad auth, bad config)
+        :exc:`chunkstore.ChunkNotFound`
+            If requested chunk was not found in store
+        """
+        getter = functools.partial(self.get_chunk, dtype=dtype)
+        if offset:
+            getter = _add_offset_to_slices(getter, offset)
+        # Use dask utility function that forms the core of da.from_array
+        dask_graph = da.core.getem(array_name, chunks, getter)
+        return da.Array(dask_graph, array_name, chunks, dtype)
+
+    def put_dask_array(self, array_name, array, offset=()):
+        """Put dask array into the store.
+
+        Parameters
+        ----------
+        array_name : string
+            Identifier of array in chunk store
+        array : :class:`dask.array.Array` object
+            Dask input array
+        offset : tuple of int, optional
+            Offset to add to each dimension when addressing chunks in store
+
+        Returns
+        -------
+        success : :class:`dask.array.Array` object
+            Dask array indicating success of the transfer of each chunk
+            (None indicates success, otherwise there is an exception object)
+        """
+        dask_graph = dask.sharedict.ShareDict()
+        dask_graph.update(array.dask)
+        # Give better names to these two very similar variables
+        in_name = array.name
+        out_name = array_name
+        # Make out_name unique to avoid clashes and caches
+        out_name = 'store-{}-{}-{}'.format(out_name, offset, uuid.uuid4().hex)
+        put = self.put_chunk_noraise
+        if offset:
+            put = _add_offset_to_slices(put, offset)
+        # Construct output graph on same chunks as input, but with new name
+        graph = da.core.getem(array_name, array.chunks, put, out_name=out_name)
+        # Set chunk parameter of put_chunk() to corresponding key in input array
+        graph = {k: v + ((in_name,) + k[1:],) for k, v in graph.items()}
+        dask_graph.update(graph)
+        # The success array has one element per chunk in the input array
+        out_chunks = tuple(len(c) * (1,) for c in array.chunks)
+        return da.Array(dask_graph, out_name, out_chunks, np.object)
