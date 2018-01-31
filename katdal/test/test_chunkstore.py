@@ -128,6 +128,7 @@ class ChunkStoreTestBase(object):
         return name
 
     def put_and_get_chunk(self, var_name, slices):
+        """Put a single chunk into store, get it back and compare."""
         array_name = self.array_name(var_name)
         chunk = getattr(self, var_name)[slices]
         self.store.put_chunk(array_name, slices, chunk)
@@ -135,19 +136,29 @@ class ChunkStoreTestBase(object):
         assert_array_equal(chunk_retrieved, chunk,
                            "Error storing {}[{}]".format(var_name, slices))
 
-    def put_and_get_dask_array(self, var_name):
+    def put_and_get_dask_array(self, var_name, offset_in_chunks=()):
+        """Put dask array into store (with offset), get it back and compare."""
         array_name = self.array_name(var_name)
         array = getattr(self, var_name)
         chunks = generate_chunks(array.shape, array.dtype, array.nbytes / 10.)
+        offset = ()
+        if offset_in_chunks:
+            offset = tuple(np.cumsum(np.r_[0, ch])[of]
+                           for ch, of in zip(chunks, offset_in_chunks))
+            chunks = tuple(ch[of:] for ch, of in zip(chunks, offset_in_chunks))
+            offset_slice = tuple(slice(start, None) for start in offset)
+            array = array[offset_slice]
         divisions_per_dim = [len(c) for c in chunks]
         dask_array = da.from_array(array, chunks)
-        push = self.store.put_dask_array(array_name, dask_array)
+        push = self.store.put_dask_array(array_name, dask_array, offset)
         results = push.compute()
         assert_array_equal(results, np.tile(None, divisions_per_dim))
-        pull = self.store.get_dask_array(array_name, chunks, array.dtype)
+        pull = self.store.get_dask_array(array_name, chunks, array.dtype,
+                                         offset)
         array_retrieved = pull.compute()
         assert_array_equal(array_retrieved, array,
-                           "Error storing {} / {}".format(var_name, chunks))
+                           "Error storing {} / {} / {}"
+                           .format(var_name, chunks, offset))
 
     def test_chunk_non_existent(self):
         assert_raises(ChunkNotFound, self.store.get_chunk, 'haha',
@@ -182,3 +193,4 @@ class ChunkStoreTestBase(object):
 
     def test_dask_array(self):
         self.put_and_get_dask_array('big_y')
+        self.put_and_get_dask_array('big_y', offset_in_chunks=(3, 1, 0))

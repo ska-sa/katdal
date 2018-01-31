@@ -102,6 +102,18 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
     return tuple(chunks)
 
 
+def _add_offset_to_slices(func, offset):
+    """Modify chunk getter/putter to add an offset to its `slices` parameter."""
+    offset_slices = tuple(slice(start, None) for start in offset)
+
+    def func_with_offset(array_name, slices, *args, **kwargs):
+        """Shift `slices` to start at `offset`."""
+        slices = da.core.fuse_slice(offset_slices, slices)
+        return func(array_name, slices, *args, **kwargs)
+
+    return func_with_offset
+
+
 class ChunkStore(object):
     """Base class for accessing a store of chunks (i.e. N-dimensional arrays).
 
@@ -305,7 +317,7 @@ class ChunkStore(object):
             prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
             raise StandardisedError(prefix + str(e))
 
-    def get_dask_array(self, array_name, chunks, dtype):
+    def get_dask_array(self, array_name, chunks, dtype, offset=()):
         """Get dask array from the store.
 
         Parameters
@@ -316,6 +328,8 @@ class ChunkStore(object):
             Chunk specification
         dtype : :class:`numpy.dtype` object or equivalent
             Data type of array
+        offset : tuple of int, optional
+            Offset to add to each dimension when addressing chunks in store
 
         Returns
         -------
@@ -329,12 +343,14 @@ class ChunkStore(object):
         :exc:`chunkstore.ChunkNotFound`
             If requested chunk was not found in store
         """
-        # Use dask utility function that forms the core of da.from_array
         getter = functools.partial(self.get_chunk, dtype=dtype)
+        if offset:
+            getter = _add_offset_to_slices(getter, offset)
+        # Use dask utility function that forms the core of da.from_array
         dask_graph = da.core.getem(array_name, chunks, getter)
         return da.Array(dask_graph, array_name, chunks, dtype)
 
-    def put_dask_array(self, array_name, array):
+    def put_dask_array(self, array_name, array, offset=()):
         """Put dask array into the store.
 
         Parameters
@@ -343,6 +359,8 @@ class ChunkStore(object):
             Identifier of array in chunk store
         array : :class:`dask.array.Array` object
             Dask input array
+        offset : tuple of int, optional
+            Offset to add to each dimension when addressing chunks in store
 
         Returns
         -------
@@ -356,10 +374,12 @@ class ChunkStore(object):
         in_name = array.name
         out_name = array_name
         # Make out_name unique to avoid clashes and caches
-        out_name = 'store-{}-{}'.format(out_name, uuid.uuid4().hex)
+        out_name = 'store-{}-{}-{}'.format(out_name, offset, uuid.uuid4().hex)
+        put = self.put_chunk_noraise
+        if offset:
+            put = _add_offset_to_slices(put, offset)
         # Construct output graph on same chunks as input, but with new name
-        graph = da.core.getem(array_name, array.chunks, self.put_chunk_noraise,
-                              out_name=out_name)
+        graph = da.core.getem(array_name, array.chunks, put, out_name=out_name)
         # Set chunk parameter of put_chunk() to corresponding key in input array
         graph = {k: v + ((in_name,) + k[1:],) for k, v in graph.items()}
         dask_graph.update(graph)
