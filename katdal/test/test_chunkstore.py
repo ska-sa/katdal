@@ -155,7 +155,7 @@ class ChunkStoreTestBase(object):
         push = self.store.put_dask_array(array_name, dask_array, offset)
         results = push.compute()
         divisions_per_dim = [len(c) for c in dask_array.chunks]
-        assert_array_equal(results, np.tile(None, divisions_per_dim))
+        assert_array_equal(results, np.full(divisions_per_dim, None))
 
     def get_dask_array(self, var_name, slices=()):
         """Get (part of) an array from store via dask and compare."""
@@ -167,6 +167,15 @@ class ChunkStoreTestBase(object):
         assert_array_equal(array_retrieved, array,
                            "Error retrieving {} / {} / {}"
                            .format(array_name, offset, dask_array.chunks))
+
+    def has_dask_array(self, var_name, slices=()):
+        """Get (part of) an array from store via dask and compare."""
+        array_name, dask_array, offset = self.make_dask_array(var_name, slices)
+        pull = self.store.has_dask_array(array_name, dask_array.chunks,
+                                         dask_array.dtype, offset)
+        results = pull.compute()
+        divisions_per_dim = [len(c) for c in dask_array.chunks]
+        assert_array_equal(results, np.full(divisions_per_dim, True))
 
     def test_chunk_non_existent(self):
         args = ('haha', (slice(0, 1),), np.dtype(np.float))
@@ -197,13 +206,14 @@ class ChunkStoreTestBase(object):
 
     def test_put_chunk_noraise(self):
         result = self.store.put_chunk_noraise("x", (1, 2), [])
-        assert_array_equal(result.shape, (1, 1))
-        assert_is_instance(result[0, 0], BadChunk)
+        assert_is_instance(result, BadChunk)
 
     def test_dask_array_basic(self):
         self.put_dask_array('big_y')
         self.get_dask_array('big_y')
+        self.has_dask_array('big_y')
         self.get_dask_array('big_y', np.s_[0:3, 0:30, 0:2])
+        self.has_dask_array('big_y', np.s_[0:3, 0:30, 0:2])
 
     def test_dask_array_put_parts_get_whole(self):
         # Split big array into quarters along existing chunks and reassemble
