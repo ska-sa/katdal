@@ -381,13 +381,6 @@ class ChunkStore(object):
         -------
         array : :class:`dask.array.Array` object
             Dask array of given dtype
-
-        Raises
-        ------
-        :exc:`chunkstore.StoreUnavailable`
-            If interaction with chunk store failed (offline, bad auth, bad config)
-        :exc:`chunkstore.ChunkNotFound`
-            If requested chunk was not found in store
         """
         getter = functools.partial(self.get_chunk, dtype=dtype)
         if offset:
@@ -451,11 +444,6 @@ class ChunkStore(object):
         -------
         success : :class:`dask.array.Array` object
             Dask array of bools indicating presence of each chunk
-
-        Raises
-        ------
-        :exc:`chunkstore.StoreUnavailable`
-            If interaction with chunk store failed (offline, bad auth, bad config)
         """
         has = _scalar_to_chunk(functools.partial(self.has_chunk, dtype=dtype))
         if offset:
