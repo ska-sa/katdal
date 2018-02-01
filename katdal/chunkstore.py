@@ -218,6 +218,37 @@ class ChunkStore(object):
         except ChunkStoreError as err:
             return np.full(singleton_shape, err, object)
 
+    def has_chunk(self, array_name, slices, dtype):
+        """Check if chunk is in the store.
+
+        Parameters
+        ----------
+        array_name : string
+            Identifier of parent array `x` of chunk
+        slices : sequence of unit-stride slice objects
+            Identifier of individual chunk, to be extracted as `x[slices]`
+        dtype : :class:`numpy.dtype` object or equivalent
+            Data type of array `x`
+
+        Returns
+        -------
+        success : bool
+            True if chunk was found in the store, with appropriate size / dtype
+
+        Raises
+        ------
+        :exc:`chunkstore.BadChunk`
+            If `slices` has wrong specification
+        :exc:`chunkstore.StoreUnavailable`
+            If interaction with chunk store failed (offline, bad auth, bad config)
+        """
+        try:
+            self.get_chunk(array_name, slices, dtype)
+        except ChunkNotFound:
+            return False
+        else:
+            return True
+
     NAME_SEP = '/'
     # Width sufficient to store any dump / channel / corrprod index for MeerKAT
     NAME_INDEX_WIDTH = 5

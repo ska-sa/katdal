@@ -126,5 +126,19 @@ class RadosChunkStore(ChunkStore):
         with self._standard_errors(key):
             self.ioctx.write_full(key, data_str)
 
+    def has_chunk(self, array_name, slices, dtype):
+        """See the docstring of :meth:`ChunkStore.has_chunk`."""
+        dtype = np.dtype(dtype)
+        key, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
+        expected_bytes = int(np.prod(shape)) * dtype.itemsize
+        try:
+            with self._standard_errors(key):
+                actual_bytes, _ = self.ioctx.stat(key)
+        except ChunkNotFound:
+            return False
+        else:
+            return actual_bytes == expected_bytes
+
     get_chunk.__doc__ = ChunkStore.get_chunk.__doc__
     put_chunk.__doc__ = ChunkStore.put_chunk.__doc__
+    has_chunk.__doc__ = ChunkStore.has_chunk.__doc__
