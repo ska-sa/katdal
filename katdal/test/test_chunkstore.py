@@ -18,7 +18,8 @@
 
 import numpy as np
 from numpy.testing import assert_array_equal
-from nose.tools import assert_raises, assert_equal, assert_is_instance
+from nose.tools import (assert_raises, assert_equal, assert_true, assert_false,
+                        assert_is_instance)
 import dask.array as da
 
 from katdal.chunkstore import (ChunkStore, generate_chunks,
@@ -128,11 +129,12 @@ class ChunkStoreTestBase(object):
     def array_name(self, name):
         return name
 
-    def put_and_get_chunk(self, var_name, slices):
-        """Put a single chunk into store, get it back and compare."""
+    def put_has_get_chunk(self, var_name, slices):
+        """Put a single chunk into store, check it, get it back and compare."""
         array_name = self.array_name(var_name)
         chunk = getattr(self, var_name)[slices]
         self.store.put_chunk(array_name, slices, chunk)
+        assert_true(self.store.has_chunk(array_name, slices, chunk.dtype))
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk,
                            "Error storing {}[{}]".format(var_name, slices))
@@ -153,7 +155,7 @@ class ChunkStoreTestBase(object):
         push = self.store.put_dask_array(array_name, dask_array, offset)
         results = push.compute()
         divisions_per_dim = [len(c) for c in dask_array.chunks]
-        assert_array_equal(results, np.tile(None, divisions_per_dim))
+        assert_array_equal(results, np.full(divisions_per_dim, None))
 
     def get_dask_array(self, var_name, slices=()):
         """Get (part of) an array from store via dask and compare."""
@@ -166,15 +168,25 @@ class ChunkStoreTestBase(object):
                            "Error retrieving {} / {} / {}"
                            .format(array_name, offset, dask_array.chunks))
 
+    def has_dask_array(self, var_name, slices=()):
+        """Get (part of) an array from store via dask and compare."""
+        array_name, dask_array, offset = self.make_dask_array(var_name, slices)
+        pull = self.store.has_dask_array(array_name, dask_array.chunks,
+                                         dask_array.dtype, offset)
+        results = pull.compute()
+        divisions_per_dim = [len(c) for c in dask_array.chunks]
+        assert_array_equal(results, np.full(divisions_per_dim, True))
+
     def test_chunk_non_existent(self):
-        assert_raises(ChunkNotFound, self.store.get_chunk, 'haha',
-                      (slice(0, 1),), np.dtype(np.float))
+        args = ('haha', (slice(0, 1),), np.dtype(np.float))
+        assert_raises(ChunkNotFound, self.store.get_chunk, *args)
+        assert_false(self.store.has_chunk(*args))
 
     def test_chunk_bool_1dim_and_too_small(self):
         # Check basic put + get on 1-D bool
         name = self.array_name('x')
         s = (slice(3, 5),)
-        self.put_and_get_chunk('x', s)
+        self.put_has_get_chunk('x', s)
         # Stored object has fewer bytes than expected (and wrong dtype)
         assert_raises(BadChunk, self.store.get_chunk, name, s, self.y.dtype)
 
@@ -182,25 +194,26 @@ class ChunkStoreTestBase(object):
         # Check basic put + get on 3-D float
         name = self.array_name('y')
         s = (slice(3, 7), slice(2, 5), slice(1, 2))
-        self.put_and_get_chunk('y', s)
+        self.put_has_get_chunk('y', s)
         # Stored object has more bytes than expected (and wrong dtype)
         assert_raises(BadChunk, self.store.get_chunk, name, s, self.x.dtype)
 
     def test_chunk_zero_size(self):
         # Try a chunk with zero size
-        self.put_and_get_chunk('y', (slice(4, 7), slice(3, 3), slice(0, 2)))
+        self.put_has_get_chunk('y', (slice(4, 7), slice(3, 3), slice(0, 2)))
         # Try an empty slice on a zero-dimensional array (but why?)
-        self.put_and_get_chunk('z', ())
+        self.put_has_get_chunk('z', ())
 
     def test_put_chunk_noraise(self):
         result = self.store.put_chunk_noraise("x", (1, 2), [])
-        assert_array_equal(result.shape, (1, 1))
-        assert_is_instance(result[0, 0], BadChunk)
+        assert_is_instance(result, BadChunk)
 
     def test_dask_array_basic(self):
         self.put_dask_array('big_y')
         self.get_dask_array('big_y')
+        self.has_dask_array('big_y')
         self.get_dask_array('big_y', np.s_[0:3, 0:30, 0:2])
+        self.has_dask_array('big_y', np.s_[0:3, 0:30, 0:2])
 
     def test_dask_array_put_parts_get_whole(self):
         # Split big array into quarters along existing chunks and reassemble

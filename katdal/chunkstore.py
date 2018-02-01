@@ -103,7 +103,7 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
 
 
 def _add_offset_to_slices(func, offset):
-    """Modify chunk getter/putter to add an offset to its `slices` parameter."""
+    """Modify chunk get/put/has to add an offset to its `slices` parameter."""
     offset_slices = tuple(slice(start, None) for start in offset)
 
     def func_with_offset(array_name, slices, *args, **kwargs):
@@ -112,6 +112,23 @@ def _add_offset_to_slices(func, offset):
         return func(array_name, slices, *args, **kwargs)
 
     return func_with_offset
+
+
+def _scalar_to_chunk(func):
+    """Modify chunk get/put/has to turn a scalar return value into a chunk.
+
+    This modifies the given function so that it returns its result as an
+    ndarray with the same number of (singleton) dimensions as the corresponding
+    chunk to enable assembly into a dask array.
+    """
+
+    def func_returning_chunk(array_name, slices, *args, **kwargs):
+        """Turn scalar return value into chunk of appropriate dimension."""
+        value = func(array_name, slices, *args, **kwargs)
+        singleton_shape = len(slices) * (1,)
+        return np.full(singleton_shape, value)
+
+    return func_returning_chunk
 
 
 class ChunkStore(object):
@@ -209,14 +226,43 @@ class ChunkStore(object):
 
     def put_chunk_noraise(self, array_name, slices, chunk):
         """Put chunk into store but return any exceptions instead of raising."""
-        singleton_shape = len(slices) * (1,)
         try:
             self.put_chunk(array_name, slices, chunk)
-            # Return result as ndarray with same number of (singleton)
-            # dimensions as chunk to enable assembly into a dask array
-            return np.empty(singleton_shape, object)
         except ChunkStoreError as err:
-            return np.full(singleton_shape, err, object)
+            return err
+        else:
+            return None
+
+    def has_chunk(self, array_name, slices, dtype):
+        """Check if chunk is in the store.
+
+        Parameters
+        ----------
+        array_name : string
+            Identifier of parent array `x` of chunk
+        slices : sequence of unit-stride slice objects
+            Identifier of individual chunk, to be extracted as `x[slices]`
+        dtype : :class:`numpy.dtype` object or equivalent
+            Data type of array `x`
+
+        Returns
+        -------
+        success : bool
+            True if chunk was found in the store, with appropriate size / dtype
+
+        Raises
+        ------
+        :exc:`chunkstore.BadChunk`
+            If `slices` has wrong specification
+        :exc:`chunkstore.StoreUnavailable`
+            If interaction with chunk store failed (offline, bad auth, bad config)
+        """
+        try:
+            self.get_chunk(array_name, slices, dtype)
+        except ChunkNotFound:
+            return False
+        else:
+            return True
 
     NAME_SEP = '/'
     # Width sufficient to store any dump / channel / corrprod index for MeerKAT
@@ -334,14 +380,7 @@ class ChunkStore(object):
         Returns
         -------
         array : :class:`dask.array.Array` object
-            Dask array
-
-        Raises
-        ------
-        :exc:`chunkstore.StoreUnavailable`
-            If interaction with chunk store failed (offline, bad auth, bad config)
-        :exc:`chunkstore.ChunkNotFound`
-            If requested chunk was not found in store
+            Dask array of given dtype
         """
         getter = functools.partial(self.get_chunk, dtype=dtype)
         if offset:
@@ -365,7 +404,7 @@ class ChunkStore(object):
         Returns
         -------
         success : :class:`dask.array.Array` object
-            Dask array indicating success of the transfer of each chunk
+            Dask array of objects indicating success of transfer of each chunk
             (None indicates success, otherwise there is an exception object)
         """
         dask_graph = dask.sharedict.ShareDict()
@@ -375,7 +414,7 @@ class ChunkStore(object):
         out_name = array_name
         # Make out_name unique to avoid clashes and caches
         out_name = 'store-{}-{}-{}'.format(out_name, offset, uuid.uuid4().hex)
-        put = self.put_chunk_noraise
+        put = _scalar_to_chunk(self.put_chunk_noraise)
         if offset:
             put = _add_offset_to_slices(put, offset)
         # Construct output graph on same chunks as input, but with new name
@@ -386,3 +425,33 @@ class ChunkStore(object):
         # The success array has one element per chunk in the input array
         out_chunks = tuple(len(c) * (1,) for c in array.chunks)
         return da.Array(dask_graph, out_name, out_chunks, np.object)
+
+    def has_dask_array(self, array_name, chunks, dtype, offset=()):
+        """Check if dask array is in the store.
+
+        Parameters
+        ----------
+        array_name : string
+            Identifier of array in chunk store
+        chunks : tuple of tuples of ints
+            Chunk specification
+        dtype : :class:`numpy.dtype` object or equivalent
+            Data type of array
+        offset : tuple of int, optional
+            Offset to add to each dimension when addressing chunks in store
+
+        Returns
+        -------
+        success : :class:`dask.array.Array` object
+            Dask array of bools indicating presence of each chunk
+        """
+        has = _scalar_to_chunk(functools.partial(self.has_chunk, dtype=dtype))
+        if offset:
+            has = _add_offset_to_slices(has, offset)
+        # Make out_name unique to avoid clashes and caches
+        out_name = 'check-{}-{}-{}'.format(array_name, offset, uuid.uuid4().hex)
+        # Use dask utility function that forms the core of da.from_array
+        dask_graph = da.core.getem(array_name, chunks, has, out_name=out_name)
+        # The success array has one element per chunk in the input array
+        out_chunks = tuple(len(c) * (1,) for c in chunks)
+        return da.Array(dask_graph, out_name, out_chunks, np.bool_)

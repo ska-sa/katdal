@@ -28,7 +28,8 @@ except ImportError as e:
 else:
     import botocore.config
     import botocore.session
-    from botocore.exceptions import EndpointConnectionError, NoCredentialsError
+    from botocore.exceptions import (EndpointConnectionError,
+                                     NoCredentialsError, ClientError)
 
 from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk
 
@@ -118,7 +119,7 @@ class S3ChunkStore(ChunkStore):
         return cls(client)
 
     def get_chunk(self, array_name, slices, dtype):
-        """See the docstring of :meth:`ChunkStore.get`."""
+        """See the docstring of :meth:`ChunkStore.get_chunk`."""
         dtype = np.dtype(dtype)
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         bucket, key = self.split(chunk_name, 1)
@@ -135,12 +136,29 @@ class S3ChunkStore(ChunkStore):
         return np.ndarray(shape, dtype, data_str)
 
     def put_chunk(self, array_name, slices, chunk):
-        """See the docstring of :meth:`ChunkStore.put`."""
+        """See the docstring of :meth:`ChunkStore.put_chunk`."""
         chunk_name, shape = self.chunk_metadata(array_name, slices, chunk=chunk)
         bucket, key = self.split(chunk_name, 1)
         data_str = chunk.tobytes()
         with self._standard_errors(chunk_name):
             self.client.put_object(Bucket=bucket, Key=key, Body=data_str)
 
+    def has_chunk(self, array_name, slices, dtype):
+        """See the docstring of :meth:`ChunkStore.has_chunk`."""
+        dtype = np.dtype(dtype)
+        chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
+        bucket, key = self.split(chunk_name, 1)
+        try:
+            response = self.client.head_object(Bucket=bucket, Key=key)
+        except ClientError as err:
+            if err.response['Error']['Code'] != '404':
+                raise
+            return False
+        else:
+            actual_bytes = response['ContentLength']
+            expected_bytes = int(np.prod(shape)) * dtype.itemsize
+            return actual_bytes == expected_bytes
+
     get_chunk.__doc__ = ChunkStore.get_chunk.__doc__
     put_chunk.__doc__ = ChunkStore.put_chunk.__doc__
+    has_chunk.__doc__ = ChunkStore.has_chunk.__doc__
