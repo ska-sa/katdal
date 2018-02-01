@@ -67,7 +67,7 @@ class NpyFileChunkStore(ChunkStore):
         self.path = path
 
     def get_chunk(self, array_name, slices, dtype):
-        """See the docstring of :meth:`ChunkStore.get`."""
+        """See the docstring of :meth:`ChunkStore.get_chunk`."""
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         filename = os.path.join(self.path, chunk_name) + '.npy'
         with self._standard_errors(chunk_name):
@@ -78,7 +78,7 @@ class NpyFileChunkStore(ChunkStore):
         return chunk
 
     def put_chunk(self, array_name, slices, chunk):
-        """See the docstring of :meth:`ChunkStore.put`."""
+        """See the docstring of :meth:`ChunkStore.put_chunk`."""
         chunk_name, shape = self.chunk_metadata(array_name, slices, chunk=chunk)
         filename = os.path.join(self.path, chunk_name) + '.npy'
         # Ensure any subdirectories are in place

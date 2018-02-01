@@ -63,7 +63,9 @@ class S3ChunkStore(ChunkStore):
     def __init__(self, client):
         if not botocore:
             raise _botocore_import_error
-        # XXX Hack to route head_object 404 error to ChunkNotFound via NoSuchKey
+        # XXX Hack to route head_object 404 error to ChunkNotFound via
+        # NoSuchKey. This is better than routing all ClientErrors to
+        # ChunkNotFound, but the best solution would be a fix to botocore.
         boto_error_map = client.exceptions._code_to_exception
         boto_error_map['404'] = boto_error_map['NoSuchKey']
         error_map = {EndpointConnectionError: StoreUnavailable,
@@ -121,7 +123,7 @@ class S3ChunkStore(ChunkStore):
         return cls(client)
 
     def get_chunk(self, array_name, slices, dtype):
-        """See the docstring of :meth:`ChunkStore.get`."""
+        """See the docstring of :meth:`ChunkStore.get_chunk`."""
         dtype = np.dtype(dtype)
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         bucket, key = self.split(chunk_name, 1)
@@ -138,7 +140,7 @@ class S3ChunkStore(ChunkStore):
         return np.ndarray(shape, dtype, data_str)
 
     def put_chunk(self, array_name, slices, chunk):
-        """See the docstring of :meth:`ChunkStore.put`."""
+        """See the docstring of :meth:`ChunkStore.put_chunk`."""
         chunk_name, shape = self.chunk_metadata(array_name, slices, chunk=chunk)
         bucket, key = self.split(chunk_name, 1)
         data_str = chunk.tobytes()
