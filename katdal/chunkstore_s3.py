@@ -28,7 +28,8 @@ except ImportError as e:
 else:
     import botocore.config
     import botocore.session
-    from botocore.exceptions import EndpointConnectionError, NoCredentialsError
+    from botocore.exceptions import (EndpointConnectionError,
+                                     NoCredentialsError, ClientError)
 
 from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk
 
@@ -63,11 +64,6 @@ class S3ChunkStore(ChunkStore):
     def __init__(self, client):
         if not botocore:
             raise _botocore_import_error
-        # XXX Hack to route head_object 404 error to ChunkNotFound via
-        # NoSuchKey. This is better than routing all ClientErrors to
-        # ChunkNotFound, but the best solution would be a fix to botocore.
-        boto_error_map = client.exceptions._code_to_exception
-        boto_error_map['404'] = boto_error_map['NoSuchKey']
         error_map = {EndpointConnectionError: StoreUnavailable,
                      client.exceptions.NoSuchKey: ChunkNotFound,
                      client.exceptions.NoSuchBucket: ChunkNotFound}
@@ -153,9 +149,10 @@ class S3ChunkStore(ChunkStore):
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         bucket, key = self.split(chunk_name, 1)
         try:
-            with self._standard_errors(chunk_name):
-                response = self.client.head_object(Bucket=bucket, Key=key)
-        except ChunkNotFound:
+            response = self.client.head_object(Bucket=bucket, Key=key)
+        except ClientError as err:
+            if err.response['Error']['Code'] != '404':
+                raise
             return False
         else:
             actual_bytes = response['ContentLength']
