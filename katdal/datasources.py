@@ -17,12 +17,17 @@
 """Various sources of correlator data and metadata."""
 
 import urlparse
+import os
 
 import katsdptelstate
-import numpy as np
+import redis
 
 from .dataset import AttrsSensors
 from .sensordata import TelstateSensorData
+
+
+class DataSourceNotFound(Exception):
+    """File associated with DataSource not found or server not responding."""
 
 
 class DataSource(object):
@@ -65,12 +70,35 @@ class TelstateDataSource(DataSource):
         metadata = AttrsSensors(attrs, sensors, name=source_name)
         DataSource.__init__(self, metadata, None)
 
+    @classmethod
+    def from_url(cls, url, **kwargs):
+        url_parts = urlparse.urlparse(url, scheme='file')
+        if url_parts.scheme == 'file':
+            # RDB dump file
+            telstate = katsdptelstate.TelescopeState()
+            try:
+                telstate.load_from_file(url_parts.path)
+            except OSError as err:
+                raise DataSourceNotFound(str(err))
+            return cls(telstate, url)
+        elif url_parts.scheme == 'redis':
+            # Redis server
+            try:
+                telstate = katsdptelstate.TelescopeState(url_parts.netloc)
+            except redis.exceptions.TimeoutError as err:
+                raise DataSourceNotFound(str(err))
+            return cls(telstate, url)
+
 
 def open_data_source(url):
     """Construct the data source described by the given URL."""
-    url_parts = urlparse.urlparse(url)
-    if url_parts.scheme == 'telstate+redis':
-        telstate = katsdptelstate.TelescopeState(url_parts.netloc)
-        return TelstateDataSource(telstate, url)
-    else:
-        raise ValueError("Unsupported data source '%s'" % (url,))
+    try:
+        return TelstateDataSource.from_url(url)
+    except DataSourceNotFound as err:
+        # Amend the error message for the case of an IP address without scheme
+        url_parts = urlparse.urlparse(url, scheme='file')
+        if url_parts.scheme == 'file' and not os.path.isfile(url_parts.path):
+            raise DataSourceNotFound(
+                '{} (add a URL scheme if it is not meant to be a file)'
+                .format(str(err), url_parts.path))
+    # raise ValueError("Unsupported data source {!r}".format(url))
