@@ -95,20 +95,32 @@ class VisFlagsWeights(object):
     def shape(self):
         return self.vis.shape
 
-    @classmethod
-    def from_chunk_store(cls, store, base_name, chunk_info):
-        """"""
+
+class ChunkStoreVisFlagsWeights(VisFlagsWeights):
+    """Correlator data stored in a chunk store.
+
+    Parameters
+    ----------
+    store : :class:`ChunkStore` object
+        Chunk store
+    base_name : string
+        Name of dataset in store, as array name prefix (akin to a filename)
+    chunk_info : dict mapping array name to info dict
+        Dict specifying dtype, shape and chunks per array
+    """
+    def __init__(self, store, base_name, chunk_info):
+        self.store = store
         da = {}
         for array, info in chunk_info.iteritems():
             array_name = store.join(base_name, array)
             da[array] = store.get_dask_array(array_name, info['chunks'],
                                              info['dtype'])
-        return cls(DaskLazyIndexer(da['correlator_data']),
-                   DaskLazyIndexer(da['flags']),
-                   # Combine low-resolution weights and high-res weights_channel
-                   DaskLazyIndexer(da['weights'] *
-                                   da['weights_channel'][..., np.newaxis]),
-                   base_name)
+        vis = DaskLazyIndexer(da['correlator_data'])
+        flags = DaskLazyIndexer(da['flags'])
+        # Combine low-resolution weights and high-resolution weights_channel
+        weights = DaskLazyIndexer(da['weights'] *
+                                  da['weights_channel'][..., np.newaxis])
+        VisFlagsWeights.__init__(self, vis, flags, weights, base_name)
 
 
 class DataSource(object):
@@ -171,8 +183,7 @@ class TelstateDataSource(DataSource):
             ts_dtype = chunk_info['timestamps']['dtype']
             timestamps = store.get_dask_array(ts_name, ts_chunks, ts_dtype)
             timestamps = DaskLazyIndexer(timestamps)
-            data = VisFlagsWeights.from_chunk_store(store, base_name,
-                                                    chunk_info)
+            data = ChunkStoreVisFlagsWeights(store, base_name, chunk_info)
             DataSource.__init__(self, metadata, timestamps, data)
 
     @classmethod
