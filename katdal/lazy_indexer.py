@@ -330,3 +330,20 @@ class LazyIndexer(object):
         """Type of data array after transformation, i.e. `self[:].dtype`."""
         return reduce(lambda dtype, transform: transform.dtype if transform.dtype is not None else dtype,
                       self.transforms, self._initial_dtype)
+
+
+class DaskLazyIndexer(object):
+    """Turn a dask Array into a LazyIndexer by computing it upon indexing."""
+    def __init__(self, dataset, keep=slice(None), transforms=None):
+        self.da = dataset[keep]
+
+    def __getitem__(self, keep):
+        return self.da[keep].compute()
+
+    @property
+    def shape(self):
+        return self.da.shape
+
+    @property
+    def dtype(self):
+        return self.da.dtype

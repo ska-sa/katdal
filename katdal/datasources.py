@@ -31,23 +31,6 @@ class DataSourceNotFound(Exception):
     """File associated with DataSource not found or server not responding."""
 
 
-class DaskLazyIndexer(object):
-    """Turn a dask Array into a LazyIndexer by computing it upon indexing."""
-    def __init__(self, dask_array):
-        self.da = dask_array
-
-    def __getitem__(self, keep):
-        return self.da[keep].compute()
-
-    @property
-    def shape(self):
-        return self.da.shape
-
-    @property
-    def dtype(self):
-        return self.da.dtype
-
-
 class AttrsSensors(object):
     """Metadata in the form of attributes and sensors.
 
@@ -115,11 +98,10 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
             array_name = store.join(base_name, array)
             da[array] = store.get_dask_array(array_name, info['chunks'],
                                              info['dtype'])
-        vis = DaskLazyIndexer(da['correlator_data'])
-        flags = DaskLazyIndexer(da['flags'])
+        vis = da['correlator_data']
+        flags = da['flags']
         # Combine low-resolution weights and high-resolution weights_channel
-        weights = DaskLazyIndexer(da['weights'] *
-                                  da['weights_channel'][..., np.newaxis])
+        weights = da['weights'] * da['weights_channel'][..., np.newaxis]
         VisFlagsWeights.__init__(self, vis, flags, weights, base_name)
 
 
@@ -182,7 +164,8 @@ class TelstateDataSource(DataSource):
             ts_chunks = chunk_info['timestamps']['chunks']
             ts_dtype = chunk_info['timestamps']['dtype']
             timestamps = store.get_dask_array(ts_name, ts_chunks, ts_dtype)
-            timestamps = DaskLazyIndexer(timestamps)
+            # Make timestamps explicit, mutable (to be removed from store soon)
+            timestamps = timestamps.compute().copy()
             data = ChunkStoreVisFlagsWeights(store, base_name, chunk_info)
             DataSource.__init__(self, metadata, timestamps, data)
 
