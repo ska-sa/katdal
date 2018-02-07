@@ -103,9 +103,8 @@ class VisibilityDataV4(DataSet):
         self.source = source
         self.file = {}
         self.version = '4.0'
-        stream_name = 'sdp_l0'
-        self.dump_period = attrs[stream_name + '_int_time']
-        self._timestamps = source.timestamps[:]
+        self.dump_period = attrs['int_time']
+        self._timestamps = source.timestamps[:].copy()
         self._keepdims = keepdims
 
         # Check dimensions of timestamps vs those of visibility data
@@ -166,7 +165,7 @@ class VisibilityDataV4(DataSet):
         # ------ Extract subarrays ------
 
         # List of correlation products as pairs of input labels
-        corrprods = attrs[stream_name + '_bls_ordering']
+        corrprods = attrs['bls_ordering']
         # Crash if there is mismatch between labels and data shape (bad labels?)
         if source.data and (len(corrprods) != source.data.shape[2]):
             raise BrokenFile('Number of baseline labels (containing expected '
@@ -211,11 +210,10 @@ class VisibilityDataV4(DataSet):
         # Populate antenna -> receiver mapping and figure out noise diode
         for ant in cam_ants:
             # Try sanitised version of RX serial number first
-            rx_sensor = 'TelescopeState/%s_rsc_rx%s_serial_number' % (ant, band)
-            rx_serial = self.sensor[rx_sensor][0] if rx_sensor in self.sensor else 0
+            rx_serial = attrs.get('%s_rsc_rx%s_serial_number' % (ant, band), 0)
             if band:
                 self.receivers[ant] = '%s.%d' % (band, rx_serial)
-            nd_sensor = 'TelescopeState/%s_dig_%s_band_noise_diode' % (ant, band)
+            nd_sensor = '%s_dig_%s_band_noise_diode' % (ant, band)
             if nd_sensor in self.sensor:
                 # A sensor alias would be ideal for this but it only deals with suffixes ATM
                 new_nd_sensor = 'Antennas/%s/nd_coupler' % (ant,)
@@ -232,8 +230,8 @@ class VisibilityDataV4(DataSet):
         }
         spw_params = rx_table.get(band, dict(band='', sideband=1))
         # Use CBF spectral parameters by default
-        num_chans = attrs['cbf_n_chans']
-        bandwidth = attrs['cbf_bandwidth']
+        num_chans = attrs['n_chans']
+        bandwidth = attrs['bandwidth']
         # Cater for non-standard receivers, starting with Ku-band
         if spw_params['band'] == 'Ku':
             if 'anc_siggen_ku_frequency' in self.sensor:
@@ -244,9 +242,7 @@ class VisibilityDataV4(DataSet):
             spw_params['centre_freq'] = 428e6
             spw_params['sideband'] = -1
         # If the file has SDP output stream parameters, use those instead
-        num_chans = attrs.get(stream_name + '_n_chans', num_chans)
-        bandwidth = attrs.get(stream_name + '_bandwidth', bandwidth)
-        stream_centre_freq = attrs.get(stream_name + '_center_freq')
+        stream_centre_freq = attrs.get('center_freq')
         if stream_centre_freq is not None:
             spw_params['centre_freq'] = stream_centre_freq
         # Get channel width from original CBF / SDP parameters
