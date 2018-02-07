@@ -26,6 +26,7 @@ from .dataset import (DataSet, BrokenFile, Subarray, SpectralWindow,
                       _robust_target)
 from .sensordata import SensorCache
 from .categorical import CategoricalData
+from .lazy_indexer import DaskLazyIndexer
 
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,17 @@ VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel,
                         'Antennas/{ant}/el': _calc_azel})
 
+FLAG_NAMES = ('reserved0', 'static', 'cam', 'data_lost',
+              'ingest_rfi', 'predicted_rfi', 'cal_rfi', 'reserved7')
+FLAG_DESCRIPTIONS = ('reserved - bit 0',
+                     'predefined static flag list',
+                     'flag based on live CAM information',
+                     'no data was received',
+                     'RFI detected in ingest',
+                     'RFI predicted from space based pollutants',
+                     'RFI detected in calibration',
+                     'reserved - bit 7')
+
 # -----------------------------------------------------------------------------
 # -- CLASS :  VisibilityDataV4
 # -----------------------------------------------------------------------------
@@ -82,14 +94,11 @@ class VisibilityDataV4(DataSet):
         (default is first antenna in use)
     time_offset : float, optional
         Offset to add to all correlator timestamps, in seconds
-    keepdims : {False, True}, optional
-        Force vis / weights / flags to be 3-dimensional, regardless of selection
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
 
     """
-    def __init__(self, source, ref_ant='', time_offset=0.0, keepdims=False,
-                 **kwargs):
+    def __init__(self, source, ref_ant='', time_offset=0.0, **kwargs):
         DataSet.__init__(self, source.name, ref_ant, time_offset)
         attrs = source.metadata.attrs
 
@@ -99,7 +108,6 @@ class VisibilityDataV4(DataSet):
         self.file = {}
         self.version = '4.0'
         self.dump_period = attrs['int_time']
-        self._keepdims = keepdims
 
         # Check dimensions of timestamps vs those of visibility data
         num_dumps = len(source.timestamps)
@@ -133,6 +141,11 @@ class VisibilityDataV4(DataSet):
         self.sensor = SensorCache(source.metadata.sensors, source.timestamps,
                                   self.dump_period, self._time_keep,
                                   SENSOR_PROPS, VIRTUAL_SENSORS, SENSOR_ALIASES)
+
+        # ------ Extract flags ------
+
+        self._flags_select = np.array([0], dtype=np.uint8)
+        self._flags_keep = 'all'
 
         # ------ Extract observation parameters and script log ------
 
@@ -301,6 +314,37 @@ class VisibilityDataV4(DataSet):
         self.select(spw=0, subarray=0, ants=obs_ants)
 
     @property
+    def _flags_keep(self):
+        # Reverse flag indices as np.packbits has bit 0 as the MSB (we want LSB)
+        selection = np.flipud(np.unpackbits(self._flags_select))
+        assert len(FLAG_NAMES) == len(selection), \
+            'Expected %d flag types, got %s' % (len(selection), FLAG_NAMES)
+        return [name for name, bit in zip(FLAG_NAMES, selection) if bit]
+
+    @_flags_keep.setter
+    def _flags_keep(self, names):
+        # Ensure a sequence of flag names
+        names = FLAG_NAMES if names == 'all' else \
+            names.split(',') if isinstance(names, basestring) else names
+        # Create boolean list for desired flags
+        selection = np.zeros(8, dtype=np.uint8)
+        assert len(FLAG_NAMES) == len(selection), \
+            'Expected %d flag types, got %d' % (len(selection), FLAG_NAMES)
+        for name in names:
+            try:
+                selection[FLAG_NAMES.index(name)] = 1
+            except ValueError:
+                logger.warning("%r is not a legitimate flag type, "
+                               "supported ones are %s", name, FLAG_NAMES)
+        # Pack index list into bit mask
+        # Reverse flag indices as np.packbits has bit 0 as the MSB (we want LSB)
+        flagmask = np.packbits(np.flipud(selection))
+        if not flagmask:
+            logger.warning('No valid flags were selected - setting all flags '
+                           'to False by default')
+        self._flags_select = flagmask
+
+    @property
     def timestamps(self):
         """Visibility timestamps in UTC seconds since Unix epoch.
 
@@ -310,6 +354,67 @@ class VisibilityDataV4(DataSet):
 
         """
         return self.source.timestamps[self._time_keep]
+
+    @property
+    def vis(self):
+        r"""Complex visibility data as a function of time, frequency and baseline.
+
+        The visibility data are returned as an array indexer of complex64, shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The returned array always has all three dimensions,
+        even for scalar (single) values. The number of integrations *T* matches
+        the length of :meth:`timestamps`, the number of frequency channels *F*
+        matches the length of :meth:`freqs` and the number of correlation
+        products *B* matches the length of :meth:`corr_products`. To get the
+        data array itself from the indexer `x`, do `x[:]` or perform any other
+        form of indexing on it. Only then will data be loaded into memory.
+
+        The sign convention of the imaginary part is consistent with an
+        electric field of :math:`e^{i(\omega t - jz)}` i.e. phase that
+        increases with time.
+        """
+        # Create first-stage index from dataset selectors
+        stage1 = (self._time_keep, self._freq_keep, self._corrprod_keep)
+        return DaskLazyIndexer(self.source.data.vis, stage1)
+
+    @property
+    def weights(self):
+        """Visibility weights as a function of time, frequency and baseline.
+
+        The weights data are returned as an array indexer of float32, shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The number of integrations *T* matches the length of
+        :meth:`timestamps`, the number of frequency channels *F* matches the
+        length of :meth:`freqs` and the number of correlation products *B*
+        matches the length of :meth:`corr_products`. To get the data array
+        itself from the indexer `x`, do `x[:]` or perform any other form of
+        indexing on it. Only then will data be loaded into memory.
+
+        """
+        stage1 = (self._time_keep, self._freq_keep, self._corrprod_keep)
+        return DaskLazyIndexer(self.source.data.weights, stage1)
+
+    @property
+    def flags(self):
+        """Flags as a function of time, frequency and baseline.
+
+        The flags data are returned as an array indexer of bool, shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The number of integrations *T* matches the length of
+        :meth:`timestamps`, the number of frequency channels *F* matches the
+        length of :meth:`freqs` and the number of correlation products *B*
+        matches the length of :meth:`corr_products`. To get the data array
+        itself from the indexer `x`, do `x[:]` or perform any other form of
+        indexing on it. Only then will data be loaded into memory.
+
+        """
+        stage1 = (self._time_keep, self._freq_keep, self._corrprod_keep)
+        flags = self.source.data.flags
+        flags = np.bitwise_and(self._flags_select, flags).view(np.bool_)
+        return DaskLazyIndexer(flags, stage1)
 
     @property
     def temperature(self):

@@ -334,7 +334,7 @@ class LazyIndexer(object):
 
 class DaskLazyIndexer(object):
     """Turn a dask Array into a LazyIndexer by computing it upon indexing."""
-    def __init__(self, dataset, keep=slice(None), transforms=None):
+    def __init__(self, dataset, keep=(), transforms=None):
         self.da = dataset[keep]
 
     def __getitem__(self, keep):
