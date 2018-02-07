@@ -54,7 +54,7 @@ SENSOR_ALIASES = {
 
 def _calc_azel(cache, name, ant):
     """Calculate virtual (az, el) sensors from actual ones in sensor cache."""
-    real_sensor = 'Antennas/%s/pos_actual_scan_%s' % \
+    real_sensor = '%s_pos_actual_scan_%s' % \
                   (ant, 'azim' if name.endswith('az') else 'elev')
     cache[name] = sensor_data = katpoint.deg2rad(cache.get(real_sensor))
     return sensor_data
@@ -353,29 +353,29 @@ class VisibilityDataV4(DataSet):
     @property
     def temperature(self):
         """Air temperature in degrees Celsius."""
-        names = ['anc_weather_temperature']
+        names = ['anc_air_temperature']
         return self.sensor.get_with_fallback('temperature', names)
 
     @property
     def pressure(self):
         """Barometric pressure in millibars."""
-        names = ['anc_weather_pressure']
+        names = ['anc_air_pressure']
         return self.sensor.get_with_fallback('pressure', names)
 
     @property
     def humidity(self):
         """Relative humidity as a percentage."""
-        names = ['anc_weather_humidity']
+        names = ['anc_air_relative_humidity']
         return self.sensor.get_with_fallback('humidity', names)
 
     @property
     def wind_speed(self):
         """Wind speed in metres per second."""
-        names = ['anc_weather_wind_speed']
+        names = ['anc_mean_wind_speed']
         return self.sensor.get_with_fallback('wind_speed', names)
 
     @property
     def wind_direction(self):
         """Wind direction as an azimuth angle in degrees."""
-        names = ['anc_weather_wind_direction']
+        names = ['anc_wind_direction']
         return self.sensor.get_with_fallback('wind_direction', names)
