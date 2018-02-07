@@ -21,12 +21,31 @@ import os
 
 import katsdptelstate
 import redis
+import numpy as np
 
 from .sensordata import TelstateSensorData
+from .chunkstore_rados import RadosChunkStore
 
 
 class DataSourceNotFound(Exception):
     """File associated with DataSource not found or server not responding."""
+
+
+class DaskLazyIndexer(object):
+    """Turn a dask Array into a LazyIndexer by computing it upon indexing."""
+    def __init__(self, dask_array):
+        self.da = dask_array
+
+    def __getitem__(self, keep):
+        return self.da[keep].compute()
+
+    @property
+    def shape(self):
+        return self.da.shape
+
+    @property
+    def dtype(self):
+        return self.da.dtype
 
 
 class AttrsSensors(object):
@@ -76,6 +95,21 @@ class VisFlagsWeights(object):
     def shape(self):
         return self.vis.shape
 
+    @classmethod
+    def from_chunk_store(cls, store, base_name, chunk_info):
+        """"""
+        da = {}
+        for array, info in chunk_info.iteritems():
+            array_name = store.join(base_name, array)
+            da[array] = store.get_dask_array(array_name, info['chunks'],
+                                             info['dtype'])
+        return cls(DaskLazyIndexer(da['correlator_data']),
+                   DaskLazyIndexer(da['flags']),
+                   # Combine low-resolution weights and high-res weights_channel
+                   DaskLazyIndexer(da['weights'] *
+                                   da['weights_channel'][..., np.newaxis]),
+                   base_name)
+
 
 class DataSource(object):
     """A generic data source presenting both correlator data and metadata.
@@ -105,21 +139,48 @@ class DataSource(object):
 
 class TelstateDataSource(DataSource):
     """A data source based on :class:`katsdptelstate.TelescopeState`."""
-    def __init__(self, telstate, source_name='telstate'):
+    def __init__(self, telstate, capture_block_id=None, stream_name=None,
+                 source_name='telstate'):
+        # Create telstate view based on capture block ID and/or stream name
+        if stream_name:
+            telstate = telstate.view(stream_name)
+        if capture_block_id:
+            telstate = telstate.view(capture_block_id)
+        if stream_name and capture_block_id:
+            cb_stream = telstate.SEPARATOR.join((capture_block_id, stream_name))
+            telstate = telstate.view(cb_stream)
         self.telstate = telstate
-        attrs = {}
+        # Collect sensors
         sensors = {}
         for key in telstate.keys():
-            if telstate.is_immutable(key):
-                attrs[key] = telstate[key]
-            else:
+            if not telstate.is_immutable(key):
                 sensors[key] = TelstateSensorData(telstate, key)
-        metadata = AttrsSensors(attrs, sensors, name=source_name)
-        DataSource.__init__(self, metadata, None)
+        metadata = AttrsSensors(telstate, sensors, name=source_name)
+        try:
+            base_name = telstate['chunk_name']
+            chunk_info = telstate['chunk_info']
+        except KeyError:
+            # Metadata without data
+            DataSource.__init__(self, metadata, None)
+        else:
+            # Extract VisFlagsWeights and timestamps from telstate
+            store = RadosChunkStore.from_config(telstate['ceph_conf'],
+                                                telstate['ceph_pool'])
+            ts_name = store.join(base_name, 'timestamps')
+            ts_chunks = chunk_info['timestamps']['chunks']
+            ts_dtype = chunk_info['timestamps']['dtype']
+            timestamps = store.get_dask_array(ts_name, ts_chunks, ts_dtype)
+            timestamps = DaskLazyIndexer(timestamps)
+            data = VisFlagsWeights.from_chunk_store(store, base_name,
+                                                    chunk_info)
+            DataSource.__init__(self, metadata, timestamps, data)
 
     @classmethod
-    def from_url(cls, url, **kwargs):
+    def from_url(cls, url):
+        """Construct TelstateDataSource from URL (RDB file / REDIS server)."""
         url_parts = urlparse.urlparse(url, scheme='file')
+        kwargs = dict(urlparse.parse_qsl(url_parts.query))
+        kwargs['source_name'] = url_parts.geturl()
         if url_parts.scheme == 'file':
             # RDB dump file
             telstate = katsdptelstate.TelescopeState()
@@ -127,14 +188,14 @@ class TelstateDataSource(DataSource):
                 telstate.load_from_file(url_parts.path)
             except OSError as err:
                 raise DataSourceNotFound(str(err))
-            return cls(telstate, url)
+            return cls(telstate, **kwargs)
         elif url_parts.scheme == 'redis':
             # Redis server
             try:
                 telstate = katsdptelstate.TelescopeState(url_parts.netloc)
             except redis.exceptions.TimeoutError as err:
                 raise DataSourceNotFound(str(err))
-            return cls(telstate, url)
+            return cls(telstate, **kwargs)
 
 
 def open_data_source(url):
