@@ -40,7 +40,6 @@ SENSOR_PROPS.update({
     '*activity': {'greedy_values': ('slew', 'stop'), 'initial_value': 'slew',
                   'transform': lambda act: SIMPLIFY_STATE.get(act, 'stop')},
     '*ap_indexer_position': {'initial_value': ''},
-    '*ku_frequency': {'categorical': True},
     '*noise_diode': {'categorical': True, 'greedy_values': (True,),
                      'initial_value': 0.0, 'transform': lambda x: x > 0.0},
     '*serial_number': {'initial_value': 0},
@@ -83,18 +82,14 @@ class VisibilityDataV4(DataSet):
         (default is first antenna in use)
     time_offset : float, optional
         Offset to add to all correlator timestamps, in seconds
-    centre_freq : float, optional
-        Override centre frequency if provided, in Hz
-    band : string, optional
-        Override receiver band if provided (e.g. 'l') - used to find ND models
     keepdims : {False, True}, optional
         Force vis / weights / flags to be 3-dimensional, regardless of selection
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
 
     """
-    def __init__(self, source, ref_ant='', time_offset=0.0, centre_freq=None,
-                 band=None, keepdims=False, **kwargs):
+    def __init__(self, source, ref_ant='', time_offset=0.0, keepdims=False,
+                 **kwargs):
         DataSet.__init__(self, source.name, ref_ant, time_offset)
         attrs = source.metadata.attrs
 
@@ -104,11 +99,10 @@ class VisibilityDataV4(DataSet):
         self.file = {}
         self.version = '4.0'
         self.dump_period = attrs['int_time']
-        self._timestamps = source.timestamps[:].copy()
         self._keepdims = keepdims
 
         # Check dimensions of timestamps vs those of visibility data
-        num_dumps = len(self._timestamps)
+        num_dumps = len(source.timestamps)
         if source.data and (num_dumps != source.data.shape[0]):
             raise BrokenFile('Number of timestamps received from ingest '
                              '(%d) differs from number of dumps in data (%d)' %
@@ -118,24 +112,25 @@ class VisibilityDataV4(DataSet):
         # so threshold of this test is a bit arbitrary (e.g. could use > 0.5).
         # The last dump might only be partially filled by ingest, so ignore it.
         if num_dumps > 1:
-            expected_dumps = 2 + (self._timestamps[-2] -
-                                  self._timestamps[0]) / self.dump_period
+            expected_dumps = 2 + (source.timestamps[-2] -
+                                  source.timestamps[0]) / self.dump_period
             if abs(expected_dumps - num_dumps) >= 0.01:
                 # Warn the user, as this is anomalous
                 logger.warning("Irregular timestamps detected: expected %.3f "
                                "dumps based on dump period and start/end times, "
                                "got %d instead", expected_dumps, num_dumps)
-        self._timestamps += self.time_offset
-        if self._timestamps[0] < 1e9:
+        source.timestamps += self.time_offset
+        if source.timestamps[0] < 1e9:
             logger.warning("Data set has invalid first correlator timestamp "
-                           "(%f)", self._timestamps[0])
+                           "(%f)", source.timestamps[0])
         half_dump = 0.5 * self.dump_period
-        self.start_time = katpoint.Timestamp(self._timestamps[0] - half_dump)
-        self.end_time = katpoint.Timestamp(self._timestamps[-1] + half_dump)
-        self._time_keep = np.ones(num_dumps, dtype=np.bool)
+        self.start_time = katpoint.Timestamp(source.timestamps[0] - half_dump)
+        self.end_time = katpoint.Timestamp(source.timestamps[-1] + half_dump)
+        self._time_keep = np.full(num_dumps, True)
+        all_dumps = [0, num_dumps]
 
         # Assemble sensor cache
-        self.sensor = SensorCache(source.metadata.sensors, self._timestamps,
+        self.sensor = SensorCache(source.metadata.sensors, source.timestamps,
                                   self.dump_period, self._time_keep,
                                   SENSOR_PROPS, VIRTUAL_SENSORS, SENSOR_ALIASES)
 
@@ -193,60 +188,31 @@ class VisibilityDataV4(DataSet):
         self.ref_ant = obs_ants[0] if not ref_ant else ref_ant
 
         self.subarrays = subs = [Subarray(ants, corrprods)]
-        self.sensor['Observation/subarray'] = CategoricalData(subs, [0, num_dumps])
-        self.sensor['Observation/subarray_index'] = CategoricalData([0], [0, num_dumps])
+        self.sensor['Observation/subarray'] = CategoricalData(subs, all_dumps)
+        self.sensor['Observation/subarray_index'] = CategoricalData([0], all_dumps)
         # Store antenna objects in sensor cache too, for use in virtual sensors
         for ant in ants:
             sensor_name = 'Antennas/%s/antenna' % (ant.name,)
-            self.sensor[sensor_name] = CategoricalData([ant], [0, num_dumps])
+            self.sensor[sensor_name] = CategoricalData([ant], all_dumps)
 
         # ------ Extract spectral windows / frequencies ------
 
-        # Get the receiver band identity ('l', 's', 'u', 'x') if not overridden
-        band = attrs.get('sub_band', '') if not band else band
-        if not band:
-            logger.warning('Could not figure out receiver band - '
-                           'please provide it via band parameter')
+        # Get the receiver band identity ('l', 's', 'u', 'x')
+        band = attrs['sub_band']
         # Populate antenna -> receiver mapping and figure out noise diode
         for ant in cam_ants:
             # Try sanitised version of RX serial number first
             rx_serial = attrs.get('%s_rsc_rx%s_serial_number' % (ant, band), 0)
-            if band:
-                self.receivers[ant] = '%s.%d' % (band, rx_serial)
+            self.receivers[ant] = '%s.%d' % (band, rx_serial)
             nd_sensor = '%s_dig_%s_band_noise_diode' % (ant, band)
             if nd_sensor in self.sensor:
                 # A sensor alias would be ideal for this but it only deals with suffixes ATM
                 new_nd_sensor = 'Antennas/%s/nd_coupler' % (ant,)
                 self.sensor[new_nd_sensor] = self.sensor.get(nd_sensor, extract=False)
-        # Mapping describing current receiver information on MeerKAT
-        # XXX Update this as new receivers come online
-        rx_table = {
-            # Standard L-band receiver
-            'l': dict(band='L', centre_freq=1284e6, sideband=1),
-            # Standard UHF receiver
-            'u': dict(band='UHF', centre_freq=816e6, sideband=1),
-            # Custom Ku receiver for RTS
-            'x': dict(band='Ku', sideband=1),
-        }
-        spw_params = rx_table.get(band, dict(band='', sideband=1))
-        # Use CBF spectral parameters by default
         num_chans = attrs['n_chans']
         bandwidth = attrs['bandwidth']
-        # Cater for non-standard receivers, starting with Ku-band
-        if spw_params['band'] == 'Ku':
-            if 'anc_siggen_ku_frequency' in self.sensor:
-                siggen_freq = self.sensor.get('anc_siggen_ku_frequency')[0]
-                spw_params['centre_freq'] = 100. * siggen_freq + 1284e6
-        # "Fake UHF": a real receiver + L-band digitiser and flipped spectrum
-        elif spw_params['band'] == 'UHF' and bandwidth == 856e6:
-            spw_params['centre_freq'] = 428e6
-            spw_params['sideband'] = -1
-        # If the file has SDP output stream parameters, use those instead
-        stream_centre_freq = attrs.get('center_freq')
-        if stream_centre_freq is not None:
-            spw_params['centre_freq'] = stream_centre_freq
-        # Get channel width from original CBF / SDP parameters
-        spw_params['channel_width'] = bandwidth / num_chans
+        centre_freq = attrs['center_freq']
+        channel_width = bandwidth / num_chans
         # Continue with different channel count, but invalidate centre freq
         # (keep channel width though)
         if source.data and (num_chans != source.data.shape[1]):
@@ -254,21 +220,16 @@ class VisibilityDataV4(DataSet):
                            ' from actual number of channels in data (%d) - '
                            'trusting the latter', num_chans, source.data.shape[1])
             num_chans = source.data.shape[1]
-            spw_params.pop('centre_freq', None)
-        # Override centre frequency if provided
-        if centre_freq:
-            spw_params['centre_freq'] = centre_freq
-        if 'centre_freq' not in spw_params:
-            # Choose something really obviously wrong but continue otherwise
-            spw_params['centre_freq'] = 0.0
-            logger.warning('Could not figure out centre frequency, setting it to '
-                           '0 Hz - please provide it via centre_freq parameter')
-        spw_params['num_chans'] = num_chans
-        spw_params['product'] = attrs.get('sub_product', '')
+            centre_freq = 0.0
+        product = attrs.get('sub_product', '')
+        sideband = 1
+        band_map = dict(l='L', s='S', u='UHF', x='X')
+        spw_params = (centre_freq, channel_width, num_chans, product, sideband,
+                      band_map[band])
         # We only expect a single spectral window within a single v4 data set
-        self.spectral_windows = spws = [SpectralWindow(**spw_params)]
-        self.sensor['Observation/spw'] = CategoricalData(spws, [0, num_dumps])
-        self.sensor['Observation/spw_index'] = CategoricalData([0], [0, num_dumps])
+        self.spectral_windows = spws = [SpectralWindow(*spw_params)]
+        self.sensor['Observation/spw'] = CategoricalData(spws, all_dumps)
+        self.sensor['Observation/spw_index'] = CategoricalData([0], all_dumps)
 
         # ------ Extract scans / compound scans / targets ------
 
@@ -287,7 +248,7 @@ class VisibilityDataV4(DataSet):
         try:
             label = self.sensor.get('obs_label')
         except KeyError:
-            label = CategoricalData([''], [0, num_dumps])
+            label = CategoricalData([''], all_dumps)
         # Discard empty labels (typically found in raster scans, where first
         # scan has proper label and rest are empty) However, if all labels are
         # empty, keep them, otherwise whole data set will be one pathological
@@ -348,7 +309,7 @@ class VisibilityDataV4(DataSet):
         *midpoint*.
 
         """
-        return self._timestamps[self._time_keep]
+        return self.source.timestamps[self._time_keep]
 
     @property
     def temperature(self):
