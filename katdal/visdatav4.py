@@ -108,7 +108,7 @@ class VisibilityDataV4(DataSet):
         self.file = {}
         self.version = '4.0'
         self.dump_period = attrs['int_time']
-
+        num_dumps = len(source.timestamps)
         source.timestamps += self.time_offset
         if source.timestamps[0] < 1e9:
             logger.warning("Data set has invalid first correlator timestamp "
