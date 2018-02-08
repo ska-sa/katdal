@@ -16,9 +16,6 @@
 
 """A store of chunks (i.e. N-dimensional arrays) based on the Ceph RADOS API."""
 
-import os
-import tempfile
-
 import numpy as np
 try:
     import rados
@@ -69,7 +66,7 @@ class RadosChunkStore(ChunkStore):
         Parameters
         ----------
         config : string or dict
-            Path to Ceph config file or contents of that file or config dict
+            Path to Ceph config file or config dict
         pool : string
             Name of the Ceph pool
         keyring : string, optional
@@ -89,13 +86,8 @@ class RadosChunkStore(ChunkStore):
         try:
             if isinstance(config, dict):
                 cluster = rados.Rados(conf=config)
-            elif os.path.isfile(config):
-                cluster = rados.Rados(conffile=config)
             else:
-                with tempfile.NamedTemporaryFile() as f:
-                    f.write(config)
-                    f.seek(0)
-                    cluster = rados.Rados(conffile=f.name)
+                cluster = rados.Rados(conffile=config)
             if keyring:
                 cluster.conf_set('keyring', keyring)
             if timeout is not None:

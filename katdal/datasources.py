@@ -18,6 +18,7 @@
 
 import urlparse
 import os
+import tempfile
 
 import katsdptelstate
 import redis
@@ -158,8 +159,11 @@ class TelstateDataSource(DataSource):
             DataSource.__init__(self, metadata, None)
         else:
             # Extract VisFlagsWeights and timestamps from telstate
-            store = RadosChunkStore.from_config(telstate['ceph_conf'],
-                                                telstate['ceph_pool'])
+            with tempfile.NamedTemporaryFile() as f:
+                f.write(telstate['ceph_conf'])
+                f.flush()
+                pool = telstate['ceph_pool']
+                store = RadosChunkStore.from_config(f.name, pool)
             ts_name = store.join(base_name, 'timestamps')
             ts_chunks = chunk_info['timestamps']['chunks']
             ts_dtype = chunk_info['timestamps']['dtype']
