@@ -54,54 +54,6 @@ def array_equal(a1, a2):
         return (a1.shape == a2.shape) and np.all(a1 == a2)
 
 
-class AttrsSensors(object):
-    """Metadata in the form of attributes and sensors.
-
-    Parameters
-    ----------
-    attrs : mapping from string to object
-        Metadata attributes
-    sensors : mapping from string to :class:`SensorData` objects
-        Metadata sensor cache mapping sensor names to raw sensor data
-    name : string, optional
-        Identifier that describes the origin of the metadata (backend-specific)
-
-    """
-    def __init__(self, attrs, sensors, name='custom'):
-        self.attrs = attrs
-        self.sensors = sensors
-        self.name = name
-
-
-class VisFlagsWeights(object):
-    """Correlator data in the form of visibilities, flags and weights.
-
-    Parameters
-    ----------
-    vis : array-like of complex64, shape (*T*, *F*, *B*)
-        Complex visibility data as a function of time, frequency and baseline
-    flags : array-like of uint8, shape (*T*, *F*, *B*)
-        Flags as a function of time, frequency and baseline
-    weights : array-like of float32, shape (*T*, *F*, *B*)
-        Visibility weights as a function of time, frequency and baseline
-    name : string, optional
-        Identifier that describes the origin of the data (backend-specific)
-
-    """
-    def __init__(self, vis, flags, weights, name='custom'):
-        if not (vis.shape == flags.shape == weights.shape):
-            raise ValueError("Shapes of vis %s, flags %s and weights %s differ"
-                             % (vis.shape, flags.shape, weights.shape))
-        self.vis = vis
-        self.flags = flags
-        self.weights = weights
-        self.name = name
-
-    @property
-    def shape(self):
-        return self.vis.shape
-
-
 class Subarray(object):
     """Subarray specification.
 

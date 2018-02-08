@@ -17,12 +17,110 @@
 """Various sources of correlator data and metadata."""
 
 import urlparse
+import os
 
 import katsdptelstate
+import redis
 import numpy as np
 
-from .dataset import AttrsSensors
 from .sensordata import TelstateSensorData
+from .chunkstore_rados import RadosChunkStore
+
+
+class DataSourceNotFound(Exception):
+    """File associated with DataSource not found or server not responding."""
+
+
+class DaskLazyIndexer(object):
+    """Turn a dask Array into a LazyIndexer by computing it upon indexing."""
+    def __init__(self, dask_array):
+        self.da = dask_array
+
+    def __getitem__(self, keep):
+        return self.da[keep].compute()
+
+    @property
+    def shape(self):
+        return self.da.shape
+
+    @property
+    def dtype(self):
+        return self.da.dtype
+
+
+class AttrsSensors(object):
+    """Metadata in the form of attributes and sensors.
+
+    Parameters
+    ----------
+    attrs : mapping from string to object
+        Metadata attributes
+    sensors : mapping from string to :class:`SensorData` objects
+        Metadata sensor cache mapping sensor names to raw sensor data
+    name : string, optional
+        Identifier that describes the origin of the metadata (backend-specific)
+
+    """
+    def __init__(self, attrs, sensors, name='custom'):
+        self.attrs = attrs
+        self.sensors = sensors
+        self.name = name
+
+
+class VisFlagsWeights(object):
+    """Correlator data in the form of visibilities, flags and weights.
+
+    Parameters
+    ----------
+    vis : array-like of complex64, shape (*T*, *F*, *B*)
+        Complex visibility data as a function of time, frequency and baseline
+    flags : array-like of uint8, shape (*T*, *F*, *B*)
+        Flags as a function of time, frequency and baseline
+    weights : array-like of float32, shape (*T*, *F*, *B*)
+        Visibility weights as a function of time, frequency and baseline
+    name : string, optional
+        Identifier that describes the origin of the data (backend-specific)
+
+    """
+    def __init__(self, vis, flags, weights, name='custom'):
+        if not (vis.shape == flags.shape == weights.shape):
+            raise ValueError("Shapes of vis %s, flags %s and weights %s differ"
+                             % (vis.shape, flags.shape, weights.shape))
+        self.vis = vis
+        self.flags = flags
+        self.weights = weights
+        self.name = name
+
+    @property
+    def shape(self):
+        return self.vis.shape
+
+
+class ChunkStoreVisFlagsWeights(VisFlagsWeights):
+    """Correlator data stored in a chunk store.
+
+    Parameters
+    ----------
+    store : :class:`ChunkStore` object
+        Chunk store
+    base_name : string
+        Name of dataset in store, as array name prefix (akin to a filename)
+    chunk_info : dict mapping array name to info dict
+        Dict specifying dtype, shape and chunks per array
+    """
+    def __init__(self, store, base_name, chunk_info):
+        self.store = store
+        da = {}
+        for array, info in chunk_info.iteritems():
+            array_name = store.join(base_name, array)
+            da[array] = store.get_dask_array(array_name, info['chunks'],
+                                             info['dtype'])
+        vis = DaskLazyIndexer(da['correlator_data'])
+        flags = DaskLazyIndexer(da['flags'])
+        # Combine low-resolution weights and high-resolution weights_channel
+        weights = DaskLazyIndexer(da['weights'] *
+                                  da['weights_channel'][..., np.newaxis])
+        VisFlagsWeights.__init__(self, vis, flags, weights, base_name)
 
 
 class DataSource(object):
@@ -53,24 +151,73 @@ class DataSource(object):
 
 class TelstateDataSource(DataSource):
     """A data source based on :class:`katsdptelstate.TelescopeState`."""
-    def __init__(self, telstate, source_name='telstate'):
+    def __init__(self, telstate, capture_block_id=None, stream_name=None,
+                 source_name='telstate'):
+        # Create telstate view based on capture block ID and/or stream name
+        if stream_name:
+            telstate = telstate.view(stream_name)
+        if capture_block_id:
+            telstate = telstate.view(capture_block_id)
+        if stream_name and capture_block_id:
+            cb_stream = telstate.SEPARATOR.join((capture_block_id, stream_name))
+            telstate = telstate.view(cb_stream)
         self.telstate = telstate
-        attrs = {}
+        # Collect sensors
         sensors = {}
         for key in telstate.keys():
-            if telstate.is_immutable(key):
-                attrs[key] = telstate[key]
-            else:
+            if not telstate.is_immutable(key):
                 sensors[key] = TelstateSensorData(telstate, key)
-        metadata = AttrsSensors(attrs, sensors, name=source_name)
-        DataSource.__init__(self, metadata, None)
+        metadata = AttrsSensors(telstate, sensors, name=source_name)
+        try:
+            base_name = telstate['chunk_name']
+            chunk_info = telstate['chunk_info']
+        except KeyError:
+            # Metadata without data
+            DataSource.__init__(self, metadata, None)
+        else:
+            # Extract VisFlagsWeights and timestamps from telstate
+            store = RadosChunkStore.from_config(telstate['ceph_conf'],
+                                                telstate['ceph_pool'])
+            ts_name = store.join(base_name, 'timestamps')
+            ts_chunks = chunk_info['timestamps']['chunks']
+            ts_dtype = chunk_info['timestamps']['dtype']
+            timestamps = store.get_dask_array(ts_name, ts_chunks, ts_dtype)
+            timestamps = DaskLazyIndexer(timestamps)
+            data = ChunkStoreVisFlagsWeights(store, base_name, chunk_info)
+            DataSource.__init__(self, metadata, timestamps, data)
+
+    @classmethod
+    def from_url(cls, url):
+        """Construct TelstateDataSource from URL (RDB file / REDIS server)."""
+        url_parts = urlparse.urlparse(url, scheme='file')
+        kwargs = dict(urlparse.parse_qsl(url_parts.query))
+        kwargs['source_name'] = url_parts.geturl()
+        if url_parts.scheme == 'file':
+            # RDB dump file
+            telstate = katsdptelstate.TelescopeState()
+            try:
+                telstate.load_from_file(url_parts.path)
+            except OSError as err:
+                raise DataSourceNotFound(str(err))
+            return cls(telstate, **kwargs)
+        elif url_parts.scheme == 'redis':
+            # Redis server
+            try:
+                telstate = katsdptelstate.TelescopeState(url_parts.netloc)
+            except redis.exceptions.TimeoutError as err:
+                raise DataSourceNotFound(str(err))
+            return cls(telstate, **kwargs)
 
 
 def open_data_source(url):
     """Construct the data source described by the given URL."""
-    url_parts = urlparse.urlparse(url)
-    if url_parts.scheme == 'telstate+redis':
-        telstate = katsdptelstate.TelescopeState(url_parts.netloc)
-        return TelstateDataSource(telstate, url)
-    else:
-        raise ValueError("Unsupported data source '%s'" % (url,))
+    try:
+        return TelstateDataSource.from_url(url)
+    except DataSourceNotFound as err:
+        # Amend the error message for the case of an IP address without scheme
+        url_parts = urlparse.urlparse(url, scheme='file')
+        if url_parts.scheme == 'file' and not os.path.isfile(url_parts.path):
+            raise DataSourceNotFound(
+                '{} (add a URL scheme if it is not meant to be a file)'
+                .format(str(err), url_parts.path))
+    # raise ValueError("Unsupported data source {!r}".format(url))
