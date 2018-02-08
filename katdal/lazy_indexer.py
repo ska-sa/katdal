@@ -341,11 +341,12 @@ class DaskLazyIndexer(object):
         except NotImplementedError:
             # Dask does not like multiple boolean indices: go one dim at a time
             for dim, keep_per_dim in enumerate(keep):
+                # Use da.take(dataset, index, axis=dim) once dask is required
                 index = dataset.ndim * [slice(None)]
                 index[dim] = keep_per_dim
                 dataset = dataset[tuple(index)]
         self.dataset = dataset
-        self.transforms = [] if transforms is None else transforms
+        self.transforms = []
 
     def __getitem__(self, keep):
         return self.dataset[keep].compute()

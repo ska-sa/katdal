@@ -193,7 +193,7 @@ class TelstateDataSource(DataSource):
             # Redis server
             try:
                 telstate = katsdptelstate.TelescopeState(url_parts.netloc, db)
-            except (redis.ConnectionError, redis.exceptions.TimeoutError) as e:
+            except (redis.ConnectionError, redis.TimeoutError) as e:
                 raise DataSourceNotFound(str(e))
             return cls(telstate, **kwargs)
 
