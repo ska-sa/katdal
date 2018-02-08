@@ -330,3 +330,39 @@ class LazyIndexer(object):
         """Type of data array after transformation, i.e. `self[:].dtype`."""
         return reduce(lambda dtype, transform: transform.dtype if transform.dtype is not None else dtype,
                       self.transforms, self._initial_dtype)
+
+
+class DaskLazyIndexer(object):
+    """Turn a dask Array into a LazyIndexer by computing it upon indexing."""
+    def __init__(self, dataset, keep=()):
+        self.name = getattr(dataset, 'name', '')
+        try:
+            dataset = dataset[keep]
+        except NotImplementedError:
+            # XXX Once dask is a katdal install requirement this can move out
+            import dask.array as da
+            # Dask does not like multiple boolean indices: go one dim at a time
+            for dim, keep_per_dim in enumerate(keep):
+                dataset = da.take(dataset, keep_per_dim, axis=dim)
+        self.dataset = dataset
+        self.transforms = []
+
+    def __getitem__(self, keep):
+        return self.dataset[keep].compute()
+
+    def __len__(self):
+        """Length operator."""
+        return self.shape[0]
+
+    def __iter__(self):
+        """Iterator."""
+        for index in range(len(self)):
+            yield self[index]
+
+    @property
+    def shape(self):
+        return self.dataset.shape
+
+    @property
+    def dtype(self):
+        return self.dataset.dtype

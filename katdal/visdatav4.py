@@ -26,6 +26,7 @@ from .dataset import (DataSet, BrokenFile, Subarray, SpectralWindow,
                       _robust_target)
 from .sensordata import SensorCache
 from .categorical import CategoricalData
+from .lazy_indexer import DaskLazyIndexer
 
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,6 @@ SENSOR_PROPS.update({
     '*activity': {'greedy_values': ('slew', 'stop'), 'initial_value': 'slew',
                   'transform': lambda act: SIMPLIFY_STATE.get(act, 'stop')},
     '*ap_indexer_position': {'initial_value': ''},
-    '*ku_frequency': {'categorical': True},
     '*noise_diode': {'categorical': True, 'greedy_values': (True,),
                      'initial_value': 0.0, 'transform': lambda x: x > 0.0},
     '*serial_number': {'initial_value': 0},
@@ -54,7 +54,7 @@ SENSOR_ALIASES = {
 
 def _calc_azel(cache, name, ant):
     """Calculate virtual (az, el) sensors from actual ones in sensor cache."""
-    real_sensor = 'Antennas/%s/pos_actual_scan_%s' % \
+    real_sensor = '%s_pos_actual_scan_%s' % \
                   (ant, 'azim' if name.endswith('az') else 'elev')
     cache[name] = sensor_data = katpoint.deg2rad(cache.get(real_sensor))
     return sensor_data
@@ -63,6 +63,17 @@ def _calc_azel(cache, name, ant):
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel,
                         'Antennas/{ant}/el': _calc_azel})
+
+FLAG_NAMES = ('reserved0', 'static', 'cam', 'data_lost',
+              'ingest_rfi', 'predicted_rfi', 'cal_rfi', 'reserved7')
+FLAG_DESCRIPTIONS = ('reserved - bit 0',
+                     'predefined static flag list',
+                     'flag based on live CAM information',
+                     'no data was received',
+                     'RFI detected in ingest',
+                     'RFI predicted from space based pollutants',
+                     'RFI detected in calibration',
+                     'reserved - bit 7')
 
 # -----------------------------------------------------------------------------
 # -- CLASS :  VisibilityDataV4
@@ -83,18 +94,11 @@ class VisibilityDataV4(DataSet):
         (default is first antenna in use)
     time_offset : float, optional
         Offset to add to all correlator timestamps, in seconds
-    centre_freq : float, optional
-        Override centre frequency if provided, in Hz
-    band : string, optional
-        Override receiver band if provided (e.g. 'l') - used to find ND models
-    keepdims : {False, True}, optional
-        Force vis / weights / flags to be 3-dimensional, regardless of selection
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
 
     """
-    def __init__(self, source, ref_ant='', time_offset=0.0, centre_freq=None,
-                 band=None, keepdims=False, **kwargs):
+    def __init__(self, source, ref_ant='', time_offset=0.0, **kwargs):
         DataSet.__init__(self, source.name, ref_ant, time_offset)
         attrs = source.metadata.attrs
 
@@ -103,42 +107,28 @@ class VisibilityDataV4(DataSet):
         self.source = source
         self.file = {}
         self.version = '4.0'
-        stream_name = 'sdp_l0'
-        self.dump_period = attrs[stream_name + '_int_time']
-        self._timestamps = source.timestamps[:]
-        self._keepdims = keepdims
-
-        # Check dimensions of timestamps vs those of visibility data
-        num_dumps = len(self._timestamps)
-        if source.data and (num_dumps != source.data.shape[0]):
-            raise BrokenFile('Number of timestamps received from ingest '
-                             '(%d) differs from number of dumps in data (%d)' %
-                             (num_dumps, source.data.shape[0]))
-        # The expected_dumps should always be an integer (like num_dumps),
-        # unless the timestamps and/or dump period are messed up in the file,
-        # so threshold of this test is a bit arbitrary (e.g. could use > 0.5).
-        # The last dump might only be partially filled by ingest, so ignore it.
-        if num_dumps > 1:
-            expected_dumps = 2 + (self._timestamps[-2] -
-                                  self._timestamps[0]) / self.dump_period
-            if abs(expected_dumps - num_dumps) >= 0.01:
-                # Warn the user, as this is anomalous
-                logger.warning("Irregular timestamps detected: expected %.3f "
-                               "dumps based on dump period and start/end times, "
-                               "got %d instead", expected_dumps, num_dumps)
-        self._timestamps += self.time_offset
-        if self._timestamps[0] < 1e9:
+        self.dump_period = attrs['int_time']
+        num_dumps = len(source.timestamps)
+        source.timestamps += self.time_offset
+        if source.timestamps[0] < 1e9:
             logger.warning("Data set has invalid first correlator timestamp "
-                           "(%f)", self._timestamps[0])
+                           "(%f)", source.timestamps[0])
         half_dump = 0.5 * self.dump_period
-        self.start_time = katpoint.Timestamp(self._timestamps[0] - half_dump)
-        self.end_time = katpoint.Timestamp(self._timestamps[-1] + half_dump)
-        self._time_keep = np.ones(num_dumps, dtype=np.bool)
+        self.start_time = katpoint.Timestamp(source.timestamps[0] - half_dump)
+        self.end_time = katpoint.Timestamp(source.timestamps[-1] + half_dump)
+        self._time_keep = np.full(num_dumps, True)
+        all_dumps = [0, num_dumps]
 
         # Assemble sensor cache
-        self.sensor = SensorCache(source.metadata.sensors, self._timestamps,
+        self.sensor = SensorCache(source.metadata.sensors, source.timestamps,
                                   self.dump_period, self._time_keep,
                                   SENSOR_PROPS, VIRTUAL_SENSORS, SENSOR_ALIASES)
+
+        # ------ Extract flags ------
+
+        # Internal flag mask overridden whenever _flags_keep is set via select()
+        self._flags_select = np.array([255], dtype=np.uint8)
+        self._flags_keep = 'all'
 
         # ------ Extract observation parameters and script log ------
 
@@ -166,7 +156,7 @@ class VisibilityDataV4(DataSet):
         # ------ Extract subarrays ------
 
         # List of correlation products as pairs of input labels
-        corrprods = attrs[stream_name + '_bls_ordering']
+        corrprods = attrs['bls_ordering']
         # Crash if there is mismatch between labels and data shape (bad labels?)
         if source.data and (len(corrprods) != source.data.shape[2]):
             raise BrokenFile('Number of baseline labels (containing expected '
@@ -194,63 +184,31 @@ class VisibilityDataV4(DataSet):
         self.ref_ant = obs_ants[0] if not ref_ant else ref_ant
 
         self.subarrays = subs = [Subarray(ants, corrprods)]
-        self.sensor['Observation/subarray'] = CategoricalData(subs, [0, num_dumps])
-        self.sensor['Observation/subarray_index'] = CategoricalData([0], [0, num_dumps])
+        self.sensor['Observation/subarray'] = CategoricalData(subs, all_dumps)
+        self.sensor['Observation/subarray_index'] = CategoricalData([0], all_dumps)
         # Store antenna objects in sensor cache too, for use in virtual sensors
         for ant in ants:
             sensor_name = 'Antennas/%s/antenna' % (ant.name,)
-            self.sensor[sensor_name] = CategoricalData([ant], [0, num_dumps])
+            self.sensor[sensor_name] = CategoricalData([ant], all_dumps)
 
         # ------ Extract spectral windows / frequencies ------
 
-        # Get the receiver band identity ('l', 's', 'u', 'x') if not overridden
-        band = attrs.get('sub_band', '') if not band else band
-        if not band:
-            logger.warning('Could not figure out receiver band - '
-                           'please provide it via band parameter')
+        # Get the receiver band identity ('l', 's', 'u', 'x')
+        band = attrs['sub_band']
         # Populate antenna -> receiver mapping and figure out noise diode
         for ant in cam_ants:
             # Try sanitised version of RX serial number first
-            rx_sensor = 'TelescopeState/%s_rsc_rx%s_serial_number' % (ant, band)
-            rx_serial = self.sensor[rx_sensor][0] if rx_sensor in self.sensor else 0
-            if band:
-                self.receivers[ant] = '%s.%d' % (band, rx_serial)
-            nd_sensor = 'TelescopeState/%s_dig_%s_band_noise_diode' % (ant, band)
+            rx_serial = attrs.get('%s_rsc_rx%s_serial_number' % (ant, band), 0)
+            self.receivers[ant] = '%s.%d' % (band, rx_serial)
+            nd_sensor = '%s_dig_%s_band_noise_diode' % (ant, band)
             if nd_sensor in self.sensor:
                 # A sensor alias would be ideal for this but it only deals with suffixes ATM
                 new_nd_sensor = 'Antennas/%s/nd_coupler' % (ant,)
                 self.sensor[new_nd_sensor] = self.sensor.get(nd_sensor, extract=False)
-        # Mapping describing current receiver information on MeerKAT
-        # XXX Update this as new receivers come online
-        rx_table = {
-            # Standard L-band receiver
-            'l': dict(band='L', centre_freq=1284e6, sideband=1),
-            # Standard UHF receiver
-            'u': dict(band='UHF', centre_freq=816e6, sideband=1),
-            # Custom Ku receiver for RTS
-            'x': dict(band='Ku', sideband=1),
-        }
-        spw_params = rx_table.get(band, dict(band='', sideband=1))
-        # Use CBF spectral parameters by default
-        num_chans = attrs['cbf_n_chans']
-        bandwidth = attrs['cbf_bandwidth']
-        # Cater for non-standard receivers, starting with Ku-band
-        if spw_params['band'] == 'Ku':
-            if 'anc_siggen_ku_frequency' in self.sensor:
-                siggen_freq = self.sensor.get('anc_siggen_ku_frequency')[0]
-                spw_params['centre_freq'] = 100. * siggen_freq + 1284e6
-        # "Fake UHF": a real receiver + L-band digitiser and flipped spectrum
-        elif spw_params['band'] == 'UHF' and bandwidth == 856e6:
-            spw_params['centre_freq'] = 428e6
-            spw_params['sideband'] = -1
-        # If the file has SDP output stream parameters, use those instead
-        num_chans = attrs.get(stream_name + '_n_chans', num_chans)
-        bandwidth = attrs.get(stream_name + '_bandwidth', bandwidth)
-        stream_centre_freq = attrs.get(stream_name + '_center_freq')
-        if stream_centre_freq is not None:
-            spw_params['centre_freq'] = stream_centre_freq
-        # Get channel width from original CBF / SDP parameters
-        spw_params['channel_width'] = bandwidth / num_chans
+        num_chans = attrs['n_chans']
+        bandwidth = attrs['bandwidth']
+        centre_freq = attrs['center_freq']
+        channel_width = bandwidth / num_chans
         # Continue with different channel count, but invalidate centre freq
         # (keep channel width though)
         if source.data and (num_chans != source.data.shape[1]):
@@ -258,21 +216,16 @@ class VisibilityDataV4(DataSet):
                            ' from actual number of channels in data (%d) - '
                            'trusting the latter', num_chans, source.data.shape[1])
             num_chans = source.data.shape[1]
-            spw_params.pop('centre_freq', None)
-        # Override centre frequency if provided
-        if centre_freq:
-            spw_params['centre_freq'] = centre_freq
-        if 'centre_freq' not in spw_params:
-            # Choose something really obviously wrong but continue otherwise
-            spw_params['centre_freq'] = 0.0
-            logger.warning('Could not figure out centre frequency, setting it to '
-                           '0 Hz - please provide it via centre_freq parameter')
-        spw_params['num_chans'] = num_chans
-        spw_params['product'] = attrs.get('sub_product', '')
+            centre_freq = 0.0
+        product = attrs.get('sub_product', '')
+        sideband = 1
+        band_map = dict(l='L', s='S', u='UHF', x='X')
+        spw_params = (centre_freq, channel_width, num_chans, product, sideband,
+                      band_map[band])
         # We only expect a single spectral window within a single v4 data set
-        self.spectral_windows = spws = [SpectralWindow(**spw_params)]
-        self.sensor['Observation/spw'] = CategoricalData(spws, [0, num_dumps])
-        self.sensor['Observation/spw_index'] = CategoricalData([0], [0, num_dumps])
+        self.spectral_windows = spws = [SpectralWindow(*spw_params)]
+        self.sensor['Observation/spw'] = CategoricalData(spws, all_dumps)
+        self.sensor['Observation/spw_index'] = CategoricalData([0], all_dumps)
 
         # ------ Extract scans / compound scans / targets ------
 
@@ -291,7 +244,7 @@ class VisibilityDataV4(DataSet):
         try:
             label = self.sensor.get('obs_label')
         except KeyError:
-            label = CategoricalData([''], [0, num_dumps])
+            label = CategoricalData([''], all_dumps)
         # Discard empty labels (typically found in raster scans, where first
         # scan has proper label and rest are empty) However, if all labels are
         # empty, keep them, otherwise whole data set will be one pathological
@@ -344,6 +297,37 @@ class VisibilityDataV4(DataSet):
         self.select(spw=0, subarray=0, ants=obs_ants)
 
     @property
+    def _flags_keep(self):
+        # Reverse flag indices as np.packbits has bit 0 as the MSB (we want LSB)
+        selection = np.flipud(np.unpackbits(self._flags_select))
+        assert len(FLAG_NAMES) == len(selection), \
+            'Expected %d flag types, got %s' % (len(selection), FLAG_NAMES)
+        return [name for name, bit in zip(FLAG_NAMES, selection) if bit]
+
+    @_flags_keep.setter
+    def _flags_keep(self, names):
+        # Ensure a sequence of flag names
+        names = FLAG_NAMES if names == 'all' else \
+            names.split(',') if isinstance(names, basestring) else names
+        # Create boolean list for desired flags
+        selection = np.zeros(8, dtype=np.uint8)
+        assert len(FLAG_NAMES) == len(selection), \
+            'Expected %d flag types, got %d' % (len(selection), FLAG_NAMES)
+        for name in names:
+            try:
+                selection[FLAG_NAMES.index(name)] = 1
+            except ValueError:
+                logger.warning("%r is not a legitimate flag type, "
+                               "supported ones are %s", name, FLAG_NAMES)
+        # Pack index list into bit mask
+        # Reverse flag indices as np.packbits has bit 0 as the MSB (we want LSB)
+        flagmask = np.packbits(np.flipud(selection))
+        if not flagmask:
+            logger.warning('No valid flags were selected - setting all flags '
+                           'to False by default')
+        self._flags_select = flagmask
+
+    @property
     def timestamps(self):
         """Visibility timestamps in UTC seconds since Unix epoch.
 
@@ -352,34 +336,95 @@ class VisibilityDataV4(DataSet):
         *midpoint*.
 
         """
-        return self._timestamps[self._time_keep]
+        return self.source.timestamps[self._time_keep]
+
+    @property
+    def vis(self):
+        r"""Complex visibility data as a function of time, frequency and baseline.
+
+        The visibility data are returned as an array indexer of complex64, shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The returned array always has all three dimensions,
+        even for scalar (single) values. The number of integrations *T* matches
+        the length of :meth:`timestamps`, the number of frequency channels *F*
+        matches the length of :meth:`freqs` and the number of correlation
+        products *B* matches the length of :meth:`corr_products`. To get the
+        data array itself from the indexer `x`, do `x[:]` or perform any other
+        form of indexing on it. Only then will data be loaded into memory.
+
+        The sign convention of the imaginary part is consistent with an
+        electric field of :math:`e^{i(\omega t - jz)}` i.e. phase that
+        increases with time.
+        """
+        # Create first-stage index from dataset selectors
+        stage1 = (self._time_keep, self._freq_keep, self._corrprod_keep)
+        return DaskLazyIndexer(self.source.data.vis, stage1)
+
+    @property
+    def weights(self):
+        """Visibility weights as a function of time, frequency and baseline.
+
+        The weights data are returned as an array indexer of float32, shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The number of integrations *T* matches the length of
+        :meth:`timestamps`, the number of frequency channels *F* matches the
+        length of :meth:`freqs` and the number of correlation products *B*
+        matches the length of :meth:`corr_products`. To get the data array
+        itself from the indexer `x`, do `x[:]` or perform any other form of
+        indexing on it. Only then will data be loaded into memory.
+
+        """
+        stage1 = (self._time_keep, self._freq_keep, self._corrprod_keep)
+        return DaskLazyIndexer(self.source.data.weights, stage1)
+
+    @property
+    def flags(self):
+        """Flags as a function of time, frequency and baseline.
+
+        The flags data are returned as an array indexer of bool, shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The number of integrations *T* matches the length of
+        :meth:`timestamps`, the number of frequency channels *F* matches the
+        length of :meth:`freqs` and the number of correlation products *B*
+        matches the length of :meth:`corr_products`. To get the data array
+        itself from the indexer `x`, do `x[:]` or perform any other form of
+        indexing on it. Only then will data be loaded into memory.
+
+        """
+        stage1 = (self._time_keep, self._freq_keep, self._corrprod_keep)
+        flags = self.source.data.flags
+        flags = np.bitwise_and(self._flags_select, flags).view(np.bool_)
+        return DaskLazyIndexer(flags, stage1)
 
     @property
     def temperature(self):
         """Air temperature in degrees Celsius."""
-        names = ['anc_weather_temperature']
+        names = ['anc_air_temperature']
         return self.sensor.get_with_fallback('temperature', names)
 
     @property
     def pressure(self):
         """Barometric pressure in millibars."""
-        names = ['anc_weather_pressure']
+        names = ['anc_air_pressure']
         return self.sensor.get_with_fallback('pressure', names)
 
     @property
     def humidity(self):
         """Relative humidity as a percentage."""
-        names = ['anc_weather_humidity']
+        names = ['anc_air_relative_humidity']
         return self.sensor.get_with_fallback('humidity', names)
 
     @property
     def wind_speed(self):
         """Wind speed in metres per second."""
-        names = ['anc_weather_wind_speed']
+        names = ['anc_mean_wind_speed']
         return self.sensor.get_with_fallback('wind_speed', names)
 
     @property
     def wind_direction(self):
         """Wind direction as an azimuth angle in degrees."""
-        names = ['anc_weather_wind_direction']
+        names = ['anc_wind_direction']
         return self.sensor.get_with_fallback('wind_direction', names)

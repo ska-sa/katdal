@@ -18,6 +18,7 @@
 
 import urlparse
 import os
+import tempfile
 
 import katsdptelstate
 import redis
@@ -29,23 +30,6 @@ from .chunkstore_rados import RadosChunkStore
 
 class DataSourceNotFound(Exception):
     """File associated with DataSource not found or server not responding."""
-
-
-class DaskLazyIndexer(object):
-    """Turn a dask Array into a LazyIndexer by computing it upon indexing."""
-    def __init__(self, dask_array):
-        self.da = dask_array
-
-    def __getitem__(self, keep):
-        return self.da[keep].compute()
-
-    @property
-    def shape(self):
-        return self.da.shape
-
-    @property
-    def dtype(self):
-        return self.da.dtype
 
 
 class AttrsSensors(object):
@@ -115,11 +99,10 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
             array_name = store.join(base_name, array)
             da[array] = store.get_dask_array(array_name, info['chunks'],
                                              info['dtype'])
-        vis = DaskLazyIndexer(da['correlator_data'])
-        flags = DaskLazyIndexer(da['flags'])
+        vis = da['correlator_data']
+        flags = da['flags']
         # Combine low-resolution weights and high-resolution weights_channel
-        weights = DaskLazyIndexer(da['weights'] *
-                                  da['weights_channel'][..., np.newaxis])
+        weights = da['weights'] * da['weights_channel'][..., np.newaxis]
         VisFlagsWeights.__init__(self, vis, flags, weights, base_name)
 
 
@@ -176,13 +159,17 @@ class TelstateDataSource(DataSource):
             DataSource.__init__(self, metadata, None)
         else:
             # Extract VisFlagsWeights and timestamps from telstate
-            store = RadosChunkStore.from_config(telstate['ceph_conf'],
-                                                telstate['ceph_pool'])
+            with tempfile.NamedTemporaryFile() as f:
+                f.write(telstate['ceph_conf'])
+                f.flush()
+                pool = telstate['ceph_pool']
+                store = RadosChunkStore.from_config(f.name, pool)
             ts_name = store.join(base_name, 'timestamps')
             ts_chunks = chunk_info['timestamps']['chunks']
             ts_dtype = chunk_info['timestamps']['dtype']
             timestamps = store.get_dask_array(ts_name, ts_chunks, ts_dtype)
-            timestamps = DaskLazyIndexer(timestamps)
+            # Make timestamps explicit, mutable (to be removed from store soon)
+            timestamps = timestamps.compute().copy()
             data = ChunkStoreVisFlagsWeights(store, base_name, chunk_info)
             DataSource.__init__(self, metadata, timestamps, data)
 
@@ -191,6 +178,8 @@ class TelstateDataSource(DataSource):
         """Construct TelstateDataSource from URL (RDB file / REDIS server)."""
         url_parts = urlparse.urlparse(url, scheme='file')
         kwargs = dict(urlparse.parse_qsl(url_parts.query))
+        # Extract Redis database number if provided
+        db = int(kwargs.pop('db', '0'))
         kwargs['source_name'] = url_parts.geturl()
         if url_parts.scheme == 'file':
             # RDB dump file
@@ -203,9 +192,9 @@ class TelstateDataSource(DataSource):
         elif url_parts.scheme == 'redis':
             # Redis server
             try:
-                telstate = katsdptelstate.TelescopeState(url_parts.netloc)
-            except redis.exceptions.TimeoutError as err:
-                raise DataSourceNotFound(str(err))
+                telstate = katsdptelstate.TelescopeState(url_parts.netloc, db)
+            except (redis.ConnectionError, redis.TimeoutError) as e:
+                raise DataSourceNotFound(str(e))
             return cls(telstate, **kwargs)
 
 
@@ -218,6 +207,5 @@ def open_data_source(url):
         url_parts = urlparse.urlparse(url, scheme='file')
         if url_parts.scheme == 'file' and not os.path.isfile(url_parts.path):
             raise DataSourceNotFound(
-                '{} (add a URL scheme if it is not meant to be a file)'
-                .format(str(err), url_parts.path))
-    # raise ValueError("Unsupported data source {!r}".format(url))
+                '{} (add a URL scheme if {!r} is not meant to be a file)'
+                .format(err, url_parts.path))
