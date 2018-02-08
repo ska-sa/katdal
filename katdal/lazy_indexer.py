@@ -334,17 +334,16 @@ class LazyIndexer(object):
 
 class DaskLazyIndexer(object):
     """Turn a dask Array into a LazyIndexer by computing it upon indexing."""
-    def __init__(self, dataset, keep=(), transforms=None):
+    def __init__(self, dataset, keep=()):
         self.name = getattr(dataset, 'name', '')
         try:
             dataset = dataset[keep]
         except NotImplementedError:
+            # XXX Once dask is a katdal install requirement this can move out
+            import dask.array as da
             # Dask does not like multiple boolean indices: go one dim at a time
             for dim, keep_per_dim in enumerate(keep):
-                # Use da.take(dataset, index, axis=dim) once dask is required
-                index = dataset.ndim * [slice(None)]
-                index[dim] = keep_per_dim
-                dataset = dataset[tuple(index)]
+                dataset = da.take(dataset, keep_per_dim, axis=dim)
         self.dataset = dataset
         self.transforms = []
 

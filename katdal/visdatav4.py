@@ -126,7 +126,8 @@ class VisibilityDataV4(DataSet):
 
         # ------ Extract flags ------
 
-        self._flags_select = np.array([0], dtype=np.uint8)
+        # Internal flag mask overridden whenever _flags_keep is set via select()
+        self._flags_select = np.array([255], dtype=np.uint8)
         self._flags_keep = 'all'
 
         # ------ Extract observation parameters and script log ------
