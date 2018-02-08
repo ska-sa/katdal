@@ -178,6 +178,8 @@ class TelstateDataSource(DataSource):
         """Construct TelstateDataSource from URL (RDB file / REDIS server)."""
         url_parts = urlparse.urlparse(url, scheme='file')
         kwargs = dict(urlparse.parse_qsl(url_parts.query))
+        # Extract Redis database number if provided
+        db = int(kwargs.pop('db', '0'))
         kwargs['source_name'] = url_parts.geturl()
         if url_parts.scheme == 'file':
             # RDB dump file
@@ -190,9 +192,9 @@ class TelstateDataSource(DataSource):
         elif url_parts.scheme == 'redis':
             # Redis server
             try:
-                telstate = katsdptelstate.TelescopeState(url_parts.netloc)
-            except redis.exceptions.TimeoutError as err:
-                raise DataSourceNotFound(str(err))
+                telstate = katsdptelstate.TelescopeState(url_parts.netloc, db)
+            except (redis.ConnectionError, redis.exceptions.TimeoutError) as e:
+                raise DataSourceNotFound(str(e))
             return cls(telstate, **kwargs)
 
 
@@ -205,6 +207,5 @@ def open_data_source(url):
         url_parts = urlparse.urlparse(url, scheme='file')
         if url_parts.scheme == 'file' and not os.path.isfile(url_parts.path):
             raise DataSourceNotFound(
-                '{} (add a URL scheme if it is not meant to be a file)'
-                .format(str(err), url_parts.path))
-    # raise ValueError("Unsupported data source {!r}".format(url))
+                '{} (add a URL scheme if {!r} is not meant to be a file)'
+                .format(err, url_parts.path))
