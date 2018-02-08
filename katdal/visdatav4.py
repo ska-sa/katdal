@@ -109,24 +109,6 @@ class VisibilityDataV4(DataSet):
         self.version = '4.0'
         self.dump_period = attrs['int_time']
 
-        # Check dimensions of timestamps vs those of visibility data
-        num_dumps = len(source.timestamps)
-        if source.data and (num_dumps != source.data.shape[0]):
-            raise BrokenFile('Number of timestamps received from ingest '
-                             '(%d) differs from number of dumps in data (%d)' %
-                             (num_dumps, source.data.shape[0]))
-        # The expected_dumps should always be an integer (like num_dumps),
-        # unless the timestamps and/or dump period are messed up in the file,
-        # so threshold of this test is a bit arbitrary (e.g. could use > 0.5).
-        # The last dump might only be partially filled by ingest, so ignore it.
-        if num_dumps > 1:
-            expected_dumps = 2 + (source.timestamps[-2] -
-                                  source.timestamps[0]) / self.dump_period
-            if abs(expected_dumps - num_dumps) >= 0.01:
-                # Warn the user, as this is anomalous
-                logger.warning("Irregular timestamps detected: expected %.3f "
-                               "dumps based on dump period and start/end times, "
-                               "got %d instead", expected_dumps, num_dumps)
         source.timestamps += self.time_offset
         if source.timestamps[0] < 1e9:
             logger.warning("Data set has invalid first correlator timestamp "
