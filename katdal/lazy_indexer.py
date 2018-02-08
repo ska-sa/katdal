@@ -335,23 +335,34 @@ class LazyIndexer(object):
 class DaskLazyIndexer(object):
     """Turn a dask Array into a LazyIndexer by computing it upon indexing."""
     def __init__(self, dataset, keep=(), transforms=None):
+        self.name = getattr(dataset, 'name', '')
         try:
-            self.da = dataset[keep]
+            dataset = dataset[keep]
         except NotImplementedError:
             # Dask does not like multiple boolean indices: go one dim at a time
             for dim, keep_per_dim in enumerate(keep):
                 index = dataset.ndim * [slice(None)]
                 index[dim] = keep_per_dim
                 dataset = dataset[tuple(index)]
-            self.da = dataset
+        self.dataset = dataset
+        self.transforms = [] if transforms is None else transforms
 
     def __getitem__(self, keep):
-        return self.da[keep].compute()
+        return self.dataset[keep].compute()
+
+    def __len__(self):
+        """Length operator."""
+        return self.shape[0]
+
+    def __iter__(self):
+        """Iterator."""
+        for index in range(len(self)):
+            yield self[index]
 
     @property
     def shape(self):
-        return self.da.shape
+        return self.dataset.shape
 
     @property
     def dtype(self):
-        return self.da.dtype
+        return self.dataset.dtype
