@@ -26,6 +26,8 @@ import numpy as np
 
 from .sensordata import TelstateSensorData
 from .chunkstore_rados import RadosChunkStore
+from .chunkstore_s3 import S3ChunkStore
+from .chunkstore import StoreUnavailable
 
 
 class DataSourceNotFound(Exception):
@@ -152,25 +154,27 @@ class TelstateDataSource(DataSource):
                 sensors[key] = TelstateSensorData(telstate, key)
         metadata = AttrsSensors(telstate, sensors, name=source_name)
         try:
-            base_name = telstate['chunk_name']
             chunk_info = telstate['chunk_info']
         except KeyError:
             # Metadata without data
             DataSource.__init__(self, metadata, None)
         else:
-            # Extract VisFlagsWeights and timestamps from telstate
-            with tempfile.NamedTemporaryFile() as f:
-                f.write(telstate['ceph_conf'])
-                f.flush()
-                pool = telstate['ceph_pool']
-                store = RadosChunkStore.from_config(f.name, pool)
-            ts_name = store.join(base_name, 'timestamps')
+            try:
+                store = S3ChunkStore.from_url(telstate['s3_endpoint_url'])
+            except StoreUnavailable:
+                # Extract VisFlagsWeights and timestamps from telstate
+                with tempfile.NamedTemporaryFile() as f:
+                    f.write(telstate['ceph_conf'])
+                    f.flush()
+                    pool = telstate['ceph_pool']
+                    store = RadosChunkStore.from_config(f.name, pool)
+            ts_name = store.join(cb_stream, 'timestamps')
             ts_chunks = chunk_info['timestamps']['chunks']
             ts_dtype = chunk_info['timestamps']['dtype']
             timestamps = store.get_dask_array(ts_name, ts_chunks, ts_dtype)
             # Make timestamps explicit, mutable (to be removed from store soon)
             timestamps = timestamps.compute().copy()
-            data = ChunkStoreVisFlagsWeights(store, base_name, chunk_info)
+            data = ChunkStoreVisFlagsWeights(store, cb_stream, chunk_info)
             DataSource.__init__(self, metadata, timestamps, data)
 
     @classmethod
