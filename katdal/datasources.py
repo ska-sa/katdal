@@ -136,7 +136,36 @@ class DataSource(object):
 
 
 def view_capture_stream(telstate, capture_block_id=None, stream_name=None):
-    """Create telstate view based on detected capture block ID and stream name."""
+    """Create telstate view based on capture block ID and stream name.
+
+    This figures out the appropriate capture block ID (the latest one with
+    obs_params) and L0 stream name (the first one with chunk_info), or use
+    the provided ones. It then constructs a view on `telstate` with at least
+    the prefixes
+
+      - <capture_block_id>_<stream_name>
+      - <capture_block_id>
+      - <stream_name>
+
+    Parameters
+    ----------
+    telstate: :class:`katsdptelstate.TelescopeState` object
+        Original telescope state
+    capture_block_id : string, optional
+        Specify capture block ID explicitly (detected otherwise)
+    stream_name : string, optional
+        Specify L0 stream name explicitly (detected otherwise)
+
+    Returns
+    -------
+    telstate: :class:`katsdptelstate.TelescopeState` object
+        Telstate with a view that incorporates capture block, stream and combo
+
+    Raises
+    ------
+    ValueError
+        If no capture block or L0 stream could be detected (with no override)
+    """
     # Detect the capture block
     if not capture_block_id:
         capture_blocks = []
@@ -151,12 +180,14 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None):
         # Pick the latest capture block
         capture_block_id = capture_blocks[-1]
         if len(capture_blocks) > 1:
-            logger.warn('Telstate has more than one capture block - {} - '
-                        'picking the latest'.format(capture_blocks))
+            logger.warning('Telstate has more than one capture block - %s - '
+                           'picking the latest', capture_blocks)
     # Detect the captured stream
     if not stream_name:
         streams = []
-        for stream in telstate['sdp_config']['outputs']:
+        for stream, config in telstate['sdp_config']['outputs'].items():
+            if config['type'] != 'sdp.l0':
+                continue
             capture_stream = telstate.SEPARATOR.join((capture_block_id, stream))
             if 'chunk_info' in telstate.view(capture_stream, exclusive=True):
                 streams.append(stream)
@@ -165,10 +196,10 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None):
                              'please specify the stream manually')
         stream_name = streams[0]
         if len(streams) > 1:
-            logger.warn('Telstate has more than one captured stream - {} - '
-                        'picking the first'.format(streams))
-    logger.info('Found capture block {} and stream {}'.format(capture_block_id,
-                                                              stream_name))
+            logger.warning('Telstate has more than one captured stream - %s - '
+                           'picking the first', streams)
+    logger.info('Found capture block %s and stream %s',
+                capture_block_id, stream_name)
     capture_stream = telstate.SEPARATOR.join((capture_block_id, stream_name))
     telstate = telstate.view(stream_name)
     telstate = telstate.view(capture_block_id)
@@ -177,7 +208,23 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None):
 
 
 class TelstateDataSource(DataSource):
-    """A data source based on :class:`katsdptelstate.TelescopeState`."""
+    """A data source based on :class:`katsdptelstate.TelescopeState`.
+
+    It is assumed that the provided `telstate` already has the appropriate
+    views to find observation, stream and chunk store information. It typically
+    needs the following prefixes:
+
+      - <capture block ID>_<L0 stream>
+      - <capture block ID>
+      - <L0 stream>
+
+    Parameters
+    ----------
+    telstate: :class:`katsdptelstate.TelescopeState` object
+        Telescope state with appropriate views
+    source_name : string, optional
+        Name of telstate source (used for metadata name)
+    """
     def __init__(self, telstate, source_name='telstate'):
         self.telstate = telstate
         # Collect sensors
