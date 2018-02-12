@@ -18,16 +18,13 @@
 
 import urlparse
 import os
-import tempfile
 
 import katsdptelstate
 import redis
 import numpy as np
 
 from .sensordata import TelstateSensorData
-from .chunkstore_rados import RadosChunkStore
 from .chunkstore_s3 import S3ChunkStore
-from .chunkstore import StoreUnavailable
 
 
 class DataSourceNotFound(Exception):
@@ -155,19 +152,13 @@ class TelstateDataSource(DataSource):
         metadata = AttrsSensors(telstate, sensors, name=source_name)
         try:
             chunk_info = telstate['chunk_info']
+            s3_endpoint_url = telstate['s3_endpoint_url']
         except KeyError:
             # Metadata without data
             DataSource.__init__(self, metadata, None)
         else:
-            try:
-                store = S3ChunkStore.from_url(telstate['s3_endpoint_url'])
-            except StoreUnavailable:
-                # Extract VisFlagsWeights and timestamps from telstate
-                with tempfile.NamedTemporaryFile() as f:
-                    f.write(telstate['ceph_conf'])
-                    f.flush()
-                    pool = telstate['ceph_pool']
-                    store = RadosChunkStore.from_config(f.name, pool)
+            # Extract VisFlagsWeights and timestamps from telstate
+            store = S3ChunkStore.from_url(s3_endpoint_url)
             ts_name = store.join(cb_stream, 'timestamps')
             ts_chunks = chunk_info['timestamps']['chunks']
             ts_dtype = chunk_info['timestamps']['dtype']
