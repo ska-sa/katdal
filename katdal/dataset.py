@@ -524,10 +524,10 @@ class DataSet(object):
                max_freq < 1.6 * model.max_freq_MHz:
                 new_min_freq = min(min_freq, model.min_freq_MHz)
                 new_max_freq = max(max_freq, model.max_freq_MHz)
-                logger.warn('Extending flux density model frequency range of '
-                            '%r from %d-%d MHz to %d-%d MHz', target.name,
-                            model.min_freq_MHz, model.max_freq_MHz,
-                            new_min_freq, new_max_freq)
+                logger.warning('Extending flux density model frequency range '
+                               'of %r from %d-%d MHz to %d-%d MHz', target.name,
+                               model.min_freq_MHz, model.max_freq_MHz,
+                               new_min_freq, new_max_freq)
                 model.min_freq_MHz = new_min_freq
                 model.max_freq_MHz = new_max_freq
 

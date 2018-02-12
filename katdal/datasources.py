@@ -18,6 +18,7 @@
 
 import urlparse
 import os
+import logging
 
 import katsdptelstate
 import redis
@@ -25,6 +26,9 @@ import numpy as np
 
 from .sensordata import TelstateSensorData
 from .chunkstore_s3 import S3ChunkStore
+
+
+logger = logging.getLogger(__name__)
 
 
 class DataSourceNotFound(Exception):
@@ -131,18 +135,97 @@ class DataSource(object):
         return name
 
 
+def view_capture_stream(telstate, capture_block_id=None, stream_name=None):
+    """Create telstate view based on capture block ID and stream name.
+
+    This figures out the appropriate capture block ID (the latest one with
+    obs_params) and L0 stream name (the first one with chunk_info), or use
+    the provided ones. It then constructs a view on `telstate` with at least
+    the prefixes
+
+      - <capture_block_id>_<stream_name>
+      - <capture_block_id>
+      - <stream_name>
+
+    Parameters
+    ----------
+    telstate: :class:`katsdptelstate.TelescopeState` object
+        Original telescope state
+    capture_block_id : string, optional
+        Specify capture block ID explicitly (detected otherwise)
+    stream_name : string, optional
+        Specify L0 stream name explicitly (detected otherwise)
+
+    Returns
+    -------
+    telstate: :class:`katsdptelstate.TelescopeState` object
+        Telstate with a view that incorporates capture block, stream and combo
+
+    Raises
+    ------
+    ValueError
+        If no capture block or L0 stream could be detected (with no override)
+    """
+    # Detect the capture block
+    if not capture_block_id:
+        capture_blocks = []
+        if 'sdp_capture_block_id' in telstate:
+            for value_time in telstate.get_range('sdp_capture_block_id', st=0):
+                cbid = value_time[0]
+                if 'obs_params' in telstate.view(cbid, exclusive=True):
+                    capture_blocks.append(cbid)
+        if not capture_blocks:
+            raise ValueError('No capture block IDs found in telstate - '
+                             'please specify it manually')
+        # Pick the latest capture block
+        capture_block_id = capture_blocks[-1]
+        if len(capture_blocks) > 1:
+            logger.warning('Telstate has more than one capture block - %s - '
+                           'picking the latest', capture_blocks)
+    # Detect the captured stream
+    if not stream_name:
+        streams = []
+        for stream, config in telstate['sdp_config']['outputs'].items():
+            if config['type'] != 'sdp.l0':
+                continue
+            capture_stream = telstate.SEPARATOR.join((capture_block_id, stream))
+            if 'chunk_info' in telstate.view(capture_stream, exclusive=True):
+                streams.append(stream)
+        if not streams:
+            raise ValueError('No captured streams found in telstate - '
+                             'please specify the stream manually')
+        stream_name = streams[0]
+        if len(streams) > 1:
+            logger.warning('Telstate has more than one captured stream - %s - '
+                           'picking the first', streams)
+    logger.info('Found capture block %s and stream %s',
+                capture_block_id, stream_name)
+    capture_stream = telstate.SEPARATOR.join((capture_block_id, stream_name))
+    telstate = telstate.view(stream_name)
+    telstate = telstate.view(capture_block_id)
+    telstate = telstate.view(capture_stream)
+    return telstate
+
+
 class TelstateDataSource(DataSource):
-    """A data source based on :class:`katsdptelstate.TelescopeState`."""
-    def __init__(self, telstate, capture_block_id=None, stream_name=None,
-                 source_name='telstate'):
-        # Create telstate view based on capture block ID and/or stream name
-        if stream_name:
-            telstate = telstate.view(stream_name)
-        if capture_block_id:
-            telstate = telstate.view(capture_block_id)
-        if stream_name and capture_block_id:
-            cb_stream = telstate.SEPARATOR.join((capture_block_id, stream_name))
-            telstate = telstate.view(cb_stream)
+    """A data source based on :class:`katsdptelstate.TelescopeState`.
+
+    It is assumed that the provided `telstate` already has the appropriate
+    views to find observation, stream and chunk store information. It typically
+    needs the following prefixes:
+
+      - <capture block ID>_<L0 stream>
+      - <capture block ID>
+      - <L0 stream>
+
+    Parameters
+    ----------
+    telstate: :class:`katsdptelstate.TelescopeState` object
+        Telescope state with appropriate views
+    source_name : string, optional
+        Name of telstate source (used for metadata name)
+    """
+    def __init__(self, telstate, source_name='telstate'):
         self.telstate = telstate
         # Collect sensors
         sensors = {}
@@ -151,6 +234,7 @@ class TelstateDataSource(DataSource):
                 sensors[key] = TelstateSensorData(telstate, key)
         metadata = AttrsSensors(telstate, sensors, name=source_name)
         try:
+            chunk_name = telstate['chunk_name']
             chunk_info = telstate['chunk_info']
             s3_endpoint_url = telstate['s3_endpoint_url']
         except KeyError:
@@ -159,13 +243,13 @@ class TelstateDataSource(DataSource):
         else:
             # Extract VisFlagsWeights and timestamps from telstate
             store = S3ChunkStore.from_url(s3_endpoint_url)
-            ts_name = store.join(cb_stream, 'timestamps')
+            ts_name = store.join(chunk_name, 'timestamps')
             ts_chunks = chunk_info['timestamps']['chunks']
             ts_dtype = chunk_info['timestamps']['dtype']
             timestamps = store.get_dask_array(ts_name, ts_chunks, ts_dtype)
             # Make timestamps explicit, mutable (to be removed from store soon)
             timestamps = timestamps.compute().copy()
-            data = ChunkStoreVisFlagsWeights(store, cb_stream, chunk_info)
+            data = ChunkStoreVisFlagsWeights(store, chunk_name, chunk_info)
             DataSource.__init__(self, metadata, timestamps, data)
 
     @classmethod
@@ -175,7 +259,7 @@ class TelstateDataSource(DataSource):
         kwargs = dict(urlparse.parse_qsl(url_parts.query))
         # Extract Redis database number if provided
         db = int(kwargs.pop('db', '0'))
-        kwargs['source_name'] = url_parts.geturl()
+        source_name = url_parts.geturl()
         if url_parts.scheme == 'file':
             # RDB dump file
             telstate = katsdptelstate.TelescopeState()
@@ -183,14 +267,14 @@ class TelstateDataSource(DataSource):
                 telstate.load_from_file(url_parts.path)
             except OSError as err:
                 raise DataSourceNotFound(str(err))
-            return cls(telstate, **kwargs)
+            return cls(view_capture_stream(telstate, **kwargs), source_name)
         elif url_parts.scheme == 'redis':
             # Redis server
             try:
                 telstate = katsdptelstate.TelescopeState(url_parts.netloc, db)
             except (redis.ConnectionError, redis.TimeoutError) as e:
                 raise DataSourceNotFound(str(e))
-            return cls(telstate, **kwargs)
+            return cls(view_capture_stream(telstate, **kwargs), source_name)
 
 
 def open_data_source(url):
