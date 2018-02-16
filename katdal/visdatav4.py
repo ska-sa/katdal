@@ -132,16 +132,7 @@ class VisibilityDataV4(DataSet):
 
         # ------ Extract observation parameters and script log ------
 
-        self.obs_params = {}
-        # Replay obs_params sensor if available and update obs_params dict accordingly
-        try:
-            obs_params = self.sensor.get('obs_params', extract=False)['value']
-        except KeyError:
-            obs_params = []
-        for obs_param in obs_params:
-            if obs_param:
-                key, val = obs_param.split(' ', 1)
-                self.obs_params[key] = np.lib.utils.safe_eval(val)
+        self.obs_params = attrs['obs_params']
         # Get observation script parameters, with defaults
         self.observer = self.obs_params.get('observer', '')
         self.description = self.obs_params.get('description', '')
