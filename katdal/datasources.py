@@ -171,7 +171,7 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None):
         capture_blocks = []
         if 'sdp_capture_block_id' in telstate:
             for value_time in telstate.get_range('sdp_capture_block_id', st=0):
-                cbid = value_time[0]
+                cbid = str(value_time[0])
                 if 'obs_params' in telstate.view(cbid, exclusive=True):
                     capture_blocks.append(cbid)
         if not capture_blocks:
