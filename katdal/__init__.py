@@ -212,6 +212,7 @@ a back door installed at `d.file` in the case of a single-file data set.
 """
 
 import logging as _logging
+import urlparse
 
 from .dataset import DataSet, WrongVersion
 from .lazy_indexer import LazyTransform
@@ -330,7 +331,7 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
     datasets = []
     for f in filenames:
         # V4 RDB file with optional URL-style query string
-        if f.split('?')[0].endswith('.rdb'):
+        if urlparse.urlsplit(f).path.endswith('.rdb'):
             from .datasources import open_data_source
             from .visdatav4 import VisibilityDataV4
             dataset = VisibilityDataV4(open_data_source(f),
