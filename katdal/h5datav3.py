@@ -353,15 +353,21 @@ class H5DataV3(DataSet):
         # ------ Extract observation parameters and script log ------
 
         self.obs_params = {}
-        # Replay obs_params sensor if available and update obs_params dict accordingly
-        try:
-            obs_params = self.sensor.get('Observation/params', extract=False)['value']
-        except KeyError:
-            obs_params = []
-        for obs_param in obs_params:
-            if obs_param:
-                key, val = obs_param.split(' ', 1)
-                self.obs_params[key] = np.lib.utils.safe_eval(val)
+        # obs_params is a telstate attribute in v3.9 so try that first
+        if 'capture_block_id' in f.attrs:
+            attr_name = f.attrs['capture_block_id'] + '_obs_params'
+            self.obs_params = self._get_telstate_attr(attr_name, {})
+        if not self.obs_params:
+            try:
+                # Replay obs_params sensor if available
+                obs_params = self.sensor.get('Observation/params',
+                                             extract=False)['value']
+            except KeyError:
+                obs_params = []
+            for obs_param in obs_params:
+                if obs_param:
+                    key, val = obs_param.split(' ', 1)
+                    self.obs_params[key] = np.lib.utils.safe_eval(val)
         # Get observation script parameters, with defaults
         self.observer = self.obs_params.get('observer', '')
         self.description = self.obs_params.get('description', '')
