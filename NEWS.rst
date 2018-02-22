@@ -1,6 +1,13 @@
 History
 =======
 
+0.9.5 (2018-02-22)
+------------------
+* New HDF5 v3.9 file format in anticipation of v4 (affects obs_params)
+* Fix receiver serial numbers in recent MeerKAT data sets
+* Add dask support to ChunkStore
+* katdal.open() works on v4 RDB files
+
 0.9 (2018-01-16)
 ----------------
 * New ChunkStore and telstate-based parser for future v4 format
