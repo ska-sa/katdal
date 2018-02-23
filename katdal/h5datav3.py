@@ -357,7 +357,7 @@ class H5DataV3(DataSet):
         if 'capture_block_id' in f.attrs:
             attr_name = f.attrs['capture_block_id'] + '_obs_params'
             self.obs_params = self._get_telstate_attr(attr_name, {})
-        if not self.obs_params:
+        else:
             try:
                 # Replay obs_params sensor if available
                 obs_params = self.sensor.get('Observation/params',
@@ -794,7 +794,6 @@ class H5DataV3(DataSet):
 
         """
         f, version = H5DataV3._open(filename)
-        obs_params = {}
         tm_group = f['TelescopeModel']
         stream_name = f['Data'].attrs.get('stream_name', 'sdp_l0')
         ants = []
@@ -814,12 +813,21 @@ class H5DataV3(DataSet):
         corrprods = H5DataV3._get_corrprods(f, stream_name)
         # Find names of all antennas with associated correlator data
         cbf_ants = set([cp[0][:-1] for cp in corrprods] + [cp[1][:-1] for cp in corrprods])
+        # obs_params is a telstate attribute in v3.9 so try that first
+        obs_params = {}
+        if 'capture_block_id' in f.attrs:
+            attr_name = f.attrs['capture_block_id'] + '_obs_params'
+            value = f['TelescopeState'].attrs.get(attr_name)
+            if value is not None:
+                obs_params = pickle.loads(value)
+        # Fall back to old obs_params location
+        else:
+            tm_params = tm_group['obs/params']
+            for obs_param in tm_params['value']:
+                if obs_param:
+                    key, val = obs_param.split(' ', 1)
+                    obs_params[key] = np.lib.utils.safe_eval(val)
         # By default, only pick antennas that were in use by the script
-        tm_params = tm_group['obs/params']
-        for obs_param in tm_params['value']:
-            if obs_param:
-                key, val = obs_param.split(' ', 1)
-                obs_params[key] = np.lib.utils.safe_eval(val)
         obs_ants = obs_params.get('ants')
         # Otherwise fall back to the list of antennas common to CAM and CBF
         obs_ants = obs_ants.split(',') if obs_ants else list(cam_ants & cbf_ants)
