@@ -234,6 +234,8 @@ class TelstateDataSource(DataSource):
                 sensors[key] = TelstateSensorData(telstate, key)
         metadata = AttrsSensors(telstate, sensors, name=source_name)
         try:
+            t0 = telstate['sync_time'] + telstate['first_timestamp']
+            int_time = telstate['int_time']
             chunk_name = telstate['chunk_name']
             chunk_info = telstate['chunk_info']
             s3_endpoint_url = telstate['s3_endpoint_url']
@@ -242,13 +244,9 @@ class TelstateDataSource(DataSource):
             DataSource.__init__(self, metadata, None)
         else:
             # Extract VisFlagsWeights and timestamps from telstate
+            n_dumps = chunk_info['correlator_data']['shape'][0]
+            timestamps = t0 + np.arange(n_dumps) * int_time
             store = S3ChunkStore.from_url(s3_endpoint_url)
-            ts_name = store.join(chunk_name, 'timestamps')
-            ts_chunks = chunk_info['timestamps']['chunks']
-            ts_dtype = chunk_info['timestamps']['dtype']
-            timestamps = store.get_dask_array(ts_name, ts_chunks, ts_dtype)
-            # Make timestamps explicit, mutable (to be removed from store soon)
-            timestamps = timestamps.compute().copy()
             data = ChunkStoreVisFlagsWeights(store, chunk_name, chunk_info)
             DataSource.__init__(self, metadata, timestamps, data)
 
