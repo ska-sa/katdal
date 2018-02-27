@@ -207,6 +207,32 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None):
     return telstate
 
 
+def _shorten_key(telstate, key):
+    """Shorten telstate key by subtracting the first prefix that fits.
+
+    Parameters
+    ----------
+    telstate : :class:`katsdptelstate.TelescopeState` object
+        Telescope state
+    key : string
+        Telescope state key
+
+    Returns
+    -------
+    short_key : string or None
+        Suffix of `key` after subtracting first matching prefix, or None if
+        `key` does not start with any of the prefixes
+
+    """
+    for prefix in telstate.prefixes:
+        if not prefix:
+            return key
+        head, sep, tail = key.partition(prefix)
+        if not head and sep == prefix:
+            return tail
+    return None
+
+
 class TelstateDataSource(DataSource):
     """A data source based on :class:`katsdptelstate.TelescopeState`.
 
@@ -233,7 +259,9 @@ class TelstateDataSource(DataSource):
         sensors = {}
         for key in telstate.keys():
             if not telstate.is_immutable(key):
-                sensors[key] = TelstateSensorData(telstate, key)
+                sensor_name = _shorten_key(telstate, key)
+                if sensor_name:
+                    sensors[sensor_name] = TelstateSensorData(telstate, key)
         metadata = AttrsSensors(telstate, sensors, name=source_name)
         try:
             t0 = telstate['sync_time'] + telstate['first_timestamp']
