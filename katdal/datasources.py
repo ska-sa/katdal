@@ -149,7 +149,7 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None):
 
     Parameters
     ----------
-    telstate: :class:`katsdptelstate.TelescopeState` object
+    telstate : :class:`katsdptelstate.TelescopeState` object
         Original telescope state
     capture_block_id : string, optional
         Specify capture block ID explicitly (detected otherwise)
@@ -158,7 +158,7 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None):
 
     Returns
     -------
-    telstate: :class:`katsdptelstate.TelescopeState` object
+    telstate : :class:`katsdptelstate.TelescopeState` object
         Telstate with a view that incorporates capture block, stream and combo
 
     Raises
@@ -207,6 +207,30 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None):
     return telstate
 
 
+def _shorten_key(telstate, key):
+    """Shorten telstate key by subtracting the first prefix that fits.
+
+    Parameters
+    ----------
+    telstate : :class:`katsdptelstate.TelescopeState` object
+        Telescope state
+    key : string
+        Telescope state key
+
+    Returns
+    -------
+    short_key : string
+        Suffix of `key` after subtracting first matching prefix, or empty
+        string if `key` does not start with any of the prefixes (or exactly
+        matches a prefix, which is also considered pathological)
+
+    """
+    for prefix in telstate.prefixes:
+        if key.startswith(prefix):
+            return key[len(prefix):]
+    return ''
+
+
 class TelstateDataSource(DataSource):
     """A data source based on :class:`katsdptelstate.TelescopeState`.
 
@@ -220,25 +244,30 @@ class TelstateDataSource(DataSource):
 
     Parameters
     ----------
-    telstate: :class:`katsdptelstate.TelescopeState` object
+    telstate : :class:`katsdptelstate.TelescopeState` object
         Telescope state with appropriate views
+    chunk_store : :class:`katdal.ChunkStore` object, optional
+        Alternative chunk store (defaults to S3 store specified in telstate)
     source_name : string, optional
         Name of telstate source (used for metadata name)
     """
-    def __init__(self, telstate, source_name='telstate'):
+    def __init__(self, telstate, chunk_store=None, source_name='telstate'):
         self.telstate = telstate
         # Collect sensors
         sensors = {}
         for key in telstate.keys():
             if not telstate.is_immutable(key):
-                sensors[key] = TelstateSensorData(telstate, key)
+                sensor_name = _shorten_key(telstate, key)
+                if sensor_name:
+                    sensors[sensor_name] = TelstateSensorData(telstate, key)
         metadata = AttrsSensors(telstate, sensors, name=source_name)
         try:
             t0 = telstate['sync_time'] + telstate['first_timestamp']
             int_time = telstate['int_time']
             chunk_name = telstate['chunk_name']
             chunk_info = telstate['chunk_info']
-            s3_endpoint_url = telstate['s3_endpoint_url']
+            if chunk_store is None:
+                s3_endpoint_url = telstate['s3_endpoint_url']
         except KeyError:
             # Metadata without data
             DataSource.__init__(self, metadata, None)
@@ -246,12 +275,13 @@ class TelstateDataSource(DataSource):
             # Extract VisFlagsWeights and timestamps from telstate
             n_dumps = chunk_info['correlator_data']['shape'][0]
             timestamps = t0 + np.arange(n_dumps) * int_time
-            store = S3ChunkStore.from_url(s3_endpoint_url)
-            data = ChunkStoreVisFlagsWeights(store, chunk_name, chunk_info)
+            if chunk_store is None:
+                chunk_store = S3ChunkStore.from_url(s3_endpoint_url)
+            data = ChunkStoreVisFlagsWeights(chunk_store, chunk_name, chunk_info)
             DataSource.__init__(self, metadata, timestamps, data)
 
     @classmethod
-    def from_url(cls, url):
+    def from_url(cls, url, chunk_store=None):
         """Construct TelstateDataSource from URL (RDB file / REDIS server)."""
         url_parts = urlparse.urlparse(url, scheme='file')
         kwargs = dict(urlparse.parse_qsl(url_parts.query))
@@ -265,20 +295,22 @@ class TelstateDataSource(DataSource):
                 telstate.load_from_file(url_parts.path)
             except OSError as err:
                 raise DataSourceNotFound(str(err))
-            return cls(view_capture_stream(telstate, **kwargs), source_name)
+            return cls(view_capture_stream(telstate, **kwargs), chunk_store,
+                       source_name)
         elif url_parts.scheme == 'redis':
             # Redis server
             try:
                 telstate = katsdptelstate.TelescopeState(url_parts.netloc, db)
             except (redis.ConnectionError, redis.TimeoutError) as e:
                 raise DataSourceNotFound(str(e))
-            return cls(view_capture_stream(telstate, **kwargs), source_name)
+            return cls(view_capture_stream(telstate, **kwargs), chunk_store,
+                       source_name)
 
 
-def open_data_source(url):
+def open_data_source(url, *args, **kwargs):
     """Construct the data source described by the given URL."""
     try:
-        return TelstateDataSource.from_url(url)
+        return TelstateDataSource.from_url(url, *args, **kwargs)
     except DataSourceNotFound as err:
         # Amend the error message for the case of an IP address without scheme
         url_parts = urlparse.urlparse(url, scheme='file')

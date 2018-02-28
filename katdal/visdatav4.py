@@ -158,7 +158,7 @@ class VisibilityDataV4(DataSet):
         ants = []
         for resource in attrs['sub_pool_resources'].split(','):
             try:
-                ant_description = self.sensor.get(resource + '_observer')[0]
+                ant_description = attrs[resource + '_observer']
                 ants.append(katpoint.Antenna(ant_description))
             except (KeyError, ValueError):
                 continue
