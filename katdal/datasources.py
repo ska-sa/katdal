@@ -219,18 +219,16 @@ def _shorten_key(telstate, key):
 
     Returns
     -------
-    short_key : string or None
-        Suffix of `key` after subtracting first matching prefix, or None if
-        `key` does not start with any of the prefixes
+    short_key : string
+        Suffix of `key` after subtracting first matching prefix, or empty
+        string if `key` does not start with any of the prefixes (or exactly
+        matches a prefix, which is also considered pathological)
 
     """
     for prefix in telstate.prefixes:
-        if not prefix:
-            return key
-        head, sep, tail = key.partition(prefix)
-        if not head and sep == prefix:
-            return tail
-    return None
+        if key.startswith(prefix):
+            return key[len(prefix):]
+    return ''
 
 
 class TelstateDataSource(DataSource):
