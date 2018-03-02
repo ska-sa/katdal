@@ -588,7 +588,8 @@ class H5DataV3(DataSet):
         # ------ Setup calibration ordering ------
         self.calibrated = False
         if 'calibrate' in kwargs.keys():
-            self.calibrated = True
+            self.calibrated = kwargs['calibrate']
+        if self.calibrated:
             applycal(self)
 
     def _get_telstate_attr(self, key, default=None, no_unpickle=()):
