@@ -72,7 +72,8 @@ def interpolate_nans_1d(y, *args, **kwargs):
     nan_locs = np.isnan(y)
     nan_perc = float(nan_locs.sum()) / float(y.size)
     # if nan_perc > 0.1: # conservative values
-    if nan_perc > 1.:  # original values
+    # if nan_perc > 1.:  # original values
+    if nan_perc > 0.49:  # original values
         y[:] = np.nan
     else:
         X = np.nonzero(~nan_locs)[0]
@@ -285,9 +286,14 @@ def applycal(katdal_obj):
             katdal_obj._cal_solns['K']['solns'] = np.exp(katdal_obj._cal_solns['K']['solns'] * katdal_obj._delay_to_phase)
 
     def _cal_calc(katdal_obj):
+        import time
 
+        etime = time.time()
         _cal_setup(katdal_obj)
+        print 'cal_setup time', time.time()-etime
+        etime = time.time()
         _cal_interp(katdal_obj.timestamps)
+        print 'cal_interp time', time.time()-etime
 
         _bls_len = katdal_obj._corrprod_keep.sum()
         _chan_len = katdal_obj._freq_keep.sum()
@@ -301,15 +307,20 @@ def applycal(katdal_obj):
             raise ValueError('Shape mismatch in timestamps.')
 
         # calibrate visibilities
+        etime = time.time()
         katdal_obj._cal_coeffs = np.zeros((_time_len, _chan_len, _bls_len), dtype=complex)
+        print 'zero matrix', time.time()-etime
         for idx, cp in enumerate(katdal_obj._cp_lookup):
+            stime = time.time()
+            print idx, cp
             _cal_shape = [_time_len, _chan_len]
             dummy = np.zeros(_cal_shape, dtype=complex)
             default = np.ones(_cal_shape, dtype=complex)
-
             caldata = np.empty(len(katdal_obj._cal_solns.keys()), dtype=object)
+            print '\tsetting up dummies', time.time()-stime
             # apply cal solutions in sequence: K, B, G
             for seq, caltype in enumerate(['K', 'B', 'G']):
+                print '\t', seq, caltype,
                 X = katdal_obj._cal_solns[caltype]['solns']
                 if X is None:
                     print ('TelescopeState does not have %s calibration solutions' % seq)
@@ -317,9 +328,13 @@ def applycal(katdal_obj):
                 else:
                     scale = dummy + X[:, :, cp[0][1], cp[0][0]] * X[:, :, cp[1][1], cp[1][0]].conj()
                 caldata[seq] = scale
+                print 'factors cal', time.time()-stime
             caldata = np.array([(x,) for x in caldata]).squeeze()
             # ((X*K)/B)/G
             katdal_obj._cal_coeffs[:, :, idx] = (caldata[0, ...] / caldata[1, ...]) * np.reciprocal(caldata[2, ...])
+            print idx, 'time per bl', time.time()-stime
+            print 'total time now', time.time()-etime
+        print 'total time', time.time()-etime
         return katdal_obj
 
 
@@ -338,7 +353,10 @@ def applycal(katdal_obj):
             print 'Updating cal', vis_size, katdal_obj._cal_coeffs.size
             _cal_calc(katdal_obj)
 
-        return vis*katdal_obj._cal_coeffs[keep]
+        print 'here', np.shape(katdal_obj._cal_coeffs[keep])
+        vis *= katdal_obj._cal_coeffs[keep]
+        # return vis*katdal_obj._cal_coeffs[keep]
+        return vis
     katdal_obj.cal_vis = LazyTransform('cal_vis', _cal_vis)
 
 
