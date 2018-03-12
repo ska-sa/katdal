@@ -168,15 +168,15 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None):
     # Detect the capture block
     if not capture_block_id:
         try:
-            capture_block_id = telstate['capture_block_id']
+            capture_block_id = str(telstate['capture_block_id'])
         except KeyError:
             raise ValueError('No capture block IDs found in telstate - '
                              'please specify it manually')
     # Detect the captured stream
     if not stream_name:
         try:
-            stream_name = telstate['stream_name']
-            stream_type = telstate['stream_type']
+            stream_name = str(telstate['stream_name'])
+            stream_type = str(telstate['stream_type'])
         except KeyError:
             raise ValueError('No captured streams found in telstate - '
                              'please specify the stream manually')
