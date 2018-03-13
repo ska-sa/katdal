@@ -62,6 +62,6 @@ setup(name="katdal",
         # rados is not in PyPI but available as Debian package python-rados
         'rados': ['rados'],
         # Only available throught github currently
-        'auth' : ['katsdpauth'], 
+        'auth': ['katsdpauth'], 
       },
       tests_require=['nose', 'dask[array]'])

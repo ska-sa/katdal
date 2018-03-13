@@ -20,7 +20,10 @@ import contextlib
 
 import numpy as np
 try:
-    import katsdpauth.auth_botocore
+    try:
+        import katsdpauth.auth_botocore
+    except:
+        import botocore
     _botocore_import_error = None
 except ImportError as e:
     botocore = None
