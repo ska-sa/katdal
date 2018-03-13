@@ -61,7 +61,7 @@ setup(name="katdal",
         's3': ['botocore'],
         # rados is not in PyPI but available as Debian package python-rados
         'rados': ['rados'],
-        #Only available throught github currently
-        'authed':['katsdpauth'], 
+        # Only available throught github currently
+        'auth' : ['katsdpauth'], 
       },
       tests_require=['nose', 'dask[array]'])
