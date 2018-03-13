@@ -170,26 +170,27 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None):
         try:
             capture_block_id = str(telstate['capture_block_id'])
         except KeyError:
-            raise ValueError('No capture block IDs found in telstate - '
+            raise ValueError('No capture block ID found in telstate - '
                              'please specify it manually')
     # Detect the captured stream
     if not stream_name:
         try:
             stream_name = str(telstate['stream_name'])
-            stream_type = str(telstate['stream_type'])
         except KeyError:
-            raise ValueError('No captured streams found in telstate - '
+            raise ValueError('No captured stream found in telstate - '
                              'please specify the stream manually')
-        expected_type = 'sdp.vis'
-        if telstate['stream_type'] != expected_type:
-            raise ValueError("Found stream {!r} but it has the wrong type {!r},"
-                             " expected {!r}".format(stream_name, stream_type,
-                                                     expected_type))
+    # Check the stream type
+    telstate = telstate.view(stream_name)
+    stream_type = telstate.get('stream_type', 'unknown')
+    expected_type = 'sdp.vis'
+    if stream_type != expected_type:
+        raise ValueError("Found stream {!r} but it has the wrong type {!r},"
+                         " expected {!r}".format(stream_name, stream_type,
+                                                 expected_type))
     logger.info('Using capture block %r and stream %r',
                 capture_block_id, stream_name)
-    capture_stream = telstate.SEPARATOR.join((capture_block_id, stream_name))
-    telstate = telstate.view(stream_name)
     telstate = telstate.view(capture_block_id)
+    capture_stream = telstate.SEPARATOR.join((capture_block_id, stream_name))
     telstate = telstate.view(capture_stream)
     return telstate
 
