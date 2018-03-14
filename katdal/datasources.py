@@ -257,7 +257,7 @@ class TelstateDataSource(DataSource):
             chunk_name = telstate['chunk_name']
             chunk_info = telstate['chunk_info']
         except KeyError:
-            # Metadata without data
+            # Metadata without data or timestamps
             DataSource.__init__(self, metadata, None)
         else:
             # Extract timestamps from telstate
@@ -265,6 +265,7 @@ class TelstateDataSource(DataSource):
             timestamps = t0 + np.arange(n_dumps) * int_time
             data = ChunkStoreVisFlagsWeights(
                 chunk_store, chunk_name, chunk_info) if chunk_store else None
+            # Metadata and timestamps with or without data
             DataSource.__init__(self, metadata, timestamps, data)
 
     @classmethod
@@ -283,15 +284,18 @@ class TelstateDataSource(DataSource):
             except OSError as err:
                 raise DataSourceNotFound(str(err))
             telstate = view_capture_stream(telstate, **kwargs)
-            capture_stream = telstate.prefixes[0][:-1]
             # Look for adjacent data directory (presumably containing NPY files)
-            capture_block_path = os.path.dirname(url_parts.path)
-            data_path = os.path.join(capture_block_path, '..', capture_stream)
             if chunk_store == 'auto':
+                capture_block_path = os.path.dirname(url_parts.path)
+                store_path = os.path.join(capture_block_path, '..')
                 try:
-                    chunk_store = NpyFileChunkStore(os.path.normpath(data_path))
-                except StoreUnavailable:
-                    chunk_store = S3ChunkStore(telstate['s3_endpoint_url'])
+                    data_path = os.path.join(store_path, telstate['chunk_name'])
+                except KeyError:
+                    chunk_store = None
+            if chunk_store == 'auto' and os.path.isdir(data_path):
+                chunk_store = NpyFileChunkStore(os.path.normpath(store_path))
+            else:
+                chunk_store = S3ChunkStore(telstate['s3_endpoint_url'])
             return cls(telstate, chunk_store, source_name)
         elif url_parts.scheme == 'redis':
             # Redis server
