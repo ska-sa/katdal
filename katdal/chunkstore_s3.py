@@ -17,6 +17,7 @@
 """A store of chunks (i.e. N-dimensional arrays) based on the Amazon S3 API."""
 
 import contextlib
+import io
 
 import numpy as np
 try:
@@ -122,32 +123,33 @@ class S3ChunkStore(ChunkStore):
         """See the docstring of :meth:`ChunkStore.get_chunk`."""
         dtype = np.dtype(dtype)
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
-        bucket, key = self.split(chunk_name, 1)
+        bucket, key = self.split(chunk_name + '.npy', 1)
         with self._standard_errors(chunk_name):
             response = self.client.get_object(Bucket=bucket, Key=key)
         with contextlib.closing(response['Body']) as stream:
-            data_str = stream.read()
-        expected_bytes = int(np.prod(shape)) * dtype.itemsize
-        if len(data_str) != expected_bytes:
-            raise BadChunk('Chunk {!r}: dtype {} and shape {} implies an '
-                           'object size of {} bytes, got {} bytes instead'
-                           .format(chunk_name, dtype, shape, expected_bytes,
-                                   len(data_str)))
-        return np.ndarray(shape, dtype, data_str)
+            chunk = np.lib.format.read_array(stream, allow_pickle=False)
+        if chunk.shape != shape or chunk.dtype != dtype:
+            raise BadChunk('Chunk {!r}: dtype {} and/or shape {} in store '
+                           'differs from expected dtype {} and shape {}'
+                           .format(chunk_name, chunk.dtype, chunk.shape,
+                                   dtype, shape))
+        return chunk
 
     def put_chunk(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put_chunk`."""
         chunk_name, shape = self.chunk_metadata(array_name, slices, chunk=chunk)
-        bucket, key = self.split(chunk_name, 1)
-        data_str = chunk.tobytes()
+        bucket, key = self.split(chunk_name + '.npy', 1)
+        fp = io.BytesIO()
+        np.lib.format.write_array(fp, chunk, allow_pickle=False)
+        fp.seek(0)
         with self._standard_errors(chunk_name):
-            self.client.put_object(Bucket=bucket, Key=key, Body=data_str)
+            self.client.put_object(Bucket=bucket, Key=key, Body=fp)
 
     def has_chunk(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.has_chunk`."""
         dtype = np.dtype(dtype)
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
-        bucket, key = self.split(chunk_name, 1)
+        bucket, key = self.split(chunk_name + '.npy', 1)
         try:
             response = self.client.head_object(Bucket=bucket, Key=key)
         except ClientError as err:
@@ -156,7 +158,12 @@ class S3ChunkStore(ChunkStore):
             return False
         else:
             actual_bytes = response['ContentLength']
-            expected_bytes = int(np.prod(shape)) * dtype.itemsize
+            header = {'shape': shape, 'fortran_order': False,
+                      'descr': np.lib.format.dtype_to_descr(dtype)}
+            fp = io.BytesIO()
+            np.lib.format._write_array_header(fp, header)
+            header_size = fp.tell()
+            expected_bytes = int(np.prod(shape)) * dtype.itemsize + header_size
             return actual_bytes == expected_bytes
 
     get_chunk.__doc__ = ChunkStore.get_chunk.__doc__
