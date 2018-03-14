@@ -49,7 +49,8 @@ class S3ChunkStore(ChunkStore):
     where "<bucket>" refers to the relevant S3 bucket, "<bucket>/<path>" is
     the name of the parent array of the chunk and "<idx>" is the index string
     of each chunk (e.g. "00001_00512"). The corresponding S3 key string of
-    a chunk is therefore "<path>/<idx>".
+    a chunk is "<path>/<idx>.npy" which reflects the fact that the chunk is
+    stored as a string representation of an NPY file (complete with header).
 
     Parameters
     ----------
