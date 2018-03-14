@@ -139,7 +139,7 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None):
     """Create telstate view based on capture block ID and stream name.
 
     This figures out the appropriate capture block ID and L0 stream name from
-    a capture-stream specific telstate, or use the provided ones. It then
+    a capture-stream specific telstate, or uses the provided ones. It then
     constructs a view on `telstate` with at least the prefixes
 
       - <capture_block_id>_<stream_name>

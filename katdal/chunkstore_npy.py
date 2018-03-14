@@ -80,16 +80,19 @@ class NpyFileChunkStore(ChunkStore):
     def put_chunk(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put_chunk`."""
         chunk_name, shape = self.chunk_metadata(array_name, slices, chunk=chunk)
-        filename = os.path.join(self.path, chunk_name) + '.npy'
+        base_filename = os.path.join(self.path, chunk_name)
         # Ensure any subdirectories are in place
         try:
-            os.makedirs(os.path.dirname(filename))
+            os.makedirs(os.path.dirname(base_filename))
         except OSError as e:
             # Be happy if someone already created the path
             if e.errno != os.errno.EEXIST:
                 raise
         with self._standard_errors(chunk_name):
-            np.save(filename, chunk, allow_pickle=False)
+            # Rename the file when done writing to make put_chunk() atomic
+            temp_filename = base_filename + '.writing.npy'
+            np.save(temp_filename, chunk, allow_pickle=False)
+            os.rename(temp_filename, base_filename + '.npy')
 
     def has_chunk(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.has_chunk`."""
