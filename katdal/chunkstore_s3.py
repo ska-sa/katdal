@@ -161,10 +161,13 @@ class S3ChunkStore(ChunkStore):
             header = {'shape': shape, 'fortran_order': False,
                       'descr': np.lib.format.dtype_to_descr(dtype)}
             fp = io.BytesIO()
-            np.lib.format._write_array_header(fp, header)
-            header_size = fp.tell()
-            expected_bytes = int(np.prod(shape)) * dtype.itemsize + header_size
-            return actual_bytes == expected_bytes
+            np.lib.format.write_array_header_1_0(fp, header)
+            header_size_v1 = fp.tell()
+            fp.seek(0)
+            np.lib.format.write_array_header_2_0(fp, header)
+            header_size_v2 = fp.tell()
+            data_size = int(np.prod(shape)) * dtype.itemsize
+            return actual_bytes - data_size in (header_size_v1, header_size_v2)
 
     get_chunk.__doc__ = ChunkStore.get_chunk.__doc__
     put_chunk.__doc__ = ChunkStore.put_chunk.__doc__
