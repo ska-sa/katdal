@@ -295,7 +295,7 @@ class TelstateDataSource(DataSource):
             if chunk_store == 'auto' and os.path.isdir(data_path):
                 chunk_store = NpyFileChunkStore(os.path.normpath(store_path))
             else:
-                chunk_store = S3ChunkStore(telstate['s3_endpoint_url'])
+                chunk_store = S3ChunkStore.from_url(telstate['s3_endpoint_url'])
             return cls(telstate, chunk_store, source_name)
         elif url_parts.scheme == 'redis':
             # Redis server
@@ -305,7 +305,7 @@ class TelstateDataSource(DataSource):
                 raise DataSourceNotFound(str(e))
             telstate = view_capture_stream(telstate, **kwargs)
             if chunk_store == 'auto':
-                chunk_store = S3ChunkStore(telstate['s3_endpoint_url'])
+                chunk_store = S3ChunkStore.from_url(telstate['s3_endpoint_url'])
             return cls(telstate, chunk_store, source_name)
 
 
