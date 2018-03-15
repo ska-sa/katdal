@@ -27,7 +27,6 @@ import numpy as np
 from .sensordata import TelstateSensorData
 from .chunkstore_s3 import S3ChunkStore
 from .chunkstore_npy import NpyFileChunkStore
-from .chunkstore import StoreUnavailable
 
 
 logger = logging.getLogger(__name__)
