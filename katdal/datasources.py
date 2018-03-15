@@ -26,6 +26,7 @@ import numpy as np
 
 from .sensordata import TelstateSensorData
 from .chunkstore_s3 import S3ChunkStore
+from .chunkstore_npy import NpyFileChunkStore
 
 
 logger = logging.getLogger(__name__)
@@ -235,7 +236,7 @@ class TelstateDataSource(DataSource):
     telstate : :class:`katsdptelstate.TelescopeState` object
         Telescope state with appropriate views
     chunk_store : :class:`katdal.ChunkStore` object, optional
-        Alternative chunk store (defaults to S3 store specified in telstate)
+        Chunk store for visibility data (the default is no data - metadata only)
     source_name : string, optional
         Name of telstate source (used for metadata name)
     """
@@ -254,22 +255,20 @@ class TelstateDataSource(DataSource):
             int_time = telstate['int_time']
             chunk_name = telstate['chunk_name']
             chunk_info = telstate['chunk_info']
-            if chunk_store is None:
-                s3_endpoint_url = telstate['s3_endpoint_url']
         except KeyError:
-            # Metadata without data
+            # Metadata without data or timestamps
             DataSource.__init__(self, metadata, None)
         else:
-            # Extract VisFlagsWeights and timestamps from telstate
+            # Extract timestamps from telstate
             n_dumps = chunk_info['correlator_data']['shape'][0]
             timestamps = t0 + np.arange(n_dumps) * int_time
-            if chunk_store is None:
-                chunk_store = S3ChunkStore.from_url(s3_endpoint_url)
-            data = ChunkStoreVisFlagsWeights(chunk_store, chunk_name, chunk_info)
+            data = ChunkStoreVisFlagsWeights(
+                chunk_store, chunk_name, chunk_info) if chunk_store else None
+            # Metadata and timestamps with or without data
             DataSource.__init__(self, metadata, timestamps, data)
 
     @classmethod
-    def from_url(cls, url, chunk_store=None):
+    def from_url(cls, url, chunk_store='auto'):
         """Construct TelstateDataSource from URL (RDB file / REDIS server)."""
         url_parts = urlparse.urlparse(url, scheme='file')
         kwargs = dict(urlparse.parse_qsl(url_parts.query))
@@ -283,16 +282,29 @@ class TelstateDataSource(DataSource):
                 telstate.load_from_file(url_parts.path)
             except OSError as err:
                 raise DataSourceNotFound(str(err))
-            return cls(view_capture_stream(telstate, **kwargs), chunk_store,
-                       source_name)
+            telstate = view_capture_stream(telstate, **kwargs)
+            # Look for adjacent data directory (presumably containing NPY files)
+            if chunk_store == 'auto':
+                store_path = os.path.dirname(os.path.dirname(url_parts.path))
+                try:
+                    data_path = os.path.join(store_path, telstate['chunk_name'])
+                except KeyError:
+                    chunk_store = None
+            if chunk_store == 'auto' and os.path.isdir(data_path):
+                chunk_store = NpyFileChunkStore(store_path)
+            else:
+                chunk_store = S3ChunkStore.from_url(telstate['s3_endpoint_url'])
+            return cls(telstate, chunk_store, source_name)
         elif url_parts.scheme == 'redis':
             # Redis server
             try:
                 telstate = katsdptelstate.TelescopeState(url_parts.netloc, db)
             except (redis.ConnectionError, redis.TimeoutError) as e:
                 raise DataSourceNotFound(str(e))
-            return cls(view_capture_stream(telstate, **kwargs), chunk_store,
-                       source_name)
+            telstate = view_capture_stream(telstate, **kwargs)
+            if chunk_store == 'auto':
+                chunk_store = S3ChunkStore.from_url(telstate['s3_endpoint_url'])
+            return cls(telstate, chunk_store, source_name)
 
 
 def open_data_source(url, *args, **kwargs):
