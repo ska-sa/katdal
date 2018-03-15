@@ -292,7 +292,7 @@ class TelstateDataSource(DataSource):
                 except KeyError:
                     chunk_store = None
             if chunk_store == 'auto' and os.path.isdir(data_path):
-                chunk_store = NpyFileChunkStore(os.path.normpath(store_path))
+                chunk_store = NpyFileChunkStore(store_path)
             else:
                 chunk_store = S3ChunkStore.from_url(telstate['s3_endpoint_url'])
             return cls(telstate, chunk_store, source_name)
