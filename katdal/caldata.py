@@ -236,9 +236,17 @@ def _cal_setup(katdal_obj):
     katdal_obj._cal_ant_ordering = _get_cal_antlist(katdal_obj)
     katdal_obj._data_channel_freqs = katdal_obj.channel_freqs
     katdal_obj._delay_to_phase = (-2j * np.pi * katdal_obj._data_channel_freqs)[np.newaxis, :, np.newaxis, np.newaxis]
-    katdal_obj._cp_lookup = [[(katdal_obj._cal_ant_ordering.index(prod[0][:-1]), katdal_obj._cal_pol_ordering[prod[0][-1]],),
-                              (katdal_obj._cal_ant_ordering.index(prod[1][:-1]), katdal_obj._cal_pol_ordering[prod[1][-1]],)]
+    # baselines from the data files are given as <ant><pol>
+    # for indexing this has to be swapped to <pol><ant>
+    katdal_obj._cp_lookup = [[(katdal_obj._cal_pol_ordering[prod[0][-1]], katdal_obj._cal_ant_ordering.index(prod[0][:-1]),),
+                              (katdal_obj._cal_pol_ordering[prod[1][-1]], katdal_obj._cal_ant_ordering.index(prod[1][:-1]),)]
                              for prod in katdal_obj.corr_products]
+    # katdal_obj._cp_lookup = [[(katdal_obj._cal_ant_ordering.index(prod[0][:-1]), katdal_obj._cal_pol_ordering[prod[0][-1]],),
+    #                           (katdal_obj._cal_ant_ordering.index(prod[1][:-1]), katdal_obj._cal_pol_ordering[prod[1][-1]],)]
+    #                          for prod in katdal_obj.corr_products]
+    katdal_obj._cp_lookup = np.asarray(katdal_obj._cp_lookup, dtype=int)
+    # katdal_obj._cp_lookup[:, :,[0, 1]] = katdal_obj._cp_lookup[:, :,[1, 0]]
+
     for key in katdal_obj._cal_solns.keys():
         try:
             katdal_obj._cal_solns[key]['interp'] = _get_cal_product(
@@ -275,25 +283,24 @@ def applycal(katdal_obj):
         # Interpolate the calibration solutions for the selected range
         for key in katdal_obj._cal_solns.keys():
             if katdal_obj._cal_solns[key]['interp'] is not None:
+                # interpolate over values, or repeat single value
                 if hasattr(katdal_obj._cal_solns[key]['interp'], '__call__'):
-                    katdal_obj._cal_solns[key]['solns'] = katdal_obj._cal_solns[key]['interp'](timestamps)
+                    solns = katdal_obj._cal_solns[key]['interp'](timestamps)
                 else:
-                    katdal_obj._cal_solns[key]['solns'] = np.repeat(katdal_obj._cal_solns[key]['interp'],
-                                                                    timestamps.size,
-                                                                    axis=0)
+                    solns = np.repeat(katdal_obj._cal_solns[key]['interp'],
+                                      timestamps.size,
+                                      axis=0)
+                if key == 'K':
+                    solns = np.exp(solns * katdal_obj._delay_to_phase)
+                # optimise shape for calibration calculation
+                katdal_obj._cal_solns[key]['solns'] = np.rollaxis(np.rollaxis(solns, 3, 0), 3, 0)
+                # katdal_obj._cal_solns[key]['solns'] = solns
 
-        if katdal_obj._cal_solns['K']['solns'] is not None:
-            katdal_obj._cal_solns['K']['solns'] = np.exp(katdal_obj._cal_solns['K']['solns'] * katdal_obj._delay_to_phase)
-
-    def _cal_calc(katdal_obj):
+    def _cal_calc1(katdal_obj):
         import time
 
-        etime = time.time()
         _cal_setup(katdal_obj)
-        print 'cal_setup time', time.time()-etime
-        etime = time.time()
         _cal_interp(katdal_obj.timestamps)
-        print 'cal_interp time', time.time()-etime
 
         _bls_len = katdal_obj._corrprod_keep.sum()
         _chan_len = katdal_obj._freq_keep.sum()
@@ -308,33 +315,71 @@ def applycal(katdal_obj):
 
         # calibrate visibilities
         etime = time.time()
-        katdal_obj._cal_coeffs = np.zeros((_time_len, _chan_len, _bls_len), dtype=complex)
-        print 'zero matrix', time.time()-etime
+        katdal_obj._cal_coeffs = np.ones((_time_len, _chan_len, _bls_len), dtype=complex)
+        K = katdal_obj._cal_solns['K']['solns']
+        B = katdal_obj._cal_solns['B']['solns']
+        G = katdal_obj._cal_solns['G']['solns']
+        _cal_shape = [_time_len, _chan_len]
+        # ---
+        stime = time.time()
         for idx, cp in enumerate(katdal_obj._cp_lookup):
-            stime = time.time()
-            print idx, cp
-            _cal_shape = [_time_len, _chan_len]
-            dummy = np.zeros(_cal_shape, dtype=complex)
-            default = np.ones(_cal_shape, dtype=complex)
+            # ((X*K)/B)/G
+            # K
+            scale = K[cp[0][0], cp[0][1], :, :] * K[cp[1][0], cp[1][1], :, :].conj()
+            katdal_obj._cal_coeffs[:, :, idx] *= scale
+            # B
+            scale = B[cp[0][0], cp[0][1], :, :] * B[cp[1][0], cp[1][1], :, :].conj()
+            katdal_obj._cal_coeffs[:, :, idx] /= scale
+            # G
+            scale = G[cp[0][0], cp[0][1], :, :] * G[cp[1][0], cp[1][1], :, :].conj()
+            katdal_obj._cal_coeffs[:, :, idx]  *= np.reciprocal(scale)
+        print 'total time', time.time()-stime
+        print 'cal_coeffs', katdal_obj._cal_coeffs.shape
+
+        return katdal_obj
+
+
+    def _cal_calc2(katdal_obj):
+        import time
+
+        _cal_setup(katdal_obj)
+        _cal_interp(katdal_obj.timestamps)
+
+        _bls_len = katdal_obj._corrprod_keep.sum()
+        _chan_len = katdal_obj._freq_keep.sum()
+        _time_len = katdal_obj._time_keep.sum()
+
+        if _bls_len != len(katdal_obj._cp_lookup):
+            raise ValueError('Shape mismatch between correlation products.')
+        if _chan_len != len(katdal_obj._data_channel_freqs):
+            raise ValueError('Shape mismatch in frequency axis.')
+        if _time_len != len(katdal_obj.timestamps):
+            raise ValueError('Shape mismatch in timestamps.')
+
+        # calibrate visibilities
+        katdal_obj._cal_coeffs = np.zeros((_time_len, _chan_len, _bls_len), dtype=complex)
+        _cal_shape = [_time_len, _chan_len]
+        dummy = np.zeros(_cal_shape, dtype=complex)
+        default = np.ones(_cal_shape, dtype=complex)
+        # ---
+
+        stime = time.time()
+        for idx, cp in enumerate(katdal_obj._cp_lookup):
             caldata = np.empty(len(katdal_obj._cal_solns.keys()), dtype=object)
-            print '\tsetting up dummies', time.time()-stime
             # apply cal solutions in sequence: K, B, G
             for seq, caltype in enumerate(['K', 'B', 'G']):
-                print '\t', seq, caltype,
                 X = katdal_obj._cal_solns[caltype]['solns']
                 if X is None:
                     print ('TelescopeState does not have %s calibration solutions' % seq)
                     scale = default
                 else:
-                    scale = dummy + X[:, :, cp[0][1], cp[0][0]] * X[:, :, cp[1][1], cp[1][0]].conj()
+                    scale = dummy + X[cp[0][0], cp[0][1], :, :] * X[cp[1][0], cp[1][1], :, :].conj()
                 caldata[seq] = scale
-                print 'factors cal', time.time()-stime
             caldata = np.array([(x,) for x in caldata]).squeeze()
             # ((X*K)/B)/G
             katdal_obj._cal_coeffs[:, :, idx] = (caldata[0, ...] / caldata[1, ...]) * np.reciprocal(caldata[2, ...])
-            print idx, 'time per bl', time.time()-stime
-            print 'total time now', time.time()-etime
-        print 'total time', time.time()-etime
+        print 'total time', time.time()-stime
+        print 'cal_coeffs', katdal_obj._cal_coeffs.shape
         return katdal_obj
 
 
@@ -342,7 +387,8 @@ def applycal(katdal_obj):
         # if no calibration coefficient matrix exist, calculate one
         if katdal_obj._cal_coeffs is None:
             print 'Adding cal'
-            _cal_calc(katdal_obj)
+            _cal_calc1(katdal_obj)
+            # _cal_calc2(katdal_obj)
 
         # after a select the visibilities will change, recalculate
         _bls_len = katdal_obj._corrprod_keep.sum()
