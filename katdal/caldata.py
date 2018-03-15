@@ -241,11 +241,7 @@ def _cal_setup(katdal_obj):
     katdal_obj._cp_lookup = [[(katdal_obj._cal_pol_ordering[prod[0][-1]], katdal_obj._cal_ant_ordering.index(prod[0][:-1]),),
                               (katdal_obj._cal_pol_ordering[prod[1][-1]], katdal_obj._cal_ant_ordering.index(prod[1][:-1]),)]
                              for prod in katdal_obj.corr_products]
-    # katdal_obj._cp_lookup = [[(katdal_obj._cal_ant_ordering.index(prod[0][:-1]), katdal_obj._cal_pol_ordering[prod[0][-1]],),
-    #                           (katdal_obj._cal_ant_ordering.index(prod[1][:-1]), katdal_obj._cal_pol_ordering[prod[1][-1]],)]
-    #                          for prod in katdal_obj.corr_products]
     katdal_obj._cp_lookup = np.asarray(katdal_obj._cp_lookup, dtype=int)
-    # katdal_obj._cp_lookup[:, :,[0, 1]] = katdal_obj._cp_lookup[:, :,[1, 0]]
 
     for key in katdal_obj._cal_solns.keys():
         try:
@@ -294,10 +290,8 @@ def applycal(katdal_obj):
                     solns = np.exp(solns * katdal_obj._delay_to_phase)
                 # optimise shape for calibration calculation
                 katdal_obj._cal_solns[key]['solns'] = np.rollaxis(np.rollaxis(solns, 3, 0), 3, 0)
-                # katdal_obj._cal_solns[key]['solns'] = solns
 
     def _cal_calc(katdal_obj):
-        import time
 
         _cal_setup(katdal_obj)
         _cal_interp(katdal_obj.timestamps)
@@ -314,35 +308,11 @@ def applycal(katdal_obj):
             raise ValueError('Shape mismatch in timestamps.')
 
         # calibrate visibilities
-        # katdal_obj._cal_coeffs = np.ones((_time_len, _chan_len, _bls_len), dtype=complex)
-        katdal_obj._cal_coeffs = np.ones((_bls_len, _time_len, _chan_len), dtype=complex)
+        katdal_obj._cal_coeffs = np.ones((_time_len, _chan_len, _bls_len), dtype=complex)
         K = katdal_obj._cal_solns['K']['solns']
         B = katdal_obj._cal_solns['B']['solns']
         G = katdal_obj._cal_solns['G']['solns']
-        _cal_shape = [_time_len, _chan_len]
 
-        stime = time.time()
-        step = len(katdal_obj._cal_ant_ordering)
-        chunk_indices =  np.arange(len(katdal_obj._cp_lookup))[::step]
-        for i in chunk_indices:
-            chunk = katdal_obj._cp_lookup[i:i+step]
-            # K
-            Kscale = K[tuple(chunk[:,0].T)] * K[tuple(chunk[:,1].T)].conj()
-            # B
-            Bscale = B[tuple(chunk[:,0].T)] * B[tuple(chunk[:,1].T)].conj()
-            # G
-            Gscale = G[tuple(chunk[:,0].T)] * G[tuple(chunk[:,1].T)].conj()
-            # ((X*K)/B)/G
-            # coeffs = Kscale / Bscale * np.reciprocal(Gscale)
-            katdal_obj._cal_coeffs[i:i+step, :, :] = Kscale / Bscale * np.reciprocal(Gscale)
-        katdal_obj._cal_coeffs = np.rollaxis(katdal_obj._cal_coeffs, 0, 3)
-        print 'total time', time.time()-stime
-        print 'cal_coeffs', katdal_obj._cal_coeffs.shape
-        return katdal_obj
-
-
-
-        stime = time.time()
         for idx, cp in enumerate(katdal_obj._cp_lookup):
             # ((X*K)/B)/G
             # K
@@ -354,8 +324,6 @@ def applycal(katdal_obj):
             # G
             scale = G[cp[0][0], cp[0][1], :, :] * G[cp[1][0], cp[1][1], :, :].conj()
             katdal_obj._cal_coeffs[:, :, idx]  *= np.reciprocal(scale)
-        print 'total time', time.time()-stime
-        print 'cal_coeffs', katdal_obj._cal_coeffs.shape
 
         return katdal_obj
 
