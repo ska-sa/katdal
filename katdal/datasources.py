@@ -285,8 +285,7 @@ class TelstateDataSource(DataSource):
             telstate = view_capture_stream(telstate, **kwargs)
             # Look for adjacent data directory (presumably containing NPY files)
             if chunk_store == 'auto':
-                capture_block_path = os.path.dirname(url_parts.path)
-                store_path = os.path.join(capture_block_path, '..')
+                store_path = os.path.dirname(os.path.dirname(url_parts.path))
                 try:
                     data_path = os.path.join(store_path, telstate['chunk_name'])
                 except KeyError:
