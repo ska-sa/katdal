@@ -78,8 +78,10 @@ def interpolate_nans_1d(y, *args, **kwargs):
 
     # interpolate across nans (but you will loose the first and last values)
     nan_locs = np.isnan(y)
+    # print np.nonzero(nan_locs), y.size,
     nan_perc = float(nan_locs.sum()) / float(y.size)
-    nan_thres = 0.49
+    # print nan_perc
+    nan_thres = 1.  # no threshold
     if nan_perc > nan_thres:
         y[:] = np.nan
     else:
