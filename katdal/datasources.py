@@ -290,10 +290,11 @@ class TelstateDataSource(DataSource):
                     data_path = os.path.join(store_path, telstate['chunk_name'])
                 except KeyError:
                     chunk_store = None
-            if chunk_store == 'auto' and os.path.isdir(data_path):
-                chunk_store = NpyFileChunkStore(store_path)
-            else:
-                chunk_store = S3ChunkStore.from_url(telstate['s3_endpoint_url'])
+                else:
+                    if os.path.isdir(data_path):
+                        chunk_store = NpyFileChunkStore(store_path)
+                    else:
+                        chunk_store = S3ChunkStore.from_url(telstate['s3_endpoint_url'])
             return cls(telstate, chunk_store, source_name)
         elif url_parts.scheme == 'redis':
             # Redis server
