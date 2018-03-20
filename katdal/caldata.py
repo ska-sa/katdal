@@ -20,6 +20,7 @@ Hold, interpolate and apply cal solutions from a katdal object.
 Code largely pilfered from the katdal_loader in katsdpimager, but using a katdal object
 rather than a filename, so that things are a bit more portable. """
 
+import dask.array as da
 import numpy as np
 import scipy.interpolate
 
@@ -279,8 +280,8 @@ def applycal(katdal_obj):
                              'B': initcal('zero'),
                              'G': initcal('linear'),
                              }
-    katdal_obj._cal_coeffs = None
-    katdal_obj._wght_coeffs = None
+    katdal_obj._cal_coeffs = []
+    katdal_obj._wght_coeffs = []
 
     def _cal_interp(timestamps):
         """Interpolate values between calculated timestamps"""
@@ -316,25 +317,28 @@ def applycal(katdal_obj):
             raise ValueError('Shape mismatch in timestamps.')
 
         # calibrate visibilities
-        katdal_obj._cal_coeffs = np.ones((_time_len, _chan_len, _bls_len), dtype=complex)
-        katdal_obj._wght_coeffs = np.ones((_time_len, _chan_len, _bls_len), dtype=complex)
         K = katdal_obj._cal_solns['K']['solns']
         B = katdal_obj._cal_solns['B']['solns']
         G = katdal_obj._cal_solns['G']['solns']
 
         # ((X*K)/B)/G
         for idx, cp in enumerate(katdal_obj._cp_lookup):
+            scale_coeff = None
+            scale_wght = None
             # K
-            katdal_obj._cal_coeffs[:, :, idx] *= (K[cp[0][0], cp[0][1], :, :] * K[cp[1][0], cp[1][1], :, :].conj())
+            scale_coeff = K[cp[0][0], cp[0][1], :, :] * K[cp[1][0], cp[1][1], :, :].conj()
             # B
-            scale = (B[cp[0][0], cp[0][1], :, :] * B[cp[1][0], cp[1][1], :, :].conj())
-            katdal_obj._cal_coeffs[:, :, idx] /= scale
-            katdal_obj._wght_coeffs[:, :, idx] *= (scale.real**2 + scale.imag**2)
+            scale = B[cp[0][0], cp[0][1], :, :] * B[cp[1][0], cp[1][1], :, :].conj()
+            scale_coeff /= scale
+            scale_wght = (scale.real**2 + scale.imag**2)
             # G
-            scale = (G[cp[0][0], cp[0][1], :, :] * G[cp[1][0], cp[1][1], :, :].conj())
-            katdal_obj._cal_coeffs[:, :, idx] *= np.reciprocal(scale)
-            katdal_obj._wght_coeffs[:, :, idx] *= (scale.real**2 + scale.imag**2)
-
+            scale = G[cp[0][0], cp[0][1], :, :] * G[cp[1][0], cp[1][1], :, :].conj()
+            scale_coeff *= np.reciprocal(scale)
+            scale_wght *= (scale.real**2 + scale.imag**2)
+            katdal_obj._cal_coeffs.append(scale_coeff)
+            katdal_obj._wght_coeffs.append(scale_wght)
+        katdal_obj._cal_coeffs = da.stack(katdal_obj._cal_coeffs, axis=2)
+        katdal_obj._wght_coeffs = da.stack(katdal_obj._wght_coeffs, axis=2)
         return katdal_obj
 
     def __same_size__(katdal_obj):
@@ -348,26 +352,28 @@ def applycal(katdal_obj):
 
     def _cal_vis(vis, keep):
         # if no calibration coefficient matrix exist, calculate one
-        if katdal_obj._cal_coeffs is None:
+        if not katdal_obj._cal_coeffs:
             _cal_calc(katdal_obj)
 
         # after a select the visibilities will change, recalculate
         if not __same_size__(katdal_obj):
             _cal_calc(katdal_obj)
 
+        vis = da.from_array(vis, chunks=(-1, -1, 1))
         vis *= katdal_obj._cal_coeffs[keep]
         return vis
     katdal_obj.cal_vis = LazyTransform('cal_vis', _cal_vis)
 
     def _cal_weights(weights, keep):
         # if no weights coefficient matrix exist, calculate one
-        if katdal_obj._wght_coeffs is None:
+        if not katdal_obj._wght_coeffs:
             _cal_calc(katdal_obj)
 
         # after a select the weights will change, recalculate
         if not __same_size__(katdal_obj):
             _cal_calc(katdal_obj)
 
+        weights = da.from_array(weights, chunks=(-1, -1, 1))
         weights *= katdal_obj._wght_coeffs[keep]
         return weights
     katdal_obj.cal_weights = LazyTransform('cal_weights', _cal_weights)
