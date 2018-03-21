@@ -283,6 +283,9 @@ def applycal(katdal_obj):
     katdal_obj._cal_coeffs = []
     katdal_obj._wght_coeffs = []
 
+    ts_chunk_size = 128
+    ch_chunk_size = -1
+
     def _cal_interp(timestamps):
         """Interpolate values between calculated timestamps"""
         # Interpolate the calibration solutions for the selected range
@@ -298,7 +301,9 @@ def applycal(katdal_obj):
                 if key == 'K':
                     solns = np.exp(solns * katdal_obj._delay_to_phase)
                 # optimise shape for calibration calculation
-                katdal_obj._cal_solns[key]['solns'] = np.rollaxis(np.rollaxis(solns, 3, 0), 3, 0)
+                katdal_obj._cal_solns[key]['solns'] = da.from_array(np.rollaxis(np.rollaxis(solns, 3, 0), 3, 0),
+                                                                    chunks=(1, 1, ts_chunk_size, ch_chunk_size),
+                                                                    )
 
     def _cal_calc(katdal_obj):
         """Calculate calibration and weight coefficients"""
@@ -337,6 +342,7 @@ def applycal(katdal_obj):
             scale_wght *= (scale.real**2 + scale.imag**2)
             katdal_obj._cal_coeffs.append(scale_coeff)
             katdal_obj._wght_coeffs.append(scale_wght)
+
         katdal_obj._cal_coeffs = da.stack(katdal_obj._cal_coeffs, axis=2)
         katdal_obj._wght_coeffs = da.stack(katdal_obj._wght_coeffs, axis=2)
         return katdal_obj
@@ -359,7 +365,7 @@ def applycal(katdal_obj):
         if not __same_size__(katdal_obj):
             _cal_calc(katdal_obj)
 
-        vis = da.from_array(vis, chunks=(-1, -1, 1))
+        vis = da.from_array(vis, chunks=(ts_chunk_size, ch_chunk_size, 1))
         vis *= katdal_obj._cal_coeffs[keep]
         return vis
     katdal_obj.cal_vis = LazyTransform('cal_vis', _cal_vis)
