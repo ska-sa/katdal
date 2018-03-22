@@ -79,9 +79,7 @@ def interpolate_nans_1d(y, *args, **kwargs):
 
     # interpolate across nans (but you will loose the first and last values)
     nan_locs = np.isnan(y)
-    # print np.nonzero(nan_locs), y.size,
     nan_perc = float(nan_locs.sum()) / float(y.size)
-    # print nan_perc
     nan_thres = 1.  # no threshold
     if nan_perc > nan_thres:
         y[:] = np.nan
@@ -251,7 +249,7 @@ def _cal_setup(katdal_obj):
                               (katdal_obj._cal_pol_ordering[prod[1][-1]], katdal_obj._cal_ant_ordering.index(prod[1][:-1]),)]
                              for prod in katdal_obj.corr_products]
     katdal_obj._cp_lookup = np.asarray(katdal_obj._cp_lookup, dtype=int)
-
+    # interpolation function over available solutions
     for key in katdal_obj._cal_solns.keys():
         try:
             katdal_obj._cal_solns[key]['interp'] = _get_cal_product('cal_product_' + key,
@@ -280,6 +278,7 @@ def applycal(katdal_obj):
                              'B': initcal('zero'),
                              'G': initcal('linear'),
                              }
+
     katdal_obj._cal_coeffs = []
     katdal_obj._wght_coeffs = []
 
@@ -292,6 +291,7 @@ def applycal(katdal_obj):
         for key in katdal_obj._cal_solns.keys():
             if katdal_obj._cal_solns[key]['interp'] is not None:
                 # interpolate over values, or repeat single value
+                # expected size <ts><ch><pol><ant>
                 if hasattr(katdal_obj._cal_solns[key]['interp'], '__call__'):
                     solns = katdal_obj._cal_solns[key]['interp'](timestamps)
                 else:
@@ -300,13 +300,15 @@ def applycal(katdal_obj):
                                       axis=0)
                 if key == 'K':
                     solns = np.exp(solns * katdal_obj._delay_to_phase)
-                # optimise shape for calibration calculation
-                katdal_obj._cal_solns[key]['solns'] = da.from_array(np.rollaxis(np.rollaxis(solns, 3, 0), 3, 0),
-                                                                    chunks=(1, 1, ts_chunk_size, ch_chunk_size),
+                katdal_obj._cal_solns[key]['solns'] = da.from_array(solns,
+                                                                    chunks=(ts_chunk_size, ch_chunk_size, 1, 1),
                                                                     )
 
     def _cal_calc(katdal_obj):
         """Calculate calibration and weight coefficients"""
+        katdal_obj._cal_coeffs = []
+        katdal_obj._wght_coeffs = []
+
         _cal_setup(katdal_obj)
         _cal_interp(katdal_obj.timestamps)
 
@@ -331,18 +333,19 @@ def applycal(katdal_obj):
             scale_coeff = None
             scale_wght = None
             # K
-            scale_coeff = K[cp[0][0], cp[0][1], :, :] * K[cp[1][0], cp[1][1], :, :].conj()
+            scale_coeff = K[:, :, cp[0][0], cp[0][1]] * K[:, :, cp[1][0], cp[1][1]].conj()
             # B
-            scale = B[cp[0][0], cp[0][1], :, :] * B[cp[1][0], cp[1][1], :, :].conj()
+            scale = B[:, :, cp[0][0], cp[0][1]] * B[:, :, cp[1][0], cp[1][1]].conj()
             scale_coeff /= scale
             scale_wght = (scale.real**2 + scale.imag**2)
             # G
-            scale = G[cp[0][0], cp[0][1], :, :] * G[cp[1][0], cp[1][1], :, :].conj()
+            scale = G[:, :, cp[0][0], cp[0][1]] * G[:, :, cp[1][0], cp[1][1]].conj()
             scale_coeff *= np.reciprocal(scale)
             scale_wght *= (scale.real**2 + scale.imag**2)
             katdal_obj._cal_coeffs.append(scale_coeff)
             katdal_obj._wght_coeffs.append(scale_wght)
 
+        # coefficient matrices <ts><ch><bl>
         katdal_obj._cal_coeffs = da.stack(katdal_obj._cal_coeffs, axis=2)
         katdal_obj._wght_coeffs = da.stack(katdal_obj._wght_coeffs, axis=2)
         return katdal_obj
@@ -358,13 +361,14 @@ def applycal(katdal_obj):
 
     def _cal_vis(vis, keep):
         # if no calibration coefficient matrix exist, calculate one
-        if not katdal_obj._cal_coeffs:
+        if len(katdal_obj._cal_coeffs) < 1:
             _cal_calc(katdal_obj)
 
         # after a select the visibilities will change, recalculate
         if not __same_size__(katdal_obj):
             _cal_calc(katdal_obj)
 
+        # visibilities <ts><ch><bl>
         vis = da.from_array(vis, chunks=(ts_chunk_size, ch_chunk_size, 1))
         vis *= katdal_obj._cal_coeffs[keep]
         return vis
@@ -372,14 +376,15 @@ def applycal(katdal_obj):
 
     def _cal_weights(weights, keep):
         # if no weights coefficient matrix exist, calculate one
-        if not katdal_obj._wght_coeffs:
+        if len(katdal_obj._wght_coeffs) < 1:
             _cal_calc(katdal_obj)
 
         # after a select the weights will change, recalculate
         if not __same_size__(katdal_obj):
             _cal_calc(katdal_obj)
 
-        weights = da.from_array(weights, chunks=(-1, -1, 1))
+        # weights <ts><ch><bl>
+        weights = da.from_array(weights, chunks=(ts_chunk_size, ch_chunk_size, 1))
         weights *= katdal_obj._wght_coeffs[keep]
         return weights
     katdal_obj.cal_weights = LazyTransform('cal_weights', _cal_weights)
