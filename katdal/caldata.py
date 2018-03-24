@@ -79,15 +79,10 @@ def interpolate_nans_1d(y, *args, **kwargs):
 
     # interpolate across nans (but you will loose the first and last values)
     nan_locs = np.isnan(y)
-    nan_perc = float(nan_locs.sum()) / float(y.size)
-    nan_thres = 1.  # no threshold
-    if nan_perc > nan_thres:
-        y[:] = np.nan
-    else:
-        X = np.nonzero(~nan_locs)[0]
-        Y = y[X]
-        f = ComplexInterpolate1D(X, Y, *args, **kwargs)
-        y = f(range(len(y)))
+    X = np.nonzero(~nan_locs)[0]
+    Y = y[X]
+    f = ComplexInterpolate1D(X, Y, *args, **kwargs)
+    y = f(range(len(y)))
     return y
 
 
