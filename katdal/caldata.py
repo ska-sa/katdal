@@ -345,23 +345,10 @@ def applycal(katdal_obj):
         katdal_obj._wght_coeffs = da.stack(katdal_obj._wght_coeffs, axis=2)
         return katdal_obj
 
-    def __same_size__(katdal_obj):
-        _bls_len = katdal_obj._corrprod_keep.sum()
-        _chan_len = katdal_obj._freq_keep.sum()
-        _time_len = katdal_obj._time_keep.sum()
-        vis_size = _time_len * _chan_len * _bls_len
-        if vis_size != katdal_obj._cal_coeffs.size:
-            return False
-        return True
-
     def _cal_vis(vis, keep):
-        # if no calibration coefficient matrix exist, calculate one
-        if len(katdal_obj._cal_coeffs) < 1:
-            _cal_calc(katdal_obj)
-
-        # after a select the visibilities will change, recalculate
-        if not __same_size__(katdal_obj):
-            _cal_calc(katdal_obj)
+        # Not possible to know if this is a new select or not
+        # As default, recalculate calibration coefficients
+        _cal_calc(katdal_obj)
 
         # visibilities <ts><ch><bl>
         vis = da.from_array(vis, chunks=(ts_chunk_size, ch_chunk_size, 1))
@@ -370,17 +357,23 @@ def applycal(katdal_obj):
     katdal_obj.cal_vis = LazyTransform('cal_vis', _cal_vis)
 
     def _cal_weights(weights, keep):
+        # Assume that the weight scaling will have happened if visibilities
+        # calibrated. It is a single function, else calculate for the first
+        # time.
+        # This is to prevent recalculation of weights after visibilities.
+
         # if no weights coefficient matrix exist, calculate one
         if len(katdal_obj._wght_coeffs) < 1:
-            _cal_calc(katdal_obj)
-
-        # after a select the weights will change, recalculate
-        if not __same_size__(katdal_obj):
             _cal_calc(katdal_obj)
 
         # weights <ts><ch><bl>
         weights = da.from_array(weights, chunks=(ts_chunk_size, ch_chunk_size, 1))
         weights *= katdal_obj._wght_coeffs[keep]
+
+        # to ensure scale weights will be recalculated if visibilities not
+        # used
+        katdal_obj._wght_coeffs = []
+
         return weights
     katdal_obj.cal_weights = LazyTransform('cal_weights', _cal_weights)
 
