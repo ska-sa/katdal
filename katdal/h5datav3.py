@@ -586,9 +586,7 @@ class H5DataV3(DataSet):
         self.select(spw=0, subarray=0, ants=obs_ants)
 
         # ------ Setup calibration ordering ------
-        self.calibrated = False
-        if 'calibrate' in kwargs.keys():
-            self.calibrated = kwargs['calibrate']
+        self.calibrated = kwargs.pop('calibrate', False)
         if self.calibrated:
             applycal(self)
 
@@ -948,7 +946,7 @@ class H5DataV3(DataSet):
         ----------
         dataset : :class:`h5py.Dataset` object or equivalent
             Underlying vis-like dataset on which lazy indexing will be done
-        extractor : None , list or function, signature ``data = f(data, keep)``, optional
+        extractor : None, list or function, signature ``data = f(data, keep)``, optional
             Transform to apply to data (`keep` is user-provided 2nd-stage index)
             (None means no transform is applied)
         dims : integer, optional
