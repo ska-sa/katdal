@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2011-2016, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2017-2018, National Research Foundation (Square Kilometre Array)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -66,14 +66,10 @@ def interpolate_nans_1d(y, *args, **kwargs):
 
     When interpolating the per channel timeseries, the channels with more
     nan values will deviate from the neighboring channels appearing as spikes
-    when the mean over time is plot.
-
-    A threshold of 50% is selected to lessen this, but care must be taken
-    since overaggressive threshold will destroy the data used in calibration
-    resulting in only nan values.
+    when the mean over time is plotted.
     """
     if np.isnan(y).all():
-        return y  # nothing to do , all nan values
+        return y  # nothing to do, all nan values
     if np.isfinite(y).all():
         return y  # nothing to do, all values valid
 
@@ -86,33 +82,28 @@ def interpolate_nans_1d(y, *args, **kwargs):
     return y
 
 
-def _get_cal_attr(key, katdal_obj, sensor=True):
-    """Load a fixed attribute from file.
-    If the attribute is presented as a sensor, it is checked to ensure that
-    all the values are the same.
-    Raises
-    ------
-    CalibrationReadError
-        if there was a problem reading the value from file (sensor does not exist,
-        does not unpickle correctly, inconsistent values etc)
+def _get_cal_sensor(key, katdal_obj):
+    """Load a calibrator solution from sensors.
     """
-    try:
-        value = katdal_obj.file['TelescopeState/{}'.format(key)]['value']
-        if len(value) == 0:
-            raise ValueError('empty sensor')
-        value = [pickle.loads(x) for x in value]
-    except (NameError, SyntaxError):
-        raise
-    except Exception as e:
-        raise CalibrationReadError('Could not read {}: {}'.format(key, e))
-
-    if not sensor:
-        timestamps = katdal_obj.file['TelescopeState/{}'.format(key)]['timestamp']
-        return timestamps, value
-
-    if not all(np.array_equal(value[0], x) for x in value):
-        raise CalibrationReadError('Could not read {}: inconsistent values'.format(key))
-    return value[0]
+    values = []
+    timestamps = []
+    for sensor in katdal_obj.file['TelescopeState'].keys():
+        if key in sensor:
+            value = katdal_obj.file['TelescopeState/{}'.format(sensor)]['value']
+            timestamp = katdal_obj.file['TelescopeState/{}'.format(sensor)]['timestamp']
+            if len(value) == 0:
+                raise ValueError('empty sensor')
+            value = [pickle.loads(x) for x in value]
+            try:
+                values = np.vstack((values, value))
+                timestamps = np.vstack((timestamps, timestamp))
+            except ValueError:
+                values = np.asarray(value)
+                timestamps = np.asarray(timestamp)
+    # get dimensions in all cases to agree
+    if timestamps.size > 1:
+        timestamps = timestamps.squeeze()
+    return timestamps, values
 
 
 def _get_cal_antlist(katdal_obj):
@@ -122,7 +113,9 @@ def _get_cal_antlist(katdal_obj):
     extended to allow for an antenna list that doesn't match by permuting
     the calibration solutions.
     """
-    cal_antlist = _get_cal_attr('cal_antlist', katdal_obj)
+    cal_antlist = katdal_obj._get_telstate_attr('cal_antlist')
+    if isinstance(cal_antlist, np.ndarray):
+        cal_antlist = cal_antlist.tolist()
     if cal_antlist != [ant.name for ant in katdal_obj.ants]:
         raise CalibrationReadError('cal_antlist does not match katdal antenna list')
     return cal_antlist
@@ -136,15 +129,22 @@ def _get_cal_pol_ordering(katdal_obj):
     dict
         Keys are 'h' and 'v' and values are 0 and 1, in some order
     """
-    cal_pol_ordering = _get_cal_attr('cal_pol_ordering', katdal_obj)
+    cal_pol_ordering = katdal_obj._get_telstate_attr('cal_pol_ordering')
     try:
         cal_pol_ordering = np.array(cal_pol_ordering)
     except (NameError, SyntaxError):
         raise
     except Exception as e:
         raise CalibrationReadError(str(e))
+
     if cal_pol_ordering.shape != (4, 2):
-        raise CalibrationReadError('cal_pol_ordering does not have expected shape')
+        # assume newer telstate format
+        pol_dict = {}
+        for idx, pol in enumerate(cal_pol_ordering):
+            pol_dict[pol] = idx
+        return pol_dict
+
+    # older format needs more work
     if cal_pol_ordering[0, 0] != cal_pol_ordering[0, 1]:
         raise CalibrationReadError('cal_pol_ordering[0] is not consistent')
     if cal_pol_ordering[1, 0] != cal_pol_ordering[1, 1]:
@@ -177,13 +177,17 @@ def _get_cal_product(key, katdal_obj, **kwargs):
         solution is channel-independent, that axis will be present with
         size 1.
     """
-    timestamps, values = _get_cal_attr(key, katdal_obj, sensor=False)
-    values = np.asarray(values)
+    timestamps, values = _get_cal_sensor(key, katdal_obj)
 
+    # avoid extrapolation
     if (timestamps[-1] < katdal_obj._timestamps[0]):
-        print('All %s calibration solution ahead of observation, no overlap' % key)
+        # All calibration solution ahead of observation, use last one
+        values = values[[-1], ...]
+        timestamps = timestamps[[-1], ...]
     elif (timestamps[0] > katdal_obj._timestamps[-1]):
-        print('All %s calibration solution after observation, no overlap' % key)
+        # All calibration solution after observation, use first one
+        values = values[[0], ...]
+        timestamps = timestamps[[0], ...]
 
     if values.ndim == 3:
         # Insert a channel axis
@@ -217,7 +221,6 @@ def _get_cal_product(key, katdal_obj, **kwargs):
                                                                               )
 
     # to interpolate you need >1 timestamps, else return only the single value
-    # if values.shape[0] > 1:
     if timestamps.size > 1:
         kind = kwargs.get('kind', 'linear')  # default if none given
         if np.iscomplexobj(values) and kind not in ['zero', 'nearest']:
@@ -301,8 +304,8 @@ def applycal(katdal_obj):
 
     def _cal_calc(katdal_obj):
         """Calculate calibration and weight coefficients"""
-        katdal_obj._cal_coeffs = []
-        katdal_obj._wght_coeffs = []
+        # katdal_obj._cal_coeffs = []
+        # katdal_obj._wght_coeffs = []
 
         _cal_setup(katdal_obj)
         _cal_interp(katdal_obj.timestamps)
@@ -344,36 +347,29 @@ def applycal(katdal_obj):
         katdal_obj._cal_coeffs = da.stack(katdal_obj._cal_coeffs, axis=2)
         katdal_obj._wght_coeffs = da.stack(katdal_obj._wght_coeffs, axis=2)
         return katdal_obj
+    _cal_calc(katdal_obj)
 
     def _cal_vis(vis, keep):
-        # Not possible to know if this is a new select or not
-        # As default, recalculate calibration coefficients
-        _cal_calc(katdal_obj)
-
+        vis_coeffs = None
+        # only extract what you need from the full matrix
+        bls = np.nonzero(katdal_obj._corrprod_keep)[0]
+        chan = np.nonzero(katdal_obj._freq_keep)[0]
+        time = np.nonzero(katdal_obj._time_keep)[0]
+        vis_coeffs = katdal_obj._cal_coeffs.vindex[:, :, bls].vindex[:, :, chan].vindex[:, :, time].compute()
         # visibilities <ts><ch><bl>
-        vis = da.from_array(vis, chunks=(ts_chunk_size, ch_chunk_size, 1))
-        vis *= katdal_obj._cal_coeffs[keep]
+        vis *= vis_coeffs
         return vis
     katdal_obj.cal_vis = LazyTransform('cal_vis', _cal_vis)
 
     def _cal_weights(weights, keep):
-        # Assume that the weight scaling will have happened if visibilities
-        # calibrated. It is a single function, else calculate for the first
-        # time.
-        # This is to prevent recalculation of weights after visibilities.
-
-        # if no weights coefficient matrix exist, calculate one
-        if len(katdal_obj._wght_coeffs) < 1:
-            _cal_calc(katdal_obj)
-
+        wght_coeffs = None
+        # only extract what you need from the full matrix
+        bls = np.nonzero(katdal_obj._corrprod_keep)[0]
+        chan = np.nonzero(katdal_obj._freq_keep)[0]
+        time = np.nonzero(katdal_obj._time_keep)[0]
+        wght_coeffs = katdal_obj._wght_coeffs.vindex[:, :, bls].vindex[:, :, chan].vindex[:, :, time].compute()
         # weights <ts><ch><bl>
-        weights = da.from_array(weights, chunks=(ts_chunk_size, ch_chunk_size, 1))
-        weights *= katdal_obj._wght_coeffs[keep]
-
-        # to ensure scale weights will be recalculated if visibilities not
-        # used
-        katdal_obj._wght_coeffs = []
-
+        weights *= wght_coeffs
         return weights
     katdal_obj.cal_weights = LazyTransform('cal_weights', _cal_weights)
 
