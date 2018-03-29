@@ -24,11 +24,6 @@ import dask.array as da
 import numpy as np
 import scipy.interpolate
 
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle
-
 from .lazy_indexer import LazyTransform
 
 
@@ -89,11 +84,8 @@ def _get_cal_sensor(key, katdal_obj):
     timestamps = []
     for sensor in katdal_obj.file['TelescopeState'].keys():
         if key in sensor:
-            value = katdal_obj.file['TelescopeState/{}'.format(sensor)]['value']
-            timestamp = katdal_obj.file['TelescopeState/{}'.format(sensor)]['timestamp']
-            if len(value) == 0:
-                raise ValueError('empty sensor')
-            value = [pickle.loads(x) for x in value]
+            value = katdal_obj.sensor['TelescopeState/{}'.format(sensor)]
+            timestamp = katdal_obj.sensor.timestamps
             try:
                 values = np.vstack((values, value))
                 timestamps = np.vstack((timestamps, timestamp))
@@ -304,8 +296,6 @@ def applycal(katdal_obj):
 
     def _cal_calc(katdal_obj):
         """Calculate calibration and weight coefficients"""
-        # katdal_obj._cal_coeffs = []
-        # katdal_obj._wght_coeffs = []
 
         _cal_setup(katdal_obj)
         _cal_interp(katdal_obj.timestamps)
