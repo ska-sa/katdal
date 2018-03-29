@@ -22,9 +22,9 @@ rather than a filename, so that things are a bit more portable. """
 
 import dask.array as da
 import numpy as np
-import scipy.interpolate
 
 from .lazy_indexer import LazyTransform
+from .sensordata import _safe_linear_interp
 
 
 class CalibrationReadError(RuntimeError):
@@ -32,34 +32,60 @@ class CalibrationReadError(RuntimeError):
     pass
 
 
-class ComplexInterpolate1D(object):
-    """Interpolator that separates magnitude and phase of complex values.
-
-    The phase interpolation is done by first linearly interpolating the
-    complex values, then normalising. This is not perfect because the angular
-    velocity changes (slower at the ends and faster in the middle), but it
-    avoids the loss of amplitude that occurs without normalisation.
-
-    The parameters are the same as for :func:`scipy.interpolate.interp1d`,
-    except that fill values other than nan and "extrapolate" should not be
-    used.
-    """
-    def __init__(self, x, y, *args, **kwargs):
-        mag = np.abs(y)
-        phase = y / mag
-        self._mag = scipy.interpolate.interp1d(x, mag, *args, **kwargs)
-        self._phase = scipy.interpolate.interp1d(x, phase, *args, **kwargs)
+class SimpleInterpolate1D(object):
+    def __init__(self, x, y):
+        self._x = x
+        self._y = y
 
     def __call__(self, x):
-        mag = self._mag(x)
-        phase = self._phase(x)
+        y_re = np.empty((x.shape[0], self._y.shape[1], self._y.shape[2], self._y.shape[3]))
+        y_im = np.empty((x.shape[0], self._y.shape[1], self._y.shape[2], self._y.shape[3]))
+        # Interpolate across nans in time axis.
+        for ch_idx in range(self._y.shape[1]):
+            for pol_idx in range(self._y.shape[2]):
+                for ant_idx in range(self._y.shape[3]):
+                    y_re[:, ch_idx, pol_idx, ant_idx] = _safe_linear_interp(self._x,
+                                                                            self._y[:, ch_idx, pol_idx, ant_idx].real,
+                                                                            x)
+                    y_im[:, ch_idx, pol_idx, ant_idx] = _safe_linear_interp(self._x,
+                                                                            self._y[:, ch_idx, pol_idx, ant_idx].imag,
+                                                                            x)
+        y = y_re + y_im
+        return y
+
+
+class ComplexInterpolate1D(object):
+    def __init__(self, x, y):
+        self._x = x
+        self._y = y
+        self._mag = np.abs(y)
+        self._phase = y / self._mag
+
+    def __call__(self, x):
+        mag = np.empty((x.shape[0], self._y.shape[1], self._y.shape[2], self._y.shape[3]))
+        phase_re = np.empty((x.shape[0], self._y.shape[1], self._y.shape[2], self._y.shape[3]))
+        phase_im = np.empty((x.shape[0], self._y.shape[1], self._y.shape[2], self._y.shape[3]))
+        # Interpolate across nans in time axis.
+        for ch_idx in range(self._y.shape[1]):
+            for pol_idx in range(self._y.shape[2]):
+                for ant_idx in range(self._y.shape[3]):
+                    mag[:, ch_idx, pol_idx, ant_idx] = _safe_linear_interp(self._x,
+                                                                           self._mag[:, ch_idx, pol_idx, ant_idx],
+                                                                           x)
+                    phase_re[:, ch_idx, pol_idx, ant_idx] = _safe_linear_interp(self._x,
+                                                                                self._phase[:, ch_idx, pol_idx, ant_idx].real,
+                                                                                x)
+                    phase_im[:, ch_idx, pol_idx, ant_idx] = _safe_linear_interp(self._x,
+                                                                                self._phase[:, ch_idx, pol_idx, ant_idx].imag,
+                                                                                x)
+        phase = phase_re + phase_im
         return phase / np.abs(phase) * mag
 
 
-def interpolate_nans_1d(y, *args, **kwargs):
+def interpolate_nans_1d(y):
     """Interpolate over nans in a timeseries.
 
-    When interpolating the per channel timeseries, the channels with more
+    When interpolating the per-channel timeseries, the channels with more
     nan values will deviate from the neighboring channels appearing as spikes
     when the mean over time is plotted.
     """
@@ -68,12 +94,12 @@ def interpolate_nans_1d(y, *args, **kwargs):
     if np.isfinite(y).all():
         return y  # nothing to do, all values valid
 
-    # interpolate across nans (but you will loose the first and last values)
+    # interpolate across nans
     nan_locs = np.isnan(y)
-    X = np.nonzero(~nan_locs)[0]
-    Y = y[X]
-    f = ComplexInterpolate1D(X, Y, *args, **kwargs)
-    y = f(range(len(y)))
+    xi = np.nonzero(~nan_locs)[0]
+    yi = y[xi]
+    x = np.arange(len(y))
+    y = _safe_linear_interp(xi, yi, x)
     return y
 
 
@@ -92,7 +118,7 @@ def _get_cal_sensor(key, katdal_obj):
             except ValueError:
                 values = np.asarray(value)
                 timestamps = np.asarray(timestamp)
-    # get dimensions in all cases to agree
+    timestamps = np.reshape(timestamps, timestamps.size)
     if timestamps.size > 1:
         timestamps = timestamps.squeeze()
     return timestamps, values
@@ -152,7 +178,7 @@ def _get_cal_product(key, katdal_obj, **kwargs):
 
     If an error occurs while loading the data, a warning is printed and the
     return value is ``None``. Any keyword args are passed to
-    :func:`scipy.interpolate.interp1d` or `ComplexInterpolate1D`.
+    :func:`SimpleInterplate1D` or `ComplexInterpolate1D`.
 
     Solutions that contain non-finite values are discarded.
 
@@ -169,15 +195,16 @@ def _get_cal_product(key, katdal_obj, **kwargs):
         solution is channel-independent, that axis will be present with
         size 1.
     """
+
     timestamps, values = _get_cal_sensor(key, katdal_obj)
 
     # avoid extrapolation
     if (timestamps[-1] < katdal_obj._timestamps[0]):
-        # All calibration solution ahead of observation, use last one
+        # All calibration solutions ahead of observation, use last one
         values = values[[-1], ...]
         timestamps = timestamps[[-1], ...]
     elif (timestamps[0] > katdal_obj._timestamps[-1]):
-        # All calibration solution after observation, use first one
+        # All calibration solutions after observation, use first one
         values = values[[0], ...]
         timestamps = timestamps[[0], ...]
 
@@ -206,11 +233,7 @@ def _get_cal_product(key, katdal_obj, **kwargs):
             # Interpolate across nans in channel axis.
             for pol_idx in range(values.shape[2]):
                 for ant_idx in range(values.shape[3]):
-                    values[ts_idx, :, pol_idx, ant_idx] = interpolate_nans_1d(values[ts_idx, :, pol_idx, ant_idx],
-                                                                              kind='linear',
-                                                                              fill_value='extrapolate',
-                                                                              assume_sorted=True,
-                                                                              )
+                    values[ts_idx, :, pol_idx, ant_idx] = interpolate_nans_1d(values[ts_idx, :, pol_idx, ant_idx])
 
     # to interpolate you need >1 timestamps, else return only the single value
     if timestamps.size > 1:
@@ -218,13 +241,8 @@ def _get_cal_product(key, katdal_obj, **kwargs):
         if np.iscomplexobj(values) and kind not in ['zero', 'nearest']:
             interp = ComplexInterpolate1D
         else:
-            interp = scipy.interpolate.interp1d
-        return interp(timestamps,
-                      values,
-                      axis=0,
-                      fill_value='extrapolate',
-                      assume_sorted=True,
-                      **kwargs)
+            interp = SimpleInterpolate1D
+        return interp(timestamps, values)
     return values
 
 
@@ -299,7 +317,6 @@ def applycal(katdal_obj):
 
         _cal_setup(katdal_obj)
         _cal_interp(katdal_obj.timestamps)
-
         _bls_len = katdal_obj._corrprod_keep.sum()
         _chan_len = katdal_obj._freq_keep.sum()
         _time_len = katdal_obj._time_keep.sum()
