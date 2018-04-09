@@ -32,6 +32,11 @@ class CalibrationReadError(RuntimeError):
     pass
 
 
+class CalibrationValueError(ValueError):
+    """An error occurred in the calculation of calibration coefficients"""
+    pass
+
+
 class SimpleInterpolate1D(object):
     def __init__(self, x, y):
         self._x = x
@@ -198,6 +203,22 @@ def _get_cal_product(key, katdal_obj, **kwargs):
 
     timestamps, values = _get_cal_sensor(key, katdal_obj)
 
+    if values.ndim == 3:
+        # Insert a channel axis
+        values = values[:, np.newaxis, ...]
+
+    if values.ndim != 4:
+        raise CalibrationReadError('Calibration solutions has wrong number of dimensions')
+
+    # only use solutions with valid values, assuming matrix dimensions
+    # (ts, chan, pol, ant)
+    # - all values per antenna must be valid
+    # - all values per polarisation must be valid
+    # - some channels must be valid (you will interpolate over them later)
+    ts_mask = np.isfinite(values).all(axis=-1).all(axis=-1).any(axis=-1)
+    if (ts_mask.sum() / float(len(timestamps))) < 0.7:
+        raise CalibrationValueError('No finite solutions, not enough valid data')
+
     # avoid extrapolation
     if (timestamps[-1] < katdal_obj._timestamps[0]):
         # All calibration solutions ahead of observation, use last one
@@ -208,21 +229,6 @@ def _get_cal_product(key, katdal_obj, **kwargs):
         values = values[[0], ...]
         timestamps = timestamps[[0], ...]
 
-    if values.ndim == 3:
-        # Insert a channel axis
-        values = values[:, np.newaxis, ...]
-
-    if values.ndim != 4:
-        raise ValueError('Calibration solutions has wrong number of dimensions')
-
-    # only use solutions with valid values, assuming matrix dimensions
-    # (ts, chan, pol, ant)
-    # - all values per antenna must be valid
-    # - all values per polarisation must be valid
-    # - some channels must be valid (you will interpolate over them later)
-    ts_mask = np.isfinite(values).all(axis=-1).all(axis=-1).any(axis=-1)
-    if (ts_mask.sum() / float(len(timestamps))) < 0.7:
-        raise ValueError('no finite solutions')
     values = values[ts_mask, ...]
     timestamps = timestamps[ts_mask]
 
@@ -322,11 +328,11 @@ def applycal(katdal_obj):
         _time_len = katdal_obj._time_keep.sum()
 
         if _bls_len != len(katdal_obj._cp_lookup):
-            raise ValueError('Shape mismatch between correlation products.')
+            raise CalibrationValueError('Shape mismatch between correlation products.')
         if _chan_len != len(katdal_obj._data_channel_freqs):
-            raise ValueError('Shape mismatch in frequency axis.')
+            raise CalibrationValueError('Shape mismatch in frequency axis.')
         if _time_len != len(katdal_obj.timestamps):
-            raise ValueError('Shape mismatch in timestamps.')
+            raise CalibrationValueError('Shape mismatch in timestamps.')
 
         # calibrate visibilities
         K = katdal_obj._cal_solns['K']['solns']
