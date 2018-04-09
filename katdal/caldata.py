@@ -296,9 +296,7 @@ class _cal_setup():
                 if hasattr(self._cal_solns[key]['interp'], '__call__'):
                     solns = self._cal_solns[key]['interp'](timestamps)
                 else:
-                    solns = np.repeat(self._cal_solns[key]['interp'],
-                                      timestamps.size,
-                                      axis=0)
+                    solns = np.broadcast_to(self._cal_solns[key]['interp'], timestamps.shape)
                 if key == 'K':
                     solns = np.exp(solns * self._delay_to_phase)
                 self._cal_solns[key]['solns'] = da.from_array(solns,
