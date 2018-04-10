@@ -27,7 +27,6 @@ import shutil
 import tarfile
 import optparse
 import time
-import pickle
 
 import numpy as np
 
