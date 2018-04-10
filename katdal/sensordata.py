@@ -171,11 +171,24 @@ class RecordSensorData(SensorData):
                 len(self._data), self.dtype, id(self))
 
 
+def pickle_loads(raw):
+    """Load a pickle that might be wrapped in np.void.
+
+    The np.void wrapping is needed to pass variable-length binary strings
+    through h5py. The pickle module handles it transparently, but cPickle does
+    not.
+    """
+    if isinstance(raw, np.void):
+        return pickle.loads(raw.tostring())
+    else:
+        return pickle.loads(raw)
+
+
 def _h5_telstate_unpack(s):
     """Unpack a telstate value from its string representation."""
     try:
         # Since 2016-05-09 the HDF5 TelescopeState contains pickled values
-        return pickle.loads(s)
+        return pickle_loads(s)
     except (pickle.UnpicklingError, ValueError, EOFError):
         try:
             # Before 2016-05-09 the telstate values were str() representations

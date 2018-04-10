@@ -28,7 +28,6 @@ import shutil
 import tarfile
 import optparse
 import time
-import pickle
 
 import numpy as np
 
@@ -36,6 +35,7 @@ import katpoint
 import katdal
 from katdal import averager
 from katdal import ms_extra
+from katdal.sensordata import pickle_loads
 
 tag_to_intent = {'gaincal': 'CALIBRATE_PHASE,CALIBRATE_AMPLI',
                  'bpcal': 'CALIBRATE_BANDPASS,CALIBRATE_FLUX',
@@ -589,7 +589,7 @@ for win in range(len(h5.spectral_windows)):
             #   newer h5 files have the cal antlist as a sensor
             if 'cal_antlist' in first_h5.file['TelescopeState'].keys():
                 a0 = first_h5.file['TelescopeState']['cal_antlist'].value
-                antlist = pickle.loads(a0[0][1])
+                antlist = pickle_loads(a0[0][1])
             #   older h5 files have the cal antlist as an attribute
             elif 'cal_antlist' in first_h5.file['TelescopeState'].attrs.keys():
                 antlist = np.safe_eval(first_h5.file['TelescopeState'].attrs['cal_antlist'])
@@ -611,7 +611,7 @@ for win in range(len(h5.spectral_windows)):
                     soltimes, solvals = [], []
                     for t, s in solutions:
                         soltimes.append(t)
-                        solvals.append(pickle.loads(s))
+                        solvals.append(pickle_loads(s))
                     solvals = np.array(solvals)
 
                     # convert averaged UTC timestamps to MJD seconds.

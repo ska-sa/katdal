@@ -30,7 +30,7 @@ except ImportError:
 from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow,
                       DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target)
 from .sensordata import (SensorCache, RecordSensorData,
-                         H5TelstateSensorData)
+                         H5TelstateSensorData, pickle_loads)
 from .categorical import CategoricalData
 from .lazy_indexer import LazyIndexer, LazyTransform
 
@@ -605,7 +605,7 @@ class H5DataV3(DataSet):
             if value in no_unpickle:
                 return value
             else:
-                return pickle.loads(value)
+                return pickle_loads(value)
         except (KeyError, pickle.UnpicklingError):
             # In some cases the value is placed in a sensor instead. Return
             # the most recent value.
@@ -753,7 +753,7 @@ class H5DataV3(DataSet):
         try:
             # If <stream_name>_bls_ordering is present, it should be used in preference
             # to cbf_bls_ordering.
-            corrprods = pickle.loads(f['TelescopeState'].attrs[stream_name + '_bls_ordering'])
+            corrprods = pickle_loads(f['TelescopeState'].attrs[stream_name + '_bls_ordering'])
         except KeyError:
             # Prior to about Nov 2016, ingest would rewrite cbf_bls_ordering in
             # place.
@@ -819,7 +819,7 @@ class H5DataV3(DataSet):
             attr_name = f.attrs['capture_block_id'] + '_obs_params'
             value = f['TelescopeState'].attrs.get(attr_name)
             if value is not None:
-                obs_params = pickle.loads(value)
+                obs_params = pickle_loads(value)
         # Fall back to old obs_params location
         else:
             tm_params = tm_group['obs/params']
