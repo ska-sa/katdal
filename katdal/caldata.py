@@ -363,9 +363,14 @@ def applycal(katdal_obj):
     def _cal_vis(vis, keep):
         vis_coeffs = None
         # only extract what you need from the full matrix
-        bls = np.nonzero(katdal_obj._corrprod_keep)[0]
-        chan = np.nonzero(katdal_obj._freq_keep)[0]
-        time = np.nonzero(katdal_obj._time_keep)[0]
+        time = np.nonzero(katdal_obj._time_keep[keep[0]])[0]
+        chan = katdal_obj._freq_keep
+        bls = katdal_obj._corrprod_keep
+        if len(keep) > 1:
+            chan = katdal_obj._freq_keep[keep[1]]
+            bls = katdal_obj._corrprod_keep[keep[2]]
+        chan = np.nonzero(chan)[0]
+        bls = np.nonzero(bls)[0]
         vis_coeffs = katdal_obj.cal_coeffs.vindex[:, :, bls].vindex[:, :, chan].vindex[:, :, time].compute()
         # visibilities <ts><ch><bl>
         vis *= vis_coeffs
@@ -375,9 +380,14 @@ def applycal(katdal_obj):
     def _cal_weights(weights, keep):
         weight_coeffs = None
         # only extract what you need from the full matrix
-        bls = np.nonzero(katdal_obj._corrprod_keep)[0]
-        chan = np.nonzero(katdal_obj._freq_keep)[0]
-        time = np.nonzero(katdal_obj._time_keep)[0]
+        time = np.nonzero(katdal_obj._time_keep[keep[0]])[0]
+        chan = katdal_obj._freq_keep
+        bls = katdal_obj._corrprod_keep
+        if len(keep) > 1:
+            chan = katdal_obj._freq_keep[keep[1]]
+            bls = katdal_obj._corrprod_keep[keep[2]]
+        chan = np.nonzero(chan)[0]
+        bls = np.nonzero(bls)[0]
         weight_coeffs = katdal_obj.weight_coeffs.vindex[:, :, bls].vindex[:, :, chan].vindex[:, :, time].compute()
         # weights <ts><ch><bl>
         weights *= weight_coeffs
