@@ -26,6 +26,7 @@ import numpy as np
 
 from .sensordata import TelstateSensorData
 from .chunkstore_s3 import S3ChunkStore
+from .chunkstore_npy import NpyFileChunkStore
 
 
 logger = logging.getLogger(__name__)
@@ -138,10 +139,9 @@ class DataSource(object):
 def view_capture_stream(telstate, capture_block_id=None, stream_name=None):
     """Create telstate view based on capture block ID and stream name.
 
-    This figures out the appropriate capture block ID (the latest one with
-    obs_params) and L0 stream name (the first one with chunk_info), or use
-    the provided ones. It then constructs a view on `telstate` with at least
-    the prefixes
+    This figures out the appropriate capture block ID and L0 stream name from
+    a capture-stream specific telstate, or uses the provided ones. It then
+    constructs a view on `telstate` with at least the prefixes
 
       - <capture_block_id>_<stream_name>
       - <capture_block_id>
@@ -149,7 +149,7 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None):
 
     Parameters
     ----------
-    telstate: :class:`katsdptelstate.TelescopeState` object
+    telstate : :class:`katsdptelstate.TelescopeState` object
         Original telescope state
     capture_block_id : string, optional
         Specify capture block ID explicitly (detected otherwise)
@@ -158,7 +158,7 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None):
 
     Returns
     -------
-    telstate: :class:`katsdptelstate.TelescopeState` object
+    telstate : :class:`katsdptelstate.TelescopeState` object
         Telstate with a view that incorporates capture block, stream and combo
 
     Raises
@@ -168,43 +168,56 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None):
     """
     # Detect the capture block
     if not capture_block_id:
-        capture_blocks = []
-        if 'sdp_capture_block_id' in telstate:
-            for value_time in telstate.get_range('sdp_capture_block_id', st=0):
-                cbid = str(value_time[0])
-                if 'obs_params' in telstate.view(cbid, exclusive=True):
-                    capture_blocks.append(cbid)
-        if not capture_blocks:
-            raise ValueError('No capture block IDs found in telstate - '
+        try:
+            capture_block_id = str(telstate['capture_block_id'])
+        except KeyError:
+            raise ValueError('No capture block ID found in telstate - '
                              'please specify it manually')
-        # Pick the latest capture block
-        capture_block_id = capture_blocks[-1]
-        if len(capture_blocks) > 1:
-            logger.warning('Telstate has more than one capture block - %s - '
-                           'picking the latest', capture_blocks)
     # Detect the captured stream
     if not stream_name:
-        streams = []
-        for stream, config in telstate['sdp_config']['outputs'].items():
-            if config['type'] != 'sdp.l0':
-                continue
-            capture_stream = telstate.SEPARATOR.join((capture_block_id, stream))
-            if 'chunk_info' in telstate.view(capture_stream, exclusive=True):
-                streams.append(stream)
-        if not streams:
-            raise ValueError('No captured streams found in telstate - '
+        try:
+            stream_name = str(telstate['stream_name'])
+        except KeyError:
+            raise ValueError('No captured stream found in telstate - '
                              'please specify the stream manually')
-        stream_name = streams[0]
-        if len(streams) > 1:
-            logger.warning('Telstate has more than one captured stream - %s - '
-                           'picking the first', streams)
-    logger.info('Found capture block %s and stream %s',
-                capture_block_id, stream_name)
-    capture_stream = telstate.SEPARATOR.join((capture_block_id, stream_name))
+    # Check the stream type
     telstate = telstate.view(stream_name)
+    stream_type = telstate.get('stream_type', 'unknown')
+    expected_type = 'sdp.vis'
+    if stream_type != expected_type:
+        raise ValueError("Found stream {!r} but it has the wrong type {!r},"
+                         " expected {!r}".format(stream_name, stream_type,
+                                                 expected_type))
+    logger.info('Using capture block %r and stream %r',
+                capture_block_id, stream_name)
     telstate = telstate.view(capture_block_id)
+    capture_stream = telstate.SEPARATOR.join((capture_block_id, stream_name))
     telstate = telstate.view(capture_stream)
     return telstate
+
+
+def _shorten_key(telstate, key):
+    """Shorten telstate key by subtracting the first prefix that fits.
+
+    Parameters
+    ----------
+    telstate : :class:`katsdptelstate.TelescopeState` object
+        Telescope state
+    key : string
+        Telescope state key
+
+    Returns
+    -------
+    short_key : string
+        Suffix of `key` after subtracting first matching prefix, or empty
+        string if `key` does not start with any of the prefixes (or exactly
+        matches a prefix, which is also considered pathological)
+
+    """
+    for prefix in telstate.prefixes:
+        if key.startswith(prefix):
+            return key[len(prefix):]
+    return ''
 
 
 class TelstateDataSource(DataSource):
@@ -220,40 +233,42 @@ class TelstateDataSource(DataSource):
 
     Parameters
     ----------
-    telstate: :class:`katsdptelstate.TelescopeState` object
+    telstate : :class:`katsdptelstate.TelescopeState` object
         Telescope state with appropriate views
+    chunk_store : :class:`katdal.ChunkStore` object, optional
+        Chunk store for visibility data (the default is no data - metadata only)
     source_name : string, optional
         Name of telstate source (used for metadata name)
     """
-    def __init__(self, telstate, source_name='telstate'):
+    def __init__(self, telstate, chunk_store=None, source_name='telstate'):
         self.telstate = telstate
         # Collect sensors
         sensors = {}
         for key in telstate.keys():
             if not telstate.is_immutable(key):
-                sensors[key] = TelstateSensorData(telstate, key)
+                sensor_name = _shorten_key(telstate, key)
+                if sensor_name:
+                    sensors[sensor_name] = TelstateSensorData(telstate, key)
         metadata = AttrsSensors(telstate, sensors, name=source_name)
         try:
+            t0 = telstate['sync_time'] + telstate['first_timestamp']
+            int_time = telstate['int_time']
             chunk_name = telstate['chunk_name']
             chunk_info = telstate['chunk_info']
-            s3_endpoint_url = telstate['s3_endpoint_url']
         except KeyError:
-            # Metadata without data
+            # Metadata without data or timestamps
             DataSource.__init__(self, metadata, None)
         else:
-            # Extract VisFlagsWeights and timestamps from telstate
-            store = S3ChunkStore.from_url(s3_endpoint_url)
-            ts_name = store.join(chunk_name, 'timestamps')
-            ts_chunks = chunk_info['timestamps']['chunks']
-            ts_dtype = chunk_info['timestamps']['dtype']
-            timestamps = store.get_dask_array(ts_name, ts_chunks, ts_dtype)
-            # Make timestamps explicit, mutable (to be removed from store soon)
-            timestamps = timestamps.compute().copy()
-            data = ChunkStoreVisFlagsWeights(store, chunk_name, chunk_info)
+            # Extract timestamps from telstate
+            n_dumps = chunk_info['correlator_data']['shape'][0]
+            timestamps = t0 + np.arange(n_dumps) * int_time
+            data = ChunkStoreVisFlagsWeights(
+                chunk_store, chunk_name, chunk_info) if chunk_store else None
+            # Metadata and timestamps with or without data
             DataSource.__init__(self, metadata, timestamps, data)
 
     @classmethod
-    def from_url(cls, url):
+    def from_url(cls, url, chunk_store='auto'):
         """Construct TelstateDataSource from URL (RDB file / REDIS server)."""
         url_parts = urlparse.urlparse(url, scheme='file')
         kwargs = dict(urlparse.parse_qsl(url_parts.query))
@@ -267,20 +282,36 @@ class TelstateDataSource(DataSource):
                 telstate.load_from_file(url_parts.path)
             except OSError as err:
                 raise DataSourceNotFound(str(err))
-            return cls(view_capture_stream(telstate, **kwargs), source_name)
+            telstate = view_capture_stream(telstate, **kwargs)
+            # Look for adjacent data directory (presumably containing NPY files)
+            if chunk_store == 'auto':
+                store_path = os.path.dirname(os.path.dirname(url_parts.path))
+                try:
+                    data_path = os.path.join(store_path, telstate['chunk_name'])
+                except KeyError:
+                    chunk_store = None
+                else:
+                    if os.path.isdir(data_path):
+                        chunk_store = NpyFileChunkStore(store_path)
+                    else:
+                        chunk_store = S3ChunkStore.from_url(telstate['s3_endpoint_url'])
+            return cls(telstate, chunk_store, source_name)
         elif url_parts.scheme == 'redis':
             # Redis server
             try:
                 telstate = katsdptelstate.TelescopeState(url_parts.netloc, db)
             except (redis.ConnectionError, redis.TimeoutError) as e:
                 raise DataSourceNotFound(str(e))
-            return cls(view_capture_stream(telstate, **kwargs), source_name)
+            telstate = view_capture_stream(telstate, **kwargs)
+            if chunk_store == 'auto':
+                chunk_store = S3ChunkStore.from_url(telstate['s3_endpoint_url'])
+            return cls(telstate, chunk_store, source_name)
 
 
-def open_data_source(url):
+def open_data_source(url, *args, **kwargs):
     """Construct the data source described by the given URL."""
     try:
-        return TelstateDataSource.from_url(url)
+        return TelstateDataSource.from_url(url, *args, **kwargs)
     except DataSourceNotFound as err:
         # Amend the error message for the case of an IP address without scheme
         url_parts = urlparse.urlparse(url, scheme='file')
