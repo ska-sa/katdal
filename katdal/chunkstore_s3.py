@@ -32,7 +32,7 @@ except ImportError as e:
 else:
     import botocore.config
     import botocore.session
-    from botocore.exceptions import (EndpointConnectionError,
+    from botocore.exceptions import (ConnectionError, EndpointConnectionError,
                                      NoCredentialsError, ClientError)
 
 from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk
@@ -70,13 +70,14 @@ class S3ChunkStore(ChunkStore):
         if not botocore:
             raise _botocore_import_error
         error_map = {EndpointConnectionError: StoreUnavailable,
+                     ConnectionError: StoreUnavailable,
                      client.exceptions.NoSuchKey: ChunkNotFound,
                      client.exceptions.NoSuchBucket: ChunkNotFound}
         super(S3ChunkStore, self).__init__(error_map)
         self.client = client
 
     @classmethod
-    def from_url(cls, url, **kwargs):
+    def from_url(cls, url, timeout=5, **kwargs):
         """Construct S3 chunk store from endpoint URL.
 
         S3 authentication (i.e. the access + secret keys) is handled externally
@@ -90,6 +91,8 @@ class S3ChunkStore(ChunkStore):
         ----------
         url : string
             Endpoint of S3 service, e.g. 'http://127.0.0.1:9000'
+        timeout : int or float, optional
+            Read / connect timeout, in seconds (set to None to leave unchanged)
         kwargs : dict
             Extra keyword arguments: config settings or create_client arguments
 
@@ -105,6 +108,10 @@ class S3ChunkStore(ChunkStore):
         config_kwargs = dict(max_pool_connections=200,
                              s3={'addressing_style': 'path'})
         client_kwargs = {}
+        if timeout is not None:
+            config_kwargs['read_timeout'] = int(timeout)
+            config_kwargs['connect_timeout'] = int(timeout)
+            config_kwargs['retries'] = {'max_attempts': 0}
         # Split keyword arguments into config settings and create_client args
         for k, v in kwargs.items():
             if k in botocore.config.Config.OPTION_DEFAULTS:
@@ -119,8 +126,9 @@ class S3ChunkStore(ChunkStore):
                                            **client_kwargs)
             # Quick smoke test to see if the S3 server is available
             client.list_buckets()
-        except (EndpointConnectionError, NoCredentialsError, ValueError) as e:
-            raise StoreUnavailable(str(e))
+        except (ConnectionError, EndpointConnectionError,
+                NoCredentialsError, ClientError, ValueError) as e:
+            raise StoreUnavailable('[{}] {}'.format(type(e).__name__, e))
         return cls(client)
 
     def get_chunk(self, array_name, slices, dtype):
