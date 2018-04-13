@@ -286,6 +286,8 @@ class TelstateDataSource(DataSource):
             # Look for adjacent data directory (presumably containing NPY files)
             if chunk_store == 'auto':
                 store_path = os.path.dirname(os.path.dirname(url_parts.path))
+                if not store_path:
+                    store_path = os.path.curdir
                 try:
                     data_path = os.path.join(store_path, telstate['chunk_name'])
                 except KeyError:
