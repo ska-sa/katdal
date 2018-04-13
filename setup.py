@@ -61,6 +61,8 @@ setup(name="katdal",
         'ms': ['python-casacore >= 2.2.1'],
         's3': ['botocore'],
         # rados is not in PyPI but available as Debian package python-rados
-        'rados': ['rados']
+        'rados': ['rados'],
+        # Only available throught github currently
+        'auth': ['katsdpauth'], 
       },
       tests_require=['nose', 'dask[array]'])
