@@ -27,8 +27,8 @@ news = open(os.path.join(here, 'NEWS.rst')).read()
 long_description = readme + '\n\n' + news
 
 setup(name="katdal",
-      description="Karoo Array Telescope data access library "
-                  "to interact with HDF5 and MS files",
+      description="Karoo Array Telescope data access library to interact "
+                  "with HDF5 files, MeasurementSets and chunk stores",
       long_description=long_description,
       author="Ludwig Schwardt",
       author_email="ludwig@ska.ac.za",
@@ -63,6 +63,6 @@ setup(name="katdal",
         # rados is not in PyPI but available as Debian package python-rados
         'rados': ['rados'],
         # Only available throught github currently
-        'auth': ['katsdpauth'], 
+        'auth': ['katsdpauth'],
       },
       tests_require=['nose', 'dask[array]'])
