@@ -171,17 +171,23 @@ class RecordSensorData(SensorData):
                 len(self._data), self.dtype, id(self))
 
 
-def pickle_loads(raw):
-    """Load a pickle that might be wrapped in np.void.
+def pickle_loads(raw, no_unpickle=()):
+    """Load a pickle that might be wrapped in np.void or np.ndarray.
 
     The np.void wrapping is needed to pass variable-length binary strings
     through h5py. The pickle module handles it transparently, but cPickle does
     not.
+
+    If the value is a string and is in no_unpickle, it is returned verbatim.
+    This is for backwards compatibility with older files that didn't use
+    pickles.
     """
-    if isinstance(raw, np.void):
+    if isinstance(raw, (np.void, np.ndarray)):
         return pickle.loads(raw.tostring())
-    else:
+    elif raw not in no_unpickle:
         return pickle.loads(raw)
+    else:
+        return raw
 
 
 def _h5_telstate_unpack(s):

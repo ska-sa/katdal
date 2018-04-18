@@ -602,10 +602,7 @@ class H5DataV3(DataSet):
         """
         try:
             value = self.file['TelescopeState'].attrs[key]
-            if value in no_unpickle:
-                return value
-            else:
-                return pickle_loads(value)
+            return pickle_loads(value, no_unpickle)
         except (KeyError, pickle.UnpicklingError):
             # In some cases the value is placed in a sensor instead. Return
             # the most recent value.
