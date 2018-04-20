@@ -20,6 +20,52 @@ import numpy as np
 
 # TODO support advanced integer indexing with non-strictly increasing indices (i.e. out-of-order and duplicates)
 
+
+def _simplify_index(shape, indices):
+    """Generate an equivalent index expression that is cheaper to evaluate.
+
+    In the current implementation, boolean numpy arrays which select contiguous
+    ranges are converted to slices. Note that when indexing along multiple axes
+    with arrays, this may change the semantics of the indexing (see this `NEP`_
+    for details).
+
+    .. _NEP: https://gist.github.com/seberg/976373b6a2b7c4188591
+
+    If the expression is invalid in some way (e.g. wrong length array index)
+    the original index is returned so that that an exception will be raised
+    when the index is used.
+
+    Ellipses are currently not supported, and will result in the original
+    index being returned.
+    """
+    if not isinstance(indices, tuple):
+        indices = (indices,)
+    out = []
+    axis = 0
+    for index in indices:
+        if index is Ellipsis:
+            return indices     # Not supported
+        elif index is np.newaxis:
+            out.append(index)
+        else:
+            if axis >= len(shape):
+                return indices   # Invalid index expression
+            length = shape[axis]
+            axis += 1
+            try:
+                bool_array = (index.dtype == np.bool_ and index.shape == (length,))
+            except AttributeError:
+                bool_array = False
+            if bool_array:
+                selected = np.nonzero(index)[0]
+                if not len(selected):
+                    index = slice(0, 0)
+                elif selected[-1] - selected[0] + 1 == len(selected):
+                    index = slice(selected[0], selected[-1] + 1)
+            out.append(index)
+    return tuple(out)
+
+
 # -------------------------------------------------------------------------------------------------
 # -- CLASS :  LazyTransform
 # -------------------------------------------------------------------------------------------------
@@ -336,6 +382,7 @@ class DaskLazyIndexer(object):
     """Turn a dask Array into a LazyIndexer by computing it upon indexing."""
     def __init__(self, dataset, keep=()):
         self.name = getattr(dataset, 'name', '')
+        keep = _simplify_index(dataset.shape, keep)
         try:
             dataset = dataset[keep]
         except NotImplementedError:
