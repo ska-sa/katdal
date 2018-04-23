@@ -433,11 +433,14 @@ def main():
 
                 # Select correlator products
                 # cp_index could be used above when the LazyIndexer
-                # supports advanced integer indices
-                vis_data = scan_data[:, :, cp_info.cp_index]
-
-                weight_data = scan_weight_data[:, :, cp_info.cp_index]
-                flag_data = scan_flag_data[:, :, cp_info.cp_index]
+                # supports advanced integer indices. Note that np.take is
+                # equivalent to but much faster than fancy indexing.
+                vis_data = np.take(scan_data, cp_info.cp_index, axis=2)
+                del scan_data
+                weight_data = np.take(scan_weight_data, cp_info.cp_index, axis=2)
+                del scan_weight_data
+                flag_data = np.take(scan_flag_data, cp_info.cp_index, axis=2)
+                del scan_flag_data
 
                 # Zero and flag any missing correlator products
                 vis_data[:, :, cp_info.missing_cp] = 0 + 0j
