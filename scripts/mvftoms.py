@@ -16,9 +16,8 @@
 # limitations under the License.
 ################################################################################
 
-# Produce a CASA-compatible Measurement Set from a KAT-7 HDF5 file (versions
-# 1 and 2) or a MeerKAT Visibility Format dataset (versions 3 and 4) using
-# casapy or casacore.
+# Produce a CASA-compatible Measurement Set from a MeerKAT Visibility Format
+# (MVF) dataset using casapy or casacore.
 
 from collections import namedtuple
 import itertools
@@ -43,7 +42,7 @@ def main():
                      'target': 'TARGET'}
 
     parser = optparse.OptionParser(usage="%prog [options] <filename> [<filename2>]*",
-                                   description='Convert KAT dataset(s) to MeasurementSet')
+                                   description='Convert MVF dataset(s) to MeasurementSet')
     parser.add_option("-o", "--output-ms", default=None,
                       help="Output Measurement Set")
     parser.add_option("-c", "--circular", action="store_true", default=False,
@@ -102,7 +101,7 @@ def main():
                            "limits in the form 'lowest_elevation,highest_elevation'.")
 
     if len(args) > 1:
-        print "Concatenating multiple datasets files into single MS."
+        print "Concatenating multiple datasets into single MS."
 
     if not ms_extra.casacore_binding:
         raise RuntimeError("Failed to find casacore binding. You need to install both "
@@ -203,7 +202,7 @@ def main():
         cen_freq = '%d' % int(dataset.spectral_windows[win].centre_freq / 1e6)
 
         # If no output MS filename supplied, infer the output filename
-        # from the first file.
+        # from the first dataset.
         if options.output_ms is None:
             basename = ('%s_%s' % (os.path.splitext(args[0])[0], cen_freq)) + \
                        ("." if len(args) == 1 else ".et_al.") + pol_for_name
