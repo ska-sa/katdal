@@ -28,12 +28,40 @@ import optparse
 import time
 
 import numpy as np
+import dask.array as da
 
 import katpoint
 import katdal
 from katdal import averager
 from katdal import ms_extra
 from katdal.sensordata import pickle_loads
+
+
+def load(dataset, indices, vis, weights, flags):
+    """Load data from one a lazy indexer into existing storage.
+
+    This is optimised for the MVF v4 case where we can use dask directly
+    to eliminate one copy, and so load vis, flags and weights in parallel.
+    In older formats it causes an extra copy.
+
+    Parameters
+    ----------
+    dataset : :class:`katdal.DataSet`
+        Input dataset, possibly with an existing selection
+    indices : tuple
+        Index expression for subsetting the dataset
+    vis, weights, flags : array-like
+        Outputs, which must have the correct shape and type
+    """
+    if hasattr(dataset.vis, 'dataset'):
+        da.store([dataset.vis.dataset[indices],
+                  dataset.weights.dataset[indices],
+                  dataset.flags.dataset[indices]],
+                 [vis, weights, flags], lock=False)
+    else:
+        vis[:] = dataset.vis[indices]
+        weights[:] = dataset.weights[indices]
+        flags[:] = dataset.flags[indices]
 
 
 def main():
@@ -368,6 +396,22 @@ def main():
         print "Writing static meta data..."
         ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
 
+        # Pre-allocate memory buffers
+        tsize = dump_av
+        in_chunk_shape = (tsize,) + dataset.shape[1:]
+        scan_vis_data = np.empty(in_chunk_shape, dataset.vis.dtype)
+        scan_weight_data = np.empty(in_chunk_shape, dataset.weights.dtype)
+        scan_flag_data = np.empty(in_chunk_shape, dataset.flags.dtype)
+
+        bl_chunk_shape = (tsize, nchan, nbl * npol)
+        bl_vis_data = np.empty(bl_chunk_shape, scan_vis_data.dtype)
+        bl_weight_data = np.empty(bl_chunk_shape, scan_weight_data.dtype)
+        bl_flag_data = np.empty(bl_chunk_shape, scan_flag_data.dtype)
+
+        ms_chunk_shape = (tsize // dump_av, nbl, nchan, npol)
+        ms_vis_data = np.empty(ms_chunk_shape, scan_vis_data.dtype)
+        ms_weight_data = np.empty(ms_chunk_shape, scan_weight_data.dtype)
+        ms_flag_data = np.empty(ms_chunk_shape, scan_flag_data.dtype)
 
         for scan_ind, scan_state, target in dataset.scans():
             s = time.time()
@@ -416,7 +460,6 @@ def main():
 
             # Iterate over time in some multiple of dump average
             ntime = utc_seconds.size
-            tsize = dump_av
             ntime_av = 0
 
             for ltime in xrange(0, ntime - tsize + 1, tsize):
@@ -429,20 +472,19 @@ def main():
                 # load all visibility, weight and flag data
                 # for this scan's timestamps.
                 # Ordered (ntime, nchan, nbl*npol)
-                scan_data = dataset.vis[ltime:utime, :, :]
-                scan_weight_data = dataset.weights[ltime:utime, :, :]
-                scan_flag_data = dataset.flags[ltime:utime, :, :]
+                load(dataset, np.s_[ltime:utime, :, :],
+                     scan_vis_data, scan_weight_data, scan_flag_data)
 
                 # Select correlator products
                 # cp_index could be used above when the LazyIndexer
                 # supports advanced integer indices. Note that np.take is
                 # equivalent to but much faster than fancy indexing.
-                vis_data = np.take(scan_data, cp_info.cp_index, axis=2)
-                del scan_data
-                weight_data = np.take(scan_weight_data, cp_info.cp_index, axis=2)
-                del scan_weight_data
-                flag_data = np.take(scan_flag_data, cp_info.cp_index, axis=2)
-                del scan_flag_data
+                vis_data = np.take(scan_vis_data, cp_info.cp_index,
+                                   axis=2, out=bl_vis_data)
+                weight_data = np.take(scan_weight_data, cp_info.cp_index,
+                                      axis=2, out=bl_weight_data)
+                flag_data = np.take(scan_flag_data, cp_info.cp_index,
+                                    axis=2, out=bl_flag_data)
 
                 # Zero and flag any missing correlator products
                 vis_data[:, :, cp_info.missing_cp] = 0 + 0j
@@ -463,19 +505,24 @@ def main():
                 # Increment the number of averaged dumps
                 ntime_av += tdiff
 
-                def _separate_baselines_and_pols(array):
+                def _separate_baselines_and_pols(array, out):
                     """
                     (1) Separate correlator product into baseline and polarisation,
                     (2) rotate baseline between time and channel,
                     (3) group time and baseline together
+
+                    `out` must have dimensions time, nbl, nchan, npol and is
+                    used as backing storage for the returned array.
                     """
                     S = array.shape[:2] + (nbl, npol)
-                    return array.reshape(S).transpose(0, 2, 1, 3).reshape(-1, nchan, npol)
+                    out[:] = array.reshape(S).transpose(0, 2, 1, 3)
+                    return out.reshape(-1, nchan, npol)
 
                 # Massage visibility, weight and flag data from
                 # (ntime, nchan, nbl*npol) ordering to (ntime*nbl, nchan, npol)
-                vis_data, weight_data, flag_data = (_separate_baselines_and_pols(a)
-                                                    for a in (vis_data, weight_data, flag_data))
+                vis_data = _separate_baselines_and_pols(vis_data, ms_vis_data)
+                weight_data = _separate_baselines_and_pols(weight_data, ms_weight_data)
+                flag_data = _separate_baselines_and_pols(flag_data, ms_flag_data)
 
                 # Iterate through baselines, computing UVW coordinates
                 # for a chunk of timesteps
