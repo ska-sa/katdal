@@ -36,7 +36,7 @@ setup(name="katdal",
       scripts=[
           "scripts/h5list.py",
           "scripts/h5toms.py",
-          "scripts/objtoms.py",
+          "scripts/mvftoms.py",
           "scripts/fix_ant_positions.py"],
       url='https://github.com/ska-sa/katdal',
       license="Modified BSD",
