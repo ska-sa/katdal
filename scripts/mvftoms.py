@@ -319,6 +319,9 @@ def main():
 
         print "\nUsing %s as the reference antenna. All targets and activity " \
               "detection will be based on this antenna.\n" % (dataset.ref_ant,)
+        array_centre = katpoint.Antenna('', *dataset.ants[0].ref_position_wgs84)
+        baseline_vectors = np.array([array_centre.baseline_toward(antenna)
+                                     for antenna in dataset.ants])
         # MS expects timestamps in MJD seconds
         start_time = dataset.start_time.to_mjd() * 24 * 60 * 60
         end_time = dataset.end_time.to_mjd() * 24 * 60 * 60
@@ -470,18 +473,6 @@ def main():
                     S = array.shape[:2] + (nbl, npol)
                     return array.reshape(S).transpose(0, 2, 1, 3).reshape(-1, nchan, npol)
 
-                def _create_uvw(a1, a2, times):
-                    """
-                    Return a (ntime, 3) array of UVW coordinates for baseline
-                    defined by a1 and a2. The sign convention matches `CASA`_,
-                    rather than the Measurement Set `definition`_.
-
-                    .. _CASA: https://casa.nrao.edu/Memos/CoordConvention.pdf
-                    .. _definition: https://casa.nrao.edu/Memos/229.html#SECTION00064000000000000000
-                    """
-                    uvw = target.uvw(a1, timestamp=times, antenna=a2)
-                    return np.asarray(uvw).T
-
                 # Massage visibility, weight and flag data from
                 # (ntime, nchan, nbl*npol) ordering to (ntime*nbl, nchan, npol)
                 vis_data, weight_data, flag_data = (_separate_baselines_and_pols(a)
@@ -489,9 +480,20 @@ def main():
 
                 # Iterate through baselines, computing UVW coordinates
                 # for a chunk of timesteps
-                uvw_coordinates = np.concatenate([_create_uvw(a1, a2, out_utc)[:, np.newaxis, :]
-                            for a1, a2 in itertools.izip(cp_info.ant1, cp_info.ant2)],
-                              axis=1).reshape(-1, 3)
+                uvw_basis = target.uvw_basis(out_utc, array_centre)
+                # Axes in uvw_ant are antenna, axis (u/v/w), and time
+                uvw_ant = np.tensordot(baseline_vectors, uvw_basis, ([1], [1]))
+                # Permute to time, antenna, axis
+                uvw_ant = np.transpose(uvw_ant, (2, 0, 1))
+                # Compute baseline UVW coordinates from per-antenna coordinates.
+                # The sign convention matches `CASA`_, rather than the
+                # Measurement Set `definition`_.
+                # .. _CASA: https://casa.nrao.edu/Memos/CoordConvention.pdf
+                # .. _definition: https://casa.nrao.edu/Memos/229.html#SECTION00064000000000000000
+                uvw_coordinates = (np.take(uvw_ant, cp_info.ant1_index, axis=1)
+                                   - np.take(uvw_ant, cp_info.ant2_index, axis=1))
+                # Flatten time and baseline axes together
+                uvw_coordinates = uvw_coordinates.reshape(-1, 3)
 
                 # Convert averaged UTC timestamps to MJD seconds.
                 # Blow time up to (ntime*nbl,)
