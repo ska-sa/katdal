@@ -89,6 +89,8 @@ def main():
                       help="If a single element in an averaging bin is flagged, flag the averaged bin.")
     parser.add_option("--caltables", action="store_true", default=False,
                       help="Create calibration tables from gain solutions in the dataset (if present).")
+    parser.add_option("--quack", type=int, default=2, metavar='N',
+                      help="Discard the first N dumps (which are frequently incomplete).")
 
     (options, args) = parser.parse_args()
 
@@ -164,7 +166,7 @@ def main():
 
       return CPInfo(ant1_index, ant2_index, ant1, ant2, cp_index, missing_cp)
 
-    # Open dataset 
+    # Open dataset
     # if len(args) == 1: args = args[0]
     # katdal can handle a list of files, which get virtually concatenated internally
     dataset = katdal.open(args, ref_ant=options.ref_ant)
@@ -214,7 +216,8 @@ def main():
         # otherwise use the ms name
         caltable_basename = ms_name[:-3] if ms_name.lower().endswith('.ms') else ms_name
 
-        dataset.select(spw=win, scans='track', flags=options.flags)
+        # XXX Discard first N dumps which are frequently incomplete (fix this in ChunkStore eventually)
+        dataset.select(spw=win, scans='track', flags=options.flags, dumps=slice(options.quack, None))
 
         # The first step is to copy the blank template MS to our desired output (making sure it's not already there)
         if os.path.exists(ms_name):
