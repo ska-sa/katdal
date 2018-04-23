@@ -538,6 +538,8 @@ def main():
 
             scan_size_mb = float(scan_size) / (1024**2)
 
+            # Write rows to disk
+            main_table.flush()
             print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (
                                         scan_size_mb, s1, scan_size_mb / s1)
 

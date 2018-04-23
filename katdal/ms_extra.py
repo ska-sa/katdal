@@ -1007,8 +1007,6 @@ def write_rows(t, row_dict, verbose=True):
         else:
             if verbose:
                 print "  column '%s' not in table" % (col_name,)
-    # Flush table to disk
-    t.flush()
 
 
 def write_dict(ms_dict, ms_name='./blank.ms', verbose=True):
