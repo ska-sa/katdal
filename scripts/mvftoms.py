@@ -165,10 +165,10 @@ def main():
 
       return CPInfo(ant1_index, ant2_index, ant1, ant2, cp_index, missing_cp)
 
-    # Open dataset 
-    # if len(args) == 1: args = args[0]
+    # Open dataset
+    open_args = args[0] if len(args) == 1 else args
     # katdal can handle a list of files, which get virtually concatenated internally
-    dataset = katdal.open(args, ref_ant=options.ref_ant)
+    dataset = katdal.open(open_args, ref_ant=options.ref_ant)
 
     #Get list of unique polarisation products in the file
     pols_in_file = np.unique([(cp[0][-1] + cp[1][-1]).upper() for cp in dataset.corr_products])
