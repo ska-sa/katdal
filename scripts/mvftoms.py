@@ -403,7 +403,7 @@ def main():
         scan_weight_data = np.empty(in_chunk_shape, dataset.weights.dtype)
         scan_flag_data = np.empty(in_chunk_shape, dataset.flags.dtype)
 
-        bl_chunk_shape = (tsize, nchan, nbl * npol)
+        bl_chunk_shape = (tsize, dataset.shape[1], nbl * npol)
         bl_vis_data = np.empty(bl_chunk_shape, scan_vis_data.dtype)
         bl_weight_data = np.empty(bl_chunk_shape, scan_weight_data.dtype)
         bl_flag_data = np.empty(bl_chunk_shape, scan_flag_data.dtype)
@@ -467,7 +467,6 @@ def main():
                 utime = ltime + tsize
                 tdiff = utime - ltime
                 out_freqs = dataset.channel_freqs
-                nchan = out_freqs.size
 
                 # load all visibility, weight and flag data
                 # for this scan's timestamps.
@@ -499,8 +498,8 @@ def main():
                         averager.average_visibilities(vis_data, weight_data, flag_data, out_utc, out_freqs,
                                                       timeav=dump_av, chanav=chan_av, flagav=options.flagav)
 
-                    # Infer new time and channel dimensions from averaged data
-                    tdiff, nchan = vis_data.shape[0], vis_data.shape[1]
+                    # Infer new time dimension from averaged data
+                    tdiff = vis_data.shape[0]
 
                 # Increment the number of averaged dumps
                 ntime_av += tdiff
