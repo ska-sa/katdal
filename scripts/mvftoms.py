@@ -38,10 +38,10 @@ from katdal.sensordata import pickle_loads
 
 
 def load(dataset, indices, vis, weights, flags):
-    """Load data from one a lazy indexer into existing storage.
+    """Load data from lazy indexers into existing storage.
 
     This is optimised for the MVF v4 case where we can use dask directly
-    to eliminate one copy, and so load vis, flags and weights in parallel.
+    to eliminate one copy, and also load vis, flags and weights in parallel.
     In older formats it causes an extra copy.
 
     Parameters
