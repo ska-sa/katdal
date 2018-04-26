@@ -29,6 +29,7 @@ import time
 
 import numpy as np
 import dask.array as da
+import numba
 
 import katpoint
 import katdal
@@ -62,6 +63,31 @@ def load(dataset, indices, vis, weights, flags):
         vis[:] = dataset.vis[indices]
         weights[:] = dataset.weights[indices]
         flags[:] = dataset.flags[indices]
+
+
+@numba.jit(nopython=True, cache=True)
+def _permute_baselines(a, cp_index, out):
+    """Equivalent to ``out = array[:, :, cp_index]`` on a 3D array.
+
+    cp_index must be an array of indices.
+    """
+    for i in range(a.shape[0]):
+        for j in range(a.shape[1]):
+            for k in range(len(cp_index)):
+                out[i, j, k] = a[i, j, cp_index[k]]
+
+
+def permute_baselines(a, cp_index, out):
+    """Equivalent to ``out = array[:, :, cp_index]`` on a 3D array.
+
+    cp_index must be an array of indices.
+    """
+    # Workaround for https://github.com/numba/numba/issues/2921
+    if a.dtype == np.dtype(np.bool_):
+        _permute_baselines(a.view(np.uint8), cp_index, out.view(np.uint8))
+    else:
+        _permute_baselines(a, cp_index, out)
+    return out
 
 
 def main():
@@ -475,15 +501,9 @@ def main():
                      scan_vis_data, scan_weight_data, scan_flag_data)
 
                 # Select correlator products
-                # cp_index could be used above when the LazyIndexer
-                # supports advanced integer indices. Note that np.take is
-                # equivalent to but much faster than fancy indexing.
-                vis_data = np.take(scan_vis_data, cp_info.cp_index,
-                                   axis=2, out=bl_vis_data)
-                weight_data = np.take(scan_weight_data, cp_info.cp_index,
-                                      axis=2, out=bl_weight_data)
-                flag_data = np.take(scan_flag_data, cp_info.cp_index,
-                                    axis=2, out=bl_flag_data)
+                vis_data = permute_baselines(scan_vis_data, cp_info.cp_index, bl_vis_data)
+                weight_data = permute_baselines(scan_weight_data, cp_info.cp_index, bl_weight_data)
+                flag_data = permute_baselines(scan_flag_data, cp_info.cp_index, bl_flag_data)
 
                 # Zero and flag any missing correlator products
                 vis_data[:, :, cp_info.missing_cp] = 0 + 0j
