@@ -65,7 +65,7 @@ def load(dataset, indices, vis, weights, flags):
         flags[:] = dataset.flags[indices]
 
 
-@numba.jit(nopython=True, cache=True)
+@numba.jit(nopython=True, cache=True, parallel=True)
 def permute_baselines(in_vis, in_weights, in_flags, cp_index, out_vis, out_weights, out_flags):
     """Reorganise baselines and axis order.
 
@@ -83,7 +83,7 @@ def permute_baselines(in_vis, in_weights, in_flags, cp_index, out_vis, out_weigh
     # Workaround for https://github.com/numba/numba/issues/2921
     in_flags_u8 = in_flags.view(np.uint8)
     for t in range(out_vis.shape[0]):
-        for c in range(out_vis.shape[2]):
+        for c in numba.prange(out_vis.shape[2]):
             for b in range(out_vis.shape[1]):
                 for p in range(out_vis.shape[3]):
                     idx = cp_index[b, p]
