@@ -66,28 +66,22 @@ def load(dataset, indices, vis, weights, flags):
 
 
 @numba.jit(nopython=True, cache=True)
-def _permute_baselines(a, cp_index, out):
-    """Equivalent to ``out = array[:, :, cp_index]`` on a 3D array.
+def permute_baselines(in_vis, in_weights, in_flags, cp_index, out_vis, out_weights, out_flags):
+    """Equivalent to ``out_x = in_x[:, :, cp_index]`` on each array.
 
-    cp_index must be an array of indices.
-    """
-    for i in range(a.shape[0]):
-        for j in range(a.shape[1]):
-            for k in range(len(cp_index)):
-                out[i, j, k] = a[i, j, cp_index[k]]
-
-
-def permute_baselines(a, cp_index, out):
-    """Equivalent to ``out = array[:, :, cp_index]`` on a 3D array.
-
-    cp_index must be an array of indices.
+    The inputs must be 3D and of the same shape. cp_index must be a 1D array of
+    indices.
     """
     # Workaround for https://github.com/numba/numba/issues/2921
-    if a.dtype == np.dtype(np.bool_):
-        _permute_baselines(a.view(np.uint8), cp_index, out.view(np.uint8))
-    else:
-        _permute_baselines(a, cp_index, out)
-    return out
+    in_flags_u8 = in_flags.view(np.uint8)
+    for i in range(out_vis.shape[0]):
+        for j in range(out_vis.shape[1]):
+            for k in range(out_vis.shape[2]):
+                idx = cp_index[k]
+                out_vis[i, j, k] = in_vis[i, j, idx]
+                out_weights[i, j, k] = in_weights[i, j, idx]
+                out_flags[i, j, k] = in_flags_u8[i, j, idx] != 0
+    return out_vis, out_weights, out_flags
 
 
 def main():
@@ -501,9 +495,9 @@ def main():
                      scan_vis_data, scan_weight_data, scan_flag_data)
 
                 # Select correlator products
-                vis_data = permute_baselines(scan_vis_data, cp_info.cp_index, bl_vis_data)
-                weight_data = permute_baselines(scan_weight_data, cp_info.cp_index, bl_weight_data)
-                flag_data = permute_baselines(scan_flag_data, cp_info.cp_index, bl_flag_data)
+                vis_data, weight_data, flag_data = permute_baselines(
+                    scan_vis_data, scan_weight_data, scan_flag_data, cp_info.cp_index,
+                    bl_vis_data, bl_weight_data, bl_flag_data)
 
                 # Zero and flag any missing correlator products
                 vis_data[:, :, cp_info.missing_cp] = 0 + 0j
