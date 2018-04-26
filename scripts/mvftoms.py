@@ -28,12 +28,40 @@ import optparse
 import time
 
 import numpy as np
+import dask.array as da
 
 import katpoint
 import katdal
 from katdal import averager
 from katdal import ms_extra
 from katdal.sensordata import pickle_loads
+
+
+def load(dataset, indices, vis, weights, flags):
+    """Load data from lazy indexers into existing storage.
+
+    This is optimised for the MVF v4 case where we can use dask directly
+    to eliminate one copy, and also load vis, flags and weights in parallel.
+    In older formats it causes an extra copy.
+
+    Parameters
+    ----------
+    dataset : :class:`katdal.DataSet`
+        Input dataset, possibly with an existing selection
+    indices : tuple
+        Index expression for subsetting the dataset
+    vis, weights, flags : array-like
+        Outputs, which must have the correct shape and type
+    """
+    if hasattr(dataset.vis, 'dataset'):
+        da.store([dataset.vis.dataset[indices],
+                  dataset.weights.dataset[indices],
+                  dataset.flags.dataset[indices]],
+                 [vis, weights, flags], lock=False)
+    else:
+        vis[:] = dataset.vis[indices]
+        weights[:] = dataset.weights[indices]
+        flags[:] = dataset.flags[indices]
 
 
 def main():
@@ -167,9 +195,9 @@ def main():
       return CPInfo(ant1_index, ant2_index, ant1, ant2, cp_index, missing_cp)
 
     # Open dataset
-    # if len(args) == 1: args = args[0]
+    open_args = args[0] if len(args) == 1 else args
     # katdal can handle a list of files, which get virtually concatenated internally
-    dataset = katdal.open(args, ref_ant=options.ref_ant)
+    dataset = katdal.open(open_args, ref_ant=options.ref_ant)
 
     #Get list of unique polarisation products in the file
     pols_in_file = np.unique([(cp[0][-1] + cp[1][-1]).upper() for cp in dataset.corr_products])
@@ -321,6 +349,9 @@ def main():
 
         print "\nUsing %s as the reference antenna. All targets and activity " \
               "detection will be based on this antenna.\n" % (dataset.ref_ant,)
+        array_centre = katpoint.Antenna('', *dataset.ants[0].ref_position_wgs84)
+        baseline_vectors = np.array([array_centre.baseline_toward(antenna)
+                                     for antenna in dataset.ants])
         # MS expects timestamps in MJD seconds
         start_time = dataset.start_time.to_mjd() * 24 * 60 * 60
         end_time = dataset.end_time.to_mjd() * 24 * 60 * 60
@@ -368,6 +399,22 @@ def main():
         print "Writing static meta data..."
         ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
 
+        # Pre-allocate memory buffers
+        tsize = dump_av
+        in_chunk_shape = (tsize,) + dataset.shape[1:]
+        scan_vis_data = np.empty(in_chunk_shape, dataset.vis.dtype)
+        scan_weight_data = np.empty(in_chunk_shape, dataset.weights.dtype)
+        scan_flag_data = np.empty(in_chunk_shape, dataset.flags.dtype)
+
+        bl_chunk_shape = (tsize, dataset.shape[1], nbl * npol)
+        bl_vis_data = np.empty(bl_chunk_shape, scan_vis_data.dtype)
+        bl_weight_data = np.empty(bl_chunk_shape, scan_weight_data.dtype)
+        bl_flag_data = np.empty(bl_chunk_shape, scan_flag_data.dtype)
+
+        ms_chunk_shape = (tsize // dump_av, nbl, nchan, npol)
+        ms_vis_data = np.empty(ms_chunk_shape, scan_vis_data.dtype)
+        ms_weight_data = np.empty(ms_chunk_shape, scan_weight_data.dtype)
+        ms_flag_data = np.empty(ms_chunk_shape, scan_flag_data.dtype)
 
         for scan_ind, scan_state, target in dataset.scans():
             s = time.time()
@@ -416,7 +463,6 @@ def main():
 
             # Iterate over time in some multiple of dump average
             ntime = utc_seconds.size
-            tsize = dump_av
             ntime_av = 0
 
             for ltime in xrange(0, ntime - tsize + 1, tsize):
@@ -424,22 +470,23 @@ def main():
                 utime = ltime + tsize
                 tdiff = utime - ltime
                 out_freqs = dataset.channel_freqs
-                nchan = out_freqs.size
 
                 # load all visibility, weight and flag data
                 # for this scan's timestamps.
                 # Ordered (ntime, nchan, nbl*npol)
-                scan_data = dataset.vis[ltime:utime, :, :]
-                scan_weight_data = dataset.weights[ltime:utime, :, :]
-                scan_flag_data = dataset.flags[ltime:utime, :, :]
+                load(dataset, np.s_[ltime:utime, :, :],
+                     scan_vis_data, scan_weight_data, scan_flag_data)
 
                 # Select correlator products
                 # cp_index could be used above when the LazyIndexer
-                # supports advanced integer indices
-                vis_data = scan_data[:, :, cp_info.cp_index]
-
-                weight_data = scan_weight_data[:, :, cp_info.cp_index]
-                flag_data = scan_flag_data[:, :, cp_info.cp_index]
+                # supports advanced integer indices. Note that np.take is
+                # equivalent to but much faster than fancy indexing.
+                vis_data = np.take(scan_vis_data, cp_info.cp_index,
+                                   axis=2, out=bl_vis_data)
+                weight_data = np.take(scan_weight_data, cp_info.cp_index,
+                                      axis=2, out=bl_weight_data)
+                flag_data = np.take(scan_flag_data, cp_info.cp_index,
+                                    axis=2, out=bl_flag_data)
 
                 # Zero and flag any missing correlator products
                 vis_data[:, :, cp_info.missing_cp] = 0 + 0j
@@ -454,43 +501,47 @@ def main():
                         averager.average_visibilities(vis_data, weight_data, flag_data, out_utc, out_freqs,
                                                       timeav=dump_av, chanav=chan_av, flagav=options.flagav)
 
-                    # Infer new time and channel dimensions from averaged data
-                    tdiff, nchan = vis_data.shape[0], vis_data.shape[1]
+                    # Infer new time dimension from averaged data
+                    tdiff = vis_data.shape[0]
 
                 # Increment the number of averaged dumps
                 ntime_av += tdiff
 
-                def _separate_baselines_and_pols(array):
+                def _separate_baselines_and_pols(array, out):
                     """
                     (1) Separate correlator product into baseline and polarisation,
                     (2) rotate baseline between time and channel,
                     (3) group time and baseline together
+
+                    `out` must have dimensions time, nbl, nchan, npol and is
+                    used as backing storage for the returned array.
                     """
                     S = array.shape[:2] + (nbl, npol)
-                    return array.reshape(S).transpose(0, 2, 1, 3).reshape(-1, nchan, npol)
-
-                def _create_uvw(a1, a2, times):
-                    """
-                    Return a (ntime, 3) array of UVW coordinates for baseline
-                    defined by a1 and a2. The sign convention matches `CASA`_,
-                    rather than the Measurement Set `definition`_.
-
-                    .. _CASA: https://casa.nrao.edu/Memos/CoordConvention.pdf
-                    .. _definition: https://casa.nrao.edu/Memos/229.html#SECTION00064000000000000000
-                    """
-                    uvw = target.uvw(a1, timestamp=times, antenna=a2)
-                    return np.asarray(uvw).T
+                    out[:] = array.reshape(S).transpose(0, 2, 1, 3)
+                    return out.reshape(-1, nchan, npol)
 
                 # Massage visibility, weight and flag data from
                 # (ntime, nchan, nbl*npol) ordering to (ntime*nbl, nchan, npol)
-                vis_data, weight_data, flag_data = (_separate_baselines_and_pols(a)
-                                                    for a in (vis_data, weight_data, flag_data))
+                vis_data = _separate_baselines_and_pols(vis_data, ms_vis_data)
+                weight_data = _separate_baselines_and_pols(weight_data, ms_weight_data)
+                flag_data = _separate_baselines_and_pols(flag_data, ms_flag_data)
 
                 # Iterate through baselines, computing UVW coordinates
                 # for a chunk of timesteps
-                uvw_coordinates = np.concatenate([_create_uvw(a1, a2, out_utc)[:, np.newaxis, :]
-                            for a1, a2 in itertools.izip(cp_info.ant1, cp_info.ant2)],
-                              axis=1).reshape(-1, 3)
+                uvw_basis = target.uvw_basis(out_utc, array_centre)
+                # Axes in uvw_ant are antenna, axis (u/v/w), and time
+                uvw_ant = np.tensordot(baseline_vectors, uvw_basis, ([1], [1]))
+                # Permute to time, antenna, axis
+                uvw_ant = np.transpose(uvw_ant, (2, 0, 1))
+                # Compute baseline UVW coordinates from per-antenna coordinates.
+                # The sign convention matches `CASA`_, rather than the
+                # Measurement Set `definition`_.
+                # .. _CASA: https://casa.nrao.edu/Memos/CoordConvention.pdf
+                # .. _definition: https://casa.nrao.edu/Memos/229.html#SECTION00064000000000000000
+                uvw_coordinates = (np.take(uvw_ant, cp_info.ant1_index, axis=1)
+                                   - np.take(uvw_ant, cp_info.ant2_index, axis=1))
+                # Flatten time and baseline axes together
+                uvw_coordinates = uvw_coordinates.reshape(-1, 3)
 
                 # Convert averaged UTC timestamps to MJD seconds.
                 # Blow time up to (ntime*nbl,)
@@ -540,6 +591,8 @@ def main():
 
             scan_size_mb = float(scan_size) / (1024**2)
 
+            # Write rows to disk
+            main_table.flush()
             print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (
                                         scan_size_mb, s1, scan_size_mb / s1)
 
