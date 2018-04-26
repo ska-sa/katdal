@@ -21,9 +21,9 @@ Open any data set through a single function to obtain a data set object:
 This automatically determines the version and storage location of the data set.
 The versions roughly map to the various instruments::
 
-  - v1 : Fringe Finder / FF (HDF5 file)
+  - v1 : Fringe Finder (HDF5 file)
   - v2 : KAT-7 (HDF5 file)
-  - v3 : RTS / AR1 (HDF5 file)
+  - v3 : MeerKAT (HDF5 file)
   - v4 : MeerKAT (chunk store based on objects in Ceph)
 
 Multiple data sets (even of different versions) may also be concatenated

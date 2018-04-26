@@ -77,7 +77,7 @@ class S3ChunkStore(ChunkStore):
         self.client = client
 
     @classmethod
-    def from_url(cls, url, timeout=5, **kwargs):
+    def from_url(cls, url, timeout=10, **kwargs):
         """Construct S3 chunk store from endpoint URL.
 
         S3 authentication (i.e. the access + secret keys) is handled externally

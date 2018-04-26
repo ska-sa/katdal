@@ -27,8 +27,8 @@ news = open(os.path.join(here, 'NEWS.rst')).read()
 long_description = readme + '\n\n' + news
 
 setup(name="katdal",
-      description="Karoo Array Telescope data access library to interact "
-                  "with HDF5 files, MeasurementSets and chunk stores",
+      description="Karoo Array Telescope data access library for interacting "
+                  "with data sets in the MeerKAT Visibility Format (MVF)",
       long_description=long_description,
       author="Ludwig Schwardt",
       author_email="ludwig@ska.ac.za",

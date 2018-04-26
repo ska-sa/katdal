@@ -117,7 +117,7 @@ class VisibilityDataV4(DataSet):
         half_dump = 0.5 * self.dump_period
         self.start_time = katpoint.Timestamp(source.timestamps[0] - half_dump)
         self.end_time = katpoint.Timestamp(source.timestamps[-1] + half_dump)
-        self._time_keep = np.full(num_dumps, True, dtype=bool)
+        self._time_keep = np.full(num_dumps, True, dtype=np.bool_)
         all_dumps = [0, num_dumps]
 
         # Assemble sensor cache
