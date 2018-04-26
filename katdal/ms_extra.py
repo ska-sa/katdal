@@ -409,7 +409,7 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
     # The data flags, array of bools with same shape as data
     main_dict['FLAG'] = flag_data
     # The flag category, NUM_CAT flags for each datum [snd 1 is num channels] (boolean, 4-dim)
-    main_dict['FLAG_CATEGORY'] = np.zeros((num_vis_samples, 1, num_channels, num_pols), dtype='uint8')
+    main_dict['FLAG_CATEGORY'] = flag_data.reshape((num_vis_samples, 1, num_channels, num_pols))
     # Row flag - flag all data in this row if True (boolean)
     main_dict['FLAG_ROW'] = np.zeros(num_vis_samples, dtype=np.uint8)
     # Weight set by imaging task (e.g. uniform weighting) (float, 1-dim)
