@@ -65,7 +65,7 @@ def load(dataset, indices, vis, weights, flags):
         flags[:] = dataset.flags[indices]
 
 
-@numba.jit(nopython=True, cache=True, parallel=True)
+@numba.jit(nopython=True, parallel=True)
 def permute_baselines(in_vis, in_weights, in_flags, cp_index, out_vis, out_weights, out_flags):
     """Reorganise baselines and axis order.
 
@@ -82,22 +82,28 @@ def permute_baselines(in_vis, in_weights, in_flags, cp_index, out_vis, out_weigh
     """
     # Workaround for https://github.com/numba/numba/issues/2921
     in_flags_u8 = in_flags.view(np.uint8)
-    for t in range(out_vis.shape[0]):
-        for c in numba.prange(out_vis.shape[2]):
-            for b in range(out_vis.shape[1]):
-                for p in range(out_vis.shape[3]):
-                    idx = cp_index[b, p]
-                    if idx >= 0:
-                        vis = in_vis[t, c, idx]
-                        weight = in_weights[t, c, idx]
-                        flag = in_flags_u8[t, c, idx] != 0
-                    else:
-                        vis = np.complex64(0 + 0j)
-                        weight = np.float32(0)
-                        flag = np.bool_(True)
-                    out_vis[t, b, c, p] = vis
-                    out_weights[t, b, c, p] = weight
-                    out_flags[t, b, c, p] = flag
+    n_time, n_bls, n_chans, n_pols = out_vis.shape
+    bstep = 256
+    bblocks = (n_bls + bstep - 1) // bstep
+    for t in range(n_time):
+        for bblock in numba.prange(bblocks):
+            bstart = bblock * bstep
+            bstop = min(n_bls, bstart + bstep)
+            for c in range(n_chans):
+                for b in range(bstart, bstop):
+                    for p in range(out_vis.shape[3]):
+                        idx = cp_index[b, p]
+                        if idx >= 0:
+                            vis = in_vis[t, c, idx]
+                            weight = in_weights[t, c, idx]
+                            flag = in_flags_u8[t, c, idx] != 0
+                        else:
+                            vis = np.complex64(0 + 0j)
+                            weight = np.float32(0)
+                            flag = np.bool_(True)
+                        out_vis[t, b, c, p] = vis
+                        out_weights[t, b, c, p] = weight
+                        out_flags[t, b, c, p] = flag
     return out_vis, out_weights, out_flags
 
 
