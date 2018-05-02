@@ -26,8 +26,10 @@ import shutil
 import tarfile
 import optparse
 import time
+import multiprocessing
 
 import numpy as np
+import dask
 import dask.array as da
 import numba
 
@@ -162,6 +164,9 @@ def main():
                       help="Create calibration tables from gain solutions in the dataset (if present).")
 
     (options, args) = parser.parse_args()
+
+    # Loading is I/O-bound, so give more threads than CPUs
+    dask.set_options(pool=multiprocessing.pool.ThreadPool(4 * multiprocessing.cpu_count()))
 
     if len(args) < 1:
         parser.print_help()
