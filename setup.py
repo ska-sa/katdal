@@ -58,7 +58,7 @@ setup(name="katdal",
       use_katversion=True,
       install_requires=['numpy', 'katpoint', 'h5py>=2.3'],
       extras_require={
-        'ms': ['python-casacore >= 2.2.1'],
+        'ms': ['python-casacore >= 2.2.1', 'numba'],
         's3': ['botocore'],
         # rados is not in PyPI but available as Debian package python-rados
         'rados': ['rados'],

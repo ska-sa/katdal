@@ -29,6 +29,7 @@ import time
 
 import numpy as np
 import dask.array as da
+import numba
 
 import katpoint
 import katdal
@@ -62,6 +63,48 @@ def load(dataset, indices, vis, weights, flags):
         vis[:] = dataset.vis[indices]
         weights[:] = dataset.weights[indices]
         flags[:] = dataset.flags[indices]
+
+
+@numba.jit(nopython=True, parallel=True)
+def permute_baselines(in_vis, in_weights, in_flags, cp_index, out_vis, out_weights, out_flags):
+    """Reorganise baselines and axis order.
+
+    The inputs have dimensions (time, channel, pol-baseline), and the output has shape
+    (time, baseline, channel, pol). cp_index is a 2D array which is indexed by baseline and
+    pol to get the input pol-baseline.
+
+    cp_index may contain negative indices if the data is not present, in which
+    case it is filled with 0s and flagged.
+
+    This could probably be optimised further: the current implementation isn't
+    particularly cache-friendly, and it could benefit from unrolling the loop
+    over polarisations in some way
+    """
+    # Workaround for https://github.com/numba/numba/issues/2921
+    in_flags_u8 = in_flags.view(np.uint8)
+    n_time, n_bls, n_chans, n_pols = out_vis.shape
+    bstep = 256
+    bblocks = (n_bls + bstep - 1) // bstep
+    for t in range(n_time):
+        for bblock in numba.prange(bblocks):
+            bstart = bblock * bstep
+            bstop = min(n_bls, bstart + bstep)
+            for c in range(n_chans):
+                for b in range(bstart, bstop):
+                    for p in range(out_vis.shape[3]):
+                        idx = cp_index[b, p]
+                        if idx >= 0:
+                            vis = in_vis[t, c, idx]
+                            weight = in_weights[t, c, idx]
+                            flag = in_flags_u8[t, c, idx] != 0
+                        else:
+                            vis = np.complex64(0 + 0j)
+                            weight = np.float32(0)
+                            flag = np.bool_(True)
+                        out_vis[t, b, c, p] = vis
+                        out_weights[t, b, c, p] = weight
+                        out_flags[t, b, c, p] = flag
+    return out_vis, out_weights, out_flags
 
 
 def main():
@@ -144,10 +187,9 @@ def main():
       """ Get default antenna1 and antenna2 arrays """
       return np.triu_indices(na, 1 if no_auto_corr else 0)
 
-    def corrprod_index_and_missing_mask(dataset):
+    def corrprod_index(dataset):
       """
-      Return the correlator product index and mask representing
-      missing correlator products
+      Return the correlator product index (with -1 representing missing indices)
       """
       corrprod_to_index = dict([(tuple(cp), ind) for cp, ind
           in zip(dataset.corr_products, range(len(dataset.corr_products)))])
@@ -171,7 +213,7 @@ def main():
           a1 = "%s%s" % (a1.name, pol[0].lower())
           a2 = "%s%s" % (a2.name, pol[1].lower())
 
-          return corrprod_to_index.get((a1, a2))
+          return corrprod_to_index.get((a1, a2), -1)
 
       nbl = ant1_index.size
       npol = len(pols_to_use)
@@ -180,19 +222,13 @@ def main():
       cp_index = [_cp_index(a1, a2, p)
                      for a1, a2 in itertools.izip(ant1, ant2)
                      for p in pols_to_use]
-
-      # Identify missing correlator products
-      missing_cp = np.logical_not([i is not None for i in cp_index])
-
-      # Now create ndarray containing all integers
-      # missing_cp will be used to identify bad entries
-      cp_index = np.asarray([i if i else 0 for i in cp_index])
+      cp_index = np.array(cp_index, dtype=np.int32)
 
       CPInfo = namedtuple("CPInfo", ["ant1_index", "ant2_index",
-                                    "ant1", "ant2",
-                                    "cp_index", "missing_cp"])
+                                     "ant1", "ant2",
+                                     "cp_index"])
 
-      return CPInfo(ant1_index, ant2_index, ant1, ant2, cp_index, missing_cp)
+      return CPInfo(ant1_index, ant2_index, ant1, ant2, cp_index)
 
     # Open dataset
     open_args = args[0] if len(args) == 1 else args
@@ -369,7 +405,7 @@ def main():
         scan_itr = 1
         print "\nIterating through scans in file(s)...\n"
 
-        cp_info = corrprod_index_and_missing_mask(dataset)
+        cp_info = corrprod_index(dataset)
         nbl = cp_info.ant1_index.size
         npol = len(pols_to_use)
 
@@ -405,11 +441,6 @@ def main():
         scan_vis_data = np.empty(in_chunk_shape, dataset.vis.dtype)
         scan_weight_data = np.empty(in_chunk_shape, dataset.weights.dtype)
         scan_flag_data = np.empty(in_chunk_shape, dataset.flags.dtype)
-
-        bl_chunk_shape = (tsize, dataset.shape[1], nbl * npol)
-        bl_vis_data = np.empty(bl_chunk_shape, scan_vis_data.dtype)
-        bl_weight_data = np.empty(bl_chunk_shape, scan_weight_data.dtype)
-        bl_flag_data = np.empty(bl_chunk_shape, scan_flag_data.dtype)
 
         ms_chunk_shape = (tsize // dump_av, nbl, nchan, npol)
         ms_vis_data = np.empty(ms_chunk_shape, scan_vis_data.dtype)
@@ -477,21 +508,10 @@ def main():
                 load(dataset, np.s_[ltime:utime, :, :],
                      scan_vis_data, scan_weight_data, scan_flag_data)
 
-                # Select correlator products
-                # cp_index could be used above when the LazyIndexer
-                # supports advanced integer indices. Note that np.take is
-                # equivalent to but much faster than fancy indexing.
-                vis_data = np.take(scan_vis_data, cp_info.cp_index,
-                                   axis=2, out=bl_vis_data)
-                weight_data = np.take(scan_weight_data, cp_info.cp_index,
-                                      axis=2, out=bl_weight_data)
-                flag_data = np.take(scan_flag_data, cp_info.cp_index,
-                                    axis=2, out=bl_flag_data)
-
-                # Zero and flag any missing correlator products
-                vis_data[:, :, cp_info.missing_cp] = 0 + 0j
-                weight_data[:, :, cp_info.missing_cp] = 0
-                flag_data[:, :, cp_info.missing_cp] = True
+                # This are updated as we go to point to the current storage
+                vis_data = scan_vis_data
+                weight_data = scan_weight_data
+                flag_data = scan_flag_data
 
                 out_utc = utc_seconds[ltime:utime]
 
@@ -503,6 +523,12 @@ def main():
 
                     # Infer new time dimension from averaged data
                     tdiff = vis_data.shape[0]
+
+                # Select correlator products and permute axes
+                cp_index = cp_info.cp_index.reshape((nbl, npol))
+                vis_data, weight_data, flag_data = permute_baselines(
+                    vis_data, weight_data, flag_data, cp_index,
+                    ms_vis_data, ms_weight_data, ms_flag_data)
 
                 # Increment the number of averaged dumps
                 ntime_av += tdiff
@@ -520,11 +546,11 @@ def main():
                     out[:] = array.reshape(S).transpose(0, 2, 1, 3)
                     return out.reshape(-1, nchan, npol)
 
-                # Massage visibility, weight and flag data from
-                # (ntime, nchan, nbl*npol) ordering to (ntime*nbl, nchan, npol)
-                vis_data = _separate_baselines_and_pols(vis_data, ms_vis_data)
-                weight_data = _separate_baselines_and_pols(weight_data, ms_weight_data)
-                flag_data = _separate_baselines_and_pols(flag_data, ms_flag_data)
+                # Flatten time and baseline into single axis
+                new_shape = (-1, vis_data.shape[-2], vis_data.shape[-1])
+                vis_data = vis_data.reshape(new_shape)
+                weight_data = weight_data.reshape(new_shape)
+                flag_data = flag_data.reshape(new_shape)
 
                 # Iterate through baselines, computing UVW coordinates
                 # for a chunk of timesteps
