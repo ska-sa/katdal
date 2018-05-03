@@ -20,6 +20,7 @@ import logging
 
 import numpy as np
 import katpoint
+import dask.array as da
 
 from .dataset import (DataSet, BrokenFile, Subarray, SpectralWindow,
                       DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
@@ -116,7 +117,7 @@ class VisibilityDataV4(DataSet):
         half_dump = 0.5 * self.dump_period
         self.start_time = katpoint.Timestamp(source.timestamps[0] - half_dump)
         self.end_time = katpoint.Timestamp(source.timestamps[-1] + half_dump)
-        self._time_keep = np.full(num_dumps, True)
+        self._time_keep = np.full(num_dumps, True, dtype=np.bool_)
         all_dumps = [0, num_dumps]
 
         # Assemble sensor cache
@@ -355,7 +356,7 @@ class VisibilityDataV4(DataSet):
             if ~self._flags_select != 0:
                 # Copy so that the lambda isn't affected by future changes
                 select = self._flags_select.copy()
-                flag_transforms.append(lambda flags: np.bitwise_and(select, flags))
+                flag_transforms.append(lambda flags: da.bitwise_and(select, flags))
             flag_transforms.append(lambda flags: flags.view(np.bool_))
             self._flags = DaskLazyIndexer(self.source.data.flags, stage1, flag_transforms)
 
