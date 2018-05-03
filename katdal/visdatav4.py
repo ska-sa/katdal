@@ -319,6 +319,47 @@ class VisibilityDataV4(DataSet):
                            'to False by default')
         self._flags_select = flagmask
 
+    def _set_keep(self, time_keep=None, freq_keep=None, corrprod_keep=None,
+                  weights_keep=None, flags_keep=None):
+        """Set time, frequency and/or correlation product selection masks.
+
+        Set the selection masks for those parameters that are present. Also
+        include weights and flags selections as options.
+
+        Parameters
+        ----------
+        time_keep : array of bool, shape (*T*,), optional
+            Boolean selection mask with one entry per timestamp
+        freq_keep : array of bool, shape (*F*,), optional
+            Boolean selection mask with one entry per frequency channel
+        corrprod_keep : array of bool, shape (*B*,), optional
+            Boolean selection mask with one entry per correlation product
+        weights_keep : 'all' or string or sequence of strings, optional
+            Names of selected weight types (or 'all' for the lot)
+        flags_keep : 'all' or string or sequence of strings, optional
+            Names of selected flag types (or 'all' for the lot)
+
+        """
+        DataSet._set_keep(self, time_keep, freq_keep, corrprod_keep, weights_keep, flags_keep)
+        update_all = time_keep is not None or freq_keep is not None or corrprod_keep is not None
+        update_flags = update_all or flags_keep is not None
+        if update_flags:
+            # Create first-stage index from dataset selectors. Note: use
+            # the member variables, not the parameters, because the parameters
+            # can be None to indicate no change
+            stage1 = (self._time_keep, self._freq_keep, self._corrprod_keep)
+            if update_all:
+                # Cache dask graphs for the data fields
+                self._vis = DaskLazyIndexer(self.source.data.vis, stage1)
+                self._weights = DaskLazyIndexer(self.source.data.weights, stage1)
+            flag_transforms = []
+            if ~self._flags_select != 0:
+                # Copy so that the lambda isn't affected by future changes
+                select = self._flags_select.copy()
+                flag_transforms.append(lambda flags: da.bitwise_and(select, flags))
+            flag_transforms.append(lambda flags: flags.view(np.bool_))
+            self._flags = DaskLazyIndexer(self.source.data.flags, stage1, flag_transforms)
+
     @property
     def timestamps(self):
         """Visibility timestamps in UTC seconds since Unix epoch.
@@ -349,9 +390,7 @@ class VisibilityDataV4(DataSet):
         electric field of :math:`e^{i(\omega t - jz)}` i.e. phase that
         increases with time.
         """
-        # Create first-stage index from dataset selectors
-        stage1 = (self._time_keep, self._freq_keep, self._corrprod_keep)
-        return DaskLazyIndexer(self.source.data.vis, stage1)
+        return self._vis
 
     @property
     def weights(self):
@@ -368,8 +407,7 @@ class VisibilityDataV4(DataSet):
         indexing on it. Only then will data be loaded into memory.
 
         """
-        stage1 = (self._time_keep, self._freq_keep, self._corrprod_keep)
-        return DaskLazyIndexer(self.source.data.weights, stage1)
+        return self._weights
 
     @property
     def flags(self):
@@ -386,10 +424,7 @@ class VisibilityDataV4(DataSet):
         indexing on it. Only then will data be loaded into memory.
 
         """
-        stage1 = (self._time_keep, self._freq_keep, self._corrprod_keep)
-        flags = self.source.data.flags
-        flags = da.bitwise_and(self._flags_select, flags).view(np.bool_)
-        return DaskLazyIndexer(flags, stage1)
+        return self._flags
 
     @property
     def temperature(self):

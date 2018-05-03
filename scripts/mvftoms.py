@@ -26,8 +26,10 @@ import shutil
 import tarfile
 import optparse
 import time
+import multiprocessing
 
 import numpy as np
+import dask
 import dask.array as da
 import numba
 
@@ -83,7 +85,7 @@ def permute_baselines(in_vis, in_weights, in_flags, cp_index, out_vis, out_weigh
     # Workaround for https://github.com/numba/numba/issues/2921
     in_flags_u8 = in_flags.view(np.uint8)
     n_time, n_bls, n_chans, n_pols = out_vis.shape
-    bstep = 256
+    bstep = 128
     bblocks = (n_bls + bstep - 1) // bstep
     for t in range(n_time):
         for bblock in numba.prange(bblocks):
@@ -165,6 +167,9 @@ def main():
 
     (options, args) = parser.parse_args()
 
+    # Loading is I/O-bound, so give more threads than CPUs
+    dask.set_options(pool=multiprocessing.pool.ThreadPool(4 * multiprocessing.cpu_count()))
+
     if len(args) < 1:
         parser.print_help()
         raise RuntimeError("Please provide one or more filenames as arguments")
@@ -199,12 +204,6 @@ def main():
       # correlator product indices
       # ==========================================
 
-      # Generate baseline antenna pairs
-      auto_cor = options.no_auto == False
-      ant1_index, ant2_index = antenna_indices(len(dataset.ants), auto_cor)
-      ant1 = [dataset.ants[a1] for a1 in ant1_index]
-      ant2 = [dataset.ants[a2] for a2 in ant2_index]
-
       def _cp_index(a1, a2, pol):
           """
           Create individual correlator product index
@@ -214,6 +213,19 @@ def main():
           a2 = "%s%s" % (a2.name, pol[1].lower())
 
           return corrprod_to_index.get((a1, a2), -1)
+
+      # Generate baseline antenna pairs
+      ant1_index, ant2_index = antenna_indices(len(dataset.ants), options.no_auto)
+      # Order as similarly to the input as possible, which gives better performance
+      # in permute_baselines.
+      bl_indices = zip(ant1_index, ant2_index)
+      bl_indices.sort(key=lambda (a1, a2): _cp_index(dataset.ants[a1], dataset.ants[a2],
+                                                     pols_to_use[0]))
+      # Undo the zip
+      ant1_index[:] = [bl[0] for bl in bl_indices]
+      ant2_index[:] = [bl[1] for bl in bl_indices]
+      ant1 = [dataset.ants[a1] for a1 in ant1_index]
+      ant2 = [dataset.ants[a2] for a2 in ant2_index]
 
       nbl = ant1_index.size
       npol = len(pols_to_use)
