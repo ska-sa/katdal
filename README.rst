@@ -1,33 +1,39 @@
 katdal
 ======
 
-This package serves as a data access library to the HDF5 files produced by
-the Fringe Finder, KAT-7 and MeerKAT data capturing systems. It uses memory
-carefully, allowing files to be inspected and partially loaded into memory.
-Data sets may be concatenated and split via a flexible selection mechanism.
-In addition, it provides a script to convert these HDF5 files to CASA
-MeasurementSets.
+This package serves as a data access library to interact with the chunk stores
+and HDF5 files produced by the MeerKAT radio telescope and its predecessors
+(KAT-7 and Fringe Finder). It uses memory carefully, allowing data sets to be
+inspected and partially loaded into memory. Data sets may be concatenated and
+split via a flexible selection mechanism. In addition, it provides a script to
+convert these data sets to CASA MeasurementSets.
 
 Quick Tutorial
 --------------
 
-Open any HDF5 file through a single function to obtain a data set object:
+Open any data set through a single function to obtain a data set object:
 
 .. code:: python
 
   import katdal
   d = katdal.open('1234567890.h5')
 
-This automatically determines whether it is a version 1 (FF), version 2
-(KAT-7) or version 3 (MeerKAT) file. Multiple files (even of different
-versions) may also be concatenated together (as long as they have the
-same dump rate):
+This automatically determines the version and storage location of the data set.
+The versions roughly map to the various instruments::
+
+  - v1 : Fringe Finder (HDF5 file)
+  - v2 : KAT-7 (HDF5 file)
+  - v3 : MeerKAT (HDF5 file)
+  - v4 : MeerKAT (chunk store based on objects in Ceph)
+
+Multiple data sets (even of different versions) may also be concatenated
+together (as long as they have the same dump rate):
 
 .. code:: python
 
   d = katdal.open(['1234567890.h5', '1234567891.h5'])
 
-Inspect the contents of the file by printing the object:
+Inspect the contents of the data set by printing the object:
 
 .. code:: python
 
@@ -170,11 +176,11 @@ frequency dimension by ``d.channel_freqs`` and the correlation product dimension
 by ``d.corr_products``.
 
 Another key concept in the data set object is that of *sensors*. These are named
-time series of arbritrary data that are either loaded from the file (*actual*
-sensors) or calculated on the fly (*virtual* sensors). Both variants are
-accessed through the *sensor cache* (available as ``d.sensor``) and cached there
-after the first access. The data set object also provides convenient properties
-to expose commonly-used sensors, as shown in the plot example below:
+time series of arbritrary data that are either loaded from the data set
+(*actual* sensors) or calculated on the fly (*virtual* sensors). Both variants
+are accessed through the *sensor cache* (available as ``d.sensor``) and cached
+there after the first access. The data set object also provides convenient
+properties to expose commonly-used sensors, as shown in the plot example below:
 
 .. code:: python
 
