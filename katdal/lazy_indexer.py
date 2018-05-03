@@ -16,6 +16,9 @@
 
 """Two-stage deferred indexer for objects with expensive __getitem__ calls."""
 
+import copy
+import threading
+
 import numpy as np
 
 # TODO support advanced integer indexing with non-strictly increasing indices (i.e. out-of-order and duplicates)
@@ -379,20 +382,66 @@ class LazyIndexer(object):
 
 
 class DaskLazyIndexer(object):
-    """Turn a dask Array into a LazyIndexer by computing it upon indexing."""
-    def __init__(self, dataset, keep=()):
+    """Turn a dask Array into a LazyIndexer by computing it upon indexing.
+
+    The internals are computed only on first use, so there is minimal
+    cost in constructing an instance and immediately throwing it away again.
+
+    Fancy indexing is supported but much slower. However, a boolean array
+    for which a contiguous interval of values is selected is treated as a
+    special case and becomes a slice.
+
+    Parameters
+    ----------
+    dataset : :class:`dask.Array`
+        The full dataset, from which a subset is chosen by `keep`.
+    keep : tuple
+        Index expression. This object wraps `dataset[keep]`, although
+        fancy indices are applied independently per axis.
+    transforms : sequence
+        Transformations that are applied after indexing by `keep` but
+        before indexing on this object. Each transformation is a callable
+        that takes a dask array and returns another dask array.
+    
+    Attributes
+    ----------
+    dataset : :class:`dask.Array`
+        The dask array that is accessed by indexing. It can be used
+        directly to perform dask computations.
+    keep : tuple
+        The index expression that is used to compute :attr:`dataset`.
+        It may be an alternative form to that given in the constructor.
+    transforms : list
+        The transformations given in the constructor.
+    """
+    def __init__(self, dataset, keep=(), transforms=()):
         self.name = getattr(dataset, 'name', '')
         keep = _simplify_index(dataset.shape, keep)
-        try:
-            dataset = dataset[keep]
-        except NotImplementedError:
-            # XXX Once dask is a katdal install requirement this can move out
-            import dask.array as da
-            # Dask does not like multiple boolean indices: go one dim at a time
-            for dim, keep_per_dim in enumerate(keep):
-                dataset = da.take(dataset, keep_per_dim, axis=dim)
-        self.dataset = dataset
-        self.transforms = []
+        # Fancy indices can be mutable arrays, so take a copy to protect
+        # against the caller mutating the array before we apply it.
+        self.keep = copy.deepcopy(keep)
+        self.transforms = list(transforms)
+        self._orig_dataset = dataset
+        self._dataset = None
+        self._lock = threading.Lock()
+
+    @property
+    def dataset(self):
+        with self._lock:
+            if self._dataset is None:
+                try:
+                    dataset = self._orig_dataset[self.keep]
+                except NotImplementedError:
+                    # XXX Once dask is a katdal install requirement this can move out
+                    import dask.array as da
+                    # Dask does not like multiple boolean indices: go one dim at a time
+                    for dim, keep_per_dim in enumerate(self.keep):
+                        dataset = da.take(dataset, keep_per_dim, axis=dim)
+                for transform in self.transforms:
+                    dataset = transform(dataset)
+                self._dataset = dataset
+                self._orig_dataset = None
+            return self._dataset
 
     def __getitem__(self, keep):
         return self.dataset[keep].compute()

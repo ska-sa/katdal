@@ -351,9 +351,13 @@ class VisibilityDataV4(DataSet):
                 # Cache dask graphs for the data fields
                 self._vis = DaskLazyIndexer(self.source.data.vis, stage1)
                 self._weights = DaskLazyIndexer(self.source.data.weights, stage1)
-            flags = self.source.data.flags
-            flags = np.bitwise_and(self._flags_select, flags).view(np.bool_)
-            self._flags = DaskLazyIndexer(flags, stage1)
+            flag_transforms = []
+            if ~self._flags_select != 0:
+                # Copy so that the lambda isn't affected by future changes
+                select = self._flags_select.copy()
+                flag_transforms.append(lambda flags: np.bitwise_and(select, flags))
+            flag_transforms.append(lambda flags: flags.view(np.bool_))
+            self._flags = DaskLazyIndexer(self.source.data.flags, stage1, flag_transforms)
 
     @property
     def timestamps(self):
