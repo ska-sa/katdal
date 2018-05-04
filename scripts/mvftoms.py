@@ -38,6 +38,7 @@ import katdal
 from katdal import averager
 from katdal import ms_extra
 from katdal.sensordata import pickle_loads
+from katdal.lazy_indexer import DaskLazyIndexer
 
 
 def load(dataset, indices, vis, weights, flags):
@@ -56,7 +57,7 @@ def load(dataset, indices, vis, weights, flags):
     vis, weights, flags : array-like
         Outputs, which must have the correct shape and type
     """
-    if hasattr(dataset.vis, 'dataset'):
+    if isinstance(dataset.vis, DaskLazyIndexer):
         da.store([dataset.vis.dataset[indices],
                   dataset.weights.dataset[indices],
                   dataset.flags.dataset[indices]],
