@@ -980,7 +980,7 @@ def populate_ms_dict(uvw_coordinates, vis_data, timestamps, antenna1_index, ante
 # ----------------- Write completed dictionary to MS file --------------------
 
 
-def open_main(ms_name='./blank.ms', verbose=True):
+def open_main(ms_name, verbose=True):
     t = open_table(ms_name, ack=verbose)
     if t is None:
         print "Failed to open main table for writing."
@@ -1009,7 +1009,7 @@ def write_rows(t, row_dict, verbose=True):
                 print "  column '%s' not in table" % (col_name,)
 
 
-def write_dict(ms_dict, ms_name='./blank.ms', verbose=True):
+def write_dict(ms_dict, ms_name, verbose=True):
     # Iterate through subtables
     for sub_table_name, sub_dict in ms_dict.iteritems():
         # Allow parsing of single dict and array of dicts in the same fashion
