@@ -17,5 +17,5 @@ redis
 six
 toolz==0.9.0
 
-git+ssh://git@github.com/ska-sa/katpoint
-git+ssh://git@github.com/ska-sa/katsdptelstate
+git+ssh://git@github.com/ska-sa/katpoint#egg=katpoint
+git+ssh://git@github.com/ska-sa/katsdptelstate#egg=katsdptelstate
