@@ -34,10 +34,12 @@ from katdal.test.test_chunkstore import ChunkStoreTestBase
 def consume_stderr_find_port(process, queue):
     """Look for assigned port number in fakes3 output while also consuming it."""
     looking_for_port = True
-    # Gobble up lines of text from stderr until it is closed when process exits
+    # Gobble up lines of text from stderr until it is closed when process exits.
+    # This is the same as `for line in process.stderr:` but on Python 2 that
+    # version deadlocks (see https://stackoverflow.com/a/1085100).
     for line in iter(process.stderr.readline, ''):
         if looking_for_port:
-            ports_found = re.search(r' port=(\d{4,5})$', line.strip())
+            ports_found = re.search(r' port=([1-9]\d*)$', line.strip())
             if ports_found:
                 port_number = ports_found.group(1)
                 queue.put(port_number)
@@ -71,7 +73,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         try:
             port = port_queue.get(timeout=5)
         except Queue.Empty:
-            raise SkipTest('Could not connect to fakes3 server')
+            raise OSError('Could not connect to fakes3 server')
         else:
             return 'http://%s:%s' % (host, port)
 
