@@ -23,3 +23,5 @@ from katdal.test.test_chunkstore import ChunkStoreTestBase
 class TestDictChunkStore(ChunkStoreTestBase):
     def setup(self):
         self.store = DictChunkStore(**vars(self))
+        # This store is prepopulated so missing chunks can't be checked
+        self.preloaded_chunks = True

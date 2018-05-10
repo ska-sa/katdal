@@ -125,6 +125,7 @@ class ChunkStoreTestBase(object):
         self.z = np.array(2.)
         self.big_y = np.arange(960.).reshape(8, 60, 2)
         self.big_y2 = np.arange(960).reshape(8, 60, 2)
+        self.preloaded_chunks = False
 
     def array_name(self, name):
         return name
@@ -178,9 +179,15 @@ class ChunkStoreTestBase(object):
         assert_array_equal(results, np.full(divisions_per_dim, True))
 
     def test_chunk_non_existent(self):
-        args = ('haha', (slice(0, 1),), np.dtype(np.float))
+        slices = (slice(0, 1),)
+        dtype = np.dtype(np.float)
+        args = ('haha', slices, dtype)
+        shape = tuple(s.stop - s.start for s in slices)
         assert_raises(ChunkNotFound, self.store.get_chunk, *args)
         assert_false(self.store.has_chunk(*args))
+        zeros = self.store.get_chunk_or_zeros(*args)
+        assert_array_equal(zeros, np.zeros(shape, dtype))
+        assert_equal(zeros.dtype, dtype)
 
     def test_chunk_bool_1dim_and_too_small(self):
         # Check basic put + get on 1-D bool
@@ -220,5 +227,17 @@ class ChunkStoreTestBase(object):
         self.put_dask_array('big_y2', np.s_[0:3,  0:30, 0:2])
         self.put_dask_array('big_y2', np.s_[3:8,  0:30, 0:2])
         self.put_dask_array('big_y2', np.s_[0:3, 30:60, 0:2])
+        # Before storing last quarter, check that get() replaces it with zeros
+        if not self.preloaded_chunks:
+            array_name, dask_array, offset = self.make_dask_array('big_y2')
+            pull = self.store.get_dask_array(array_name, dask_array.chunks,
+                                             dask_array.dtype, offset)
+            array_retrieved = pull.compute()
+            assert_equal(array_retrieved.shape, dask_array.shape)
+            assert_equal(array_retrieved.dtype, dask_array.dtype)
+            assert_array_equal(array_retrieved[np.s_[3:8, 30:60, 0:2]], 0,
+                               "Missing chunk in {} not replaced by zeros"
+                               .format(array_name))
+        # Now store the last quarter and check that complete array is correct
         self.put_dask_array('big_y2', np.s_[3:8, 30:60, 0:2])
         self.get_dask_array('big_y2')
