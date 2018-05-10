@@ -22,11 +22,12 @@
 from collections import namedtuple
 import itertools
 import os
-import shutil
 import tarfile
 import optparse
 import time
 import multiprocessing
+import multiprocessing.sharedctypes
+import Queue
 
 import numpy as np
 import dask
@@ -37,8 +38,12 @@ import katpoint
 import katdal
 from katdal import averager
 from katdal import ms_extra
+from katdal import ms_async
 from katdal.sensordata import pickle_loads
 from katdal.lazy_indexer import DaskLazyIndexer
+
+
+SLOTS = 4    # Controls overlap between loading and writing
 
 
 def load(dataset, indices, vis, weights, flags):
@@ -431,9 +436,6 @@ def main():
           nchan=nchan, ncorr=npol, model_data=options.model_data)
         ms_extra.create_ms(ms_name, table_desc, dminfo)
 
-        #  prepare to write main dict
-        main_table = ms_extra.open_main(ms_name, verbose=options.verbose)
-
         ms_dict = {}
         ms_dict['ANTENNA'] = ms_extra.populate_antenna_dict([ant.name for ant in dataset.ants],
                                                             [ant.position_ecef for ant in dataset.ants],
@@ -455,188 +457,162 @@ def main():
         scan_weight_data = np.empty(in_chunk_shape, dataset.weights.dtype)
         scan_flag_data = np.empty(in_chunk_shape, dataset.flags.dtype)
 
-        ms_chunk_shape = (tsize // dump_av, nbl, nchan, npol)
-        ms_vis_data = np.empty(ms_chunk_shape, scan_vis_data.dtype)
-        ms_weight_data = np.empty(ms_chunk_shape, scan_weight_data.dtype)
-        ms_flag_data = np.empty(ms_chunk_shape, scan_flag_data.dtype)
+        ms_chunk_shape = (SLOTS, tsize // dump_av, nbl, nchan, npol)
+        raw_vis_data = ms_async.RawArray(ms_chunk_shape, scan_vis_data.dtype)
+        raw_weight_data = ms_async.RawArray(ms_chunk_shape, scan_weight_data.dtype)
+        raw_flag_data = ms_async.RawArray(ms_chunk_shape, scan_flag_data.dtype)
+        ms_vis_data = raw_vis_data.asarray()
+        ms_weight_data = raw_weight_data.asarray()
+        ms_flag_data = raw_flag_data.asarray()
 
-        for scan_ind, scan_state, target in dataset.scans():
-            s = time.time()
-            scan_len = dataset.shape[0]
-            if scan_state != 'track':
-                if options.verbose:
-                    print "scan %3d (%4d samples) skipped '%s' - not a track" % (scan_ind, scan_len, scan_state)
-                continue
-            if scan_len < 2:
-                if options.verbose:
-                    print "scan %3d (%4d samples) skipped - too short" % (scan_ind, scan_len)
-                continue
-            if target.body_type != 'radec':
-                if options.verbose:
-                    print "scan %3d (%4d samples) skipped - target '%s' not RADEC" % (scan_ind, scan_len, target.name)
-                continue
-            print "scan %3d (%4d samples) loaded. Target: '%s'. Writing to disk..." % (scan_ind, scan_len, target.name)
+        # Need to limit the queue to prevent overwriting slots before they've
+        # been processed. The -2 allows for the one we're writing and the one
+        # the writer process is reading.
+        work_queue = multiprocessing.Queue(maxsize=SLOTS - 2)
+        result_queue = multiprocessing.Queue()
+        writer_process = multiprocessing.Process(
+            target=ms_async.ms_writer_process,
+            args=(work_queue, result_queue, options, dataset.ants, cp_info, ms_name,
+                  raw_vis_data, raw_weight_data, raw_flag_data))
+        writer_process.start()
 
-            # Get the average dump time for this scan (equal to scan length if the dump period is longer than a scan)
-            dump_time_width = min(time_av, scan_len * dataset.dump_period)
+        try:
+            slot = 0
+            for scan_ind, scan_state, target in dataset.scans():
+                s = time.time()
+                scan_len = dataset.shape[0]
+                if scan_state != 'track':
+                    if options.verbose:
+                        print "scan %3d (%4d samples) skipped '%s' - not a track" % (scan_ind, scan_len, scan_state)
+                    continue
+                if scan_len < 2:
+                    if options.verbose:
+                        print "scan %3d (%4d samples) skipped - too short" % (scan_ind, scan_len)
+                    continue
+                if target.body_type != 'radec':
+                    if options.verbose:
+                        print "scan %3d (%4d samples) skipped - target '%s' not RADEC" % (scan_ind, scan_len, target.name)
+                    continue
+                print "scan %3d (%4d samples) loaded. Target: '%s'. Writing to disk..." % (scan_ind, scan_len, target.name)
 
-            scan_size = 0
-            # Get UTC timestamps
-            utc_seconds = dataset.timestamps[:]
-            # Update field lists if this is a new target
-            if target.name not in field_names:
-                # Since this will be an 'radec' target, we don't need antenna or timestamp to get the (astrometric) ra, dec
-                ra, dec = target.radec()
+                # Get the average dump time for this scan (equal to scan length if the dump period is longer than a scan)
+                dump_time_width = min(time_av, scan_len * dataset.dump_period)
 
-                field_names.append(target.name)
-                field_centers.append((ra, dec))
-                field_times.append(katpoint.Timestamp(utc_seconds[0]).to_mjd() * 60 * 60 * 24)
-                if options.verbose:
-                    print "Added new field %d: '%s' %s %s" % (len(field_names) - 1, target.name, ra, dec)
-            field_id = field_names.index(target.name)
+                # Get UTC timestamps
+                utc_seconds = dataset.timestamps[:]
+                # Update field lists if this is a new target
+                if target.name not in field_names:
+                    # Since this will be an 'radec' target, we don't need antenna or timestamp to get the (astrometric) ra, dec
+                    ra, dec = target.radec()
 
-            # Determine the observation tag for this scan
-            obs_tag = ','.join(tag_to_intent[tag] for tag in target.tags
-                                                if tag in tag_to_intent)
+                    field_names.append(target.name)
+                    field_centers.append((ra, dec))
+                    field_times.append(katpoint.Timestamp(utc_seconds[0]).to_mjd() * 60 * 60 * 24)
+                    if options.verbose:
+                        print "Added new field %d: '%s' %s %s" % (len(field_names) - 1, target.name, ra, dec)
+                field_id = field_names.index(target.name)
 
-            # add tag to obs_modes list
-            if obs_tag and obs_tag not in obs_modes:
-                obs_modes.append(obs_tag)
-            # get state_id from obs_modes list if it is in the list, else 0 'UNKNOWN'
-            state_id = obs_modes.index(obs_tag) if obs_tag in obs_modes else 0
+                # Determine the observation tag for this scan
+                obs_tag = ','.join(tag_to_intent[tag] for tag in target.tags
+                                                    if tag in tag_to_intent)
 
-            # Iterate over time in some multiple of dump average
-            ntime = utc_seconds.size
-            ntime_av = 0
+                # add tag to obs_modes list
+                if obs_tag and obs_tag not in obs_modes:
+                    obs_modes.append(obs_tag)
+                # get state_id from obs_modes list if it is in the list, else 0 'UNKNOWN'
+                state_id = obs_modes.index(obs_tag) if obs_tag in obs_modes else 0
 
-            for ltime in xrange(0, ntime - tsize + 1, tsize):
+                # Iterate over time in some multiple of dump average
+                ntime = utc_seconds.size
+                ntime_av = 0
 
-                utime = ltime + tsize
-                tdiff = utime - ltime
-                out_freqs = dataset.channel_freqs
+                for ltime in xrange(0, ntime - tsize + 1, tsize):
 
-                # load all visibility, weight and flag data
-                # for this scan's timestamps.
-                # Ordered (ntime, nchan, nbl*npol)
-                load(dataset, np.s_[ltime:utime, :, :],
-                     scan_vis_data, scan_weight_data, scan_flag_data)
+                    utime = ltime + tsize
+                    tdiff = utime - ltime
+                    out_freqs = dataset.channel_freqs
 
-                # This are updated as we go to point to the current storage
-                vis_data = scan_vis_data
-                weight_data = scan_weight_data
-                flag_data = scan_flag_data
+                    # load all visibility, weight and flag data
+                    # for this scan's timestamps.
+                    # Ordered (ntime, nchan, nbl*npol)
+                    load(dataset, np.s_[ltime:utime, :, :],
+                         scan_vis_data, scan_weight_data, scan_flag_data)
 
-                out_utc = utc_seconds[ltime:utime]
+                    # This are updated as we go to point to the current storage
+                    vis_data = scan_vis_data
+                    weight_data = scan_weight_data
+                    flag_data = scan_flag_data
 
-                # Overwrite the input visibilities with averaged visibilities,flags,weights,timestamps,channel freqs
-                if average_data:
-                    vis_data, weight_data, flag_data, out_utc, out_freqs = \
-                        averager.average_visibilities(vis_data, weight_data, flag_data, out_utc, out_freqs,
-                                                      timeav=dump_av, chanav=chan_av, flagav=options.flagav)
+                    out_utc = utc_seconds[ltime:utime]
 
-                    # Infer new time dimension from averaged data
-                    tdiff = vis_data.shape[0]
+                    # Overwrite the input visibilities with averaged visibilities,flags,weights,timestamps,channel freqs
+                    if average_data:
+                        vis_data, weight_data, flag_data, out_utc, out_freqs = \
+                            averager.average_visibilities(vis_data, weight_data, flag_data, out_utc, out_freqs,
+                                                          timeav=dump_av, chanav=chan_av, flagav=options.flagav)
 
-                # Select correlator products and permute axes
-                cp_index = cp_info.cp_index.reshape((nbl, npol))
-                vis_data, weight_data, flag_data = permute_baselines(
-                    vis_data, weight_data, flag_data, cp_index,
-                    ms_vis_data, ms_weight_data, ms_flag_data)
+                        # Infer new time dimension from averaged data
+                        tdiff = vis_data.shape[0]
 
-                # Increment the number of averaged dumps
-                ntime_av += tdiff
+                    # Select correlator products and permute axes
+                    cp_index = cp_info.cp_index.reshape((nbl, npol))
+                    vis_data, weight_data, flag_data = permute_baselines(
+                        vis_data, weight_data, flag_data, cp_index,
+                        ms_vis_data[slot], ms_weight_data[slot], ms_flag_data[slot])
 
-                def _separate_baselines_and_pols(array, out):
-                    """
-                    (1) Separate correlator product into baseline and polarisation,
-                    (2) rotate baseline between time and channel,
-                    (3) group time and baseline together
+                    # Increment the number of averaged dumps
+                    ntime_av += tdiff
 
-                    `out` must have dimensions time, nbl, nchan, npol and is
-                    used as backing storage for the returned array.
-                    """
-                    S = array.shape[:2] + (nbl, npol)
-                    out[:] = array.reshape(S).transpose(0, 2, 1, 3)
-                    return out.reshape(-1, nchan, npol)
+                    # Check if writer process has crashed and abort if so
+                    try:
+                        result = result_queue.get_nowait()
+                        raise result
+                    except Queue.Empty:
+                        pass
 
-                # Flatten time and baseline into single axis
-                new_shape = (-1, vis_data.shape[-2], vis_data.shape[-1])
-                vis_data = vis_data.reshape(new_shape)
-                weight_data = weight_data.reshape(new_shape)
-                flag_data = flag_data.reshape(new_shape)
+                    work_queue.put(ms_async.QueueItem(
+                        slot=slot, target=target, time_utc=out_utc, dump_time_width=dump_time_width,
+                        field_id=field_id, state_id=state_id, scan_itr=scan_itr))
+                    slot += 1
+                    if slot == SLOTS:
+                        slot = 0
 
-                # Iterate through baselines, computing UVW coordinates
-                # for a chunk of timesteps
-                uvw_basis = target.uvw_basis(out_utc, array_centre)
-                # Axes in uvw_ant are antenna, axis (u/v/w), and time
-                uvw_ant = np.tensordot(baseline_vectors, uvw_basis, ([1], [1]))
-                # Permute to time, antenna, axis
-                uvw_ant = np.transpose(uvw_ant, (2, 0, 1))
-                # Compute baseline UVW coordinates from per-antenna coordinates.
-                # The sign convention matches `CASA`_, rather than the
-                # Measurement Set `definition`_.
-                # .. _CASA: https://casa.nrao.edu/Memos/CoordConvention.pdf
-                # .. _definition: https://casa.nrao.edu/Memos/229.html#SECTION00064000000000000000
-                uvw_coordinates = (np.take(uvw_ant, cp_info.ant1_index, axis=1)
-                                   - np.take(uvw_ant, cp_info.ant2_index, axis=1))
-                # Flatten time and baseline axes together
-                uvw_coordinates = uvw_coordinates.reshape(-1, 3)
+                work_queue.put(ms_async.EndOfScan())
+                result = result_queue.get()
+                if isinstance(result, Exception):
+                    raise result
+                scan_size = result.scan_size
+                s1 = time.time() - s
 
-                # Convert averaged UTC timestamps to MJD seconds.
-                # Blow time up to (ntime*nbl,)
-                out_mjd = np.asarray([katpoint.Timestamp(time_utc).to_mjd() * 24 * 60 * 60
-                                      for time_utc in out_utc])
+                if average_data and utc_seconds.shape != ntime_av:
+                    print "Averaged %s x %s second dumps to %s x %s second dumps" % (
+                                            np.shape(utc_seconds)[0], dataset.dump_period,
+                                            ntime_av, dump_time_width)
 
-                out_mjd = np.broadcast_to(out_mjd[:, np.newaxis], (tdiff, nbl)).ravel()
+                scan_size_mb = float(scan_size) / (1024**2)
 
-                # Repeat antenna indices to (ntime*nbl,)
-                a1 = np.broadcast_to(cp_info.ant1_index[np.newaxis, :], (tdiff, nbl)).ravel()
-                a2 = np.broadcast_to(cp_info.ant2_index[np.newaxis, :], (tdiff, nbl)).ravel()
+                print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (
+                                            scan_size_mb, s1, scan_size_mb / s1)
 
-                # Blow field ID up to (ntime*nbl,)
-                big_field_id = np.full((tdiff * nbl,), field_id, dtype=np.int32)
-                big_state_id = np.full((tdiff * nbl,), state_id, dtype=np.int32)
-                big_scan_itr = np.full((tdiff * nbl,), scan_itr, dtype=np.int32)
+                scan_itr += 1
+                total_size += scan_size
 
-                # Setup model_data and corrected_data if required
-                model_data = None
-                corrected_data = None
 
-                if options.model_data:
-                    # unity intensity zero phase model data set, same shape as vis_data
-                    model_data = np.ones(vis_data.shape, dtype=np.complex64)
-                    # corrected data set copied from vis_data
-                    corrected_data = vis_data
-
-                # Populate dictionary for write to MS
-                main_dict = ms_extra.populate_main_dict(uvw_coordinates, vis_data,
-                                    flag_data, out_mjd, a1, a2,
-                                    dump_time_width, big_field_id, big_state_id,
-                                    big_scan_itr, model_data, corrected_data)
-
-                # Write data to MS.
-                ms_extra.write_rows(main_table, main_dict, verbose=options.verbose)
-
-                # Calculate bytes written from the summed arrays in the dict
-                scan_size += sum(a.nbytes for a in main_dict.itervalues()
-                                  if isinstance(a, np.ndarray))
-
-            s1 = time.time() - s
-
-            if average_data and utc_seconds.shape != ntime_av:
-                print "Averaged %s x %s second dumps to %s x %s second dumps" % (
-                                        np.shape(utc_seconds)[0], dataset.dump_period,
-                                        ntime_av, dump_time_width)
-
-            scan_size_mb = float(scan_size) / (1024**2)
-
-            # Write rows to disk
-            main_table.flush()
-            print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (
-                                        scan_size_mb, s1, scan_size_mb / s1)
-
-            scan_itr += 1
-            total_size += scan_size
+        finally:
+            work_queue.put(None)
+            writer_exc = None
+            # Drain the result_queue so that we unblock the writer process
+            while True:
+                result = result_queue.get()
+                if isinstance(result, Exception):
+                    writer_exc = result
+                elif result is None:
+                    break
+            writer_process.join()
+        # This raise is deferred to outside the finally block, so that we don't
+        # raise an exception while unwinding another one.
+        if isinstance(writer_exc, Exception):
+            raise writer_exc
 
         if total_size == 0:
             raise RuntimeError("No usable data found in HDF5 file "
@@ -665,6 +641,7 @@ def main():
         # Open first HDF5 file in the list to extract TelescopeState parameters from
         #   (can't extract telstate params from contatenated katdal file as it uses the hdf5 file directly)
         first_dataset = katdal.open(args[0], ref_ant=options.ref_ant)
+        main_table = ms_extra.open_main(ms_name, verbose=options.verbose)
 
         if options.caltables:
             # copy extra subtable dictionary values necessary for caltable
