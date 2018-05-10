@@ -19,8 +19,9 @@
 import tempfile
 import shutil
 import subprocess
-import time
 import re
+import threading
+import Queue
 
 from nose import SkipTest
 from nose.tools import assert_raises
@@ -28,6 +29,19 @@ from nose.tools import assert_raises
 from katdal.chunkstore_s3 import S3ChunkStore, botocore
 from katdal.chunkstore import StoreUnavailable
 from katdal.test.test_chunkstore import ChunkStoreTestBase
+
+
+def consume_stderr_find_port(process, queue):
+    """Look for assigned port number in fakes3 output while also consuming it."""
+    looking_for_port = True
+    # Gobble up lines of text from stderr until it is closed when process exits
+    for line in iter(process.stderr.readline, ''):
+        if looking_for_port:
+            ports_found = re.search(r' port=(\d{4,5})$', line.strip())
+            if ports_found:
+                port_number = ports_found.group(1)
+                queue.put(port_number)
+                looking_for_port = False
 
 
 class TestS3ChunkStore(ChunkStoreTestBase):
@@ -41,30 +55,36 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             cls.fakes3 = subprocess.Popen(['fakes3', 'server',
                                            '-r', cls.tempdir, '-p', '0',
                                            '-a', host, '-H', host],
-                                          stdout=subprocess.PIPE,
                                           stderr=subprocess.PIPE)
         except OSError:
             raise SkipTest('Could not start fakes3 server (is it installed?)')
-        start = time.time()
-        # Give up after waiting a few seconds for Fake S3
-        while time.time() - start <= 5:
-            # Look for assigned port number in fakes3 stderr output
-            line = cls.fakes3.stderr.readline().strip()
-            ports_found = re.search(r' port=(\d{4,5})$', line)
-            if ports_found:
-                port = ports_found.group(1)
-                return 'http://%s:%s' % (host, port)
-        raise SkipTest('Could not connect to fakes3 server')
+        # The assigned port number is scraped from stderr and returned via queue
+        port_queue = Queue.Queue()
+        # Ensure that the stderr of fakes3 process is continuously consumed.
+        # This pattern is inspired by the "Launch, Interact, Get Output in
+        # Real Time, Terminate" section of
+        # https://dzone.com/articles/interacting-with-a-long-running-child-process-in-p
+        cls.stderr_consumer = threading.Thread(target=consume_stderr_find_port,
+                                               args=(cls.fakes3, port_queue))
+        cls.stderr_consumer.start()
+        # Give up after waiting a few seconds for Fake S3 to announce its port
+        try:
+            port = port_queue.get(timeout=5)
+        except Queue.Empty:
+            raise SkipTest('Could not connect to fakes3 server')
+        else:
+            return 'http://%s:%s' % (host, port)
 
     @classmethod
     def setup_class(cls):
         """Start Fake S3 service running on temp dir, and ChunkStore on that."""
         cls.tempdir = tempfile.mkdtemp()
         cls.fakes3 = None
+        cls.stderr_consumer = None
         try:
             url = cls.start_fakes3('localhost')
             try:
-                cls.store = S3ChunkStore.from_url(url)
+                cls.store = S3ChunkStore.from_url(url, timeout=1)
             except ImportError:
                 raise SkipTest('S3 botocore dependency not installed')
             except StoreUnavailable:
@@ -85,6 +105,8 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         if cls.fakes3:
             cls.fakes3.terminate()
             cls.fakes3.wait()
+        if cls.stderr_consumer:
+            cls.stderr_consumer.join()
         shutil.rmtree(cls.tempdir)
 
     def array_name(self, path):
@@ -94,5 +116,4 @@ class TestS3ChunkStore(ChunkStoreTestBase):
     def test_store_unavailable(self):
         # Drastically reduce the default botocore timeout of nearly 7 seconds
         assert_raises(StoreUnavailable, S3ChunkStore.from_url,
-                      'http://apparently.invalid/',
-                      connect_timeout=0.1, retries={'max_attempts': 0})
+                      'http://apparently.invalid/', timeout=0.1)
