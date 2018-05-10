@@ -20,6 +20,7 @@ import copy
 import threading
 
 import numpy as np
+import dask.array as da
 
 # TODO support advanced integer indexing with non-strictly increasing indices (i.e. out-of-order and duplicates)
 
@@ -402,7 +403,7 @@ class DaskLazyIndexer(object):
         Transformations that are applied after indexing by `keep` but
         before indexing on this object. Each transformation is a callable
         that takes a dask array and returns another dask array.
-    
+
     Attributes
     ----------
     dataset : :class:`dask.Array`
@@ -432,8 +433,6 @@ class DaskLazyIndexer(object):
                 try:
                     dataset = self._orig_dataset[self.keep]
                 except NotImplementedError:
-                    # XXX Once dask is a katdal install requirement this can move out
-                    import dask.array as da
                     # Dask does not like multiple boolean indices: go one dim at a time
                     for dim, keep_per_dim in enumerate(self.keep):
                         dataset = da.take(dataset, keep_per_dim, axis=dim)

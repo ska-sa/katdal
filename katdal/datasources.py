@@ -21,7 +21,6 @@ import os
 import logging
 
 import katsdptelstate
-import redis
 import numpy as np
 
 from .sensordata import TelstateSensorData
@@ -303,7 +302,7 @@ class TelstateDataSource(DataSource):
             # Redis server
             try:
                 telstate = katsdptelstate.TelescopeState(url_parts.netloc, db)
-            except (redis.ConnectionError, redis.TimeoutError) as e:
+            except katsdptelstate.ConnectionError as e:
                 raise DataSourceNotFound(str(e))
             telstate = view_capture_stream(telstate, **kwargs)
             if chunk_store == 'auto':
