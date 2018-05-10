@@ -22,13 +22,12 @@
 from collections import namedtuple
 import itertools
 import os
-import shutil
 import tarfile
 import optparse
 import time
-import contextlib
 import multiprocessing
 import multiprocessing.sharedctypes
+import Queue
 
 import numpy as np
 import dask
@@ -39,6 +38,7 @@ import katpoint
 import katdal
 from katdal import averager
 from katdal import ms_extra
+from katdal import ms_async
 from katdal.sensordata import pickle_loads
 from katdal.lazy_indexer import DaskLazyIndexer
 
@@ -113,117 +113,6 @@ def permute_baselines(in_vis, in_weights, in_flags, cp_index, out_vis, out_weigh
                         out_weights[t, b, c, p] = weight
                         out_flags[t, b, c, p] = flag
     return out_vis, out_weights, out_flags
-
-
-class RawArray(object):
-    """Shared memory array, in representation that can be passed through multiprocessing queue"""
-    def __init__(self, shape, dtype):
-        self.shape = shape
-        self.dtype = np.dtype(dtype)
-        size = self.dtype.itemsize * int(np.product(shape))
-        self.storage = multiprocessing.sharedctypes.RawArray('c', size)
-
-    def asarray(self):
-        """Return numpy array representation"""
-        return np.frombuffer(self.storage, self.dtype).reshape(self.shape)
-
-
-QueueItem = namedtuple('QueueItem', ['slot', 'target', 'time_utc', 'dump_time_width',
-                                     'field_id', 'state_id', 'scan_itr'])
-ScanResult = namedtuple('ScanResult', ['scan_size'])
-
-
-class EndOfScan(object):
-    pass
-
-
-def ms_writer_process(
-        work_queue, result_queue, options, antennas, cp_info, ms_name,
-        raw_vis_data, raw_weight_data, raw_flag_data):
-    vis_arrays = raw_vis_data.asarray()
-    weight_arrays = raw_weight_data.asarray()
-    flag_arrays = raw_flag_data.asarray()
-    scan_size = 0
-    tdiff = vis_arrays.shape[1]
-    nbl = vis_arrays.shape[2]
-
-    main_table = ms_extra.open_main(ms_name, verbose=options.verbose)
-    with contextlib.closing(main_table):
-        array_centre = katpoint.Antenna('', *antennas[0].ref_position_wgs84)
-        baseline_vectors = np.array([array_centre.baseline_toward(antenna)
-                                     for antenna in antennas])
-
-        while True:
-            item = work_queue.get()
-            if item is None:
-                break
-            elif isinstance(item, EndOfScan):
-                main_table.flush()    # Mostly to get realistic throughput stats
-                result_queue.put(ScanResult(scan_size))
-                scan_size = 0
-            else:
-                # Extract the slot, and flatten time and baseline into a single axis
-                new_shape = (-1, vis_arrays.shape[-2], vis_arrays.shape[-1])
-                vis_data = vis_arrays[item.slot].reshape(new_shape)
-                weight_data = weight_arrays[item.slot].reshape(new_shape)
-                flag_data = flag_arrays[item.slot].reshape(new_shape)
-
-                # Iterate through baselines, computing UVW coordinates
-                # for a chunk of timesteps
-                uvw_basis = item.target.uvw_basis(item.time_utc, array_centre)
-                # Axes in uvw_ant are antenna, axis (u/v/w), and time
-                uvw_ant = np.tensordot(baseline_vectors, uvw_basis, ([1], [1]))
-                # Permute to time, antenna, axis
-                uvw_ant = np.transpose(uvw_ant, (2, 0, 1))
-                # Compute baseline UVW coordinates from per-antenna coordinates.
-                # The sign convention matches `CASA`_, rather than the
-                # Measurement Set `definition`_.
-                # .. _CASA: https://casa.nrao.edu/Memos/CoordConvention.pdf
-                # .. _definition: https://casa.nrao.edu/Memos/229.html#SECTION00064000000000000000
-                uvw_coordinates = (np.take(uvw_ant, cp_info.ant1_index, axis=1)
-                                   - np.take(uvw_ant, cp_info.ant2_index, axis=1))
-                # Flatten time and baseline axes together
-                uvw_coordinates = uvw_coordinates.reshape(-1, 3)
-
-                # Convert averaged UTC timestamps to MJD seconds.
-                # Blow time up to (ntime*nbl,)
-                out_mjd = np.asarray([katpoint.Timestamp(t).to_mjd() * 24 * 60 * 60
-                                      for t in item.time_utc])
-
-                out_mjd = np.broadcast_to(out_mjd[:, np.newaxis], (tdiff, nbl)).ravel()
-
-                # Repeat antenna indices to (ntime*nbl,)
-                a1 = np.broadcast_to(cp_info.ant1_index[np.newaxis, :], (tdiff, nbl)).ravel()
-                a2 = np.broadcast_to(cp_info.ant2_index[np.newaxis, :], (tdiff, nbl)).ravel()
-
-                # Blow field ID up to (ntime*nbl,)
-                big_field_id = np.full((tdiff * nbl,), item.field_id, dtype=np.int32)
-                big_state_id = np.full((tdiff * nbl,), item.state_id, dtype=np.int32)
-                big_scan_itr = np.full((tdiff * nbl,), item.scan_itr, dtype=np.int32)
-
-                # Setup model_data and corrected_data if required
-                model_data = None
-                corrected_data = None
-
-                if options.model_data:
-                    # unity intensity zero phase model data set, same shape as vis_data
-                    model_data = np.ones(vis_data.shape, dtype=np.complex64)
-                    # corrected data set copied from vis_data
-                    corrected_data = vis_data
-
-                # Populate dictionary for write to MS
-                main_dict = ms_extra.populate_main_dict(
-                    uvw_coordinates, vis_data,
-                    flag_data, out_mjd, a1, a2,
-                    item.dump_time_width, big_field_id, big_state_id,
-                    big_scan_itr, model_data, corrected_data)
-
-                # Write data to MS.
-                ms_extra.write_rows(main_table, main_dict, verbose=options.verbose)
-
-                # Calculate bytes written from the summed arrays in the dict
-                scan_size += sum(a.nbytes for a in main_dict.itervalues()
-                                  if isinstance(a, np.ndarray))
 
 
 def main():
@@ -569,9 +458,9 @@ def main():
         scan_flag_data = np.empty(in_chunk_shape, dataset.flags.dtype)
 
         ms_chunk_shape = (SLOTS, tsize // dump_av, nbl, nchan, npol)
-        raw_vis_data = RawArray(ms_chunk_shape, scan_vis_data.dtype)
-        raw_weight_data = RawArray(ms_chunk_shape, scan_weight_data.dtype)
-        raw_flag_data = RawArray(ms_chunk_shape, scan_flag_data.dtype)
+        raw_vis_data = ms_async.RawArray(ms_chunk_shape, scan_vis_data.dtype)
+        raw_weight_data = ms_async.RawArray(ms_chunk_shape, scan_weight_data.dtype)
+        raw_flag_data = ms_async.RawArray(ms_chunk_shape, scan_flag_data.dtype)
         ms_vis_data = raw_vis_data.asarray()
         ms_weight_data = raw_weight_data.asarray()
         ms_flag_data = raw_flag_data.asarray()
@@ -582,123 +471,149 @@ def main():
         work_queue = multiprocessing.Queue(maxsize=SLOTS - 2)
         result_queue = multiprocessing.Queue()
         writer_process = multiprocessing.Process(
-            target=ms_writer_process,
+            target=ms_async.ms_writer_process,
             args=(work_queue, result_queue, options, dataset.ants, cp_info, ms_name,
                   raw_vis_data, raw_weight_data, raw_flag_data))
         writer_process.start()
 
-        slot = 0
-        for scan_ind, scan_state, target in dataset.scans():
-            s = time.time()
-            scan_len = dataset.shape[0]
-            if scan_state != 'track':
-                if options.verbose:
-                    print "scan %3d (%4d samples) skipped '%s' - not a track" % (scan_ind, scan_len, scan_state)
-                continue
-            if scan_len < 2:
-                if options.verbose:
-                    print "scan %3d (%4d samples) skipped - too short" % (scan_ind, scan_len)
-                continue
-            if target.body_type != 'radec':
-                if options.verbose:
-                    print "scan %3d (%4d samples) skipped - target '%s' not RADEC" % (scan_ind, scan_len, target.name)
-                continue
-            print "scan %3d (%4d samples) loaded. Target: '%s'. Writing to disk..." % (scan_ind, scan_len, target.name)
+        try:
+            slot = 0
+            for scan_ind, scan_state, target in dataset.scans():
+                s = time.time()
+                scan_len = dataset.shape[0]
+                if scan_state != 'track':
+                    if options.verbose:
+                        print "scan %3d (%4d samples) skipped '%s' - not a track" % (scan_ind, scan_len, scan_state)
+                    continue
+                if scan_len < 2:
+                    if options.verbose:
+                        print "scan %3d (%4d samples) skipped - too short" % (scan_ind, scan_len)
+                    continue
+                if target.body_type != 'radec':
+                    if options.verbose:
+                        print "scan %3d (%4d samples) skipped - target '%s' not RADEC" % (scan_ind, scan_len, target.name)
+                    continue
+                print "scan %3d (%4d samples) loaded. Target: '%s'. Writing to disk..." % (scan_ind, scan_len, target.name)
 
-            # Get the average dump time for this scan (equal to scan length if the dump period is longer than a scan)
-            dump_time_width = min(time_av, scan_len * dataset.dump_period)
+                # Get the average dump time for this scan (equal to scan length if the dump period is longer than a scan)
+                dump_time_width = min(time_av, scan_len * dataset.dump_period)
 
-            # Get UTC timestamps
-            utc_seconds = dataset.timestamps[:]
-            # Update field lists if this is a new target
-            if target.name not in field_names:
-                # Since this will be an 'radec' target, we don't need antenna or timestamp to get the (astrometric) ra, dec
-                ra, dec = target.radec()
+                # Get UTC timestamps
+                utc_seconds = dataset.timestamps[:]
+                # Update field lists if this is a new target
+                if target.name not in field_names:
+                    # Since this will be an 'radec' target, we don't need antenna or timestamp to get the (astrometric) ra, dec
+                    ra, dec = target.radec()
 
-                field_names.append(target.name)
-                field_centers.append((ra, dec))
-                field_times.append(katpoint.Timestamp(utc_seconds[0]).to_mjd() * 60 * 60 * 24)
-                if options.verbose:
-                    print "Added new field %d: '%s' %s %s" % (len(field_names) - 1, target.name, ra, dec)
-            field_id = field_names.index(target.name)
+                    field_names.append(target.name)
+                    field_centers.append((ra, dec))
+                    field_times.append(katpoint.Timestamp(utc_seconds[0]).to_mjd() * 60 * 60 * 24)
+                    if options.verbose:
+                        print "Added new field %d: '%s' %s %s" % (len(field_names) - 1, target.name, ra, dec)
+                field_id = field_names.index(target.name)
 
-            # Determine the observation tag for this scan
-            obs_tag = ','.join(tag_to_intent[tag] for tag in target.tags
-                                                if tag in tag_to_intent)
+                # Determine the observation tag for this scan
+                obs_tag = ','.join(tag_to_intent[tag] for tag in target.tags
+                                                    if tag in tag_to_intent)
 
-            # add tag to obs_modes list
-            if obs_tag and obs_tag not in obs_modes:
-                obs_modes.append(obs_tag)
-            # get state_id from obs_modes list if it is in the list, else 0 'UNKNOWN'
-            state_id = obs_modes.index(obs_tag) if obs_tag in obs_modes else 0
+                # add tag to obs_modes list
+                if obs_tag and obs_tag not in obs_modes:
+                    obs_modes.append(obs_tag)
+                # get state_id from obs_modes list if it is in the list, else 0 'UNKNOWN'
+                state_id = obs_modes.index(obs_tag) if obs_tag in obs_modes else 0
 
-            # Iterate over time in some multiple of dump average
-            ntime = utc_seconds.size
-            ntime_av = 0
+                # Iterate over time in some multiple of dump average
+                ntime = utc_seconds.size
+                ntime_av = 0
 
-            for ltime in xrange(0, ntime - tsize + 1, tsize):
+                for ltime in xrange(0, ntime - tsize + 1, tsize):
 
-                utime = ltime + tsize
-                tdiff = utime - ltime
-                out_freqs = dataset.channel_freqs
+                    utime = ltime + tsize
+                    tdiff = utime - ltime
+                    out_freqs = dataset.channel_freqs
 
-                # load all visibility, weight and flag data
-                # for this scan's timestamps.
-                # Ordered (ntime, nchan, nbl*npol)
-                load(dataset, np.s_[ltime:utime, :, :],
-                     scan_vis_data, scan_weight_data, scan_flag_data)
+                    # load all visibility, weight and flag data
+                    # for this scan's timestamps.
+                    # Ordered (ntime, nchan, nbl*npol)
+                    load(dataset, np.s_[ltime:utime, :, :],
+                         scan_vis_data, scan_weight_data, scan_flag_data)
 
-                # This are updated as we go to point to the current storage
-                vis_data = scan_vis_data
-                weight_data = scan_weight_data
-                flag_data = scan_flag_data
+                    # This are updated as we go to point to the current storage
+                    vis_data = scan_vis_data
+                    weight_data = scan_weight_data
+                    flag_data = scan_flag_data
 
-                out_utc = utc_seconds[ltime:utime]
+                    out_utc = utc_seconds[ltime:utime]
 
-                # Overwrite the input visibilities with averaged visibilities,flags,weights,timestamps,channel freqs
-                if average_data:
-                    vis_data, weight_data, flag_data, out_utc, out_freqs = \
-                        averager.average_visibilities(vis_data, weight_data, flag_data, out_utc, out_freqs,
-                                                      timeav=dump_av, chanav=chan_av, flagav=options.flagav)
+                    # Overwrite the input visibilities with averaged visibilities,flags,weights,timestamps,channel freqs
+                    if average_data:
+                        vis_data, weight_data, flag_data, out_utc, out_freqs = \
+                            averager.average_visibilities(vis_data, weight_data, flag_data, out_utc, out_freqs,
+                                                          timeav=dump_av, chanav=chan_av, flagav=options.flagav)
 
-                    # Infer new time dimension from averaged data
-                    tdiff = vis_data.shape[0]
+                        # Infer new time dimension from averaged data
+                        tdiff = vis_data.shape[0]
 
-                # Select correlator products and permute axes
-                cp_index = cp_info.cp_index.reshape((nbl, npol))
-                vis_data, weight_data, flag_data = permute_baselines(
-                    vis_data, weight_data, flag_data, cp_index,
-                    ms_vis_data[slot], ms_weight_data[slot], ms_flag_data[slot])
+                    # Select correlator products and permute axes
+                    cp_index = cp_info.cp_index.reshape((nbl, npol))
+                    vis_data, weight_data, flag_data = permute_baselines(
+                        vis_data, weight_data, flag_data, cp_index,
+                        ms_vis_data[slot], ms_weight_data[slot], ms_flag_data[slot])
 
-                # Increment the number of averaged dumps
-                ntime_av += tdiff
+                    # Increment the number of averaged dumps
+                    ntime_av += tdiff
 
-                work_queue.put(QueueItem(
-                    slot=slot, target=target, time_utc=out_utc, dump_time_width=dump_time_width,
-                    field_id=field_id, state_id=state_id, scan_itr=scan_itr))
-                slot += 1
-                if slot == SLOTS:
-                    slot = 0
+                    # Check if writer process has crashed and abort if so
+                    try:
+                        result = result_queue.get_nowait()
+                        raise result
+                    except Queue.Empty:
+                        pass
 
-            work_queue.put(EndOfScan())
-            scan_size = result_queue.get().scan_size
-            s1 = time.time() - s
+                    work_queue.put(ms_async.QueueItem(
+                        slot=slot, target=target, time_utc=out_utc, dump_time_width=dump_time_width,
+                        field_id=field_id, state_id=state_id, scan_itr=scan_itr))
+                    slot += 1
+                    if slot == SLOTS:
+                        slot = 0
 
-            if average_data and utc_seconds.shape != ntime_av:
-                print "Averaged %s x %s second dumps to %s x %s second dumps" % (
-                                        np.shape(utc_seconds)[0], dataset.dump_period,
-                                        ntime_av, dump_time_width)
+                work_queue.put(ms_async.EndOfScan())
+                result = result_queue.get()
+                if isinstance(result, Exception):
+                    raise result
+                scan_size = result.scan_size
+                s1 = time.time() - s
 
-            scan_size_mb = float(scan_size) / (1024**2)
+                if average_data and utc_seconds.shape != ntime_av:
+                    print "Averaged %s x %s second dumps to %s x %s second dumps" % (
+                                            np.shape(utc_seconds)[0], dataset.dump_period,
+                                            ntime_av, dump_time_width)
 
-            print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (
-                                        scan_size_mb, s1, scan_size_mb / s1)
+                scan_size_mb = float(scan_size) / (1024**2)
 
-            scan_itr += 1
-            total_size += scan_size
+                print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (
+                                            scan_size_mb, s1, scan_size_mb / s1)
 
-        work_queue.put(None)
-        writer_process.join()
+                scan_itr += 1
+                total_size += scan_size
+
+
+        finally:
+            work_queue.put(None)
+            writer_exc = None
+            # Drain the result_queue so that we unblock the writer process
+            while True:
+                result = result_queue.get()
+                if isinstance(result, Exception):
+                    writer_exc = result
+                elif result is None:
+                    break
+            writer_process.join()
+        # This raise is deferred to outside the finally block, so that we don't
+        # raise an exception while unwinding another one.
+        if isinstance(writer_exc, Exception):
+            raise writer_exc
+
         if total_size == 0:
             raise RuntimeError("No usable data found in HDF5 file "
                                "(pick another reference antenna, maybe?)")
