@@ -23,7 +23,7 @@ import numpy as np
 try:
     try:
         import katsdpauth.auth_botocore
-    except:
+    except ImportError:
         import botocore
     _botocore_import_error = None
 except ImportError as e:
