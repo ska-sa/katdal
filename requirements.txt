@@ -1,5 +1,5 @@
 botocore==1.10.16
-dask==0.17.4
+dask
 docutils
 fakeredis
 future
@@ -15,7 +15,7 @@ python-lzf==0.2.4
 rdbtools==0.1.12
 redis
 six
-toolz==0.9.0
+toolz
 
 git+ssh://git@github.com/ska-sa/katpoint#egg=katpoint
 git+ssh://git@github.com/ska-sa/katsdptelstate#egg=katsdptelstate
