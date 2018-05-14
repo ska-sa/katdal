@@ -17,7 +17,6 @@
 """Tests for :py:mod:`katdal.lazy_indexer`."""
 
 import numpy as np
-import dask.array as da
 
 from nose.tools import assert_raises
 
