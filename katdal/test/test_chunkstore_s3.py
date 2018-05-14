@@ -88,7 +88,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         cls.fakes3 = None
         cls.stderr_consumer = None
         try:
-            url = cls.start_fakes3('localhost')
+            url = cls.start_fakes3('127.0.0.1')
             try:
                 cls.store = S3ChunkStore.from_url(url, timeout=1)
             except ImportError:
