@@ -22,6 +22,7 @@ import subprocess
 import re
 import threading
 import Queue
+import os
 
 from nose import SkipTest
 from nose.tools import assert_raises
@@ -57,6 +58,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             cls.fakes3 = subprocess.Popen(['fakes3', 'server',
                                            '-r', cls.tempdir, '-p', '0',
                                            '-a', host, '-H', host],
+                                          stdout=cls.devnull,
                                           stderr=subprocess.PIPE)
         except OSError:
             raise SkipTest('Could not start fakes3 server (is it installed?)')
@@ -81,10 +83,12 @@ class TestS3ChunkStore(ChunkStoreTestBase):
     def setup_class(cls):
         """Start Fake S3 service running on temp dir, and ChunkStore on that."""
         cls.tempdir = tempfile.mkdtemp()
+        # XXX Python 3.3+ can use subprocess.DEVNULL instead
+        cls.devnull = open(os.devnull, 'wb')
         cls.fakes3 = None
         cls.stderr_consumer = None
         try:
-            url = cls.start_fakes3('localhost')
+            url = cls.start_fakes3('127.0.0.1')
             try:
                 cls.store = S3ChunkStore.from_url(url, timeout=1)
             except ImportError:
@@ -109,6 +113,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             cls.fakes3.wait()
         if cls.stderr_consumer:
             cls.stderr_consumer.join()
+        cls.devnull.close()
         shutil.rmtree(cls.tempdir)
 
     def array_name(self, path):
