@@ -97,15 +97,15 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
     """
     def __init__(self, store, base_name, chunk_info):
         self.store = store
-        da = {}
+        darray = {}
         for array, info in chunk_info.iteritems():
             array_name = store.join(base_name, array)
-            da[array] = store.get_dask_array(array_name, info['chunks'],
-                                             info['dtype'])
-        vis = da['correlator_data']
-        flags = da['flags']
+            darray[array] = store.get_dask_array(array_name, info['chunks'],
+                                                 info['dtype'])
+        vis = darray['correlator_data']
+        flags = darray['flags']
         # Combine low-resolution weights and high-resolution weights_channel
-        weights = da['weights'] * da['weights_channel'][..., np.newaxis]
+        weights = darray['weights'] * darray['weights_channel'][..., np.newaxis]
         VisFlagsWeights.__init__(self, vis, flags, weights, base_name)
 
 
