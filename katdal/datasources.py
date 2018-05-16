@@ -22,6 +22,7 @@ import logging
 
 import katsdptelstate
 import numpy as np
+import dask.array as da
 
 from .sensordata import TelstateSensorData
 from .chunkstore_s3 import S3ChunkStore
@@ -83,6 +84,20 @@ class VisFlagsWeights(object):
         return self.vis.shape
 
 
+def _has_chunk_to_flags(has_chunk, block_id=None, full_chunks=None):
+    """Turn a has_chunk bool into chunk of flags with correct data_lost bit."""
+    shape = tuple(chk[idx] for chk, idx in zip(full_chunks, block_id))
+    return np.full(shape, 0 if has_chunk else 8, dtype=np.uint8)
+
+
+def _multi_or(*args):
+    """Do bitwise 'or' of more than two arrays."""
+    out = args[0]
+    for arg in args[1:]:
+        out |= arg
+    return out
+
+
 class ChunkStoreVisFlagsWeights(VisFlagsWeights):
     """Correlator data stored in a chunk store.
 
@@ -98,12 +113,30 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
     def __init__(self, store, base_name, chunk_info):
         self.store = store
         darray = {}
+        extra_flags = []
         for array, info in chunk_info.iteritems():
             array_name = store.join(base_name, array)
-            darray[array] = store.get_dask_array(array_name, info['chunks'],
-                                                 info['dtype'])
+            chunk_args = (array_name, info['chunks'], info['dtype'])
+            darray[array] = store.get_dask_array(*chunk_args)
+            # Find all missing chunks in array and convert to 'data_lost' flags
+            has_array = store.has_dask_array(*chunk_args)
+            chunks_lost = da.map_blocks(_has_chunk_to_flags, has_array,
+                                        token='missing-chunks-' + array_name,
+                                        chunks=info['chunks'], dtype=np.uint8,
+                                        full_chunks=info['chunks'])
+            # The weights_channel array is only time x freq, so extend to 3 dims
+            if chunks_lost.ndim == 2:
+                chunks_lost = chunks_lost[..., np.newaxis]
+            # If a flag chunk is missing but not the corresponding vis/weights,
+            # the data_lost bit will *not* be set (all flags cleared, actually)
+            if array != 'flags':
+                extra_flags.append(chunks_lost)
+                extra_flags.append('ijk')
         vis = darray['correlator_data']
-        flags = darray['flags']
+        # Combine original L0 flags with extras (missing chunks per array)
+        flags = da.atop(_multi_or, 'ijk', darray['flags'], 'ijk',
+                        *extra_flags, token=store.join(base_name, 'flags_raw'),
+                        dtype=np.uint8)
         # Combine low-resolution weights and high-resolution weights_channel
         weights = darray['weights'] * darray['weights_channel'][..., np.newaxis]
         VisFlagsWeights.__init__(self, vis, flags, weights, base_name)

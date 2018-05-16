@@ -103,6 +103,11 @@ class TestChunkStoreVisFlagsWeights(object):
         vfw = ChunkStoreVisFlagsWeights(store, base_name, chunk_info)
         # Check that missing chunks have been replaced by zeroes
         assert_array_equal(vfw.vis[missing_chunks['correlator_data']], 0.)
-        assert_array_equal(vfw.flags[missing_chunks['flags']], 0.)
         assert_array_equal(vfw.weights[missing_chunks['weights']], 0.)
         assert_array_equal(vfw.weights[missing_chunks['weights_channel']], 0.)
+        # Check that (only) missing chunks have been flagged as 'data lost'
+        expected = np.zeros_like(vfw.flags)
+        expected[missing_chunks['correlator_data']] |= 8
+        expected[missing_chunks['weights']] |= 8
+        expected[missing_chunks['weights_channel']] |= 8
+        assert_array_equal(vfw.flags & 8, expected)
