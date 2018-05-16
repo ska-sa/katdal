@@ -18,6 +18,7 @@
 
 import tempfile
 import shutil
+import os
 
 import numpy as np
 from numpy.testing import assert_array_equal
@@ -36,7 +37,7 @@ def ramp(shape, offset=0.0, slope=1.0, dtype=np.float_):
 
 
 def to_dask_array(x):
-    """Turn ndarray `x` into a dask array with the standard vis chunking."""
+    """Turn ndarray `x` into dask array with the standard vis-like chunking."""
     n_corrprods = x.shape[2] if x.ndim >= 3 else x.shape[1] / 8
     chunk_size = 4 * n_corrprods * 8
     chunks = generate_chunks(x.shape, x.dtype, chunk_size,
@@ -71,13 +72,37 @@ class TestChunkStoreVisFlagsWeights(object):
         shutil.rmtree(cls.tempdir)
 
     def test_construction(self):
+        # Put fake dataset into chunk store
         store = NpyFileChunkStore(self.tempdir)
         base_name = 'cb1'
         shape = (10, 64, 30)
         data, chunk_info = put_fake_dataset(store, base_name, shape)
         vfw = ChunkStoreVisFlagsWeights(store, base_name, chunk_info)
         weights = data['weights'] * data['weights_channel'][..., np.newaxis]
+        # Check that data is as expected when accessed via VisFlagsWeights
         assert_equal(vfw.shape, data['correlator_data'].shape)
         assert_array_equal(vfw.vis.compute(), data['correlator_data'])
         assert_array_equal(vfw.flags.compute(), data['flags'])
         assert_array_equal(vfw.weights.compute(), weights)
+
+    def test_missing_chunks(self):
+        # Put fake dataset into chunk store
+        store = NpyFileChunkStore(self.tempdir)
+        base_name = 'cb2'
+        shape = (10, 64, 30)
+        data, chunk_info = put_fake_dataset(store, base_name, shape)
+        # Delete a random chunk in each array of the dataset
+        missing_chunks = {}
+        for array, info in chunk_info.items():
+            array_name = store.join(base_name, array)
+            slices = da.core.slices_from_chunks(info['chunks'])
+            index = np.random.randint(len(slices))
+            missing_chunks[array] = slices[index]
+            chunk_name, shape = store.chunk_metadata(array_name, slices[index])
+            os.remove(os.path.join(store.path, chunk_name) + '.npy')
+        vfw = ChunkStoreVisFlagsWeights(store, base_name, chunk_info)
+        # Check that missing chunks have been replaced by zeroes
+        assert_array_equal(vfw.vis[missing_chunks['correlator_data']], 0.)
+        assert_array_equal(vfw.flags[missing_chunks['flags']], 0.)
+        assert_array_equal(vfw.weights[missing_chunks['weights']], 0.)
+        assert_array_equal(vfw.weights[missing_chunks['weights_channel']], 0.)
