@@ -90,8 +90,9 @@ def _has_chunk_to_flags(has_chunk, block_id=None, full_chunks=None):
     return np.full(shape, 0 if has_chunk else 8, dtype=np.uint8)
 
 
-def _multi_or(*args):
-    """Do bitwise 'or' of more than two arrays."""
+def _multi_or_3d(*args):
+    """Do bitwise 'or' of more than two 3-D arrays."""
+    args = np.atleast_3d(*args)
     out = args[0]
     for arg in args[1:]:
         out |= arg
@@ -124,17 +125,14 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
                                         token='missing-chunks-' + array_name,
                                         chunks=info['chunks'], dtype=np.uint8,
                                         full_chunks=info['chunks'])
-            # The weights_channel array is only time x freq, so extend to 3 dims
-            if chunks_lost.ndim == 2:
-                chunks_lost = chunks_lost[..., np.newaxis]
             # If a flag chunk is missing but not the corresponding vis/weights,
             # the data_lost bit will *not* be set (all flags cleared, actually)
             if array != 'flags':
                 extra_flags.append(chunks_lost)
-                extra_flags.append('ijk')
+                extra_flags.append('ijk'[:chunks_lost.ndim])
         vis = darray['correlator_data']
         # Combine original L0 flags with extras (missing chunks per array)
-        flags = da.atop(_multi_or, 'ijk', darray['flags'], 'ijk',
+        flags = da.atop(_multi_or_3d, 'ijk', darray['flags'], 'ijk',
                         *extra_flags, token=store.join(base_name, 'flags_raw'),
                         dtype=np.uint8)
         # Combine low-resolution weights and high-resolution weights_channel
