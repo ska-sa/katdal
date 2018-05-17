@@ -84,17 +84,17 @@ class VisFlagsWeights(object):
         return self.vis.shape
 
 
-def _has_chunk_to_flags(has_chunk, block_id=None, full_chunks=None):
+def _has_chunk_to_flags(has_chunk, block_id, full_chunks):
     """Turn a has_chunk bool into chunk of flags with correct data_lost bit."""
     shape = tuple(chk[idx] for chk, idx in zip(full_chunks, block_id))
     return np.full(shape, 0 if has_chunk else 8, dtype=np.uint8)
 
 
 def _multi_or_3d(*args):
-    """Do bitwise 'or' of more than two 3-D arrays."""
+    """Do bitwise 'or' of two or more 3-D arrays (without modifying them)."""
     args = np.atleast_3d(*args)
-    out = args[0]
-    for arg in args[1:]:
+    out = args[0] | args[1]
+    for arg in args[2:]:
         out |= arg
     return out
 

@@ -30,7 +30,7 @@ from katdal.chunkstore_npy import NpyFileChunkStore
 from katdal.datasources import ChunkStoreVisFlagsWeights
 
 
-def ramp(shape, offset=0.0, slope=1.0, dtype=np.float_):
+def ramp(shape, offset=1.0, slope=1.0, dtype=np.float_):
     """Generate a multidimensional ramp of values of the given dtype."""
     x = offset + slope * np.arange(np.prod(shape), dtype=np.float_)
     return x.astype(dtype).reshape(shape)
@@ -38,8 +38,11 @@ def ramp(shape, offset=0.0, slope=1.0, dtype=np.float_):
 
 def to_dask_array(x):
     """Turn ndarray `x` into dask array with the standard vis-like chunking."""
-    n_corrprods = x.shape[2] if x.ndim >= 3 else x.shape[1] / 8
-    chunk_size = 4 * n_corrprods * 8
+    itemsize = np.dtype('complex64').itemsize
+    # Special case for 2-D weights_channel array ensures one chunk per dump
+    n_corrprods = x.shape[2] if x.ndim >= 3 else x.shape[1] // itemsize
+    # This contrives to have a vis array with 1 dump and 4 channels per chunk
+    chunk_size = 4 * n_corrprods * itemsize
     chunks = generate_chunks(x.shape, x.dtype, chunk_size,
                              dims_to_split=(0, 1), power_of_two=True)
     return da.from_array(x, chunks)
@@ -48,15 +51,15 @@ def to_dask_array(x):
 def put_fake_dataset(store, base_name, shape):
     """Write a fake dataset into the chunk store."""
     data = {'correlator_data': ramp(shape, dtype=np.float32) * (1 - 1j),
-            'flags': np.zeros(shape, dtype=np.uint8),
-            'weights': ramp(shape, slope=256. / np.prod(shape), dtype=np.uint8),
+            'flags': np.ones(shape, dtype=np.uint8),
+            'weights': ramp(shape, slope=255. / np.prod(shape), dtype=np.uint8),
             'weights_channel': ramp(shape[:-1], dtype=np.float32)}
     ddata = {k: to_dask_array(array) for k, array in data.items()}
     chunk_info = {k: {'chunks': darray.chunks, 'dtype': darray.dtype,
                       'shape': darray.shape} for k, darray in ddata.items()}
     push = [store.put_dask_array(store.join(base_name, k), darray)
             for k, darray in ddata.items()]
-    da.compute(push)
+    da.compute(*push)
     return data, chunk_info
 
 
@@ -93,21 +96,27 @@ class TestChunkStoreVisFlagsWeights(object):
         data, chunk_info = put_fake_dataset(store, base_name, shape)
         # Delete a random chunk in each array of the dataset
         missing_chunks = {}
+        rs = np.random.RandomState(4)
         for array, info in chunk_info.items():
             array_name = store.join(base_name, array)
             slices = da.core.slices_from_chunks(info['chunks'])
-            index = np.random.randint(len(slices))
+            index = rs.randint(len(slices))
             missing_chunks[array] = slices[index]
             chunk_name, shape = store.chunk_metadata(array_name, slices[index])
             os.remove(os.path.join(store.path, chunk_name) + '.npy')
         vfw = ChunkStoreVisFlagsWeights(store, base_name, chunk_info)
-        # Check that missing chunks have been replaced by zeroes
-        assert_array_equal(vfw.vis[missing_chunks['correlator_data']], 0.)
-        assert_array_equal(vfw.weights[missing_chunks['weights']], 0.)
-        assert_array_equal(vfw.weights[missing_chunks['weights_channel']], 0.)
+        # Check that (only) missing chunks have been replaced by zeros
+        vis = data['correlator_data']
+        vis[missing_chunks['correlator_data']] = 0.
+        assert_array_equal(vfw.vis, vis)
+        weights = data['weights'] * data['weights_channel'][..., np.newaxis]
+        weights[missing_chunks['weights']] = 0.
+        weights[missing_chunks['weights_channel']] = 0.
+        assert_array_equal(vfw.weights, weights)
         # Check that (only) missing chunks have been flagged as 'data lost'
-        expected = np.zeros_like(vfw.flags)
-        expected[missing_chunks['correlator_data']] |= 8
-        expected[missing_chunks['weights']] |= 8
-        expected[missing_chunks['weights_channel']] |= 8
-        assert_array_equal(vfw.flags & 8, expected)
+        flags = data['flags']
+        flags[missing_chunks['flags']] = 0.
+        flags[missing_chunks['correlator_data']] |= 8
+        flags[missing_chunks['weights']] |= 8
+        flags[missing_chunks['weights_channel']] |= 8
+        assert_array_equal(vfw.flags, flags)
