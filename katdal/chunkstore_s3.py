@@ -22,7 +22,7 @@ import io
 import numpy as np
 try:
     try:
-        import katsdpauth.auth_botocore
+        import katsdpauth.auth_botocore   # noqa: F401
     except ImportError:
         import botocore
     _botocore_import_error = None

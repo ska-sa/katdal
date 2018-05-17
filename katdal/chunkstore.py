@@ -201,6 +201,14 @@ class ChunkStore(object):
         """
         raise NotImplementedError
 
+    def get_chunk_or_zeros(self, array_name, slices, dtype):
+        """Get chunk from the store but return zeros if it is missing."""
+        try:
+            return self.get_chunk(array_name, slices, dtype)
+        except ChunkNotFound:
+            chunk_name, shape = self.chunk_metadata(array_name, slices)
+            return np.zeros(shape, dtype)
+
     def put_chunk(self, array_name, slices, chunk):
         """Put chunk into the store.
 
@@ -366,6 +374,9 @@ class ChunkStore(object):
     def get_dask_array(self, array_name, chunks, dtype, offset=()):
         """Get dask array from the store.
 
+        Any missing chunks are replaced with zeros, suppressing any
+        :exc:`ChunkNotFound` errors.
+
         Parameters
         ----------
         array_name : string
@@ -382,7 +393,7 @@ class ChunkStore(object):
         array : :class:`dask.array.Array` object
             Dask array of given dtype
         """
-        getter = functools.partial(self.get_chunk, dtype=dtype)
+        getter = functools.partial(self.get_chunk_or_zeros, dtype=dtype)
         if offset:
             getter = _add_offset_to_slices(getter, offset)
         # Use dask utility function that forms the core of da.from_array
