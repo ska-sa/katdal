@@ -19,6 +19,7 @@
 import tempfile
 import shutil
 import os
+import random
 
 import numpy as np
 from numpy.testing import assert_array_equal
@@ -96,13 +97,13 @@ class TestChunkStoreVisFlagsWeights(object):
         data, chunk_info = put_fake_dataset(store, base_name, shape)
         # Delete a random chunk in each array of the dataset
         missing_chunks = {}
-        rs = np.random.RandomState(4)
+        rs = random.Random(4)
         for array, info in chunk_info.items():
             array_name = store.join(base_name, array)
             slices = da.core.slices_from_chunks(info['chunks'])
-            index = rs.randint(len(slices))
-            missing_chunks[array] = slices[index]
-            chunk_name, shape = store.chunk_metadata(array_name, slices[index])
+            culled_slice = rs.choice(slices)
+            missing_chunks[array] = culled_slice
+            chunk_name, shape = store.chunk_metadata(array_name, culled_slice)
             os.remove(os.path.join(store.path, chunk_name) + '.npy')
         vfw = ChunkStoreVisFlagsWeights(store, base_name, chunk_info)
         # Check that (only) missing chunks have been replaced by zeros
@@ -119,4 +120,5 @@ class TestChunkStoreVisFlagsWeights(object):
         flags[missing_chunks['correlator_data']] |= 8
         flags[missing_chunks['weights']] |= 8
         flags[missing_chunks['weights_channel']] |= 8
+        flags[missing_chunks['flags']] |= 8
         assert_array_equal(vfw.flags, flags)

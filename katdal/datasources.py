@@ -125,11 +125,8 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
                                         token='missing-chunks-' + array_name,
                                         chunks=info['chunks'], dtype=np.uint8,
                                         full_chunks=info['chunks'])
-            # If a flag chunk is missing but not the corresponding vis/weights,
-            # the data_lost bit will *not* be set (all flags cleared, actually)
-            if array != 'flags':
-                extra_flags.append(chunks_lost)
-                extra_flags.append('ijk'[:chunks_lost.ndim])
+            extra_flags.append(chunks_lost)
+            extra_flags.append('ijk'[:chunks_lost.ndim])
         vis = darray['correlator_data']
         # Combine original L0 flags with extras (missing chunks per array)
         flags = da.atop(_multi_or_3d, 'ijk', darray['flags'], 'ijk',
