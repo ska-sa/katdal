@@ -63,9 +63,11 @@ class NpyFileChunkStore(ChunkStore):
         filename = os.path.join(self.path, chunk_name) + '.npy'
         with self._standard_errors(chunk_name):
             chunk = np.load(filename, allow_pickle=False)
-        if dtype != chunk.dtype:
-            raise BadChunk('Requested dtype {} differs from NPY file dtype {}'
-                           .format(dtype, chunk.dtype))
+        if chunk.shape != shape or chunk.dtype != dtype:
+            raise BadChunk('Chunk {!r}: NPY file dtype {} and/or shape {} '
+                           'differs from expected dtype {} and shape {}'
+                           .format(chunk_name, chunk.dtype, chunk.shape,
+                                   dtype, shape))
         return chunk
 
     def put_chunk(self, array_name, slices, chunk):
