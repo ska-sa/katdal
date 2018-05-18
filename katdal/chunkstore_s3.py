@@ -149,7 +149,7 @@ class S3ChunkStore(ChunkStore):
 
     def put_chunk(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put_chunk`."""
-        chunk_name, shape = self.chunk_metadata(array_name, slices, chunk=chunk)
+        chunk_name, _ = self.chunk_metadata(array_name, slices, chunk=chunk)
         bucket, key = self.split(chunk_name + '.npy', 1)
         fp = io.BytesIO()
         np.lib.format.write_array(fp, chunk, allow_pickle=False)
@@ -160,26 +160,17 @@ class S3ChunkStore(ChunkStore):
     def has_chunk(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.has_chunk`."""
         dtype = np.dtype(dtype)
-        chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
+        chunk_name, _ = self.chunk_metadata(array_name, slices, dtype=dtype)
         bucket, key = self.split(chunk_name + '.npy', 1)
-        try:
-            response = self.client.head_object(Bucket=bucket, Key=key)
-        except ClientError as err:
-            if err.response['Error']['Code'] != '404':
-                raise
-            return False
-        else:
-            actual_bytes = response['ContentLength']
-            header = {'shape': shape, 'fortran_order': False,
-                      'descr': np.lib.format.dtype_to_descr(dtype)}
-            fp = io.BytesIO()
-            np.lib.format.write_array_header_1_0(fp, header)
-            header_size_v1 = fp.tell()
-            fp.seek(0)
-            np.lib.format.write_array_header_2_0(fp, header)
-            header_size_v2 = fp.tell()
-            data_size = int(np.prod(shape)) * dtype.itemsize
-            return actual_bytes - data_size in (header_size_v1, header_size_v2)
+        with self._standard_errors(chunk_name):
+            try:
+                self.client.head_object(Bucket=bucket, Key=key)
+            except ClientError as err:
+                if err.response['Error']['Code'] != '404':
+                    raise
+                return False
+            else:
+                return True
 
     get_chunk.__doc__ = ChunkStore.get_chunk.__doc__
     put_chunk.__doc__ = ChunkStore.put_chunk.__doc__
