@@ -1,6 +1,10 @@
 History
 =======
 
+0.10.1 (2018-05-18)
+-------------------
+* Restore NumPy 1.14 support (all data flagged otherwise)
+
 0.10 (2018-05-17)
 -----------------
 * Rally around the MeerKAT Visibility Format (MVF)

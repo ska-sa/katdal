@@ -42,10 +42,11 @@ class DictChunkStore(ChunkStore):
             array = self.arrays[array_name]
             # Ensure that chunk is array (otherwise 0-dim array becomes number)
             chunk = array[slices] if slices != () else array
-        if dtype != chunk.dtype:
-            raise BadChunk('Chunk {!r}: requested dtype {} differs from '
-                           'actual dtype {}'
-                           .format(chunk_name, dtype, chunk.dtype))
+        if chunk.shape != shape or chunk.dtype != dtype:
+            raise BadChunk('Chunk {!r}: requested dtype {} and/or shape {} '
+                           'differs from expected dtype {} and shape {}'
+                           .format(chunk_name, chunk.dtype, chunk.shape,
+                                   dtype, shape))
         return chunk
 
     def put_chunk(self, array_name, slices, chunk):
