@@ -287,6 +287,13 @@ class ChunkStore(object):
         return name.split(cls.NAME_SEP, maxsplit)
 
     @classmethod
+    def chunk_id_str(cls, slices):
+        """Chunk identifier in string form (e.g. '00012_01024_00000')."""
+        index = [s.start for s in slices]
+        return '_'.join(["{:0{width}d}".format(i, width=cls.NAME_INDEX_WIDTH)
+                         for i in index])
+
+    @classmethod
     def chunk_metadata(cls, array_name, slices, chunk=None, dtype=None):
         """Turn array name and chunk identifier into chunk name and shape.
 
@@ -330,10 +337,7 @@ class ChunkStore(object):
             raise BadChunk('Array {!r}: chunk ID {} contains non-unit strides'
                            .format(array_name, slices))
         # Construct chunk name from array_name + slices
-        index = [s.start for s in slices]
-        idxstr = '_'.join(["{:0{width}d}".format(i, width=cls.NAME_INDEX_WIDTH)
-                           for i in index])
-        chunk_name = cls.join(array_name, idxstr)
+        chunk_name = cls.join(array_name, cls.chunk_id_str(slices))
         if chunk is not None and chunk.shape != shape:
             raise BadChunk('Chunk {!r}: shape {} implied by slices does not '
                            'match actual shape {}'
@@ -437,6 +441,54 @@ class ChunkStore(object):
         out_chunks = tuple(len(c) * (1,) for c in array.chunks)
         return da.Array(dask_graph, out_name, out_chunks, np.object)
 
+    def list_chunk_ids(self, array_name):
+        """List all chunk ID strings associated with given array in chunk store.
+
+        Parameters
+        ----------
+        array_name : string
+            Identifier of array in chunk store
+
+        Returns
+        -------
+        chunk_ids : list of string
+            List of chunk identifier strings (e.g. '00012_01024_00000')
+        """
+        raise NotImplementedError
+
+    def _has_array_via_list_chunk_ids(self, array_name, chunks, offset):
+        """See :meth:`ChunkStore.has_dask_array` (list_chunk_ids version)."""
+        # Obtain ID strings of all chunks in store associated with array_name
+        # This might not be implemented by underlying store
+        store_ids = set(self.list_chunk_ids(array_name))
+        # Turn chunks + offset into list of expected chunk ID strings
+        slices = da.core.slices_from_chunks(chunks)
+        if offset:
+            offset_slices = tuple(slice(start, None) for start in offset)
+            slices = [da.core.fuse_slice(offset_slices, s) for s in slices]
+        chunk_ids = [self.chunk_id_str(s) for s in slices]
+        # Look up expected IDs in set of actual IDs in store
+        has_array = np.array([cid in store_ids for cid in chunk_ids])
+        # Turn 1-D array of checks into dask array of required shape
+        has_array = has_array.reshape(tuple(len(c) for c in chunks))
+        # Make out_name unique to avoid clashes and caches
+        out_name = 'check-{}-{}-{}'.format(array_name, offset, uuid.uuid4().hex)
+        return da.from_array(has_array, chunks=1, name=out_name)
+
+    def _has_array_via_has_chunk(self, array_name, chunks, dtype, offset):
+        """See :meth:`ChunkStore.has_dask_array` (has_chunk version)."""
+        # Embellish has_chunk to set dtype and add offset
+        has = _scalar_to_chunk(functools.partial(self.has_chunk, dtype=dtype))
+        if offset:
+            has = _add_offset_to_slices(has, offset)
+        # Make out_name unique to avoid clashes and caches
+        out_name = 'check-{}-{}-{}'.format(array_name, offset, uuid.uuid4().hex)
+        # Use dask utility function that forms the core of da.from_array
+        dask_graph = da.core.getem(array_name, chunks, has, out_name=out_name)
+        # The success array has one element per chunk in the input array
+        out_chunks = tuple(len(c) * (1,) for c in chunks)
+        return da.Array(dask_graph, out_name, out_chunks, np.bool_)
+
     def has_dask_array(self, array_name, chunks, dtype, offset=()):
         """Check if dask array is in the store.
 
@@ -455,14 +507,15 @@ class ChunkStore(object):
         -------
         success : :class:`dask.array.Array` object
             Dask array of bools indicating presence of each chunk
+
+        Notes
+        -----
+        If the underlying store implements :meth:`list_chunk_ids`, that is
+        preferred; otherwise :meth:`has_chunk` is called for each chunk.
         """
-        has = _scalar_to_chunk(functools.partial(self.has_chunk, dtype=dtype))
-        if offset:
-            has = _add_offset_to_slices(has, offset)
-        # Make out_name unique to avoid clashes and caches
-        out_name = 'check-{}-{}-{}'.format(array_name, offset, uuid.uuid4().hex)
-        # Use dask utility function that forms the core of da.from_array
-        dask_graph = da.core.getem(array_name, chunks, has, out_name=out_name)
-        # The success array has one element per chunk in the input array
-        out_chunks = tuple(len(c) * (1,) for c in chunks)
-        return da.Array(dask_graph, out_name, out_chunks, np.bool_)
+        try:
+            return self._has_array_via_list_chunk_ids(array_name, chunks,
+                                                      offset)
+        except NotImplementedError:
+            return self._has_array_via_has_chunk(array_name, chunks,
+                                                 dtype, offset)
