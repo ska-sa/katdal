@@ -175,7 +175,7 @@ class S3ChunkStore(ChunkStore):
     def list_chunk_ids(self, array_name):
         """See the docstring of :meth:`ChunkStore.list_chunk_ids`."""
         bucket, prefix = self.split(array_name, 1)
-        paginator = self.client.get_paginator('list_objects_v2')
+        paginator = self.client.get_paginator('list_objects')
         page_iter = paginator.paginate(Bucket=bucket, Prefix=prefix,
                                        PaginationConfig={'PageSize': 10000})
         keys = [item['Key'] for page in page_iter for item in page['Contents']]
