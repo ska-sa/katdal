@@ -178,15 +178,13 @@ class ChunkStoreTestBase(object):
         results = pull.compute()
         divisions_per_dim = [len(c) for c in dask_array.chunks]
         assert_array_equal(results, np.full(divisions_per_dim, True))
+        # Also check has_array if available
         try:
-            pull = self.store._has_array_via_list_chunk_ids(array_name,
-                                                            dask_array.chunks,
-                                                            offset)
+            arr = self.store.has_array(array_name, dask_array.chunks, offset)
         except NotImplementedError:
             pass
         else:
-            results = pull.compute()
-            assert_array_equal(results, np.full(divisions_per_dim, True))
+            assert_array_equal(arr, np.full(divisions_per_dim, True))
 
     def test_chunk_non_existent(self):
         slices = (slice(0, 1),)

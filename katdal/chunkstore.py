@@ -456,8 +456,30 @@ class ChunkStore(object):
         """
         raise NotImplementedError
 
-    def _has_array_via_list_chunk_ids(self, array_name, chunks, offset):
-        """See :meth:`ChunkStore.has_dask_array` (list_chunk_ids version)."""
+    def has_array(self, array_name, chunks, offset=()):
+        """Check if array is in the store.
+
+        This is an optional optimised version of :meth:`has_dask_array`.
+
+        Parameters
+        ----------
+        array_name : string
+            Identifier of array in chunk store
+        chunks : tuple of tuples of ints
+            Chunk specification
+        offset : tuple of int, optional
+            Offset to add to each dimension when addressing chunks in store
+
+        Returns
+        -------
+        success : :class:`numpy.ndarray` object
+            Array of bools indicating presence of each chunk
+
+        Raises
+        ------
+        NotImplementedError
+            If the underlying store does not have an efficient implementation
+        """
         # Obtain ID strings of all chunks in store associated with array_name
         # This might not be implemented by underlying store
         store_ids = set(self.list_chunk_ids(array_name))
@@ -468,26 +490,8 @@ class ChunkStore(object):
             slices = [da.core.fuse_slice(offset_slices, s) for s in slices]
         chunk_ids = [self.chunk_id_str(s) for s in slices]
         # Look up expected IDs in set of actual IDs in store
-        has_array = np.array([cid in store_ids for cid in chunk_ids])
-        # Turn 1-D array of checks into dask array of required shape
-        has_array = has_array.reshape(tuple(len(c) for c in chunks))
-        # Make out_name unique to avoid clashes and caches
-        out_name = 'check-{}-{}-{}'.format(array_name, offset, uuid.uuid4().hex)
-        return da.from_array(has_array, chunks=1, name=out_name)
-
-    def _has_array_via_has_chunk(self, array_name, chunks, dtype, offset):
-        """See :meth:`ChunkStore.has_dask_array` (has_chunk version)."""
-        # Embellish has_chunk to set dtype and add offset
-        has = _scalar_to_chunk(functools.partial(self.has_chunk, dtype=dtype))
-        if offset:
-            has = _add_offset_to_slices(has, offset)
-        # Make out_name unique to avoid clashes and caches
-        out_name = 'check-{}-{}-{}'.format(array_name, offset, uuid.uuid4().hex)
-        # Use dask utility function that forms the core of da.from_array
-        dask_graph = da.core.getem(array_name, chunks, has, out_name=out_name)
-        # The success array has one element per chunk in the input array
-        out_chunks = tuple(len(c) * (1,) for c in chunks)
-        return da.Array(dask_graph, out_name, out_chunks, np.bool_)
+        success = np.array([cid in store_ids for cid in chunk_ids])
+        return success.reshape(tuple(len(c) for c in chunks))
 
     def has_dask_array(self, array_name, chunks, dtype, offset=()):
         """Check if dask array is in the store.
@@ -513,9 +517,19 @@ class ChunkStore(object):
         If the underlying store implements :meth:`list_chunk_ids`, that is
         preferred; otherwise :meth:`has_chunk` is called for each chunk.
         """
+        # Make out_name unique to avoid clashes and caches
+        out_name = 'check-{}-{}-{}'.format(array_name, offset, uuid.uuid4().hex)
         try:
-            return self._has_array_via_list_chunk_ids(array_name, chunks,
-                                                      offset)
+            has_array = self.has_array(array_name, chunks, offset)
+            return da.from_array(has_array, chunks=1, name=out_name)
         except NotImplementedError:
-            return self._has_array_via_has_chunk(array_name, chunks,
-                                                 dtype, offset)
+            # Embellish has_chunk to set dtype, pad the output and add offset
+            has = functools.partial(self.has_chunk, dtype=dtype)
+            has = _scalar_to_chunk(has)
+            if offset:
+                has = _add_offset_to_slices(has, offset)
+            # Use dask utility function that forms the core of da.from_array
+            graph = da.core.getem(array_name, chunks, has, out_name=out_name)
+            # The success array has one element per chunk in the input array
+            out_chunks = tuple(len(c) * (1,) for c in chunks)
+            return da.Array(graph, out_name, out_chunks, np.bool_)
