@@ -96,6 +96,7 @@ class NpyFileChunkStore(ChunkStore):
     def list_chunk_ids(self, array_name):
         """See the docstring of :meth:`ChunkStore.list_chunk_ids`."""
         array_dir = os.path.join(self.path, array_name)
+        # Strip the .npy extension to get the chunk ID string
         return [fn[:-4] for fn in os.listdir(array_dir)]
 
     get_chunk.__doc__ = ChunkStore.get_chunk.__doc__

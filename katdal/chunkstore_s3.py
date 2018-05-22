@@ -179,6 +179,7 @@ class S3ChunkStore(ChunkStore):
         page_iter = paginator.paginate(Bucket=bucket, Prefix=prefix,
                                        PaginationConfig={'PageSize': 10000})
         keys = [item['Key'] for page in page_iter for item in page['Contents']]
+        # Strip the array name and .npy extension to get the chunk ID string
         return [key[len(prefix) + 1:-4] for key in keys]
 
     get_chunk.__doc__ = ChunkStore.get_chunk.__doc__
