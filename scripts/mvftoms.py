@@ -276,27 +276,23 @@ def main():
                    'circular_pol' if options.circular else \
                    '_'.join(pols_to_use).lower()
 
-    # ms_name = os.path.splitext(args[0])[0] + ("." if len(args) == 1 else ".et_al.") + pol_for_name + ".ms"
-
     for win in range(len(dataset.spectral_windows)):
         dataset.select(reset='T')
 
         # Extract MS file per spectral window in observation file
-        print 'Extract MS for spw %d: central frequency %.2f MHz' % (win, (dataset.spectral_windows[win]).centre_freq / 1e6)
-        cen_freq = '%d' % int(dataset.spectral_windows[win].centre_freq / 1e6)
+        freq_MHz = dataset.spectral_windows[win].centre_freq / 1e6
+        print 'Extract MS for spw %d: central frequency %.2f MHz' % (win, freq_MHz)
 
         # If no output MS filename supplied, infer the output filename
         # from the first dataset.
         if options.output_ms is None:
-            basename = ('%s_%s' % (os.path.splitext(args[0])[0], cen_freq)) + \
-                       ("." if len(args) == 1 else ".et_al.") + pol_for_name
             # create MS in current working directory
-            ms_name = basename + ".ms"
+            ms_name = '%s_%d.%s%s.ms' % (
+                os.path.splitext(args[0])[0], freq_MHz,
+                "" if len(args) == 1 else "et_al.", pol_for_name)
         else:
             ms_name = options.output_ms
-        # for the calibration table base name, use the ms name without the .ms extension, if there is a .ms extension
-        # otherwise use the ms name
-        caltable_basename = ms_name[:-3] if ms_name.lower().endswith('.ms') else ms_name
+        basename = os.path.splitext(ms_name)[0]
 
         # XXX Discard first N dumps which are frequently incomplete (fix this in ChunkStore eventually)
         dataset.select(spw=win, scans='track', flags=options.flags, dumps=slice(options.quack, None))
@@ -316,7 +312,6 @@ def main():
 
         # Instructions to create uvfits file if requested
         if options.uvfits:
-            # uv_name = os.path.splitext(args[0])[0] + ("." if len(args) == 1 else ".et_al.") + pol_for_name + ".uvfits"
             uv_name = basename + ".uvfits"
             print "\nThe MS can be converted into a uvfits file in casapy, with the command:"
             print "      exportuvfits(vis='%s', fitsfile='%s', datacolumn='data')\n" % (ms_name, uv_name)
@@ -670,7 +665,7 @@ def main():
 
                 # for each solution type in the file, create a table
                 for sol in solution_types:
-                    caltable_name = '{0}.{1}'.format(caltable_basename, sol)
+                    caltable_name = '{0}.{1}'.format(basename, sol)
                     sol_name = 'cal_product_{0}'.format(sol,)
 
                     if sol_name in first_dataset.file['TelescopeState'].keys():
