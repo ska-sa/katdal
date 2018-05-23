@@ -195,82 +195,71 @@ def main():
         print "Using '%s' casacore binding to produce MS" % (ms_extra.casacore_binding,)
 
     def antenna_indices(na, no_auto_corr):
-      """ Get default antenna1 and antenna2 arrays """
-      return np.triu_indices(na, 1 if no_auto_corr else 0)
+        """Get default antenna1 and antenna2 arrays."""
+        return np.triu_indices(na, 1 if no_auto_corr else 0)
 
     def corrprod_index(dataset):
-      """
-      Return the correlator product index (with -1 representing missing indices)
-      """
-      corrprod_to_index = dict([(tuple(cp), ind) for cp, ind
-          in zip(dataset.corr_products, range(len(dataset.corr_products)))])
+        """The correlator product index (with -1 representing missing indices)."""
+        corrprod_to_index = {tuple(cp): n for n, cp in enumerate(dataset.corr_products)}
 
-      # ==========================================
-      # Generate per-baseline antenna pairs and
-      # correlator product indices
-      # ==========================================
+        # ==========================================
+        # Generate per-baseline antenna pairs and
+        # correlator product indices
+        # ==========================================
 
-      def _cp_index(a1, a2, pol):
-          """
-          Create individual correlator product index
-          from antenna pair and polarisation
-          """
-          a1 = "%s%s" % (a1.name, pol[0].lower())
-          a2 = "%s%s" % (a2.name, pol[1].lower())
+        def _cp_index(a1, a2, pol):
+            """Create correlator product index from antenna pair and pol."""
+            a1 = "%s%s" % (a1.name, pol[0].lower())
+            a2 = "%s%s" % (a2.name, pol[1].lower())
+            return corrprod_to_index.get((a1, a2), -1)
 
-          return corrprod_to_index.get((a1, a2), -1)
-
-      # Generate baseline antenna pairs
-      ant1_index, ant2_index = antenna_indices(len(dataset.ants), options.no_auto)
-      # Order as similarly to the input as possible, which gives better performance
-      # in permute_baselines.
-      bl_indices = zip(ant1_index, ant2_index)
-      bl_indices.sort(key=lambda (a1, a2): _cp_index(dataset.ants[a1], dataset.ants[a2],
+        # Generate baseline antenna pairs
+        ant1_index, ant2_index = antenna_indices(len(dataset.ants), options.no_auto)
+        # Order as similarly to the input as possible, which gives better performance
+        # in permute_baselines.
+        bl_indices = zip(ant1_index, ant2_index)
+        bl_indices.sort(key=lambda a1, a2: _cp_index(dataset.ants[a1], dataset.ants[a2],
                                                      pols_to_use[0]))
-      # Undo the zip
-      ant1_index[:] = [bl[0] for bl in bl_indices]
-      ant2_index[:] = [bl[1] for bl in bl_indices]
-      ant1 = [dataset.ants[a1] for a1 in ant1_index]
-      ant2 = [dataset.ants[a2] for a2 in ant2_index]
+        # Undo the zip
+        ant1_index[:] = [bl[0] for bl in bl_indices]
+        ant2_index[:] = [bl[1] for bl in bl_indices]
+        ant1 = [dataset.ants[a1] for a1 in ant1_index]
+        ant2 = [dataset.ants[a2] for a2 in ant2_index]
 
-      nbl = ant1_index.size
-      npol = len(pols_to_use)
+        # Create actual correlator product index
+        cp_index = [_cp_index(a1, a2, p)
+                    for a1, a2 in itertools.izip(ant1, ant2)
+                    for p in pols_to_use]
+        cp_index = np.array(cp_index, dtype=np.int32)
 
-      # Create actual correlator product index
-      cp_index = [_cp_index(a1, a2, p)
-                     for a1, a2 in itertools.izip(ant1, ant2)
-                     for p in pols_to_use]
-      cp_index = np.array(cp_index, dtype=np.int32)
-
-      CPInfo = namedtuple("CPInfo", ["ant1_index", "ant2_index",
-                                     "ant1", "ant2",
-                                     "cp_index"])
-
-      return CPInfo(ant1_index, ant2_index, ant1, ant2, cp_index)
+        CPInfo = namedtuple("CPInfo", ["ant1_index", "ant2_index",
+                                       "ant1", "ant2", "cp_index"])
+        return CPInfo(ant1_index, ant2_index, ant1, ant2, cp_index)
 
     # Open dataset
     open_args = args[0] if len(args) == 1 else args
     # katdal can handle a list of files, which get virtually concatenated internally
     dataset = katdal.open(open_args, ref_ant=options.ref_ant)
 
-    #Get list of unique polarisation products in the file
+    # Get list of unique polarisation products in the file
     pols_in_file = np.unique([(cp[0][-1] + cp[1][-1]).upper() for cp in dataset.corr_products])
 
-    #Which polarisation do we want to write into the MS
-    #select all possible pols if full-pol selected, otherwise the selected polarisations via pols_to_use
-    #otherwise finally select any of HH,VV present (the default).
+    # Which polarisation do we want to write into the MS
+    # select all possible pols if full-pol selected, otherwise the selected polarisations via pols_to_use
+    # otherwise finally select any of HH,VV present (the default).
     pols_to_use = ['HH', 'HV', 'VH', 'VV'] if (options.full_pol or options.circular) else \
-                  list(np.unique(options.pols_to_use.split(','))) if options.pols_to_use else \
-                  [pol for pol in ['HH','VV'] if pol in pols_in_file]
+        list(np.unique(options.pols_to_use.split(','))) if options.pols_to_use else \
+        [pol for pol in ['HH', 'VV'] if pol in pols_in_file]
 
-    #Check we have the chosen polarisations
+    # Check we have the chosen polarisations
     if np.any([pol not in pols_in_file for pol in pols_to_use]):
         raise RuntimeError("Selected polarisation(s): %s not available. "
-                           "Available polarisation(s): %s"%(','.join(pols_to_use),','.join(pols_in_file)))
+                           "Available polarisation(s): %s"
+                           % (','.join(pols_to_use), ','.join(pols_in_file)))
 
-    #Set full_pol if this is selected via options.pols_to_use
+    # Set full_pol if this is selected via options.pols_to_use
     if set(pols_to_use) == set(['HH', 'HV', 'VH', 'VV']) and not options.circular:
-        options.full_pol=True
+        options.full_pol = True
 
     pol_for_name = 'full_pol' if options.full_pol else \
                    'circular_pol' if options.circular else \
@@ -300,9 +289,11 @@ def main():
         # Discard first N dumps which are frequently incomplete
         dataset.select(spw=win, scans='track', flags=select_flags, dumps=slice(options.quack, None))
 
-        # The first step is to copy the blank template MS to our desired output (making sure it's not already there)
+        # The first step is to copy the blank template MS to our desired output
+        # (making sure it's not already there)
         if os.path.exists(ms_name):
-            raise RuntimeError("MS '%s' already exists - please remove it before running this script" % (ms_name,))
+            raise RuntimeError("MS '%s' already exists - please remove it "
+                               "before running this script" % (ms_name,))
 
         print "Will create MS output in", ms_name
 
@@ -434,8 +425,8 @@ def main():
         total_size = 0
 
         # Create the MeasurementSet
-        table_desc, dminfo = ms_extra.kat_ms_desc_and_dminfo(nbl=nbl,
-          nchan=nchan, ncorr=npol, model_data=options.model_data)
+        table_desc, dminfo = ms_extra.kat_ms_desc_and_dminfo(
+            nbl=nbl, nchan=nchan, ncorr=npol, model_data=options.model_data)
         ms_extra.create_ms(ms_name, table_desc, dminfo)
 
         ms_dict = {}
@@ -497,14 +488,16 @@ def main():
                     continue
                 print "scan %3d (%4d samples) loaded. Target: '%s'. Writing to disk..." % (scan_ind, scan_len, target.name)
 
-                # Get the average dump time for this scan (equal to scan length if the dump period is longer than a scan)
+                # Get the average dump time for this scan (equal to scan length
+                # if the dump period is longer than a scan)
                 dump_time_width = min(time_av, scan_len * dataset.dump_period)
 
                 # Get UTC timestamps
                 utc_seconds = dataset.timestamps[:]
                 # Update field lists if this is a new target
                 if target.name not in field_names:
-                    # Since this will be an 'radec' target, we don't need antenna or timestamp to get the (astrometric) ra, dec
+                    # Since this will be an 'radec' target, we don't need antenna
+                    # or timestamp to get the (astrometric) ra, dec
                     ra, dec = target.radec()
 
                     field_names.append(target.name)
@@ -515,8 +508,8 @@ def main():
                 field_id = field_names.index(target.name)
 
                 # Determine the observation tag for this scan
-                obs_tag = ','.join(tag_to_intent[tag] for tag in target.tags
-                                                    if tag in tag_to_intent)
+                obs_tag = ','.join(tag_to_intent[tag]
+                                   for tag in target.tags if tag in tag_to_intent)
 
                 # add tag to obs_modes list
                 if obs_tag and obs_tag not in obs_modes:
@@ -528,8 +521,7 @@ def main():
                 ntime = utc_seconds.size
                 ntime_av = 0
 
-                for ltime in xrange(0, ntime - tsize + 1, tsize):
-
+                for ltime in range(0, ntime - tsize + 1, tsize):
                     utime = ltime + tsize
                     tdiff = utime - ltime
                     out_freqs = dataset.channel_freqs
@@ -547,11 +539,13 @@ def main():
 
                     out_utc = utc_seconds[ltime:utime]
 
-                    # Overwrite the input visibilities with averaged visibilities,flags,weights,timestamps,channel freqs
+                    # Overwrite the input visibilities with averaged visibilities,
+                    # flags, weights, timestamps, channel freqs
                     if average_data:
                         vis_data, weight_data, flag_data, out_utc, out_freqs = \
-                            averager.average_visibilities(vis_data, weight_data, flag_data, out_utc, out_freqs,
-                                                          timeav=dump_av, chanav=chan_av, flagav=options.flagav)
+                            averager.average_visibilities(vis_data, weight_data, flag_data,
+                                                          out_utc, out_freqs, timeav=dump_av,
+                                                          chanav=chan_av, flagav=options.flagav)
 
                         # Infer new time dimension from averaged data
                         tdiff = vis_data.shape[0]
@@ -621,14 +615,17 @@ def main():
                                "(pick another reference antenna, maybe?)")
 
         # Remove spaces from source names, unless otherwise specified
-        field_names = [f.replace(' ', '') for f in field_names] if not options.keep_spaces else field_names
+        field_names = [f.replace(' ', '') for f in field_names] \
+            if not options.keep_spaces else field_names
 
         ms_dict = {}
-        ms_dict['SPECTRAL_WINDOW'] = ms_extra.populate_spectral_window_dict(out_freqs,
-                                                                            channel_freq_width * np.ones(len(out_freqs)))
-        ms_dict['FIELD'] = ms_extra.populate_field_dict(field_centers, field_times, field_names)
+        ms_dict['SPECTRAL_WINDOW'] = ms_extra.populate_spectral_window_dict(
+            out_freqs, channel_freq_width * np.ones(len(out_freqs)))
+        ms_dict['FIELD'] = ms_extra.populate_field_dict(
+            field_centers, field_times, field_names)
         ms_dict['STATE'] = ms_extra.populate_state_dict(obs_modes)
-        ms_dict['SOURCE'] = ms_extra.populate_source_dict(field_centers, field_times, out_freqs, field_names)
+        ms_dict['SOURCE'] = ms_extra.populate_source_dict(
+            field_centers, field_times, out_freqs, field_names)
 
         print "\nWriting dynamic fields to disk....\n"
         # Finally we write the MS as per our created dicts
@@ -641,7 +638,8 @@ def main():
         # --------------------------------------
         # Now write calibration product tables if required
         # Open first HDF5 file in the list to extract TelescopeState parameters from
-        #   (can't extract telstate params from contatenated katdal file as it uses the hdf5 file directly)
+        #   (can't extract telstate params from contatenated katdal file as it
+        #    uses the hdf5 file directly)
         first_dataset = katdal.open(args[0], ref_ant=options.ref_ant)
         main_table = ms_extra.open_main(ms_name, verbose=options.verbose)
 
@@ -687,7 +685,8 @@ def main():
                         solvals = np.array(solvals)
 
                         # convert averaged UTC timestamps to MJD seconds.
-                        sol_mjd = np.array([katpoint.Timestamp(time_utc).to_mjd() * 24 * 60 * 60 for time_utc in soltimes])
+                        sol_mjd = np.array([katpoint.Timestamp(time_utc).to_mjd() * 24 * 60 * 60
+                                            for time_utc in soltimes])
 
                         # determine solution characteristics
                         if len(solvals.shape) == 4:
@@ -698,7 +697,8 @@ def main():
                             solvals = solvals.reshape(ntimes, nchans, npols, nants)
 
                         # create calibration solution measurement set
-                        caltable_desc = ms_extra.caltable_desc_float if sol == 'K' else ms_extra.caltable_desc_complex
+                        caltable_desc = ms_extra.caltable_desc_float \
+                            if sol == 'K' else ms_extra.caltable_desc_complex
                         caltable = ms_extra.open_table(caltable_name, tabledesc=caltable_desc)
 
                         # add other keywords for main table
@@ -714,10 +714,12 @@ def main():
                                                          'QuantumUnits': ['s']})
                         caltable.putcolkeywords('INTERVAL', {'QuantumUnits': ['s']})
                         # specify that this is a calibration table
-                        caltable.putinfo({'readme': '', 'subType': ms_soltype_lookup[sol], 'type': 'Calibration'})
+                        caltable.putinfo({'readme': '', 'subType': ms_soltype_lookup[sol],
+                                          'type': 'Calibration'})
 
                         # get the solution data to write to the main table
-                        solutions_to_write = solvals.transpose(0, 3, 1, 2).reshape(ntimes * nants, nchans, npols)
+                        solutions_to_write = solvals.transpose(0, 3, 1, 2).reshape(
+                            ntimes * nants, nchans, npols)
 
                         # MS's store delays in nanoseconds
                         if sol == 'K':
@@ -728,8 +730,8 @@ def main():
                         # just mock up the scans -- this doesnt actually correspond to scans in the data
                         scans_to_write = np.repeat(range(len(sol_mjd)), nants)
                         # write the main table
-                        main_cal_dict = ms_extra.populate_caltable_main_dict(times_to_write, solutions_to_write,
-                                                                             antennas_to_write, scans_to_write)
+                        main_cal_dict = ms_extra.populate_caltable_main_dict(
+                            times_to_write, solutions_to_write, antennas_to_write, scans_to_write)
                         ms_extra.write_rows(caltable, main_cal_dict, verbose=options.verbose)
 
                         # create and write subtables
@@ -739,32 +741,34 @@ def main():
                         # Add subtable keywords and create subtables
                         # ------------------------------------------------------------------------------
                         # # this gives an error in casapy:
-                        # # *** Error *** MSObservation(const Table &) - table is not a valid MSObservation
+                        # *** Error *** MSObservation(const Table &) - table is not a valid MSObservation
                         # for subtable, subtable_location in zip(subtables, subtable_key)
-                        #     ms_extra.open_table(subtable_location, tabledesc=ms_extra.ms_desc[subtable])
-                        #     caltable.putkeyword(subtable, 'Table: {0}'.format(subtable_location))
+                        #    ms_extra.open_table(subtable_location, tabledesc=ms_extra.ms_desc[subtable])
+                        #    caltable.putkeyword(subtable, 'Table: {0}'.format(subtable_location))
                         # # write the static info for the table
                         # ms_extra.write_dict(caltable_dict, caltable.name(), verbose=options.verbose)
                         # ------------------------------------------------------------------------------
                         # instead try just copying the main table subtables
-                        #   this works to plot the data casapy, but the solutions still can't be applied in casapy...
+                        #   this works to plot the data casapy, but the solutions still can't be
+                        #   applied in casapy...
                         for subtable, subtable_location in zip(subtables, subtable_key):
-                            main_subtable = ms_extra.open_table(os.path.join(main_table.name(), subtable))
+                            main_subtable = ms_extra.open_table(os.path.join(main_table.name(),
+                                                                             subtable))
                             main_subtable.copy(subtable_location, deep=True)
                             caltable.putkeyword(subtable, 'Table: {0}'.format(subtable_location))
                             if subtable == 'ANTENNA':
                                 caltable.putkeyword('NAME', antlist)
                                 caltable.putkeyword('STATION', antlist)
                         if sol != 'B':
-                            spw_table = ms_extra.open_table(os.path.join(caltable.name(), 'SPECTRAL_WINDOW'))
+                            spw_table = ms_extra.open_table(os.path.join(caltable.name(),
+                                                                         'SPECTRAL_WINDOW'))
                             spw_table.removerows(spw_table.rownumbers())
                             cen_index = len(out_freqs) // 2
                             # the delay values in the cal pipeline are calculated relative to frequency 0
                             ref_freq = 0.0 if sol == 'K' else None
-                            spw_dict = {'SPECTRAL_WINDOW':
-                                        ms_extra.populate_spectral_window_dict(np.atleast_1d(out_freqs[cen_index]),
-                                                                               np.atleast_1d(channel_freq_width),
-                                                                               ref_freq=ref_freq)}
+                            spw_dict = {'SPECTRAL_WINDOW': ms_extra.populate_spectral_window_dict(
+                                            np.atleast_1d(out_freqs[cen_index]),
+                                            np.atleast_1d(channel_freq_width), ref_freq=ref_freq)}
                             ms_extra.write_dict(spw_dict, caltable.name(), verbose=options.verbose)
 
                         # done with this caltable
