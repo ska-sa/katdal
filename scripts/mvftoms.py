@@ -294,8 +294,11 @@ def main():
             ms_name = options.output_ms
         basename = os.path.splitext(ms_name)[0]
 
+        # XXX Katdal does not have a way to discard flags yet
+        # Keep all flags in this case (they are still ignored in averaging)
+        select_flags = options.flags if options.flags else 'all'
         # XXX Discard first N dumps which are frequently incomplete (fix this in ChunkStore eventually)
-        dataset.select(spw=win, scans='track', flags=options.flags, dumps=slice(options.quack, None))
+        dataset.select(spw=win, scans='track', flags=select_flags, dumps=slice(options.quack, None))
 
         # The first step is to copy the blank template MS to our desired output (making sure it's not already there)
         if os.path.exists(ms_name):
@@ -344,6 +347,10 @@ def main():
             if (first_chan < 0) or (last_chan >= dataset.shape[1]):
                 raise RuntimeError("Requested channel range outside data set boundaries. "
                                    "Set channels in the range [0,%s]" % (dataset.shape[1] - 1,))
+            if first_chan > last_chan:
+                raise RuntimeError("First channel (%d) bigger than last channel (%d) - "
+                                   "did you mean it the other way around?"
+                                   % (first_chan, last_chan))
 
             chan_range = slice(first_chan, last_chan + 1)
             print "\nChannel range %s through %s." % (first_chan, last_chan)
