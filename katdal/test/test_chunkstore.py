@@ -77,10 +77,11 @@ class TestGenerateChunks(object):
 class TestChunkStore(object):
     """This tests the base class functionality."""
 
-    def test_put_and_get_chunk(self):
+    def test_put_get_list_chunks(self):
         store = ChunkStore()
         assert_raises(NotImplementedError, store.get_chunk, 1, 2, 3)
         assert_raises(NotImplementedError, store.put_chunk, 1, 2, 3)
+        assert_raises(NotImplementedError, store.list_chunk_ids, 1)
 
     def test_metadata_validation(self):
         store = ChunkStore()
@@ -177,6 +178,13 @@ class ChunkStoreTestBase(object):
         results = pull.compute()
         divisions_per_dim = [len(c) for c in dask_array.chunks]
         assert_array_equal(results, np.full(divisions_per_dim, True))
+        # Also check has_array if available
+        try:
+            arr = self.store.has_array(array_name, dask_array.chunks, offset)
+        except NotImplementedError:
+            pass
+        else:
+            assert_array_equal(arr, np.full(divisions_per_dim, True))
 
     def test_chunk_non_existent(self):
         slices = (slice(0, 1),)
@@ -241,3 +249,14 @@ class ChunkStoreTestBase(object):
         # Now store the last quarter and check that complete array is correct
         self.put_dask_array('big_y2', np.s_[3:8, 30:60, 0:2])
         self.get_dask_array('big_y2')
+
+    def test_list_chunk_ids(self):
+        array_name, dask_array, offset = self.make_dask_array('big_y2')
+        try:
+            chunk_ids = self.store.list_chunk_ids(array_name)
+        except NotImplementedError:
+            pass
+        else:
+            slices = da.core.slices_from_chunks(dask_array.chunks)
+            ref_chunk_ids = [self.store.chunk_id_str(s) for s in slices]
+            assert_equal(set(chunk_ids), set(ref_chunk_ids))

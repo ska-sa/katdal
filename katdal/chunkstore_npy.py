@@ -93,6 +93,13 @@ class NpyFileChunkStore(ChunkStore):
         filename = os.path.join(self.path, chunk_name) + '.npy'
         return os.path.exists(filename)
 
+    def list_chunk_ids(self, array_name):
+        """See the docstring of :meth:`ChunkStore.list_chunk_ids`."""
+        array_dir = os.path.join(self.path, array_name)
+        # Strip the .npy extension to get the chunk ID string
+        return [fn[:-4] for fn in os.listdir(array_dir) if fn.endswith('.npy')]
+
     get_chunk.__doc__ = ChunkStore.get_chunk.__doc__
     put_chunk.__doc__ = ChunkStore.put_chunk.__doc__
     has_chunk.__doc__ = ChunkStore.has_chunk.__doc__
+    list_chunk_ids.__doc__ = ChunkStore.list_chunk_ids.__doc__

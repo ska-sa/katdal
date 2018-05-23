@@ -172,6 +172,17 @@ class S3ChunkStore(ChunkStore):
             else:
                 return True
 
+    def list_chunk_ids(self, array_name):
+        """See the docstring of :meth:`ChunkStore.list_chunk_ids`."""
+        bucket, prefix = self.split(array_name, 1)
+        paginator = self.client.get_paginator('list_objects')
+        page_iter = paginator.paginate(Bucket=bucket, Prefix=prefix,
+                                       PaginationConfig={'PageSize': 10000})
+        keys = [item['Key'] for page in page_iter for item in page['Contents']]
+        # Strip the array name and .npy extension to get the chunk ID string
+        return [key[len(prefix) + 1:-4] for key in keys if key.endswith('.npy')]
+
     get_chunk.__doc__ = ChunkStore.get_chunk.__doc__
     put_chunk.__doc__ = ChunkStore.put_chunk.__doc__
     has_chunk.__doc__ = ChunkStore.has_chunk.__doc__
+    list_chunk_ids.__doc__ = ChunkStore.list_chunk_ids.__doc__
