@@ -168,7 +168,7 @@ def main():
                       help="If a single element in an averaging bin is flagged, flag the averaged bin.")
     parser.add_option("--caltables", action="store_true", default=False,
                       help="Create calibration tables from gain solutions in the dataset (if present).")
-    parser.add_option("--quack", type=int, default=2, metavar='N',
+    parser.add_option("--quack", type=int, default=1, metavar='N',
                       help="Discard the first N dumps (which are frequently incomplete).")
 
     (options, args) = parser.parse_args()
@@ -297,7 +297,7 @@ def main():
         # XXX Katdal does not have a way to discard flags yet
         # Keep all flags in this case (they are still ignored in averaging)
         select_flags = options.flags if options.flags else 'all'
-        # XXX Discard first N dumps which are frequently incomplete (fix this in ChunkStore eventually)
+        # Discard first N dumps which are frequently incomplete
         dataset.select(spw=win, scans='track', flags=select_flags, dumps=slice(options.quack, None))
 
         # The first step is to copy the blank template MS to our desired output (making sure it's not already there)
