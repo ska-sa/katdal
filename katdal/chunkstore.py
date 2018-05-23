@@ -104,13 +104,11 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
 
 def _add_offset_to_slices(func, offset):
     """Modify chunk get/put/has to add an offset to its `slices` parameter."""
-    offset_slices = tuple(slice(start, None) for start in offset)
-
     def func_with_offset(array_name, slices, *args, **kwargs):
         """Shift `slices` to start at `offset`."""
-        slices = da.core.fuse_slice(offset_slices, slices)
-        return func(array_name, slices, *args, **kwargs)
-
+        offset_slices = tuple(slice(s.start + i, s.stop + i)
+                              for (s, i) in zip(slices, offset))
+        return func(array_name, offset_slices, *args, **kwargs)
     return func_with_offset
 
 
@@ -490,8 +488,9 @@ class ChunkStore(object):
         # Turn chunks + offset into list of expected chunk ID strings
         slices = da.core.slices_from_chunks(chunks)
         if offset:
-            offset_slices = tuple(slice(start, None) for start in offset)
-            slices = [da.core.fuse_slice(offset_slices, s) for s in slices]
+            slices = [tuple(slice(ss.start + i, ss.stop + i)
+                            for (ss, i) in zip(s, offset))
+                      for s in slices]
         chunk_ids = [self.chunk_id_str(s) for s in slices]
         # Look up expected IDs in set of actual IDs in store
         success = np.array([cid in store_ids for cid in chunk_ids])
