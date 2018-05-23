@@ -16,6 +16,8 @@
 # limitations under the License.
 ################################################################################
 
+from __future__ import print_function
+
 # Produce a CASA-compatible Measurement Set from a MeerKAT Visibility Format
 # (MVF) dataset using casapy or casacore.
 
@@ -185,14 +187,14 @@ def main():
                            "limits in the form 'lowest_elevation,highest_elevation'.")
 
     if len(args) > 1:
-        print "Concatenating multiple datasets into single MS."
+        print("Concatenating multiple datasets into single MS.")
 
     if not ms_extra.casacore_binding:
         raise RuntimeError("Failed to find casacore binding. You need to install both "
                            "casacore and python-casacore, or run the script from within "
                            "a modified casapy containing h5py and katpoint.")
     else:
-        print "Using '%s' casacore binding to produce MS" % (ms_extra.casacore_binding,)
+        print("Using '%s' casacore binding to produce MS" % (ms_extra.casacore_binding,))
 
     def antenna_indices(na, no_auto_corr):
         """Get default antenna1 and antenna2 arrays."""
@@ -270,7 +272,7 @@ def main():
 
         # Extract MS file per spectral window in observation file
         freq_MHz = dataset.spectral_windows[win].centre_freq / 1e6
-        print 'Extract MS for spw %d: central frequency %.2f MHz' % (win, freq_MHz)
+        print('Extract MS for spw %d: central frequency %.2f MHz' % (win, freq_MHz))
 
         # If no output MS filename supplied, infer the output filename
         # from the first dataset.
@@ -295,25 +297,27 @@ def main():
             raise RuntimeError("MS '%s' already exists - please remove it "
                                "before running this script" % (ms_name,))
 
-        print "Will create MS output in", ms_name
+        print("Will create MS output in " + ms_name)
 
         # Instructions to flag by elevation if requested
         if options.elevation_range is not None:
             emin, emax = options.elevation_range.split(',')
-            print "\nThe MS can be flagged by elevation in casapy v3.4.0 or higher, with the command:"
-            print "      tflagdata(vis='%s', mode='elevation', lowerlimit=%s, upperlimit=%s, action='apply')\n" % \
-                  (ms_name, emin, emax)
+            print("\nThe MS can be flagged by elevation in casapy v3.4.0 or higher, with the command:")
+            print("      tflagdata(vis='%s', mode='elevation', lowerlimit=%s, "
+                  "upperlimit=%s, action='apply')\n" % (ms_name, emin, emax))
 
         # Instructions to create uvfits file if requested
         if options.uvfits:
             uv_name = basename + ".uvfits"
-            print "\nThe MS can be converted into a uvfits file in casapy, with the command:"
-            print "      exportuvfits(vis='%s', fitsfile='%s', datacolumn='data')\n" % (ms_name, uv_name)
+            print("\nThe MS can be converted into a uvfits file in casapy, with the command:")
+            print("      exportuvfits(vis='%s', fitsfile='%s', datacolumn='data')\n"
+                  % (ms_name, uv_name))
 
         if options.full_pol:
-            print "\n#### Producing a full polarisation MS (HH,HV,VH,VV) ####\n"
+            print("\n#### Producing a full polarisation MS (HH,HV,VH,VV) ####\n")
         else:
-            print "\n#### Producing MS with %s polarisation(s) ####\n"%(','.join(pols_to_use))
+            print("\n#### Producing MS with %s polarisation(s) ####\n"
+                  % (','.join(pols_to_use)))
 
         # # Open HDF5 file
         # if len(args) == 1: args = args[0]
@@ -322,11 +326,12 @@ def main():
 
         # if fringe stopping is requested, check that it has not already been done in hardware
         if options.stop_w:
-            print "W term in UVW coordinates will be used to stop the fringes."
+            print("W term in UVW coordinates will be used to stop the fringes.")
             try:
                 autodelay = [int(ad) for ad in dataset.sensor['DBE/auto-delay']]
                 if all(autodelay):
-                    print "Fringe-stopping already performed in hardware... do you really want to stop the fringes here?"
+                    print("Fringe-stopping already performed in hardware... "
+                          "do you really want to stop the fringes here?")
             except KeyError:
                 pass
 
@@ -344,7 +349,7 @@ def main():
                                    % (first_chan, last_chan))
 
             chan_range = slice(first_chan, last_chan + 1)
-            print "\nChannel range %s through %s." % (first_chan, last_chan)
+            print("\nChannel range %d through %d." % (first_chan, last_chan))
             dataset.select(channels=chan_range)
 
         # Are we averaging?
@@ -359,11 +364,11 @@ def main():
             # Check how many channels we are dropping
             chan_remainder = nchan % options.chanbin
             avg_nchan = int(nchan / min(nchan, options.chanbin))
-            print "Averaging %s channels, output ms will have %s channels." % \
-                  (options.chanbin, avg_nchan)
+            print("Averaging %s channels, output ms will have %s channels."
+                  % (options.chanbin, avg_nchan))
             if chan_remainder > 0:
-                print "The last %s channels in the data will be dropped during averaging " \
-                      "(%s does not divide %s)." % (chan_remainder, options.chanbin, nchan)
+                print("The last %s channels in the data will be dropped during averaging "
+                      "(%s does not divide %s)." % (chan_remainder, options.chanbin, nchan))
             chan_av = options.chanbin
             nchan = avg_nchan
         else:
@@ -379,7 +384,7 @@ def main():
             average_data = True
             dump_av = int(np.round(options.dumptime / dataset.dump_period))
             time_av = dump_av * dataset.dump_period
-            print "Averaging %s second dumps to %s seconds." % (dataset.dump_period, time_av)
+            print("Averaging %s second dumps to %s seconds." % (dataset.dump_period, time_av))
         else:
             # No averaging in time
             dump_av = 1
@@ -387,18 +392,15 @@ def main():
 
         # Print a message if extending flags to averaging bins.
         if average_data and options.flagav and options.flags != '':
-            print "Extending flags to averaging bins."
+            print("Extending flags to averaging bins.")
 
         # Optionally keep only cross-correlation products
         if options.no_auto:
             dataset.select(corrprods='cross')
-            print "\nCross-correlations only."
+            print("\nCross-correlations only.")
 
-        print "\nUsing %s as the reference antenna. All targets and activity " \
-              "detection will be based on this antenna.\n" % (dataset.ref_ant,)
-        array_centre = katpoint.Antenna('', *dataset.ants[0].ref_position_wgs84)
-        baseline_vectors = np.array([array_centre.baseline_toward(antenna)
-                                     for antenna in dataset.ants])
+        print("\nUsing %s as the reference antenna. All targets and activity "
+              "detection will be based on this antenna.\n" % (dataset.ref_ant,))
         # MS expects timestamps in MJD seconds
         start_time = dataset.start_time.to_mjd() * 24 * 60 * 60
         end_time = dataset.end_time.to_mjd() * 24 * 60 * 60
@@ -414,7 +416,7 @@ def main():
         ms_dict = {}
         # increment scans sequentially in the ms
         scan_itr = 1
-        print "\nIterating through scans in file(s)...\n"
+        print("\nIterating through scans in file(s)...\n")
 
         cp_info = corrprod_index(dataset)
         nbl = cp_info.ant1_index.size
@@ -437,8 +439,8 @@ def main():
         ms_dict['DATA_DESCRIPTION'] = ms_extra.populate_data_description_dict()
         ms_dict['POLARIZATION'] = ms_extra.populate_polarization_dict(ms_pols=pols_to_use,
                                                                       circular=options.circular)
-        ms_dict['OBSERVATION'] = ms_extra.populate_observation_dict(start_time, end_time, telescope_name,
-                                                                    dataset.observer, dataset.experiment_id)
+        ms_dict['OBSERVATION'] = ms_extra.populate_observation_dict(
+            start_time, end_time, telescope_name, dataset.observer, dataset.experiment_id)
 
         print "Writing static meta data..."
         ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
@@ -476,17 +478,21 @@ def main():
                 scan_len = dataset.shape[0]
                 if scan_state != 'track':
                     if options.verbose:
-                        print "scan %3d (%4d samples) skipped '%s' - not a track" % (scan_ind, scan_len, scan_state)
+                        print("scan %3d (%4d samples) skipped '%s' - not a track"
+                              % (scan_ind, scan_len, scan_state))
                     continue
                 if scan_len < 2:
                     if options.verbose:
-                        print "scan %3d (%4d samples) skipped - too short" % (scan_ind, scan_len)
+                        print("scan %3d (%4d samples) skipped - too short"
+                              % (scan_ind, scan_len))
                     continue
                 if target.body_type != 'radec':
                     if options.verbose:
-                        print "scan %3d (%4d samples) skipped - target '%s' not RADEC" % (scan_ind, scan_len, target.name)
+                        print("scan %3d (%4d samples) skipped - target '%s' not RADEC"
+                              % (scan_ind, scan_len, target.name))
                     continue
-                print "scan %3d (%4d samples) loaded. Target: '%s'. Writing to disk..." % (scan_ind, scan_len, target.name)
+                print("scan %3d (%4d samples) loaded. Target: '%s'. Writing to disk..."
+                      % (scan_ind, scan_len, target.name))
 
                 # Get the average dump time for this scan (equal to scan length
                 # if the dump period is longer than a scan)
@@ -504,7 +510,8 @@ def main():
                     field_centers.append((ra, dec))
                     field_times.append(katpoint.Timestamp(utc_seconds[0]).to_mjd() * 60 * 60 * 24)
                     if options.verbose:
-                        print "Added new field %d: '%s' %s %s" % (len(field_names) - 1, target.name, ra, dec)
+                        print("Added new field %d: '%s' %s %s"
+                              % (len(field_names) - 1, target.name, ra, dec))
                 field_id = field_names.index(target.name)
 
                 # Determine the observation tag for this scan
@@ -581,18 +588,17 @@ def main():
                 s1 = time.time() - s
 
                 if average_data and utc_seconds.shape != ntime_av:
-                    print "Averaged %s x %s second dumps to %s x %s second dumps" % (
-                                            np.shape(utc_seconds)[0], dataset.dump_period,
-                                            ntime_av, dump_time_width)
+                    print("Averaged %s x %s second dumps to %s x %s second dumps"
+                          % (np.shape(utc_seconds)[0], dataset.dump_period,
+                             ntime_av, dump_time_width))
 
                 scan_size_mb = float(scan_size) / (1024**2)
 
-                print "Wrote scan data (%f MB) in %f s (%f MBps)\n" % (
-                                            scan_size_mb, s1, scan_size_mb / s1)
+                print("Wrote scan data (%f MB) in %f s (%f MBps)\n"
+                      % (scan_size_mb, s1, scan_size_mb / s1))
 
                 scan_itr += 1
                 total_size += scan_size
-
 
         finally:
             work_queue.put(None)
@@ -627,7 +633,7 @@ def main():
         ms_dict['SOURCE'] = ms_extra.populate_source_dict(
             field_centers, field_times, out_freqs, field_names)
 
-        print "\nWriting dynamic fields to disk....\n"
+        print("\nWriting dynamic fields to disk....\n")
         # Finally we write the MS as per our created dicts
         ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
         if options.tar:
@@ -651,9 +657,9 @@ def main():
             solution_types = ['G', 'B', 'K']
             ms_soltype_lookup = {'G': 'G Jones', 'B': 'B Jones', 'K': 'K Jones'}
 
-            print "\nWriting calibration solution tables to disk...."
+            print("\nWriting calibration solution tables to disk....")
             if 'TelescopeState' not in first_dataset.file.keys():
-                print " No TelescopeState in first dataset. Can't create solution tables.\n"
+                print(" No TelescopeState in first dataset. Can't create solution tables.\n")
             else:
                 # first get solution antenna ordering
                 #   newer files have the cal antlist as a sensor
@@ -664,7 +670,8 @@ def main():
                 elif 'cal_antlist' in first_dataset.file['TelescopeState'].attrs.keys():
                     antlist = np.safe_eval(first_dataset.file['TelescopeState'].attrs['cal_antlist'])
                 else:
-                    print " No calibration antenna ordering in first dataset. Can't create solution tables.\n"
+                    print(" No calibration antenna ordering in first dataset. "
+                          "Can't create solution tables.\n")
                     continue
                 antlist_indices = range(len(antlist))
 
@@ -674,7 +681,7 @@ def main():
                     sol_name = 'cal_product_{0}'.format(sol,)
 
                     if sol_name in first_dataset.file['TelescopeState'].keys():
-                        print ' - creating {0} solution table: {1}\n'.format(sol, caltable_name)
+                        print(' - creating {0} solution table: {1}\n'.format(sol, caltable_name))
 
                         # get solution values from the file
                         solutions = first_dataset.file['TelescopeState'][sol_name].value
