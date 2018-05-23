@@ -250,7 +250,7 @@ class ChunkStoreTestBase(object):
         self.put_dask_array('big_y2', np.s_[3:8, 30:60, 0:2])
         self.get_dask_array('big_y2')
 
-    def test_list_of_chunk_ids(self):
+    def test_list_chunk_ids(self):
         array_name, dask_array, offset = self.make_dask_array('big_y2')
         try:
             chunk_ids = self.store.list_chunk_ids(array_name)

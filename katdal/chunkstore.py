@@ -289,9 +289,8 @@ class ChunkStore(object):
     @classmethod
     def chunk_id_str(cls, slices):
         """Chunk identifier in string form (e.g. '00012_01024_00000')."""
-        index = [s.start for s in slices]
-        return '_'.join(["{:0{width}d}".format(i, width=cls.NAME_INDEX_WIDTH)
-                         for i in index])
+        return '_'.join("{:0{w}d}".format(s.start, w=cls.NAME_INDEX_WIDTH)
+                        for s in slices)
 
     @classmethod
     def chunk_metadata(cls, array_name, slices, chunk=None, dtype=None):
@@ -453,6 +452,11 @@ class ChunkStore(object):
         -------
         chunk_ids : list of string
             List of chunk identifier strings (e.g. '00012_01024_00000')
+
+        Raises
+        ------
+        NotImplementedError
+            If the underlying store does not have an efficient implementation
         """
         raise NotImplementedError
 
