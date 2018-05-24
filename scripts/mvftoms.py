@@ -285,11 +285,8 @@ def main():
             ms_name = options.output_ms
         basename = os.path.splitext(ms_name)[0]
 
-        # XXX Katdal does not have a way to discard flags yet
-        # Keep all flags in this case (they are still ignored in averaging)
-        select_flags = options.flags if options.flags else 'all'
         # Discard first N dumps which are frequently incomplete
-        dataset.select(spw=win, scans='track', flags=select_flags, dumps=slice(options.quack, None))
+        dataset.select(spw=win, scans='track', flags=options.flags, dumps=slice(options.quack, None))
 
         # The first step is to copy the blank template MS to our desired output
         # (making sure it's not already there)

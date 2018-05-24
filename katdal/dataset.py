@@ -651,7 +651,8 @@ class DataSet(object):
             or string of comma-separated names (combine all weights by default)
         flags : 'all' or string or sequence of strings, optional
             List of names of flags that will be OR'ed together, as a sequence
-            or string of comma-separated names (use all flags by default)
+            or string of comma-separated names (use all flags by default). An
+            empty string or sequence discards all flags.
 
         reset : {'auto', '', 'T', 'F', 'B', 'TF', 'TB', 'FB', 'TFB'}, optional
             Remove existing selections on specified dimensions before applying

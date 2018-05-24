@@ -298,9 +298,10 @@ class VisibilityDataV4(DataSet):
 
     @_flags_keep.setter
     def _flags_keep(self, names):
-        # Ensure a sequence of flag names
+        # Ensure a sequence of (non-empty) flag names
         names = FLAG_NAMES if names == 'all' else \
             names.split(',') if isinstance(names, basestring) else names
+        names = [name for name in names if name]
         # Create boolean list for desired flags
         selection = np.zeros(8, dtype=np.uint8)
         assert len(FLAG_NAMES) == len(selection), \

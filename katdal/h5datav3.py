@@ -906,9 +906,10 @@ class H5DataV3(DataSet):
             self._flags_select = np.array([0], dtype=np.uint8)
             return
         known_flags = [row[0] for row in self._flags_description]
-        # Ensure a sequence of flag names
+        # Ensure a sequence of (non-empty) flag names
         names = known_flags if names == 'all' else \
             names.split(',') if isinstance(names, basestring) else names
+        names = [name for name in names if name]
         # Create boolean list for desired flags
         selection = np.zeros(8, dtype=np.uint8)
         assert len(known_flags) == len(selection), \
