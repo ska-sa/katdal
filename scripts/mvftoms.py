@@ -407,13 +407,6 @@ def main():
         # Version 1 and 2 files are KAT-7; the rest are MeerKAT
         telescope_name = 'KAT-7' if dataset.version[0] in '12' else 'MeerKAT'
 
-        # before resetting ms_dict, copy subset to caltable dictionary
-        if options.caltables:
-            caltable_dict = {}
-            caltable_dict['ANTENNA'] = ms_dict['ANTENNA']
-            caltable_dict['OBSERVATION'] = ms_dict['OBSERVATION']
-
-        ms_dict = {}
         # increment scans sequentially in the ms
         scan_itr = 1
         print("\nIterating through scans in file(s)...\n")
@@ -442,7 +435,13 @@ def main():
         ms_dict['OBSERVATION'] = ms_extra.populate_observation_dict(
             start_time, end_time, telescope_name, dataset.observer, dataset.experiment_id)
 
-        print "Writing static meta data..."
+        # before resetting ms_dict, copy subset to caltable dictionary
+        if options.caltables:
+            caltable_dict = {}
+            caltable_dict['ANTENNA'] = ms_dict['ANTENNA']
+            caltable_dict['OBSERVATION'] = ms_dict['OBSERVATION']
+
+        print("Writing static meta data...")
         ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
 
         # Pre-allocate memory buffers
