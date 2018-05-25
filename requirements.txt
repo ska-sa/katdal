@@ -17,7 +17,8 @@ redis
 six
 toolz
 requests==2.18.4
-bs4==4.6.0
+beautifulsoup4==4.6.0
+bs4==0.0.1
 html5lib==1.0.1
 
 git+ssh://git@github.com/ska-sa/katpoint#egg=katpoint
