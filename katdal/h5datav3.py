@@ -30,7 +30,7 @@ except ImportError:
 from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow,
                       DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target)
 from .sensordata import (SensorCache, RecordSensorData,
-                         H5TelstateSensorData)
+                         H5TelstateSensorData, pickle_loads)
 from .categorical import CategoricalData
 from .lazy_indexer import LazyIndexer, LazyTransform
 from .caldata import applycal
@@ -608,10 +608,7 @@ class H5DataV3(DataSet):
         """
         try:
             value = self.file['TelescopeState'].attrs[key]
-            if value in no_unpickle:
-                return value
-            else:
-                return pickle.loads(value)
+            return pickle_loads(value, no_unpickle)
         except (KeyError, pickle.UnpicklingError):
             # In some cases the value is placed in a sensor instead. Return
             # the most recent value.
@@ -759,7 +756,7 @@ class H5DataV3(DataSet):
         try:
             # If <stream_name>_bls_ordering is present, it should be used in preference
             # to cbf_bls_ordering.
-            corrprods = pickle.loads(f['TelescopeState'].attrs[stream_name + '_bls_ordering'])
+            corrprods = pickle_loads(f['TelescopeState'].attrs[stream_name + '_bls_ordering'])
         except KeyError:
             # Prior to about Nov 2016, ingest would rewrite cbf_bls_ordering in
             # place.
@@ -825,7 +822,7 @@ class H5DataV3(DataSet):
             attr_name = f.attrs['capture_block_id'] + '_obs_params'
             value = f['TelescopeState'].attrs.get(attr_name)
             if value is not None:
-                obs_params = pickle.loads(value)
+                obs_params = pickle_loads(value)
         # Fall back to old obs_params location
         else:
             tm_params = tm_group['obs/params']
@@ -915,9 +912,13 @@ class H5DataV3(DataSet):
             self._flags_select = np.array([0], dtype=np.uint8)
             return
         known_flags = [row[0] for row in self._flags_description]
-        # Ensure a sequence of flag names
-        names = known_flags if names == 'all' else \
-            names.split(',') if isinstance(names, basestring) else names
+        # Ensure `names` is a sequence of valid flag names (or an empty list)
+        if names == 'all':
+            names = known_flags
+        elif names == '':
+            names == []
+        elif isinstance(names, basestring):
+            names = names.split(',')
         # Create boolean list for desired flags
         selection = np.zeros(8, dtype=np.uint8)
         assert len(known_flags) == len(selection), \

@@ -1,6 +1,19 @@
 History
 =======
 
+0.10.1 (2018-05-18)
+-------------------
+* Restore NumPy 1.14 support (all data flagged otherwise)
+
+0.10 (2018-05-17)
+-----------------
+* Rally around the MeerKAT Visibility Format (MVF)
+* First optimised converter from MVF v4 to MS: mvftoms
+* Latest v4 fixes (synthetic timestamps, autodetection, NPY files in Ceph)
+* Flag and zero missing chunks
+* Now requires katsdptelstate (released), dask, h5py 2.3 and Python 2.7
+* Restore S3 unit tests and NumPy 1.11 (on Ubuntu 16.04) support
+
 0.9.5 (2018-02-22)
 ------------------
 * New HDF5 v3.9 file format in anticipation of v4 (affects obs_params)

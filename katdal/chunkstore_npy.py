@@ -23,15 +23,6 @@ import numpy as np
 from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk
 
 
-def load_npy_header(filename):
-    """Load NPY file header only to obtain shape and dtype information."""
-    with open(filename, 'r') as fp:
-        # Header version: either (1, 0) or (2, 0)
-        ver = np.lib.format.read_magic(fp)
-        shape, fortran_order, dtype = np.lib.format._read_array_header(fp, ver)
-    return shape, fortran_order, dtype
-
-
 class NpyFileChunkStore(ChunkStore):
     """A store of chunks (i.e. N-dimensional arrays) based on NPY files.
 
@@ -72,14 +63,16 @@ class NpyFileChunkStore(ChunkStore):
         filename = os.path.join(self.path, chunk_name) + '.npy'
         with self._standard_errors(chunk_name):
             chunk = np.load(filename, allow_pickle=False)
-        if dtype != chunk.dtype:
-            raise BadChunk('Requested dtype {} differs from NPY file dtype {}'
-                           .format(dtype, chunk.dtype))
+        if chunk.shape != shape or chunk.dtype != dtype:
+            raise BadChunk('Chunk {!r}: NPY file dtype {} and/or shape {} '
+                           'differs from expected dtype {} and shape {}'
+                           .format(chunk_name, chunk.dtype, chunk.shape,
+                                   dtype, shape))
         return chunk
 
     def put_chunk(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put_chunk`."""
-        chunk_name, shape = self.chunk_metadata(array_name, slices, chunk=chunk)
+        chunk_name, _ = self.chunk_metadata(array_name, slices, chunk=chunk)
         base_filename = os.path.join(self.path, chunk_name)
         # Ensure any subdirectories are in place
         try:
@@ -96,16 +89,17 @@ class NpyFileChunkStore(ChunkStore):
 
     def has_chunk(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.has_chunk`."""
-        chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
+        chunk_name, _ = self.chunk_metadata(array_name, slices, dtype=dtype)
         filename = os.path.join(self.path, chunk_name) + '.npy'
-        try:
-            with self._standard_errors(chunk_name):
-                npy_shape, _, npy_dtype = load_npy_header(filename)
-        except ChunkNotFound:
-            return False
-        else:
-            return npy_dtype == dtype and npy_shape == shape
+        return os.path.exists(filename)
+
+    def list_chunk_ids(self, array_name):
+        """See the docstring of :meth:`ChunkStore.list_chunk_ids`."""
+        array_dir = os.path.join(self.path, array_name)
+        # Strip the .npy extension to get the chunk ID string
+        return [fn[:-4] for fn in os.listdir(array_dir) if fn.endswith('.npy')]
 
     get_chunk.__doc__ = ChunkStore.get_chunk.__doc__
     put_chunk.__doc__ = ChunkStore.put_chunk.__doc__
     has_chunk.__doc__ = ChunkStore.has_chunk.__doc__
+    list_chunk_ids.__doc__ = ChunkStore.list_chunk_ids.__doc__

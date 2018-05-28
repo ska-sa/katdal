@@ -21,7 +21,10 @@ import io
 
 import numpy as np
 try:
-    import botocore
+    try:
+        import katsdpauth.auth_botocore   # noqa: F401
+    except ImportError:
+        import botocore
     _botocore_import_error = None
 except ImportError as e:
     botocore = None
@@ -29,7 +32,7 @@ except ImportError as e:
 else:
     import botocore.config
     import botocore.session
-    from botocore.exceptions import (EndpointConnectionError,
+    from botocore.exceptions import (ConnectionError, EndpointConnectionError,
                                      NoCredentialsError, ClientError)
 
 from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk
@@ -67,13 +70,14 @@ class S3ChunkStore(ChunkStore):
         if not botocore:
             raise _botocore_import_error
         error_map = {EndpointConnectionError: StoreUnavailable,
+                     ConnectionError: StoreUnavailable,
                      client.exceptions.NoSuchKey: ChunkNotFound,
                      client.exceptions.NoSuchBucket: ChunkNotFound}
         super(S3ChunkStore, self).__init__(error_map)
         self.client = client
 
     @classmethod
-    def from_url(cls, url, **kwargs):
+    def from_url(cls, url, timeout=10, **kwargs):
         """Construct S3 chunk store from endpoint URL.
 
         S3 authentication (i.e. the access + secret keys) is handled externally
@@ -87,6 +91,8 @@ class S3ChunkStore(ChunkStore):
         ----------
         url : string
             Endpoint of S3 service, e.g. 'http://127.0.0.1:9000'
+        timeout : int or float, optional
+            Read / connect timeout, in seconds (set to None to leave unchanged)
         kwargs : dict
             Extra keyword arguments: config settings or create_client arguments
 
@@ -102,6 +108,10 @@ class S3ChunkStore(ChunkStore):
         config_kwargs = dict(max_pool_connections=200,
                              s3={'addressing_style': 'path'})
         client_kwargs = {}
+        if timeout is not None:
+            config_kwargs['read_timeout'] = int(timeout)
+            config_kwargs['connect_timeout'] = int(timeout)
+            config_kwargs['retries'] = {'max_attempts': 0}
         # Split keyword arguments into config settings and create_client args
         for k, v in kwargs.items():
             if k in botocore.config.Config.OPTION_DEFAULTS:
@@ -116,8 +126,9 @@ class S3ChunkStore(ChunkStore):
                                            **client_kwargs)
             # Quick smoke test to see if the S3 server is available
             client.list_buckets()
-        except (EndpointConnectionError, NoCredentialsError, ValueError) as e:
-            raise StoreUnavailable(str(e))
+        except (ConnectionError, EndpointConnectionError,
+                NoCredentialsError, ClientError, ValueError) as e:
+            raise StoreUnavailable('[{}] {}'.format(type(e).__name__, e))
         return cls(client)
 
     def get_chunk(self, array_name, slices, dtype):
@@ -138,7 +149,7 @@ class S3ChunkStore(ChunkStore):
 
     def put_chunk(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put_chunk`."""
-        chunk_name, shape = self.chunk_metadata(array_name, slices, chunk=chunk)
+        chunk_name, _ = self.chunk_metadata(array_name, slices, chunk=chunk)
         bucket, key = self.split(chunk_name + '.npy', 1)
         fp = io.BytesIO()
         np.lib.format.write_array(fp, chunk, allow_pickle=False)
@@ -149,27 +160,29 @@ class S3ChunkStore(ChunkStore):
     def has_chunk(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.has_chunk`."""
         dtype = np.dtype(dtype)
-        chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
+        chunk_name, _ = self.chunk_metadata(array_name, slices, dtype=dtype)
         bucket, key = self.split(chunk_name + '.npy', 1)
-        try:
-            response = self.client.head_object(Bucket=bucket, Key=key)
-        except ClientError as err:
-            if err.response['Error']['Code'] != '404':
-                raise
-            return False
-        else:
-            actual_bytes = response['ContentLength']
-            header = {'shape': shape, 'fortran_order': False,
-                      'descr': np.lib.format.dtype_to_descr(dtype)}
-            fp = io.BytesIO()
-            np.lib.format.write_array_header_1_0(fp, header)
-            header_size_v1 = fp.tell()
-            fp.seek(0)
-            np.lib.format.write_array_header_2_0(fp, header)
-            header_size_v2 = fp.tell()
-            data_size = int(np.prod(shape)) * dtype.itemsize
-            return actual_bytes - data_size in (header_size_v1, header_size_v2)
+        with self._standard_errors(chunk_name):
+            try:
+                self.client.head_object(Bucket=bucket, Key=key)
+            except ClientError as err:
+                if err.response['Error']['Code'] != '404':
+                    raise
+                return False
+            else:
+                return True
+
+    def list_chunk_ids(self, array_name):
+        """See the docstring of :meth:`ChunkStore.list_chunk_ids`."""
+        bucket, prefix = self.split(array_name, 1)
+        paginator = self.client.get_paginator('list_objects')
+        page_iter = paginator.paginate(Bucket=bucket, Prefix=prefix,
+                                       PaginationConfig={'PageSize': 10000})
+        keys = [item['Key'] for page in page_iter for item in page['Contents']]
+        # Strip the array name and .npy extension to get the chunk ID string
+        return [key[len(prefix) + 1:-4] for key in keys if key.endswith('.npy')]
 
     get_chunk.__doc__ = ChunkStore.get_chunk.__doc__
     put_chunk.__doc__ = ChunkStore.put_chunk.__doc__
     has_chunk.__doc__ = ChunkStore.has_chunk.__doc__
+    list_chunk_ids.__doc__ = ChunkStore.list_chunk_ids.__doc__

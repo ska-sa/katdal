@@ -26,41 +26,43 @@ readme = open(os.path.join(here, 'README.rst')).read()
 news = open(os.path.join(here, 'NEWS.rst')).read()
 long_description = readme + '\n\n' + news
 
-setup(name="katdal",
-      description="Karoo Array Telescope data access library "
-                  "to interact with HDF5 and MS files",
+setup(name='katdal',
+      description='Karoo Array Telescope data access library for interacting '
+                  'with data sets in the MeerKAT Visibility Format (MVF)',
       long_description=long_description,
-      author="Ludwig Schwardt",
-      author_email="ludwig@ska.ac.za",
+      author='Ludwig Schwardt',
+      author_email='ludwig@ska.ac.za',
       packages=find_packages(),
       scripts=[
-          "scripts/h5list.py",
-          "scripts/h5toms.py",
-          "scripts/objtoms.py",
-          "scripts/fix_ant_positions.py"],
+          'scripts/h5list.py',
+          'scripts/h5toms.py',
+          'scripts/mvftoms.py',
+          'scripts/fix_ant_positions.py'],
       url='https://github.com/ska-sa/katdal',
-      license="Modified BSD",
+      license='Modified BSD',
       classifiers=[
-          "Development Status :: 4 - Beta",
-          "Intended Audience :: Developers",
-          "License :: OSI Approved :: BSD License",
-          "Operating System :: OS Independent",
-          "Programming Language :: Python",
-          "Programming Language :: Python :: 2",
-          "Programming Language :: Python :: 2.6",
-          "Programming Language :: Python :: 2.7",
-          "Topic :: Software Development :: Libraries :: Python Modules",
-          "Topic :: Scientific/Engineering :: Astronomy"],
-      platforms=["OS Independent"],
-      keywords="meerkat ska",
-      zip_safe=False,
+          'Development Status :: 4 - Beta',
+          'Intended Audience :: Developers',
+          'License :: OSI Approved :: BSD License',
+          'Operating System :: OS Independent',
+          'Programming Language :: Python',
+          'Programming Language :: Python :: 2',
+          'Programming Language :: Python :: 2.7',
+          'Topic :: Software Development :: Libraries :: Python Modules',
+          'Topic :: Scientific/Engineering :: Astronomy'],
+      platforms=['OS Independent'],
+      keywords='meerkat ska',
+      python_requires='~=2.7',
       setup_requires=['katversion'],
       use_katversion=True,
-      install_requires=['numpy', 'katpoint', 'h5py'],
+      install_requires=['numpy', 'katpoint', 'h5py>=2.3',
+                        'katsdptelstate[rdb]', 'dask[array]'],
       extras_require={
-        'ms': ['python-casacore >= 2.2.1'],
-        's3': ['botocore'],
-        # rados is not in PyPI but available as Debian package python-rados
-        'rados': ['rados']
+          'ms': ['python-casacore >= 2.2.1', 'numba'],
+          's3': ['botocore'],
+          # rados is not in PyPI but available as Debian package python-rados
+          'rados': ['rados'],
+          # katsdpauth is currently only available via GitHub
+          'auth': ['katsdpauth'],
       },
-      tests_require=['nose', 'dask[array]'])
+      tests_require=['nose'])

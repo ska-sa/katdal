@@ -409,7 +409,7 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
     # The data flags, array of bools with same shape as data
     main_dict['FLAG'] = flag_data
     # The flag category, NUM_CAT flags for each datum [snd 1 is num channels] (boolean, 4-dim)
-    main_dict['FLAG_CATEGORY'] = np.zeros((num_vis_samples, 1, num_channels, num_pols), dtype='uint8')
+    main_dict['FLAG_CATEGORY'] = flag_data.reshape((num_vis_samples, 1, num_channels, num_pols))
     # Row flag - flag all data in this row if True (boolean)
     main_dict['FLAG_ROW'] = np.zeros(num_vis_samples, dtype=np.uint8)
     # Weight set by imaging task (e.g. uniform weighting) (float, 1-dim)
@@ -980,7 +980,7 @@ def populate_ms_dict(uvw_coordinates, vis_data, timestamps, antenna1_index, ante
 # ----------------- Write completed dictionary to MS file --------------------
 
 
-def open_main(ms_name='./blank.ms', verbose=True):
+def open_main(ms_name, verbose=True):
     t = open_table(ms_name, ack=verbose)
     if t is None:
         print "Failed to open main table for writing."
@@ -1007,11 +1007,9 @@ def write_rows(t, row_dict, verbose=True):
         else:
             if verbose:
                 print "  column '%s' not in table" % (col_name,)
-    # Flush table to disk
-    t.flush()
 
 
-def write_dict(ms_dict, ms_name='./blank.ms', verbose=True):
+def write_dict(ms_dict, ms_name, verbose=True):
     # Iterate through subtables
     for sub_table_name, sub_dict in ms_dict.iteritems():
         # Allow parsing of single dict and array of dicts in the same fashion
