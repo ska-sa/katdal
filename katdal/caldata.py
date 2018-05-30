@@ -223,7 +223,7 @@ class _cal_setup():
         def initcal(kind):
             return {'interp': None, 'solns': None, 'kind': kind}
         self._cal_available = ['K', 'B0', 'G']
-        _cal_interp = ['linear', 'zero', 'linear', 'linear']
+        _cal_interp = ['linear', 'zero', 'linear']
         self._cal_solns = {}
         for idx, cal in enumerate(self._cal_available):
             self._cal_solns[cal] = initcal(_cal_interp[idx])
