@@ -36,6 +36,7 @@ except ImportError as e:
 else:
     import botocore.config
     import botocore.session
+    import botocore.vendored.requests as requests
     from botocore.exceptions import (ConnectionError, EndpointConnectionError,
                                      NoCredentialsError, ClientError)
 
@@ -75,6 +76,7 @@ class S3ChunkStore(ChunkStore):
             raise _botocore_import_error
         error_map = {EndpointConnectionError: StoreUnavailable,
                      ConnectionError: StoreUnavailable,
+                     requests.exceptions.ReadTimeout: StoreUnavailable,
                      client.exceptions.NoSuchKey: ChunkNotFound,
                      client.exceptions.NoSuchBucket: ChunkNotFound}
         super(S3ChunkStore, self).__init__(error_map)
