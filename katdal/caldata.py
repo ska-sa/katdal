@@ -17,14 +17,14 @@
 """Function to apply TelescopeState calibration to visibilities.
 
 Hold, interpolate and apply cal solutions from a katdal object.
-Code largely pilfered from the katdal_loader in katsdpimager, but using a katdal object
-rather than a filename, so that things are a bit more portable. """
+Code largely pilfered from the katdal_loader in katsdpimager,
+but using a katdal object rather than a filename,
+so that things are a bit more portable. """
 
 import dask.array as da
 import numpy as np
 
-from .lazy_indexer import LazyTransform
-from .sensordata import _safe_linear_interp
+# from .lazy_indexer import LazyTransform
 
 
 class CalibrationReadError(RuntimeError):
@@ -39,51 +39,46 @@ class CalibrationValueError(ValueError):
 
 class SimpleInterpolate1D(object):
     def __init__(self, x, y):
-        self._x = x
-        self._y = y
+        sort_idx = np.argsort(x)
+        self._x = x[sort_idx]
+        self._y = y[sort_idx]
 
     def __call__(self, x):
-        y_re = np.empty((x.shape[0], self._y.shape[1], self._y.shape[2], self._y.shape[3]))
-        y_im = np.empty((x.shape[0], self._y.shape[1], self._y.shape[2], self._y.shape[3]))
+        y = np.empty((x.shape[0], self._y.shape[1], self._y.shape[2], self._y.shape[3]), dtype=complex)
         # Interpolate across nans in time axis.
         for ch_idx in range(self._y.shape[1]):
             for pol_idx in range(self._y.shape[2]):
                 for ant_idx in range(self._y.shape[3]):
-                    y_re[:, ch_idx, pol_idx, ant_idx] = _safe_linear_interp(self._x,
-                                                                            self._y[:, ch_idx, pol_idx, ant_idx].real,
-                                                                            x)
-                    y_im[:, ch_idx, pol_idx, ant_idx] = _safe_linear_interp(self._x,
-                                                                            self._y[:, ch_idx, pol_idx, ant_idx].imag,
-                                                                            x)
-        y = y_re + y_im
+                    y[:, ch_idx, pol_idx, ant_idx] = np.interp(x,
+                                                               self._x,
+                                                               self._y[:, ch_idx, pol_idx, ant_idx],
+                                                               )
         return y
 
 
 class ComplexInterpolate1D(object):
     def __init__(self, x, y):
-        self._x = x
-        self._y = y
+        sort_idx = np.argsort(x)
+        self._x = x[sort_idx]
+        self._y = y[sort_idx]
         self._mag = np.abs(y)
         self._phase = y / self._mag
 
     def __call__(self, x):
-        mag = np.empty((x.shape[0], self._y.shape[1], self._y.shape[2], self._y.shape[3]))
-        phase_re = np.empty((x.shape[0], self._y.shape[1], self._y.shape[2], self._y.shape[3]))
-        phase_im = np.empty((x.shape[0], self._y.shape[1], self._y.shape[2], self._y.shape[3]))
+        mag = np.empty((x.shape[0], self._y.shape[1], self._y.shape[2], self._y.shape[3]), dtype=complex)
+        phase = np.empty((x.shape[0], self._y.shape[1], self._y.shape[2], self._y.shape[3]), dtype=complex)
         # Interpolate across nans in time axis.
         for ch_idx in range(self._y.shape[1]):
             for pol_idx in range(self._y.shape[2]):
                 for ant_idx in range(self._y.shape[3]):
-                    mag[:, ch_idx, pol_idx, ant_idx] = _safe_linear_interp(self._x,
-                                                                           self._mag[:, ch_idx, pol_idx, ant_idx],
-                                                                           x)
-                    phase_re[:, ch_idx, pol_idx, ant_idx] = _safe_linear_interp(self._x,
-                                                                                self._phase[:, ch_idx, pol_idx, ant_idx].real,
-                                                                                x)
-                    phase_im[:, ch_idx, pol_idx, ant_idx] = _safe_linear_interp(self._x,
-                                                                                self._phase[:, ch_idx, pol_idx, ant_idx].imag,
-                                                                                x)
-        phase = phase_re + phase_im
+                    mag[:, ch_idx, pol_idx, ant_idx] = np.interp(x,
+                                                                 self._x,
+                                                                 self._mag[:, ch_idx, pol_idx, ant_idx],
+                                                                 )
+                    phase[:, ch_idx, pol_idx, ant_idx] = np.interp(x,
+                                                                   self._x,
+                                                                   self._phase[:, ch_idx, pol_idx, ant_idx],
+                                                                   )
         return phase / np.abs(phase) * mag
 
 
@@ -104,25 +99,18 @@ def interpolate_nans_1d(y):
     xi = np.nonzero(~nan_locs)[0]
     yi = y[xi]
     x = np.arange(len(y))
-    y = _safe_linear_interp(xi, yi, x)
-    return y
+    return np.interp(x, xi, yi)
 
 
 def _get_cal_sensor(key, katdal_obj):
     """Load a calibrator solution from sensors.
     """
-    values = []
-    timestamps = []
-    for sensor in katdal_obj.file['TelescopeState'].keys():
-        if key in sensor:
-            value = katdal_obj.sensor['TelescopeState/{}'.format(sensor)]
-            timestamp = katdal_obj.sensor.timestamps
-            try:
-                values = np.vstack((values, value))
-                timestamps = np.vstack((timestamps, timestamp))
-            except ValueError:
-                values = np.asarray(value)
-                timestamps = np.asarray(timestamp)
+    values = np.array([])
+    timestamps = katdal_obj.sensor.timestamps
+    try:
+        values = katdal_obj.sensor[key]
+    except KeyError:
+        pass  # cal solutions not available
     timestamps = np.reshape(timestamps, timestamps.size)
     if timestamps.size > 1:
         timestamps = timestamps.squeeze()
@@ -136,7 +124,7 @@ def _get_cal_antlist(katdal_obj):
     extended to allow for an antenna list that doesn't match by permuting
     the calibration solutions.
     """
-    cal_antlist = katdal_obj._get_telstate_attr('cal_antlist')
+    cal_antlist = katdal_obj.source.metadata.attrs['cal_antlist']
     if isinstance(cal_antlist, np.ndarray):
         cal_antlist = cal_antlist.tolist()
     if cal_antlist != [ant.name for ant in katdal_obj.ants]:
@@ -152,7 +140,7 @@ def _get_cal_pol_ordering(katdal_obj):
     dict
         Keys are 'h' and 'v' and values are 0 and 1, in some order
     """
-    cal_pol_ordering = katdal_obj._get_telstate_attr('cal_pol_ordering')
+    cal_pol_ordering = katdal_obj.source.metadata.attrs['cal_pol_ordering']
     try:
         cal_pol_ordering = np.array(cal_pol_ordering)
     except (NameError, SyntaxError):
@@ -160,22 +148,10 @@ def _get_cal_pol_ordering(katdal_obj):
     except Exception as e:
         raise CalibrationReadError(str(e))
 
-    if cal_pol_ordering.shape != (4, 2):
-        # assume newer telstate format
-        pol_dict = {}
-        for idx, pol in enumerate(cal_pol_ordering):
-            pol_dict[pol] = idx
-        return pol_dict
-
-    # older format needs more work
-    if cal_pol_ordering[0, 0] != cal_pol_ordering[0, 1]:
-        raise CalibrationReadError('cal_pol_ordering[0] is not consistent')
-    if cal_pol_ordering[1, 0] != cal_pol_ordering[1, 1]:
-        raise CalibrationReadError('cal_pol_ordering[1] is not consistent')
-    order = [cal_pol_ordering[0, 0], cal_pol_ordering[1, 0]]
-    if set(order) != set('vh'):
-        raise CalibrationReadError('cal_pol_ordering does not contain h and v')
-    return {order[0]: 0, order[1]: 1}
+    pol_dict = {}
+    for idx, pol in enumerate(cal_pol_ordering):
+        pol_dict[pol] = idx
+    return pol_dict
 
 
 def _get_cal_product(key, katdal_obj, **kwargs):
@@ -203,6 +179,9 @@ def _get_cal_product(key, katdal_obj, **kwargs):
 
     timestamps, values = _get_cal_sensor(key, katdal_obj)
 
+    if values.size < 1:
+        return None
+
     if values.ndim == 3:
         # Insert a channel axis
         values = values[:, np.newaxis, ...]
@@ -210,30 +189,18 @@ def _get_cal_product(key, katdal_obj, **kwargs):
     if values.ndim != 4:
         raise CalibrationReadError('Calibration solutions has wrong number of dimensions')
 
-    # only use solutions with valid values, assuming matrix dimensions
-    # (ts, chan, pol, ant)
-    # - all values per antenna must be valid
-    # - all values per polarisation must be valid
-    # - some channels must be valid (you will interpolate over them later)
-    ts_mask = np.isfinite(values).all(axis=-1).all(axis=-1).any(axis=-1)
-    if (ts_mask.sum() / float(len(timestamps))) < 0.7:
-        raise CalibrationValueError('No finite solutions, not enough valid data')
-
     # avoid extrapolation
-    if (timestamps[-1] < katdal_obj._timestamps[0]):
+    if (timestamps[-1] < katdal_obj.source.timestamps[0]):
         # All calibration solutions ahead of observation, use last one
         values = values[[-1], ...]
         timestamps = timestamps[[-1], ...]
-    elif (timestamps[0] > katdal_obj._timestamps[-1]):
+    elif (timestamps[0] > katdal_obj.source.timestamps[-1]):
         # All calibration solutions after observation, use first one
         values = values[[0], ...]
         timestamps = timestamps[[0], ...]
 
-    values = values[ts_mask, ...]
-    timestamps = timestamps[ts_mask]
-
     if values.shape[1] > 1:
-        # Only use channels selected in h5 file
+        # Only use selected channels
         values = values[:, katdal_obj.channels, ...]
         for ts_idx in range(values.shape[0]):
             # Interpolate across nans in channel axis.
@@ -249,6 +216,7 @@ def _get_cal_product(key, katdal_obj, **kwargs):
         else:
             interp = SimpleInterpolate1D
         return interp(timestamps, values)
+
     return values
 
 
@@ -256,13 +224,11 @@ class _cal_setup():
     def __init__(self, katdal_obj):
         def initcal(kind):
             return {'interp': None, 'solns': None, 'kind': kind}
-        self._cal_solns = {'K': initcal('linear'),
-                           'B': initcal('zero'),
-                           'G': initcal('linear'),
-                           }
-
-        self.ts_chunk_size = 128
-        self.ch_chunk_size = -1
+        self._cal_available = ['K', 'B0', 'G', 'KCROSS_DIODE']
+        _cal_interp = ['linear', 'zero', 'linear', 'linear']
+        self._cal_solns = {}
+        for idx, cal in enumerate(self._cal_available):
+            self._cal_solns[cal] = initcal(_cal_interp[idx])
 
         self._cal_pol_ordering = _get_cal_pol_ordering(katdal_obj)
         self._cal_ant_ordering = _get_cal_antlist(katdal_obj)
@@ -276,14 +242,10 @@ class _cal_setup():
         self._cp_lookup = np.asarray(self._cp_lookup, dtype=int)
         # interpolation function over available solutions
         for key in self._cal_solns.keys():
-            try:
-                self._cal_solns[key]['interp'] = _get_cal_product('cal_product_' + key,
-                                                                  katdal_obj,
-                                                                  kind=self._cal_solns[key]['kind'],
-                                                                  )
-            except:  # no delay cal solution from telstate
-                # should raise a warning
-                raise
+            self._cal_solns[key]['interp'] = _get_cal_product('cal_product_' + key,
+                                                              katdal_obj,
+                                                              kind=self._cal_solns[key]['kind'],
+                                                              )
         self._cal_interp(katdal_obj.timestamps)
 
     def _cal_interp(self, timestamps):
@@ -300,7 +262,7 @@ class _cal_setup():
                 if key == 'K':
                     solns = np.exp(solns * self._delay_to_phase)
                 self._cal_solns[key]['solns'] = da.from_array(solns,
-                                                              chunks=(self.ts_chunk_size, self.ch_chunk_size, 1, 1),
+                                                              chunks=solns.shape,
                                                               )
 
 
@@ -318,7 +280,8 @@ def applycal(katdal_obj):
     katdal_obj.weight_coeffs = []
 
     def _cal_calc(katdal_obj):
-        """Calculate calibration and weight coefficients"""
+        # """Calculate calibration and weight coefficients"""
+        """Setup calibration members for use"""
 
         cal_obj = _cal_setup(katdal_obj)
         _bls_len = katdal_obj._corrprod_keep.sum()
@@ -332,25 +295,27 @@ def applycal(katdal_obj):
         if _time_len != len(katdal_obj.timestamps):
             raise CalibrationValueError('Shape mismatch in timestamps.')
 
-        # calibrate visibilities
-        K = cal_obj._cal_solns['K']['solns']
-        B = cal_obj._cal_solns['B']['solns']
-        G = cal_obj._cal_solns['G']['solns']
-
-        # ((X*K)/B)/G
+        # calibration matrix
+        _cal_shape = [_time_len, _chan_len]
+        dummy = np.zeros(_cal_shape, dtype=float)
+        default = np.ones(_cal_shape, dtype=float)
+        # apply calibrations in order given by measurement set (((X*K)/B)/G)/D
         for idx, cp in enumerate(cal_obj._cp_lookup):
             scale_coeff = None
             scale_wght = None
-            # K
-            scale_coeff = K[:, :, cp[0][0], cp[0][1]] * K[:, :, cp[1][0], cp[1][1]].conj()
-            # B
-            scale = B[:, :, cp[0][0], cp[0][1]] * B[:, :, cp[1][0], cp[1][1]].conj()
-            scale_coeff /= scale
-            scale_wght = scale.real**2 + scale.imag**2
-            # G
-            scale = G[:, :, cp[0][0], cp[0][1]] * G[:, :, cp[1][0], cp[1][1]].conj()
-            scale_coeff *= np.reciprocal(scale)
-            scale_wght *= scale.real**2 + scale.imag**2
+            for seq, caltype in enumerate(cal_obj._cal_available):
+                X = cal_obj._cal_solns[caltype]['solns']
+                if X is None:
+                    scale = default
+                else:
+                    scale = dummy + X[:, :, cp[0][0], cp[0][1]] * X[:, :, cp[1][0], cp[1][1]].conj()
+                if seq == 0:
+                    scale_coeff = scale
+                    scale_wght = da.from_array(default, chunks=default.shape)
+                else:
+                    scale_coeff *= np.reciprocal(scale)
+                    scale_wght *= scale.real**2 + scale.imag**2
+
             katdal_obj.cal_coeffs.append(scale_coeff)
             katdal_obj.weight_coeffs.append(scale_wght)
 
@@ -360,39 +325,25 @@ def applycal(katdal_obj):
         return katdal_obj
     _cal_calc(katdal_obj)
 
-    def _cal_vis(vis, keep):
-        vis_coeffs = None
+    def _cal_vis(vis):
         # only extract what you need from the full matrix
-        time = np.nonzero(katdal_obj._time_keep[keep[0]])[0]
-        chan = katdal_obj._freq_keep
-        bls = katdal_obj._corrprod_keep
-        if len(keep) > 1:
-            chan = katdal_obj._freq_keep[keep[1]]
-            bls = katdal_obj._corrprod_keep[keep[2]]
-        chan = np.nonzero(chan)[0]
-        bls = np.nonzero(bls)[0]
-        vis_coeffs = katdal_obj.cal_coeffs.vindex[:, :, bls].vindex[:, :, chan].vindex[:, :, time].compute()
-        # visibilities <ts><ch><bl>
-        vis *= vis_coeffs
+        time = np.nonzero(katdal_obj._time_keep)[0]
+        chan = np.nonzero(katdal_obj._freq_keep)[0]
+        bls = np.nonzero(katdal_obj._corrprod_keep)[0].tolist()
+        # vis <ts><ch><bl>
+        vis *= katdal_obj.cal_coeffs[time, :, :][:, chan, :][:, :, bls]
         return vis
-    katdal_obj.cal_vis = LazyTransform('cal_vis', _cal_vis)
+    katdal_obj.cal_vis = _cal_vis
 
-    def _cal_weights(weights, keep):
-        weight_coeffs = None
+    def _cal_weights(weights):
         # only extract what you need from the full matrix
-        time = np.nonzero(katdal_obj._time_keep[keep[0]])[0]
-        chan = katdal_obj._freq_keep
-        bls = katdal_obj._corrprod_keep
-        if len(keep) > 1:
-            chan = katdal_obj._freq_keep[keep[1]]
-            bls = katdal_obj._corrprod_keep[keep[2]]
-        chan = np.nonzero(chan)[0]
-        bls = np.nonzero(bls)[0]
-        weight_coeffs = katdal_obj.weight_coeffs.vindex[:, :, bls].vindex[:, :, chan].vindex[:, :, time].compute()
+        time = np.nonzero(katdal_obj._time_keep)[0]
+        chan = np.nonzero(katdal_obj._freq_keep)[0]
+        bls = np.nonzero(katdal_obj._corrprod_keep)[0].tolist()
         # weights <ts><ch><bl>
-        weights *= weight_coeffs
+        weights *= katdal_obj.weight_coeffs[time, :, :][:, chan, :][:, :, bls]
         return weights
-    katdal_obj.cal_weights = LazyTransform('cal_weights', _cal_weights)
+    katdal_obj.cal_weights = _cal_weights
 
     return katdal_obj
 
