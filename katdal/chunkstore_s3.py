@@ -20,6 +20,7 @@ import contextlib
 import io
 import threading
 import Queue
+import sys
 import urlparse
 
 import numpy as np
@@ -148,8 +149,8 @@ class S3ChunkStore(ChunkStore):
             """Construct chunk store and return it (or exception) via queue."""
             try:
                 queue.put(cls._from_url(url, timeout, **kwargs))
-            except BaseException as exc:
-                queue.put(exc)
+            except BaseException:
+                queue.put(sys.exc_info())
 
         thread = threading.Thread(target=_from_url, args=(url, timeout),
                                   kwargs=kwargs)
@@ -164,10 +165,11 @@ class S3ChunkStore(ChunkStore):
             raise StoreUnavailable('Timed out, possibly due to DNS lookup '
                                    'of {} stalling'.format(hostname))
         else:
-            if isinstance(result, BaseException):
-                raise result
-            else:
+            if isinstance(result, cls):
                 return result
+            else:
+                # Assume result is (exception type, exception value, traceback)
+                raise result[0], result[1], result[2]
 
     def get_chunk(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get_chunk`."""
