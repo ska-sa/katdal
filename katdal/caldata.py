@@ -24,8 +24,6 @@ so that things are a bit more portable. """
 import dask.array as da
 import numpy as np
 
-# from .lazy_indexer import LazyTransform
-
 
 class CalibrationReadError(RuntimeError):
     """An error occurred in loading calibration values from file"""
@@ -224,7 +222,7 @@ class _cal_setup():
     def __init__(self, katdal_obj):
         def initcal(kind):
             return {'interp': None, 'solns': None, 'kind': kind}
-        self._cal_available = ['K', 'B0', 'G', 'KCROSS_DIODE']
+        self._cal_available = ['K', 'B0', 'G']
         _cal_interp = ['linear', 'zero', 'linear', 'linear']
         self._cal_solns = {}
         for idx, cal in enumerate(self._cal_available):
