@@ -25,7 +25,7 @@ import Queue
 import os
 
 from nose import SkipTest
-from nose.tools import assert_raises
+from nose.tools import assert_raises, timed
 
 from katdal.chunkstore_s3 import S3ChunkStore, botocore
 from katdal.chunkstore import StoreUnavailable
@@ -120,7 +120,14 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         bucket = 'katdal-unittest'
         return self.store.join(bucket, path)
 
+    @timed(0.1 + 0.1 + 1 + 0.05)
     def test_store_unavailable(self):
         # Drastically reduce the default botocore timeout of nearly 7 seconds
         assert_raises(StoreUnavailable, S3ChunkStore.from_url,
-                      'http://apparently.invalid/', timeout=0.1)
+                      'http://apparently.invalid/',
+                      timeout=0.1, extra_timeout=0)
+        # Some pathological DNS setups (sshuttle?) ignore the original timeout,
+        # preferring to wait 25-30 seconds instead... Check that it is fixed.
+        assert_raises(StoreUnavailable, S3ChunkStore.from_url,
+                      'http://a-valid-domain-is-somehow-harder.kat.ac.za/',
+                      timeout=0.1, extra_timeout=1)

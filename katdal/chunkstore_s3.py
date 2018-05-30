@@ -18,6 +18,9 @@
 
 import contextlib
 import io
+import threading
+import Queue
+import urlparse
 
 import numpy as np
 try:
@@ -77,32 +80,8 @@ class S3ChunkStore(ChunkStore):
         self.client = client
 
     @classmethod
-    def from_url(cls, url, timeout=10, **kwargs):
-        """Construct S3 chunk store from endpoint URL.
-
-        S3 authentication (i.e. the access + secret keys) is handled externally
-        via the botocore config file or environment variables. Extra keyword
-        arguments are interpreted as botocore config settings (see
-        :class:`botocore.config.Config`) or arguments to the client creation
-        method (see :meth:`botocore.session.Session.create_client`), in that
-        order, overriding the defaults.
-
-        Parameters
-        ----------
-        url : string
-            Endpoint of S3 service, e.g. 'http://127.0.0.1:9000'
-        timeout : int or float, optional
-            Read / connect timeout, in seconds (set to None to leave unchanged)
-        kwargs : dict
-            Extra keyword arguments: config settings or create_client arguments
-
-        Raises
-        ------
-        ImportError
-            If botocore is not installed (it's an optional dependency otherwise)
-        :exc:`chunkstore.StoreUnavailable`
-            If S3 server interaction failed (it's down, no authentication, etc)
-        """
+    def _from_url(cls, url, timeout, **kwargs):
+        """Construct S3 chunk store from endpoint URL (see :meth:`from_url`)."""
         if not botocore:
             raise ImportError('Please install botocore for katdal S3 support')
         config_kwargs = dict(max_pool_connections=200,
@@ -130,6 +109,65 @@ class S3ChunkStore(ChunkStore):
                 NoCredentialsError, ClientError, ValueError) as e:
             raise StoreUnavailable('[{}] {}'.format(type(e).__name__, e))
         return cls(client)
+
+    @classmethod
+    def from_url(cls, url, timeout=10, extra_timeout=1, **kwargs):
+        """Construct S3 chunk store from endpoint URL.
+
+        S3 authentication (i.e. the access + secret keys) is handled externally
+        via the botocore config file or environment variables. Extra keyword
+        arguments are interpreted as botocore config settings (see
+        :class:`botocore.config.Config`) or arguments to the client creation
+        method (see :meth:`botocore.session.Session.create_client`), in that
+        order, overriding the defaults.
+
+        Parameters
+        ----------
+        url : string
+            Endpoint of S3 service, e.g. 'http://127.0.0.1:9000'
+        timeout : int or float, optional
+            Read / connect timeout, in seconds (set to None to leave unchanged)
+        extra_timeout : int or float, optional
+            Additional timeout, useful to terminate e.g. slow DNS lookups
+            without masking read / connect errors (ignored if `timeout` is None)
+        kwargs : dict
+            Extra keyword arguments: config settings or create_client arguments
+
+        Raises
+        ------
+        ImportError
+            If botocore is not installed (it's an optional dependency otherwise)
+        :exc:`chunkstore.StoreUnavailable`
+            If S3 server interaction failed (it's down, no authentication, etc)
+        """
+        # XXX This is a poor man's attempt at concurrent.futures functionality
+        # (avoiding extra dependency on Python 2, revisit when Python 3 only)
+        queue = Queue.Queue()
+
+        def _from_url(url, timeout, **kwargs):
+            """Construct chunk store and return it (or exception) via queue."""
+            try:
+                queue.put(cls._from_url(url, timeout, **kwargs))
+            except BaseException as exc:
+                queue.put(exc)
+
+        thread = threading.Thread(target=_from_url, args=(url, timeout),
+                                  kwargs=kwargs)
+        thread.daemon = True
+        thread.start()
+        if timeout is not None:
+            timeout += extra_timeout
+        try:
+            result = queue.get(timeout=timeout)
+        except Queue.Empty:
+            hostname = urlparse.urlparse(url).hostname
+            raise StoreUnavailable('Timed out, possibly due to DNS lookup '
+                                   'of {} stalling'.format(hostname))
+        else:
+            if isinstance(result, BaseException):
+                raise result
+            else:
+                return result
 
     def get_chunk(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get_chunk`."""
