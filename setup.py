@@ -65,4 +65,4 @@ setup(name='katdal',
           # katsdpauth is currently only available via GitHub
           'auth': ['katsdpauth'],
       },
-      tests_require=['nose'])
+      tests_require=['mock', 'nose'])

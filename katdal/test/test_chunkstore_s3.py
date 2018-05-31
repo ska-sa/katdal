@@ -23,9 +23,11 @@ import re
 import threading
 import Queue
 import os
+import time
 
 from nose import SkipTest
-from nose.tools import assert_raises
+from nose.tools import assert_raises, timed
+import mock
 
 from katdal.chunkstore_s3 import S3ChunkStore, botocore
 from katdal.chunkstore import StoreUnavailable
@@ -45,6 +47,12 @@ def consume_stderr_find_port(process, queue):
                 port_number = ports_found.group(1)
                 queue.put(port_number)
                 looking_for_port = False
+
+
+def gethostbyname_slow(host):
+    """Mock DNS lookup that is meant to be slow."""
+    time.sleep(30)
+    return '127.0.0.1'
 
 
 class TestS3ChunkStore(ChunkStoreTestBase):
@@ -120,7 +128,17 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         bucket = 'katdal-unittest'
         return self.store.join(bucket, path)
 
-    def test_store_unavailable(self):
+    @timed(0.1 + 0.05)
+    def test_store_unavailable_invalid_url(self):
         # Drastically reduce the default botocore timeout of nearly 7 seconds
         assert_raises(StoreUnavailable, S3ChunkStore.from_url,
-                      'http://apparently.invalid/', timeout=0.1)
+                      'http://apparently.invalid/',
+                      timeout=0.1, extra_timeout=0)
+
+    @timed(0.1 + 1 + 0.05)
+    @mock.patch('socket.gethostbyname', side_effect=gethostbyname_slow)
+    def test_store_unavailable_slow_dns(self, mock_dns_lookup):
+        # Some pathological DNS setups (sshuttle?) take forever to time out
+        assert_raises(StoreUnavailable, S3ChunkStore.from_url,
+                      'http://a-valid-domain-is-somehow-harder.kat.ac.za/',
+                      timeout=0.1, extra_timeout=1)
