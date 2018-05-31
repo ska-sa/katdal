@@ -27,6 +27,7 @@ import dask.array as da
 from .sensordata import TelstateSensorData
 from .chunkstore_s3 import S3ChunkStore
 from .chunkstore_npy import NpyFileChunkStore
+from .chunkstore import StoreUnavailable
 
 
 logger = logging.getLogger(__name__)
@@ -247,6 +248,37 @@ def _shorten_key(telstate, key):
     return ''
 
 
+def _infer_chunk_store(url_parts, telstate, chunk_name=None,
+                       s3_endpoint_url=None, **kwargs):
+    """Construct chunk store automatically from dataset URL and telstate."""
+    data_path = store_path = ''
+    try:
+        if url_parts.scheme == 'file':
+            # Look for adjacent data directory (presumably containing NPY files)
+            rdb_path = os.path.abspath(url_parts.path)
+            store_path = os.path.dirname(os.path.dirname(rdb_path))
+            if not store_path:
+                store_path = os.path.curdir
+            try:
+                chunk_name = chunk_name or telstate['chunk_name']
+            except KeyError as e:
+                raise StoreUnavailable('[{}] {}'.format(type(e).__name__, e))
+            else:
+                data_path = os.path.join(store_path, chunk_name)
+        if os.path.isdir(data_path):
+            return NpyFileChunkStore(store_path)
+        try:
+            s3_endpoint_url = s3_endpoint_url or telstate['s3_endpoint_url']
+        except KeyError as e:
+            raise StoreUnavailable('[{}] {}'.format(type(e).__name__, e))
+        else:
+            return S3ChunkStore.from_url(s3_endpoint_url)
+    except StoreUnavailable as e:
+        logger.warn('StoreUnavailable: %s', e)
+        logger.warn('Chunk store unavailable - opening metadata only')
+        return None
+
+
 class TelstateDataSource(DataSource):
     """A data source based on :class:`katsdptelstate.TelescopeState`.
 
@@ -301,7 +333,6 @@ class TelstateDataSource(DataSource):
         kwargs = dict(urlparse.parse_qsl(url_parts.query))
         # Extract Redis database number if provided
         db = int(kwargs.pop('db', '0'))
-        source_name = url_parts.geturl()
         if url_parts.scheme == 'file':
             # RDB dump file
             telstate = katsdptelstate.TelescopeState()
@@ -309,33 +340,16 @@ class TelstateDataSource(DataSource):
                 telstate.load_from_file(url_parts.path)
             except OSError as err:
                 raise DataSourceNotFound(str(err))
-            telstate = view_capture_stream(telstate, **kwargs)
-            # Look for adjacent data directory (presumably containing NPY files)
-            if chunk_store == 'auto':
-                rdb_path = os.path.abspath(url_parts.path)
-                store_path = os.path.dirname(os.path.dirname(rdb_path))
-                if not store_path:
-                    store_path = os.path.curdir
-                try:
-                    data_path = os.path.join(store_path, telstate['chunk_name'])
-                except KeyError:
-                    chunk_store = None
-                else:
-                    if os.path.isdir(data_path):
-                        chunk_store = NpyFileChunkStore(store_path)
-                    else:
-                        chunk_store = S3ChunkStore.from_url(telstate['s3_endpoint_url'])
-            return cls(telstate, chunk_store, source_name)
         elif url_parts.scheme == 'redis':
             # Redis server
             try:
                 telstate = katsdptelstate.TelescopeState(url_parts.netloc, db)
             except katsdptelstate.ConnectionError as e:
                 raise DataSourceNotFound(str(e))
-            telstate = view_capture_stream(telstate, **kwargs)
-            if chunk_store == 'auto':
-                chunk_store = S3ChunkStore.from_url(telstate['s3_endpoint_url'])
-            return cls(telstate, chunk_store, source_name)
+        telstate = view_capture_stream(telstate, **kwargs)
+        if chunk_store == 'auto':
+            chunk_store = _infer_chunk_store(url_parts, telstate, **kwargs)
+        return cls(telstate, chunk_store, source_name=url_parts.geturl())
 
 
 def open_data_source(url, *args, **kwargs):
