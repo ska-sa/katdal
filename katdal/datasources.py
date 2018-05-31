@@ -311,19 +311,28 @@ class TelstateDataSource(DataSource):
                     sensors[sensor_name] = TelstateSensorData(telstate, key)
         metadata = AttrsSensors(telstate, sensors, name=source_name)
         try:
+            # Synthesise timestamps from the relevant telstate bits
             t0 = telstate['sync_time'] + telstate['first_timestamp']
             int_time = telstate['int_time']
-            chunk_name = telstate['chunk_name']
             chunk_info = telstate['chunk_info']
-        except KeyError:
-            # Metadata without data or timestamps
-            DataSource.__init__(self, metadata, None)
-        else:
-            # Extract timestamps from telstate
             n_dumps = chunk_info['correlator_data']['shape'][0]
             timestamps = t0 + np.arange(n_dumps) * int_time
-            data = ChunkStoreVisFlagsWeights(
-                chunk_store, chunk_name, chunk_info) if chunk_store else None
+        except KeyError as e:
+            # Metadata without data or timestamps
+            logger.warn('Telstate lacking data timestamp info (%s) - this is '
+                        'pretty bad but continuing with rest of metadata', e)
+            DataSource.__init__(self, metadata, None)
+        else:
+            data = None
+            try:
+                chunk_name = telstate['chunk_name']
+            except KeyError as e:
+                logger.warn('Missing telstate info (%s) - opening '
+                            'metadata only', e)
+            else:
+                if chunk_store:
+                    data = ChunkStoreVisFlagsWeights(chunk_store, chunk_name,
+                                                     chunk_info)
             # Metadata and timestamps with or without data
             DataSource.__init__(self, metadata, timestamps, data)
 

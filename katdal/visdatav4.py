@@ -347,7 +347,9 @@ class VisibilityDataV4(DataSet):
         DataSet._set_keep(self, time_keep, freq_keep, corrprod_keep, weights_keep, flags_keep)
         update_all = time_keep is not None or freq_keep is not None or corrprod_keep is not None
         update_flags = update_all or flags_keep is not None
-        if update_flags:
+        if not self.source.data:
+            self._vis = self._weights = self._flags = None
+        elif update_flags:
             # Create first-stage index from dataset selectors. Note: use
             # the member variables, not the parameters, because the parameters
             # can be None to indicate no change
