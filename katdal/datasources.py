@@ -164,7 +164,8 @@ class DataSource(object):
         return name
 
 
-def view_capture_stream(telstate, capture_block_id=None, stream_name=None):
+def view_capture_stream(telstate, capture_block_id=None, stream_name=None,
+                        **kwargs):
     """Create telstate view based on capture block ID and stream name.
 
     This figures out the appropriate capture block ID and L0 stream name from
@@ -272,7 +273,7 @@ def _infer_chunk_store(url_parts, telstate, chunk_name=None,
         except KeyError as e:
             raise StoreUnavailable('[{}] {}'.format(type(e).__name__, e))
         else:
-            return S3ChunkStore.from_url(s3_endpoint_url)
+            return S3ChunkStore.from_url(s3_endpoint_url, **kwargs)
     except StoreUnavailable as e:
         logger.warn('StoreUnavailable: %s', e)
         logger.warn('Chunk store unavailable - opening metadata only')
@@ -327,10 +328,14 @@ class TelstateDataSource(DataSource):
             DataSource.__init__(self, metadata, timestamps, data)
 
     @classmethod
-    def from_url(cls, url, chunk_store='auto'):
+    def from_url(cls, url, chunk_store='auto', **kwargs):
         """Construct TelstateDataSource from URL (RDB file / REDIS server)."""
         url_parts = urlparse.urlparse(url, scheme='file')
-        kwargs = dict(urlparse.parse_qsl(url_parts.query))
+        # Merge key-value pairs from URL query with keyword arguments
+        # of function (the latter takes precedence)
+        url_kwargs = dict(urlparse.parse_qsl(url_parts.query))
+        url_kwargs.update(kwargs)
+        kwargs = url_kwargs
         # Extract Redis database number if provided
         db = int(kwargs.pop('db', '0'))
         if url_parts.scheme == 'file':
@@ -352,10 +357,10 @@ class TelstateDataSource(DataSource):
         return cls(telstate, chunk_store, source_name=url_parts.geturl())
 
 
-def open_data_source(url, *args, **kwargs):
+def open_data_source(url, **kwargs):
     """Construct the data source described by the given URL."""
     try:
-        return TelstateDataSource.from_url(url, *args, **kwargs)
+        return TelstateDataSource.from_url(url, **kwargs)
     except DataSourceNotFound as err:
         # Amend the error message for the case of an IP address without scheme
         url_parts = urlparse.urlparse(url, scheme='file')
