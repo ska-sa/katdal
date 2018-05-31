@@ -93,7 +93,7 @@ class S3ChunkStore(ChunkStore):
         if timeout is not None:
             config_kwargs['read_timeout'] = int(timeout)
             config_kwargs['connect_timeout'] = int(timeout)
-            config_kwargs['retries'] = {'max_attempts': 0}
+            config_kwargs['retries'] = {'max_attempts': 2}
         # Split keyword arguments into config settings and create_client args
         for k, v in kwargs.items():
             if k in botocore.config.Config.OPTION_DEFAULTS:
