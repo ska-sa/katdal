@@ -184,6 +184,8 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None,
         Specify capture block ID explicitly (detected otherwise)
     stream_name : string, optional
         Specify L0 stream name explicitly (detected otherwise)
+    kwargs : dict, optional
+        Extra keyword arguments, typically meant for other methods and ignored
 
     Returns
     -------
@@ -249,11 +251,40 @@ def _shorten_key(telstate, key):
     return ''
 
 
-def _infer_chunk_store(url_parts, telstate, chunk_name=None,
+def _infer_chunk_store(url_parts, telstate, npy_store_path=None,
                        s3_endpoint_url=None, **kwargs):
-    """Construct chunk store automatically from dataset URL and telstate."""
-    data_path = store_path = ''
+    """Construct chunk store automatically from dataset URL and telstate.
+
+    Parameters
+    ----------
+    url_parts : :class:`urlparse.ParseResult` object
+        Parsed dataset URL
+    telstate : :class:`katsdptelstate.TelescopeState` object
+        Telescope state
+    npy_store_path : string, optional
+        Top-level directory of NpyFileChunkStore (overrides the default)
+    s3_endpoint_url : string, optional
+        Endpoint of S3 service, e.g. 'http://127.0.0.1:9000' (overrides default)
+    kwargs : dict, optional
+        Extra keyword arguments, typically meant for other methods and ignored
+
+    Returns
+    -------
+    store : :class:`katdal.ChunkStore` object
+        Chunk store for visibility data
+
+    Raises
+    ------
+    :exc:`katdal.chunkstore.StoreUnavailable`
+        If the chunk store could not be constructed
+    """
     try:
+        # Use overrides if provided, regardless of URL and telstate
+        if npy_store_path and os.path.isdir(npy_store_path):
+            return NpyFileChunkStore(npy_store_path)
+        if s3_endpoint_url:
+            return S3ChunkStore.from_url(s3_endpoint_url, **kwargs)
+        # NPY chunk store is an option if the dataset is an RDB file
         if url_parts.scheme == 'file':
             # Look for adjacent data directory (presumably containing NPY files)
             rdb_path = os.path.abspath(url_parts.path)
@@ -261,15 +292,15 @@ def _infer_chunk_store(url_parts, telstate, chunk_name=None,
             if not store_path:
                 store_path = os.path.curdir
             try:
-                chunk_name = chunk_name or telstate['chunk_name']
+                chunk_name = telstate['chunk_name']
             except KeyError as e:
                 raise StoreUnavailable('[{}] {}'.format(type(e).__name__, e))
             else:
                 data_path = os.path.join(store_path, chunk_name)
-        if os.path.isdir(data_path):
-            return NpyFileChunkStore(store_path)
+                if os.path.isdir(data_path):
+                    return NpyFileChunkStore(store_path)
         try:
-            s3_endpoint_url = s3_endpoint_url or telstate['s3_endpoint_url']
+            s3_endpoint_url = telstate['s3_endpoint_url']
         except KeyError as e:
             raise StoreUnavailable('[{}] {}'.format(type(e).__name__, e))
         else:
@@ -338,7 +369,17 @@ class TelstateDataSource(DataSource):
 
     @classmethod
     def from_url(cls, url, chunk_store='auto', **kwargs):
-        """Construct TelstateDataSource from URL (RDB file / REDIS server)."""
+        """Construct TelstateDataSource from URL (RDB file / REDIS server).
+
+        Parameters
+        ----------
+        url : string
+            URL serving as entry point to dataset (typically RDB file or REDIS)
+        chunk_store : :class:`katdal.ChunkStore` object, optional
+            Chunk store for visibility data (obtained automatically by default)
+        kwargs : dict, optional
+            Extra keyword arguments passed to telstate view and chunk store init
+        """
         url_parts = urlparse.urlparse(url, scheme='file')
         # Merge key-value pairs from URL query with keyword arguments
         # of function (the latter takes precedence)
