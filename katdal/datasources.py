@@ -27,7 +27,6 @@ import dask.array as da
 from .sensordata import TelstateSensorData
 from .chunkstore_s3 import S3ChunkStore
 from .chunkstore_npy import NpyFileChunkStore
-from .chunkstore import StoreUnavailable
 
 
 logger = logging.getLogger(__name__)
@@ -275,40 +274,27 @@ def _infer_chunk_store(url_parts, telstate, npy_store_path=None,
 
     Raises
     ------
+    KeyError
+        If telstate lacks critical keys
     :exc:`katdal.chunkstore.StoreUnavailable`
         If the chunk store could not be constructed
     """
-    try:
-        # Use overrides if provided, regardless of URL and telstate
-        if npy_store_path and os.path.isdir(npy_store_path):
-            return NpyFileChunkStore(npy_store_path)
-        if s3_endpoint_url:
-            return S3ChunkStore.from_url(s3_endpoint_url, **kwargs)
-        # NPY chunk store is an option if the dataset is an RDB file
-        if url_parts.scheme == 'file':
-            # Look for adjacent data directory (presumably containing NPY files)
-            rdb_path = os.path.abspath(url_parts.path)
-            store_path = os.path.dirname(os.path.dirname(rdb_path))
-            if not store_path:
-                store_path = os.path.curdir
-            try:
-                chunk_name = telstate['chunk_name']
-            except KeyError as e:
-                raise StoreUnavailable('[{}] {}'.format(type(e).__name__, e))
-            else:
-                data_path = os.path.join(store_path, chunk_name)
-                if os.path.isdir(data_path):
-                    return NpyFileChunkStore(store_path)
-        try:
-            s3_endpoint_url = telstate['s3_endpoint_url']
-        except KeyError as e:
-            raise StoreUnavailable('[{}] {}'.format(type(e).__name__, e))
-        else:
-            return S3ChunkStore.from_url(s3_endpoint_url, **kwargs)
-    except StoreUnavailable as e:
-        logger.warn('StoreUnavailable: %s', e)
-        logger.warn('Chunk store unavailable - opening metadata only')
-        return None
+    # Use overrides if provided, regardless of URL and telstate (NPY first)
+    if npy_store_path and os.path.isdir(npy_store_path):
+        return NpyFileChunkStore(npy_store_path)
+    if s3_endpoint_url:
+        return S3ChunkStore.from_url(s3_endpoint_url, **kwargs)
+    # NPY chunk store is an option if the dataset is an RDB file
+    if url_parts.scheme == 'file':
+        # Look for adjacent data directory (presumably containing NPY files)
+        rdb_path = os.path.abspath(url_parts.path)
+        store_path = os.path.dirname(os.path.dirname(rdb_path))
+        if not store_path:
+            store_path = os.path.curdir
+        data_path = os.path.join(store_path, telstate['chunk_name'])
+        if os.path.isdir(data_path):
+            return NpyFileChunkStore(store_path)
+    return S3ChunkStore.from_url(telstate['s3_endpoint_url'], **kwargs)
 
 
 class TelstateDataSource(DataSource):
@@ -330,6 +316,11 @@ class TelstateDataSource(DataSource):
         Chunk store for visibility data (the default is no data - metadata only)
     source_name : string, optional
         Name of telstate source (used for metadata name)
+
+    Raises
+    ------
+    KeyError
+        If telstate lacks critical keys
     """
     def __init__(self, telstate, chunk_store=None, source_name='telstate'):
         self.telstate = telstate
@@ -349,21 +340,19 @@ class TelstateDataSource(DataSource):
             n_dumps = chunk_info['correlator_data']['shape'][0]
             timestamps = t0 + np.arange(n_dumps) * int_time
         except KeyError as e:
-            # Metadata without data or timestamps
+            # If we want visibility data, then not having timestamps is fatal
+            if chunk_store:
+                raise
+            # Else limp on with metadata without data or timestamps
             logger.warn('Telstate lacking data timestamp info (%s) - this is '
                         'pretty bad but continuing with rest of metadata', e)
             DataSource.__init__(self, metadata, None)
         else:
-            data = None
-            try:
-                chunk_name = telstate['chunk_name']
-            except KeyError as e:
-                logger.warn('Missing telstate info (%s) - opening '
-                            'metadata only', e)
+            if chunk_store:
+                data = ChunkStoreVisFlagsWeights(
+                    chunk_store, telstate['chunk_name'], chunk_info)
             else:
-                if chunk_store:
-                    data = ChunkStoreVisFlagsWeights(chunk_store, chunk_name,
-                                                     chunk_info)
+                data = None
             # Metadata and timestamps with or without data
             DataSource.__init__(self, metadata, timestamps, data)
 
@@ -376,7 +365,8 @@ class TelstateDataSource(DataSource):
         url : string
             URL serving as entry point to dataset (typically RDB file or REDIS)
         chunk_store : :class:`katdal.ChunkStore` object, optional
-            Chunk store for visibility data (obtained automatically by default)
+            Chunk store for visibility data (obtained automatically by default,
+            or set to None for metadata-only dataset)
         kwargs : dict, optional
             Extra keyword arguments passed to telstate view and chunk store init
         """
