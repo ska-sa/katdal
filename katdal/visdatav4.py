@@ -396,6 +396,9 @@ class VisibilityDataV4(DataSet):
         electric field of :math:`e^{i(\omega t - jz)}` i.e. phase that
         increases with time.
         """
+        if self._vis is None:
+            raise ValueError('Visibilities are not available since dataset '
+                             'was opened with metadata only')
         return self._vis
 
     @property
@@ -413,6 +416,9 @@ class VisibilityDataV4(DataSet):
         indexing on it. Only then will data be loaded into memory.
 
         """
+        if self._weights is None:
+            raise ValueError('Weights are not available since dataset '
+                             'was opened with metadata only')
         return self._weights
 
     @property
@@ -430,6 +436,9 @@ class VisibilityDataV4(DataSet):
         indexing on it. Only then will data be loaded into memory.
 
         """
+        if self._flags is None:
+            raise ValueError('Flags are not available since dataset '
+                             'was opened with metadata only')
         return self._flags
 
     @property
