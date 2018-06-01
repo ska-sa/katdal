@@ -76,7 +76,7 @@ class S3ChunkStore(ChunkStore):
             raise _botocore_import_error
         error_map = {EndpointConnectionError: StoreUnavailable,
                      ConnectionError: StoreUnavailable,
-                     requests.exceptions.RequestsException: StoreUnavailable,
+                     requests.exceptions.RequestException: StoreUnavailable,
                      client.exceptions.NoSuchKey: ChunkNotFound,
                      client.exceptions.NoSuchBucket: ChunkNotFound}
         super(S3ChunkStore, self).__init__(error_map)
