@@ -314,6 +314,8 @@ class TelstateDataSource(DataSource):
         Telescope state with appropriate views
     chunk_store : :class:`katdal.ChunkStore` object, optional
         Chunk store for visibility data (the default is no data - metadata only)
+    timestamps : array of float, optional
+        Visibility timestamps, overriding (or fixing) the ones found in telstate
     source_name : string, optional
         Name of telstate source (used for metadata name)
 
@@ -322,7 +324,8 @@ class TelstateDataSource(DataSource):
     KeyError
         If telstate lacks critical keys
     """
-    def __init__(self, telstate, chunk_store=None, source_name='telstate'):
+    def __init__(self, telstate, chunk_store=None, timestamps=None,
+                 source_name='telstate'):
         self.telstate = telstate
         # Collect sensors
         sensors = {}
@@ -332,29 +335,20 @@ class TelstateDataSource(DataSource):
                 if sensor_name:
                     sensors[sensor_name] = TelstateSensorData(telstate, key)
         metadata = AttrsSensors(telstate, sensors, name=source_name)
-        try:
+        if timestamps is None:
             # Synthesise timestamps from the relevant telstate bits
             t0 = telstate['sync_time'] + telstate['first_timestamp']
             int_time = telstate['int_time']
             chunk_info = telstate['chunk_info']
             n_dumps = chunk_info['correlator_data']['shape'][0]
             timestamps = t0 + np.arange(n_dumps) * int_time
-        except KeyError as e:
-            # If we want visibility data, then not having timestamps is fatal
-            if chunk_store:
-                raise
-            # Else limp on with metadata without data or timestamps
-            logger.warn('Telstate lacking data timestamp info (%s) - this is '
-                        'pretty bad but continuing with rest of metadata', e)
-            DataSource.__init__(self, metadata, None)
+        if chunk_store is None:
+            data = None
         else:
-            if chunk_store:
-                data = ChunkStoreVisFlagsWeights(
-                    chunk_store, telstate['chunk_name'], chunk_info)
-            else:
-                data = None
-            # Metadata and timestamps with or without data
-            DataSource.__init__(self, metadata, timestamps, data)
+            data = ChunkStoreVisFlagsWeights(
+                chunk_store, telstate['chunk_name'], telstate['chunk_info'])
+        # Metadata and timestamps with or without data
+        DataSource.__init__(self, metadata, timestamps, data)
 
     @classmethod
     def from_url(cls, url, chunk_store='auto', **kwargs):
