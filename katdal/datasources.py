@@ -163,7 +163,8 @@ class DataSource(object):
         return name
 
 
-def view_capture_stream(telstate, capture_block_id=None, stream_name=None):
+def view_capture_stream(telstate, capture_block_id=None, stream_name=None,
+                        **kwargs):
     """Create telstate view based on capture block ID and stream name.
 
     This figures out the appropriate capture block ID and L0 stream name from
@@ -182,6 +183,8 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None):
         Specify capture block ID explicitly (detected otherwise)
     stream_name : string, optional
         Specify L0 stream name explicitly (detected otherwise)
+    kwargs : dict, optional
+        Extra keyword arguments, typically meant for other methods and ignored
 
     Returns
     -------
@@ -247,6 +250,51 @@ def _shorten_key(telstate, key):
     return ''
 
 
+def _infer_chunk_store(url_parts, telstate, npy_store_path=None,
+                       s3_endpoint_url=None, **kwargs):
+    """Construct chunk store automatically from dataset URL and telstate.
+
+    Parameters
+    ----------
+    url_parts : :class:`urlparse.ParseResult` object
+        Parsed dataset URL
+    telstate : :class:`katsdptelstate.TelescopeState` object
+        Telescope state
+    npy_store_path : string, optional
+        Top-level directory of NpyFileChunkStore (overrides the default)
+    s3_endpoint_url : string, optional
+        Endpoint of S3 service, e.g. 'http://127.0.0.1:9000' (overrides default)
+    kwargs : dict, optional
+        Extra keyword arguments, typically meant for other methods and ignored
+
+    Returns
+    -------
+    store : :class:`katdal.ChunkStore` object
+        Chunk store for visibility data
+
+    Raises
+    ------
+    KeyError
+        If telstate lacks critical keys
+    :exc:`katdal.chunkstore.StoreUnavailable`
+        If the chunk store could not be constructed
+    """
+    # Use overrides if provided, regardless of URL and telstate (NPY first)
+    if npy_store_path:
+        return NpyFileChunkStore(npy_store_path)
+    if s3_endpoint_url:
+        return S3ChunkStore.from_url(s3_endpoint_url, **kwargs)
+    # NPY chunk store is an option if the dataset is an RDB file
+    if url_parts.scheme == 'file':
+        # Look for adjacent data directory (presumably containing NPY files)
+        rdb_path = os.path.abspath(url_parts.path)
+        store_path = os.path.dirname(os.path.dirname(rdb_path))
+        data_path = os.path.join(store_path, telstate['chunk_name'])
+        if os.path.isdir(data_path):
+            return NpyFileChunkStore(store_path)
+    return S3ChunkStore.from_url(telstate['s3_endpoint_url'], **kwargs)
+
+
 class TelstateDataSource(DataSource):
     """A data source based on :class:`katsdptelstate.TelescopeState`.
 
@@ -264,10 +312,18 @@ class TelstateDataSource(DataSource):
         Telescope state with appropriate views
     chunk_store : :class:`katdal.ChunkStore` object, optional
         Chunk store for visibility data (the default is no data - metadata only)
+    timestamps : array of float, optional
+        Visibility timestamps, overriding (or fixing) the ones found in telstate
     source_name : string, optional
         Name of telstate source (used for metadata name)
+
+    Raises
+    ------
+    KeyError
+        If telstate lacks critical keys
     """
-    def __init__(self, telstate, chunk_store=None, source_name='telstate'):
+    def __init__(self, telstate, chunk_store=None, timestamps=None,
+                 source_name='telstate'):
         self.telstate = telstate
         # Collect sensors
         sensors = {}
@@ -277,31 +333,43 @@ class TelstateDataSource(DataSource):
                 if sensor_name:
                     sensors[sensor_name] = TelstateSensorData(telstate, key)
         metadata = AttrsSensors(telstate, sensors, name=source_name)
-        try:
+        if timestamps is None:
+            # Synthesise timestamps from the relevant telstate bits
             t0 = telstate['sync_time'] + telstate['first_timestamp']
             int_time = telstate['int_time']
-            chunk_name = telstate['chunk_name']
             chunk_info = telstate['chunk_info']
-        except KeyError:
-            # Metadata without data or timestamps
-            DataSource.__init__(self, metadata, None)
-        else:
-            # Extract timestamps from telstate
             n_dumps = chunk_info['correlator_data']['shape'][0]
             timestamps = t0 + np.arange(n_dumps) * int_time
+        if chunk_store is None:
+            data = None
+        else:
             data = ChunkStoreVisFlagsWeights(
-                chunk_store, chunk_name, chunk_info) if chunk_store else None
-            # Metadata and timestamps with or without data
-            DataSource.__init__(self, metadata, timestamps, data)
+                chunk_store, telstate['chunk_name'], telstate['chunk_info'])
+        # Metadata and timestamps with or without data
+        DataSource.__init__(self, metadata, timestamps, data)
 
     @classmethod
-    def from_url(cls, url, chunk_store='auto'):
-        """Construct TelstateDataSource from URL (RDB file / REDIS server)."""
+    def from_url(cls, url, chunk_store='auto', **kwargs):
+        """Construct TelstateDataSource from URL (RDB file / REDIS server).
+
+        Parameters
+        ----------
+        url : string
+            URL serving as entry point to dataset (typically RDB file or REDIS)
+        chunk_store : :class:`katdal.ChunkStore` object, optional
+            Chunk store for visibility data (obtained automatically by default,
+            or set to None for metadata-only dataset)
+        kwargs : dict, optional
+            Extra keyword arguments passed to telstate view and chunk store init
+        """
         url_parts = urlparse.urlparse(url, scheme='file')
-        kwargs = dict(urlparse.parse_qsl(url_parts.query))
+        # Merge key-value pairs from URL query with keyword arguments
+        # of function (the latter takes precedence)
+        url_kwargs = dict(urlparse.parse_qsl(url_parts.query))
+        url_kwargs.update(kwargs)
+        kwargs = url_kwargs
         # Extract Redis database number if provided
         db = int(kwargs.pop('db', '0'))
-        source_name = url_parts.geturl()
         if url_parts.scheme == 'file':
             # RDB dump file
             telstate = katsdptelstate.TelescopeState()
@@ -309,39 +377,22 @@ class TelstateDataSource(DataSource):
                 telstate.load_from_file(url_parts.path)
             except OSError as err:
                 raise DataSourceNotFound(str(err))
-            telstate = view_capture_stream(telstate, **kwargs)
-            # Look for adjacent data directory (presumably containing NPY files)
-            if chunk_store == 'auto':
-                rdb_path = os.path.abspath(url_parts.path)
-                store_path = os.path.dirname(os.path.dirname(rdb_path))
-                if not store_path:
-                    store_path = os.path.curdir
-                try:
-                    data_path = os.path.join(store_path, telstate['chunk_name'])
-                except KeyError:
-                    chunk_store = None
-                else:
-                    if os.path.isdir(data_path):
-                        chunk_store = NpyFileChunkStore(store_path)
-                    else:
-                        chunk_store = S3ChunkStore.from_url(telstate['s3_endpoint_url'])
-            return cls(telstate, chunk_store, source_name)
         elif url_parts.scheme == 'redis':
             # Redis server
             try:
                 telstate = katsdptelstate.TelescopeState(url_parts.netloc, db)
             except katsdptelstate.ConnectionError as e:
                 raise DataSourceNotFound(str(e))
-            telstate = view_capture_stream(telstate, **kwargs)
-            if chunk_store == 'auto':
-                chunk_store = S3ChunkStore.from_url(telstate['s3_endpoint_url'])
-            return cls(telstate, chunk_store, source_name)
+        telstate = view_capture_stream(telstate, **kwargs)
+        if chunk_store == 'auto':
+            chunk_store = _infer_chunk_store(url_parts, telstate, **kwargs)
+        return cls(telstate, chunk_store, source_name=url_parts.geturl())
 
 
-def open_data_source(url, *args, **kwargs):
+def open_data_source(url, **kwargs):
     """Construct the data source described by the given URL."""
     try:
-        return TelstateDataSource.from_url(url, *args, **kwargs)
+        return TelstateDataSource.from_url(url, **kwargs)
     except DataSourceNotFound as err:
         # Amend the error message for the case of an IP address without scheme
         url_parts = urlparse.urlparse(url, scheme='file')

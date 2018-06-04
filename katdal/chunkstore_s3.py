@@ -36,6 +36,7 @@ except ImportError as e:
 else:
     import botocore.config
     import botocore.session
+    import botocore.vendored.requests as requests
     from botocore.exceptions import (ConnectionError, EndpointConnectionError,
                                      NoCredentialsError, ClientError)
 
@@ -75,6 +76,7 @@ class S3ChunkStore(ChunkStore):
             raise _botocore_import_error
         error_map = {EndpointConnectionError: StoreUnavailable,
                      ConnectionError: StoreUnavailable,
+                     requests.exceptions.RequestException: StoreUnavailable,
                      client.exceptions.NoSuchKey: ChunkNotFound,
                      client.exceptions.NoSuchBucket: ChunkNotFound}
         super(S3ChunkStore, self).__init__(error_map)
@@ -91,7 +93,7 @@ class S3ChunkStore(ChunkStore):
         if timeout is not None:
             config_kwargs['read_timeout'] = int(timeout)
             config_kwargs['connect_timeout'] = int(timeout)
-            config_kwargs['retries'] = {'max_attempts': 0}
+            config_kwargs['retries'] = {'max_attempts': 2}
         # Split keyword arguments into config settings and create_client args
         for k, v in kwargs.items():
             if k in botocore.config.Config.OPTION_DEFAULTS:

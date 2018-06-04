@@ -222,12 +222,14 @@ a back door installed at `d.file` in the case of a single-file data set.
 import logging as _logging
 import urlparse
 
+from .datasources import open_data_source
 from .dataset import DataSet, WrongVersion
 from .lazy_indexer import LazyTransform
 from .concatdata import ConcatenatedDataSet
 from .h5datav1 import H5DataV1
 from .h5datav2 import H5DataV2
 from .h5datav3 import H5DataV3
+from .visdatav4 import VisibilityDataV4
 from .sensordata import _sensor_completer
 
 
@@ -340,9 +342,7 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
     for f in filenames:
         # V4 RDB file with optional URL-style query string
         if urlparse.urlsplit(f).path.endswith('.rdb'):
-            from .datasources import open_data_source
-            from .visdatav4 import VisibilityDataV4
-            dataset = VisibilityDataV4(open_data_source(f),
+            dataset = VisibilityDataV4(open_data_source(f, **kwargs),
                                        ref_ant, time_offset, **kwargs)
         else:
             dataset = _file_action('__call__', f, ref_ant, time_offset, **kwargs)

@@ -220,8 +220,9 @@ def main():
         # Order as similarly to the input as possible, which gives better performance
         # in permute_baselines.
         bl_indices = zip(ant1_index, ant2_index)
-        bl_indices.sort(key=lambda a1, a2: _cp_index(dataset.ants[a1], dataset.ants[a2],
-                                                     pols_to_use[0]))
+        bl_indices.sort(key=lambda (a1, a2): _cp_index(dataset.ants[a1],
+                                                       dataset.ants[a2],
+                                                       pols_to_use[0]))
         # Undo the zip
         ant1_index[:] = [bl[0] for bl in bl_indices]
         ant2_index[:] = [bl[1] for bl in bl_indices]
