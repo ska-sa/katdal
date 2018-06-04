@@ -280,7 +280,7 @@ def _infer_chunk_store(url_parts, telstate, npy_store_path=None,
         If the chunk store could not be constructed
     """
     # Use overrides if provided, regardless of URL and telstate (NPY first)
-    if npy_store_path and os.path.isdir(npy_store_path):
+    if npy_store_path:
         return NpyFileChunkStore(npy_store_path)
     if s3_endpoint_url:
         return S3ChunkStore.from_url(s3_endpoint_url, **kwargs)
@@ -289,8 +289,6 @@ def _infer_chunk_store(url_parts, telstate, npy_store_path=None,
         # Look for adjacent data directory (presumably containing NPY files)
         rdb_path = os.path.abspath(url_parts.path)
         store_path = os.path.dirname(os.path.dirname(rdb_path))
-        if not store_path:
-            store_path = os.path.curdir
         data_path = os.path.join(store_path, telstate['chunk_name'])
         if os.path.isdir(data_path):
             return NpyFileChunkStore(store_path)
