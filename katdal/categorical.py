@@ -314,9 +314,16 @@ class CategoricalData(object):
         indices = self._lookup(key)
         # Interpret indices as either a sequence of ints or a single int
         try:
-            return np.array([self.unique_values[index] for index in indices])
+            values = [self.unique_values[index] for index in indices]
         except TypeError:
             return self.unique_values[indices]
+        # Handle empty selections specially to ensure proper dtype and shape
+        if not values:
+            all_possible_values = np.array(self.unique_values)
+            dtype = all_possible_values.dtype
+            shape = all_possible_values.shape
+            return np.empty((0,) + shape[1:], dtype)
+        return np.array(values)
 
     def __repr__(self):
         """Short human-friendly string representation of categorical data object."""
