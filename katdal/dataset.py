@@ -39,21 +39,6 @@ class BrokenFile(Exception):
     """Data set could not be loaded because file is inconsistent or misses critical bits."""
 
 
-def array_equal(a1, a2):
-    """True if two arrays have the same shape and elements, False otherwise.
-
-    This is meant to be identical to :func:`numpy.array_equal` but should also
-    work for variable-sized arrays containing strings. See the discussion at
-    http://mail.scipy.org/pipermail/numpy-discussion/2007-February/025967.html.
-
-    """
-    try:
-        return np.array_equal(a1, a2)
-    except AttributeError:
-        a1, a2 = np.asarray(a1), np.asarray(a2)
-        return (a1.shape == a2.shape) and np.all(a1 == a2)
-
-
 class Subarray(object):
     """Subarray specification.
 
@@ -78,8 +63,9 @@ class Subarray(object):
     """
 
     def __init__(self, ants, corr_products):
-        self.corr_products = np.array([(inpA.lower(), inpB.lower()) for inpA, inpB in corr_products])
-        # Extract all inputs (and associated antennas) from correlation product list
+        self.corr_products = np.array([(inpA.lower(), inpB.lower())
+                                       for inpA, inpB in corr_products])
+        # Extract all inputs (and associated antennas) from corr product list
         self.inputs = sorted(set(np.ravel(self.corr_products)))
         input_ants = set([inp[:-1] for inp in self.inputs])
         # Only keep antennas that are involved in correlation products
@@ -88,12 +74,21 @@ class Subarray(object):
     def __repr__(self):
         """Short human-friendly string representation of subarray object."""
         return "<katdal.Subarray antennas=%d inputs=%d corrprods=%d at 0x%x>" % \
-               (len(self.ants), len(self.inputs), len(self.corr_products), id(self))
+               (len(self.ants), len(self.inputs), len(self.corr_products),
+                id(self))
+
+    @property
+    def _description(self):
+        """Complete string representation, used internally for comparisons."""
+        ants = '\n'.join(ant.description for ant in self.ants)
+        corrprods = ' '.join('%s,%s' % (inpA, inpB)
+                             for inpA, inpB in self.corr_products)
+        return '\n'.join((ants, corrprods))
 
     def __eq__(self, other):
         """Equality comparison operator."""
-        return isinstance(other, Subarray) and array_equal(self.corr_products, other.corr_products) and \
-            array_equal(self.inputs, other.inputs) and array_equal(self.ants, other.ants)
+        return self._description == (other._description
+                                     if isinstance(other, Subarray) else other)
 
     def __ne__(self, other):
         """Inequality comparison operator."""
@@ -101,8 +96,12 @@ class Subarray(object):
 
     def __lt__(self, other):
         """Less-than comparison operator (needed for sorting and np.unique)."""
-        return not isinstance(other, Subarray) or \
-            tuple(self.corr_products.ravel()) < tuple(other.corr_products.ravel())
+        return self._description < (other._description
+                                    if isinstance(other, Subarray) else other)
+
+    def __hash__(self):
+        """Base hash on description string, just like equality operator."""
+        return hash(self._description)
 
 
 class SpectralWindow(object):
@@ -147,7 +146,8 @@ class SpectralWindow(object):
         self.sideband = sideband
         self.band = band
         # Don't subtract half a channel width as channel 0 is centred on 0 Hz in baseband
-        self.channel_freqs = centre_freq + sideband * channel_width * (np.arange(num_chans) - num_chans / 2)
+        self.channel_freqs = centre_freq + sideband * channel_width * (
+            np.arange(num_chans) - num_chans // 2)
 
     def __repr__(self):
         """Short human-friendly string representation of spectral window object."""
@@ -155,16 +155,22 @@ class SpectralWindow(object):
                "bandwidth=%.3f MHz channels=%d at 0x%x>" % \
                (self.band if self.band else 'unknown',
                 repr(self.product) if self.product else 'unknown',
-                self.centre_freq / 1e6, self.num_chans * self.channel_width / 1e6,
+                self.centre_freq / 1e6,
+                self.num_chans * self.channel_width / 1e6,
                 self.num_chans, id(self))
+
+    @property
+    def _description(self):
+        """Complete hashable representation, used internally for comparisons."""
+        # Pick values that enable a sensible ordering of spectral windows
+        return (self.channel_freqs[0], self.channel_freqs[-1],
+                -self.channel_width, self.num_chans, self.sideband,
+                self.band, self.product)
 
     def __eq__(self, other):
         """Equality comparison operator."""
-        return isinstance(other, SpectralWindow) and self.product == other.product and \
-            array_equal(self.centre_freq, other.centre_freq) and \
-            array_equal(self.channel_width, other.channel_width) and \
-            array_equal(self.num_chans, other.num_chans) and \
-            array_equal(self.channel_freqs, other.channel_freqs)
+        return self._description == (
+            other._description if isinstance(other, SpectralWindow) else other)
 
     def __ne__(self, other):
         """Inequality comparison operator."""
@@ -172,7 +178,12 @@ class SpectralWindow(object):
 
     def __lt__(self, other):
         """Less-than comparison operator (needed for sorting and np.unique)."""
-        return not isinstance(other, SpectralWindow) or tuple(self.channel_freqs) < tuple(other.channel_freqs)
+        return self._description < (
+            other._description if isinstance(other, SpectralWindow) else other)
+
+    def __hash__(self):
+        """Base hash on description tuple, just like equality operator."""
+        return hash(self._description)
 
 
 def _robust_target(description):
