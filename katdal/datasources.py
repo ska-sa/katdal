@@ -106,17 +106,15 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
     ----------
     store : :class:`ChunkStore` object
         Chunk store
-    base_name : string
-        Name of dataset in store, as array name prefix (akin to a filename)
     chunk_info : dict mapping array name to info dict
-        Dict specifying dtype, shape and chunks per array
+        Dict specifying prefix, dtype, shape and chunks per array
     """
-    def __init__(self, store, base_name, chunk_info):
+    def __init__(self, store, chunk_info):
         self.store = store
         darray = {}
         extra_flags = []
-        for array, info in chunk_info.iteritems():
-            array_name = store.join(base_name, array)
+        for array, info in chunk_info.items():
+            array_name = store.join(info['prefix'], array)
             chunk_args = (array_name, info['chunks'], info['dtype'])
             darray[array] = store.get_dask_array(*chunk_args)
             # Find all missing chunks in array and convert to 'data_lost' flags
@@ -128,10 +126,11 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
             extra_flags.append(chunks_lost)
             extra_flags.append('ijk'[:chunks_lost.ndim])
         vis = darray['correlator_data']
+        base_name = chunk_info['correlator_data']['prefix']
+        flags_raw_name = store.join(chunk_info['flags']['prefix'], 'flags_raw')
         # Combine original L0 flags with extras (missing chunks per array)
         flags = da.atop(_multi_or_3d, 'ijk', darray['flags'], 'ijk',
-                        *extra_flags, token=store.join(base_name, 'flags_raw'),
-                        dtype=np.uint8)
+                        *extra_flags, token=flags_raw_name, dtype=np.uint8)
         # Combine low-resolution weights and high-resolution weights_channel
         weights = darray['weights'] * darray['weights_channel'][..., np.newaxis]
         VisFlagsWeights.__init__(self, vis, flags, weights, base_name)
@@ -343,8 +342,31 @@ class TelstateDataSource(DataSource):
         if chunk_store is None:
             data = None
         else:
-            data = ChunkStoreVisFlagsWeights(
-                chunk_store, telstate['chunk_name'], telstate['chunk_info'])
+            # Augment chunk_info with chunk name prefix of current stream
+            prefix = telstate['chunk_name']
+            chunk_info = telstate['chunk_info']
+            for info in chunk_info.values():
+                info['prefix'] = prefix
+            # Look for auxiliary streams associated with current dataset
+            try:
+                all_streams = telstate['sdp_archived_streams']
+                capture_block_id = str(telstate['capture_block_id'])
+                stream_name = str(telstate['stream_name'])
+            except KeyError as e:
+                logger.debug('No auxiliary capture streams found: %s', e)
+            else:
+                aux_streams = [str(s) for s in all_streams if s != stream_name]
+                for aux_s in aux_streams:
+                    # Look for chunk metadata in appropriate telstate view
+                    aux_cs = telstate.SEPARATOR.join((capture_block_id, aux_s))
+                    aux_telstate = telstate.root().view(aux_cs)
+                    aux_prefix = aux_telstate['chunk_name']
+                    aux_info = aux_telstate['chunk_info']
+                    # Override available array info
+                    for array, info in aux_info.items():
+                        info['prefix'] = aux_prefix
+                        chunk_info[array] = info
+            data = ChunkStoreVisFlagsWeights(chunk_store, chunk_info)
         # Metadata and timestamps with or without data
         DataSource.__init__(self, metadata, timestamps, data)
 
