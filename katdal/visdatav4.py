@@ -46,6 +46,7 @@ SENSOR_PROPS.update({
                      'initial_value': 0.0, 'transform': lambda x: x > 0.0},
     '*serial_number': {'initial_value': 0},
     '*target': {'initial_value': '', 'transform': _robust_target},
+    'obs_label': {'initial_value': '', 'allow_repeats': True},
 })
 
 SENSOR_ALIASES = {
