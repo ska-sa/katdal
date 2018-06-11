@@ -17,10 +17,11 @@
 """Tests for :py:mod:`katdal.lazy_indexer`."""
 
 import numpy as np
+import dask.array as da
 
 from nose.tools import assert_raises
 
-from katdal.lazy_indexer import _simplify_index
+from katdal.lazy_indexer import _simplify_index, DaskLazyIndexer
 
 
 class TestSimplifyIndices(object):
@@ -68,3 +69,21 @@ class TestSimplifyIndices(object):
 
     def test_too_many_axes(self):
         self._test_index_error(np.s_[0, 0, 0, 0])
+
+
+class TestDaskLazyIndexer(object):
+    """Test the :func:`~katdal.lazy_indexer.DaskLazyIndexer class."""
+    def setup(self):
+        shape = (10, 20, 30)
+        self.data = np.arange(np.product(shape)).reshape(shape)
+        self.data_dask = da.from_array(self.data, chunks=(1, 4, 5))
+
+    def test_stage1_slices(self):
+        stage1 = np.s_[5:, :, 1::2]
+        indexer = DaskLazyIndexer(self.data_dask, stage1)
+        np.testing.assert_array_equal(indexer[:], self.data[stage1])
+
+    def test_stage1_multiple_boolean_indices(self):
+        stage1 = tuple([True] * d for d in self.data.shape)
+        indexer = DaskLazyIndexer(self.data_dask, stage1)
+        np.testing.assert_array_equal(indexer[:], self.data)

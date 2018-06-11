@@ -434,6 +434,7 @@ class DaskLazyIndexer(object):
                     dataset = self._orig_dataset[self.keep]
                 except NotImplementedError:
                     # Dask does not like multiple boolean indices: go one dim at a time
+                    dataset = self._orig_dataset
                     for dim, keep_per_dim in enumerate(self.keep):
                         dataset = da.take(dataset, keep_per_dim, axis=dim)
                 for transform in self.transforms:
