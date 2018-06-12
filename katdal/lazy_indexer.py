@@ -444,7 +444,13 @@ class DaskLazyIndexer(object):
             return self._dataset
 
     def __getitem__(self, keep):
-        return self.dataset[keep].compute()
+        # Workaround for https://github.com/dask/dask/issues/3595
+        # This is equivalent to self.dataset[keep].compute(), but does not
+        # allocate excessive memory.
+        kept = self.dataset[keep]
+        out = np.empty(kept.shape, kept.dtype)
+        da.store(kept, out, lock=False)
+        return out
 
     def __len__(self):
         """Length operator."""
