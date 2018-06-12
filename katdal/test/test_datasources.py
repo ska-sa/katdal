@@ -49,16 +49,17 @@ def to_dask_array(x):
     return da.from_array(x, chunks)
 
 
-def put_fake_dataset(store, base_name, shape):
+def put_fake_dataset(store, prefix, shape):
     """Write a fake dataset into the chunk store."""
     data = {'correlator_data': ramp(shape, dtype=np.float32) * (1 - 1j),
             'flags': np.ones(shape, dtype=np.uint8),
             'weights': ramp(shape, slope=255. / np.prod(shape), dtype=np.uint8),
             'weights_channel': ramp(shape[:-1], dtype=np.float32)}
     ddata = {k: to_dask_array(array) for k, array in data.items()}
-    chunk_info = {k: {'chunks': darray.chunks, 'dtype': darray.dtype,
-                      'shape': darray.shape} for k, darray in ddata.items()}
-    push = [store.put_dask_array(store.join(base_name, k), darray)
+    chunk_info = {k: {'prefix': prefix, 'chunks': darray.chunks,
+                      'dtype': darray.dtype, 'shape': darray.shape}
+                  for k, darray in ddata.items()}
+    push = [store.put_dask_array(store.join(prefix, k), darray)
             for k, darray in ddata.items()]
     da.compute(*push)
     return data, chunk_info
@@ -78,10 +79,10 @@ class TestChunkStoreVisFlagsWeights(object):
     def test_construction(self):
         # Put fake dataset into chunk store
         store = NpyFileChunkStore(self.tempdir)
-        base_name = 'cb1'
+        prefix = 'cb1'
         shape = (10, 64, 30)
-        data, chunk_info = put_fake_dataset(store, base_name, shape)
-        vfw = ChunkStoreVisFlagsWeights(store, base_name, chunk_info)
+        data, chunk_info = put_fake_dataset(store, prefix, shape)
+        vfw = ChunkStoreVisFlagsWeights(store, chunk_info)
         weights = data['weights'] * data['weights_channel'][..., np.newaxis]
         # Check that data is as expected when accessed via VisFlagsWeights
         assert_equal(vfw.shape, data['correlator_data'].shape)
@@ -92,20 +93,20 @@ class TestChunkStoreVisFlagsWeights(object):
     def test_missing_chunks(self):
         # Put fake dataset into chunk store
         store = NpyFileChunkStore(self.tempdir)
-        base_name = 'cb2'
+        prefix = 'cb2'
         shape = (10, 64, 30)
-        data, chunk_info = put_fake_dataset(store, base_name, shape)
+        data, chunk_info = put_fake_dataset(store, prefix, shape)
         # Delete a random chunk in each array of the dataset
         missing_chunks = {}
         rs = random.Random(4)
         for array, info in chunk_info.items():
-            array_name = store.join(base_name, array)
+            array_name = store.join(prefix, array)
             slices = da.core.slices_from_chunks(info['chunks'])
             culled_slice = rs.choice(slices)
             missing_chunks[array] = culled_slice
             chunk_name, shape = store.chunk_metadata(array_name, culled_slice)
             os.remove(os.path.join(store.path, chunk_name) + '.npy')
-        vfw = ChunkStoreVisFlagsWeights(store, base_name, chunk_info)
+        vfw = ChunkStoreVisFlagsWeights(store, chunk_info)
         # Check that (only) missing chunks have been replaced by zeros
         vis = data['correlator_data']
         vis[missing_chunks['correlator_data']] = 0.
