@@ -227,7 +227,7 @@ class S3ChunkStore(ChunkStore):
         else:
             return True
 
-    list_max_keys = 10000
+    list_max_keys = 100000
 
     def list_chunk_ids(self, array_name):
         """See the docstring of :meth:`ChunkStore.list_chunk_ids`."""
