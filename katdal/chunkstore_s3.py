@@ -27,6 +27,8 @@ import Queue
 import sys
 import urlparse
 import urllib
+import hashlib
+import base64
 import warnings
 import xml.etree.cElementTree
 
@@ -203,9 +205,13 @@ class S3ChunkStore(ChunkStore):
         url = self._chunk_url(chunk_name)
         fp = io.BytesIO()
         np.lib.format.write_array(fp, chunk, allow_pickle=False)
+        md5 = base64.b64encode(hashlib.md5(fp.getvalue()).digest())
         fp.seek(0)
         with self._standard_errors(chunk_name):
-            response = self._session.put(url, data=fp)
+            response = self._session.put(
+                url,
+                headers={'Content-MD5': md5},
+                data=fp)
 
     def has_chunk(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.has_chunk`."""
