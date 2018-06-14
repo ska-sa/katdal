@@ -1,4 +1,3 @@
-botocore==1.10.16
 dask
 docutils
 fakeredis
@@ -14,6 +13,7 @@ python-dateutil
 python-lzf
 rdbtools
 redis
+requests
 six
 toolz
 
