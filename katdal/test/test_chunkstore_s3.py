@@ -102,7 +102,9 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             except ImportError:
                 raise SkipTest('S3 requests dependency not installed')
             # Ensure that pagination is tested
-            cls.store.list_max_keys = 2
+            # Disabled for now because FakeS3 doesn't implement it correctly
+            # (see for example https://github.com/jubos/fake-s3/pull/163).
+            # cls.store.list_max_keys = 3
         except Exception:
             cls.teardown_class()
             raise
