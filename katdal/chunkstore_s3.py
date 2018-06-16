@@ -30,6 +30,7 @@ import urllib
 import hashlib
 import base64
 import warnings
+import contextlib
 import xml.etree.cElementTree
 
 import numpy as np
@@ -67,6 +68,34 @@ def _raise_for_status(response):
             raise StoreUnavailable(str(error))
 
 
+class _Pool(object):
+    """Thread-safe pool of objects constructed by a factory as needed."""
+    def __init__(self, factory):
+        self._factory = factory
+        self._pool = []
+        self._lock = threading.Lock()
+
+    def get(self):
+        """Obtain an item from the pool, creating a new one if the pool is empty."""
+        with self._lock:
+            if not self._pool:
+                return self._factory()
+            else:
+                return self._pool.pop()
+
+    def put(self, item):
+        """Return an item to the pool"""
+        with self._lock:
+            self._pool.append(item)
+
+    @contextlib.contextmanager
+    def __call__(self):
+        """Context manager interface to get and put an item"""
+        item = self.get()
+        yield item
+        self.put(item)
+
+
 class S3ChunkStore(ChunkStore):
     """A store of chunks (i.e. N-dimensional arrays) based on the Amazon S3 API.
 
@@ -97,20 +126,21 @@ class S3ChunkStore(ChunkStore):
         If requests is not installed (it's an optional dependency otherwise)
     """
 
-    def __init__(self, session, url):
+    def __init__(self, session_factory, url):
         if not requests:
             raise _requests_import_error
         try:
             # Quick smoke test to see if the S3 server is available
-            response = session.get(url)   # Lists buckets
-            _raise_for_status(response)
+            with session_factory() as session:
+                with session.get(url) as response:   # Lists buckets
+                    _raise_for_status(response)
         except requests.exceptions.RequestException as error:
             raise StoreUnavailable(str(error))
 
         error_map = {requests.exceptions.RequestException: StoreUnavailable,
                      xml.etree.cElementTree.ParseError: StoreUnavailable}
         super(S3ChunkStore, self).__init__(error_map)
-        self._session = session
+        self._session_pool = _Pool(session_factory)
         self._url = url
 
     @classmethod
@@ -119,12 +149,15 @@ class S3ChunkStore(ChunkStore):
         if not requests:
             raise ImportError('Please install requests for katdal S3 support')
 
-        session = requests.Session()
-        adapter = _TimeoutHTTPAdapter(pool_maxsize=200, max_retries=2, timeout=timeout)
-        session.mount(url, adapter)
+        def session_factory():
+            session = requests.Session()
+            adapter = _TimeoutHTTPAdapter(max_retries=2, timeout=timeout)
+            session.mount(url, adapter)
+            return session
+
         if kwargs:
             warnings.warn('Ignoring unknown parameters {}'.format(kwargs.keys()))
-        return cls(session, url)
+        return cls(session_factory, url)
 
     @classmethod
     def from_url(cls, url, timeout=10, extra_timeout=1, **kwargs):
@@ -187,11 +220,11 @@ class S3ChunkStore(ChunkStore):
         dtype = np.dtype(dtype)
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         url = self._chunk_url(chunk_name)
-        with self._standard_errors(chunk_name):
-            response = self._session.get(url)
-            _raise_for_status(response)
-            data = response.content
-        chunk = np.lib.format.read_array(io.BytesIO(data), allow_pickle=False)
+        with self._standard_errors(chunk_name), self._session_pool() as session:
+            with session.get(url, stream=True) as response:
+                _raise_for_status(response)
+                data = response.raw
+                chunk = np.lib.format.read_array(data, allow_pickle=False)
         if chunk.shape != shape or chunk.dtype != dtype:
             raise BadChunk('Chunk {!r}: dtype {} and/or shape {} in store '
                            'differs from expected dtype {} and shape {}'
@@ -207,11 +240,9 @@ class S3ChunkStore(ChunkStore):
         np.lib.format.write_array(fp, chunk, allow_pickle=False)
         md5 = base64.b64encode(hashlib.md5(fp.getvalue()).digest())
         fp.seek(0)
-        with self._standard_errors(chunk_name):
-            response = self._session.put(
-                url,
-                headers={'Content-MD5': md5},
-                data=fp)
+        with self._standard_errors(chunk_name), self._session_pool() as session:
+            with session.put(url, headers={'Content-MD5': md5}, data=fp) as response:
+                _raise_for_status(response)
 
     def has_chunk(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.has_chunk`."""
@@ -219,9 +250,9 @@ class S3ChunkStore(ChunkStore):
         chunk_name, _ = self.chunk_metadata(array_name, slices, dtype=dtype)
         url = self._chunk_url(chunk_name)
         try:
-            with self._standard_errors(chunk_name):
-                response = self._session.head(url)
-                _raise_for_status(response)
+            with self._standard_errors(chunk_name), self._session_pool() as session:
+                with session.head(url) as response:
+                    _raise_for_status(response)
         except ChunkNotFound:
             return False
         else:
@@ -242,10 +273,10 @@ class S3ChunkStore(ChunkStore):
         keys = []
         more = True
         while more:
-            with self._standard_errors():
-                response = self._session.get(url, params=params)
-                _raise_for_status(response)
-                root = xml.etree.cElementTree.fromstring(response.content)
+            with self._standard_errors(), self._session_pool() as session:
+                with session.get(url, params=params) as response:
+                    _raise_for_status(response)
+                    root = xml.etree.cElementTree.fromstring(response.content)
                 keys.extend(child.text for child in root.iter(NS + 'Key'))
                 truncated = root.find(NS + 'IsTruncated')
                 more = (truncated is not None and truncated.text == 'true')
