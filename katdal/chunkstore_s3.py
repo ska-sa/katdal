@@ -131,9 +131,10 @@ class S3ChunkStore(ChunkStore):
         if not requests:
             raise _requests_import_error
         try:
-            # Quick smoke test to see if the S3 server is available
+            # Quick smoke test to see if the S3 server is available,
+            # by listing buckets
             with session_factory() as session:
-                with session.get(url) as response:   # Lists buckets
+                with contextlib.closing(session.get(url)) as response:
                     _raise_for_status(response)
         except requests.exceptions.RequestException as error:
             raise StoreUnavailable(str(error))
@@ -222,7 +223,7 @@ class S3ChunkStore(ChunkStore):
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         url = self._chunk_url(chunk_name)
         with self._standard_errors(chunk_name), self._session_pool() as session:
-            with session.get(url, stream=True) as response:
+            with contextlib.closing(session.get(url, stream=True)) as response:
                 _raise_for_status(response)
                 data = response.raw
                 chunk = np.lib.format.read_array(data, allow_pickle=False)
@@ -241,8 +242,9 @@ class S3ChunkStore(ChunkStore):
         np.lib.format.write_array(fp, chunk, allow_pickle=False)
         md5 = base64.b64encode(hashlib.md5(fp.getvalue()).digest())
         fp.seek(0)
+        headers = {'Content-MD5': md5}
         with self._standard_errors(chunk_name), self._session_pool() as session:
-            with session.put(url, headers={'Content-MD5': md5}, data=fp) as response:
+            with contextlib.closing(session.put(url, headers=headers, data=fp)) as response:
                 _raise_for_status(response)
 
     def has_chunk(self, array_name, slices, dtype):
@@ -275,7 +277,7 @@ class S3ChunkStore(ChunkStore):
         more = True
         while more:
             with self._standard_errors(), self._session_pool() as session:
-                with session.get(url, params=params) as response:
+                with contextlib.closing(session.get(url, params=params)) as response:
                     _raise_for_status(response)
                     root = defusedxml.cElementTree.fromstring(response.content)
                 keys.extend(child.text for child in root.iter(NS + 'Key'))
