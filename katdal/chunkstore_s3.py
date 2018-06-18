@@ -254,7 +254,7 @@ class S3ChunkStore(ChunkStore):
         url = self._chunk_url(chunk_name)
         try:
             with self._standard_errors(chunk_name), self._session_pool() as session:
-                with session.head(url) as response:
+                with contextlib.closing(session.head(url)) as response:
                     _raise_for_status(response)
         except ChunkNotFound:
             return False
