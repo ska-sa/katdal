@@ -31,8 +31,9 @@ import hashlib
 import base64
 import warnings
 import contextlib
-import xml.etree.cElementTree
 
+import defusedxml.ElementTree
+import defusedxml.cElementTree
 import numpy as np
 try:
     import requests
@@ -138,7 +139,7 @@ class S3ChunkStore(ChunkStore):
             raise StoreUnavailable(str(error))
 
         error_map = {requests.exceptions.RequestException: StoreUnavailable,
-                     xml.etree.cElementTree.ParseError: StoreUnavailable}
+                     defusedxml.ElementTree.ParseError: StoreUnavailable}
         super(S3ChunkStore, self).__init__(error_map)
         self._session_pool = _Pool(session_factory)
         self._url = url
@@ -276,7 +277,7 @@ class S3ChunkStore(ChunkStore):
             with self._standard_errors(), self._session_pool() as session:
                 with session.get(url, params=params) as response:
                     _raise_for_status(response)
-                    root = xml.etree.cElementTree.fromstring(response.content)
+                    root = defusedxml.cElementTree.fromstring(response.content)
                 keys.extend(child.text for child in root.iter(NS + 'Key'))
                 truncated = root.find(NS + 'IsTruncated')
                 more = (truncated is not None and truncated.text == 'true')
