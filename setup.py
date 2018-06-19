@@ -56,13 +56,13 @@ setup(name='katdal',
       setup_requires=['katversion'],
       use_katversion=True,
       install_requires=['numpy', 'katpoint', 'h5py>=2.3',
-                        'katsdptelstate[rdb]', 'dask[array]'],
+                        'katsdptelstate[rdb]', 'dask[array]',
+                        'requests', 'defusedxml', 'oic'],
       extras_require={
           'ms': ['python-casacore >= 2.2.1', 'numba'],
-          's3': ['requests', 'defusedxml'],
           # rados is not in PyPI but available as Debian package python-rados
           'rados': ['rados'],
-          # katsdpauth is currently only available via GitHub
-          'auth': ['katsdpauth'],
+          's3': [],
+          'auth': [],
       },
       tests_require=['mock', 'nose'])

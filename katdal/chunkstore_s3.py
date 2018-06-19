@@ -32,18 +32,14 @@ import base64
 import warnings
 import contextlib
 
+import numpy as np
+import requests
+from requests.adapters import HTTPAdapter as _HTTPAdapter
 import defusedxml.ElementTree
 import defusedxml.cElementTree
-import numpy as np
-try:
-    import requests
-    from requests.adapters import HTTPAdapter as _HTTPAdapter
-except ImportError as e:
-    requests = None
-    _HTTPAdapter = object
-    _requests_import_error = e
 
 from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk
+from .auth import Auth
 
 
 class _TimeoutHTTPAdapter(_HTTPAdapter):
@@ -129,7 +125,7 @@ class S3ChunkStore(ChunkStore):
 
     def __init__(self, session_factory, url):
         if not requests:
-            raise _requests_import_error
+            raise _import_error
         try:
             # Quick smoke test to see if the S3 server is available,
             # by listing buckets
@@ -146,23 +142,7 @@ class S3ChunkStore(ChunkStore):
         self._url = url
 
     @classmethod
-    def _from_url(cls, url, timeout, **kwargs):
-        """Construct S3 chunk store from endpoint URL (see :meth:`from_url`)."""
-        if not requests:
-            raise ImportError('Please install requests for katdal S3 support')
-
-        def session_factory():
-            session = requests.Session()
-            adapter = _TimeoutHTTPAdapter(max_retries=2, timeout=timeout)
-            session.mount(url, adapter)
-            return session
-
-        if kwargs:
-            warnings.warn('Ignoring unknown parameters {}'.format(kwargs.keys()))
-        return cls(session_factory, url)
-
-    @classmethod
-    def from_url(cls, url, timeout=10, extra_timeout=1, **kwargs):
+    def from_url(cls, url, timeout=10, **kwargs):
         """Construct S3 chunk store from endpoint URL.
 
         Parameters
@@ -171,9 +151,6 @@ class S3ChunkStore(ChunkStore):
             Endpoint of S3 service, e.g. 'http://127.0.0.1:9000'
         timeout : int or float, optional
             Read / connect timeout, in seconds (set to None to leave unchanged)
-        extra_timeout : int or float, optional
-            Additional timeout, useful to terminate e.g. slow DNS lookups
-            without masking read / connect errors (ignored if `timeout` is None)
         kwargs : dict
             Extra keyword arguments: config settings or create_client arguments
 
@@ -184,35 +161,20 @@ class S3ChunkStore(ChunkStore):
         :exc:`chunkstore.StoreUnavailable`
             If S3 server interaction failed (it's down, no authentication, etc)
         """
-        # XXX This is a poor man's attempt at concurrent.futures functionality
-        # (avoiding extra dependency on Python 2, revisit when Python 3 only)
-        queue = Queue.Queue()
+        if not requests:
+            raise ImportError('Please install requests for katdal S3 support')
+        auth = Auth()
 
-        def _from_url(url, timeout, **kwargs):
-            """Construct chunk store and return it (or exception) via queue."""
-            try:
-                queue.put(cls._from_url(url, timeout, **kwargs))
-            except BaseException:
-                queue.put(sys.exc_info())
+        def session_factory():
+            session = requests.Session()
+            session.auth = auth
+            adapter = _TimeoutHTTPAdapter(max_retries=2, timeout=timeout)
+            session.mount(url, adapter)
+            return session
 
-        thread = threading.Thread(target=_from_url, args=(url, timeout),
-                                  kwargs=kwargs)
-        thread.daemon = True
-        thread.start()
-        if timeout is not None:
-            timeout += extra_timeout
-        try:
-            result = queue.get(timeout=timeout)
-        except Queue.Empty:
-            hostname = urlparse.urlparse(url).hostname
-            raise StoreUnavailable('Timed out, possibly due to DNS lookup '
-                                   'of {} stalling'.format(hostname))
-        else:
-            if isinstance(result, cls):
-                return result
-            else:
-                # Assume result is (exception type, exception value, traceback)
-                raise result[0], result[1], result[2]
+        if kwargs:
+            warnings.warn('Ignoring unknown parameters {}'.format(kwargs.keys()))
+        return cls(session_factory, url)
 
     def _chunk_url(self, chunk_name):
         return urlparse.urljoin(self._url, urllib.quote(chunk_name + '.npy'))
