@@ -59,10 +59,9 @@ setup(name='katdal',
                         'katsdptelstate[rdb]', 'dask[array]'],
       extras_require={
           'ms': ['python-casacore >= 2.2.1', 'numba'],
-          's3': ['requests', 'defusedxml'],
           # rados is not in PyPI but available as Debian package python-rados
           'rados': ['rados'],
-          # katsdpauth is currently only available via GitHub
-          'auth': ['katsdpauth'],
+          's3': ['requests', 'defusedxml', 'oic'],
+          'auth': [],
       },
       tests_require=['mock', 'nose'])
