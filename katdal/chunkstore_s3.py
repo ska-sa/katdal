@@ -33,13 +33,21 @@ import warnings
 import contextlib
 
 import numpy as np
-import requests
-from requests.adapters import HTTPAdapter as _HTTPAdapter
-import defusedxml.ElementTree
-import defusedxml.cElementTree
 
 from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk
-from .auth import Auth
+
+try:
+    import requests
+    from requests.adapters import HTTPAdapter as _HTTPAdapter
+    import defusedxml.ElementTree
+    import defusedxml.cElementTree
+    from .auth import Auth
+except ImportError as error:
+    _import_error = error
+    _HTTPAdapter = object
+    Auth = object
+else:
+    _import_error = None
 
 
 class _TimeoutHTTPAdapter(_HTTPAdapter):
@@ -120,11 +128,11 @@ class S3ChunkStore(ChunkStore):
     Raises
     ------
     ImportError
-        If requests is not installed (it's an optional dependency otherwise)
+        If the dependencies are not installed
     """
 
     def __init__(self, session_factory, url):
-        if not requests:
+        if _import_error:
             raise _import_error
         try:
             # Quick smoke test to see if the S3 server is available,
