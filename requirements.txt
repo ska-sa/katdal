@@ -12,7 +12,7 @@ enum34
 fakeredis
 funcsigs
 future
-h5py
+h5py==2.8.0
 idna==2.7
 ipaddress
 jmespath==0.9.3
