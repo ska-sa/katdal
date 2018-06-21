@@ -116,8 +116,10 @@ class S3ChunkStore(ChunkStore):
 
     Parameters
     ----------
-    session : :class:`requests.Session` object
-        Pre-configured session
+    session_factory : callable
+        A callable called with no arguments that returns an instance of
+        :class:`requests.Session`. The returned session is only used by
+        one thread at a time.
     url : str
         Base URL for the S3 service
 
@@ -157,8 +159,6 @@ class S3ChunkStore(ChunkStore):
             session.mount(url, adapter)
             return session
 
-        if kwargs:
-            warnings.warn('Ignoring unknown parameters {}'.format(kwargs.keys()))
         return cls(session_factory, url)
 
     @classmethod
@@ -217,16 +217,22 @@ class S3ChunkStore(ChunkStore):
     def _chunk_url(self, chunk_name):
         return urlparse.urljoin(self._url, urllib.quote(chunk_name + '.npy'))
 
+    @contextlib.contextmanager
+    def _request(self, chunk_name, method, url, *args, **kwargs):
+        """Run a request on a session from the pool, raising HTTP errors"""
+        with self._standard_errors(chunk_name), self._session_pool() as session:
+            with contextlib.closing(session.request(method, url, *args, **kwargs)) as response:
+                _raise_for_status(response)
+                yield response
+
     def get_chunk(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get_chunk`."""
         dtype = np.dtype(dtype)
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         url = self._chunk_url(chunk_name)
-        with self._standard_errors(chunk_name), self._session_pool() as session:
-            with contextlib.closing(session.get(url, stream=True)) as response:
-                _raise_for_status(response)
-                data = response.raw
-                chunk = np.lib.format.read_array(data, allow_pickle=False)
+        with self._request(chunk_name, 'GET', url, stream=True) as response:
+            data = response.raw
+            chunk = np.lib.format.read_array(data, allow_pickle=False)
         if chunk.shape != shape or chunk.dtype != dtype:
             raise BadChunk('Chunk {!r}: dtype {} and/or shape {} in store '
                            'differs from expected dtype {} and shape {}'
@@ -243,9 +249,8 @@ class S3ChunkStore(ChunkStore):
         md5 = base64.b64encode(hashlib.md5(fp.getvalue()).digest())
         fp.seek(0)
         headers = {'Content-MD5': md5}
-        with self._standard_errors(chunk_name), self._session_pool() as session:
-            with contextlib.closing(session.put(url, headers=headers, data=fp)) as response:
-                _raise_for_status(response)
+        with self._request(chunk_name, 'PUT', url, headers=headers, data=fp):
+            pass
 
     def has_chunk(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.has_chunk`."""
@@ -253,9 +258,8 @@ class S3ChunkStore(ChunkStore):
         chunk_name, _ = self.chunk_metadata(array_name, slices, dtype=dtype)
         url = self._chunk_url(chunk_name)
         try:
-            with self._standard_errors(chunk_name), self._session_pool() as session:
-                with contextlib.closing(session.head(url)) as response:
-                    _raise_for_status(response)
+            with self._request(chunk_name, 'HEAD', url):
+                pass
         except ChunkNotFound:
             return False
         else:
@@ -276,22 +280,20 @@ class S3ChunkStore(ChunkStore):
         keys = []
         more = True
         while more:
-            with self._standard_errors(), self._session_pool() as session:
-                with contextlib.closing(session.get(url, params=params)) as response:
-                    _raise_for_status(response)
-                    root = defusedxml.cElementTree.fromstring(response.content)
-                keys.extend(child.text for child in root.iter(NS + 'Key'))
-                truncated = root.find(NS + 'IsTruncated')
-                more = (truncated is not None and truncated.text == 'true')
-                if more:
-                    next_marker = root.find(NS + 'NextMarker')
-                    if next_marker:
-                        params['marker'] = next_marker.text
-                    elif keys:
-                        params['marker'] = keys[-1]
-                    else:
-                        warnings.warn('Result had no keys but was marked as truncated')
-                        more = False
+            with self._request(None, 'GET', url, params=params) as response:
+                root = defusedxml.cElementTree.fromstring(response.content)
+            keys.extend(child.text for child in root.iter(NS + 'Key'))
+            truncated = root.find(NS + 'IsTruncated')
+            more = (truncated is not None and truncated.text == 'true')
+            if more:
+                next_marker = root.find(NS + 'NextMarker')
+                if next_marker:
+                    params['marker'] = next_marker.text
+                elif keys:
+                    params['marker'] = keys[-1]
+                else:
+                    warnings.warn('Result had no keys but was marked as truncated')
+                    more = False
         # Strip the array name and .npy extension to get the chunk ID string
         return [key[len(prefix) + 1:-4] for key in keys if key.endswith('.npy')]
 
