@@ -30,18 +30,12 @@ import urllib
 import hashlib
 import base64
 import warnings
-import contextlib
 
 import defusedxml.ElementTree
 import defusedxml.cElementTree
 import numpy as np
-try:
-    import requests
-    from requests.adapters import HTTPAdapter as _HTTPAdapter
-except ImportError as e:
-    requests = None
-    _HTTPAdapter = object
-    _requests_import_error = e
+import requests
+from requests.adapters import HTTPAdapter as _HTTPAdapter
 
 from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk
 
@@ -130,8 +124,6 @@ class S3ChunkStore(ChunkStore):
     """
 
     def __init__(self, session_factory, url):
-        if not requests:
-            raise _requests_import_error
         try:
             # Quick smoke test to see if the S3 server is available,
             # by listing buckets
