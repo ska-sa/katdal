@@ -29,7 +29,7 @@ from nose import SkipTest
 from nose.tools import assert_raises, timed
 import mock
 
-from katdal.chunkstore_s3 import S3ChunkStore, botocore
+from katdal.chunkstore_s3 import S3ChunkStore
 from katdal.chunkstore import StoreUnavailable
 from katdal.test.test_chunkstore import ChunkStoreTestBase
 
@@ -100,16 +100,11 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             try:
                 cls.store = S3ChunkStore.from_url(url, timeout=1)
             except ImportError:
-                raise SkipTest('S3 botocore dependency not installed')
-            except StoreUnavailable:
-                # Simplified client setup with dummy authentication keys,
-                # useful for Jenkins that doesn't have any S3 credentials
-                session = botocore.session.get_session()
-                client = session.create_client(service_name='s3',
-                                               endpoint_url=url,
-                                               aws_access_key_id='blah',
-                                               aws_secret_access_key='blah')
-                cls.store = S3ChunkStore(client)
+                raise SkipTest('S3 requests dependency not installed')
+            # Ensure that pagination is tested
+            # Disabled for now because FakeS3 doesn't implement it correctly
+            # (see for example https://github.com/jubos/fake-s3/pull/163).
+            # cls.store.list_max_keys = 3
         except Exception:
             cls.teardown_class()
             raise
@@ -130,7 +125,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
 
     @timed(0.1 + 0.05)
     def test_store_unavailable_invalid_url(self):
-        # Drastically reduce the default botocore timeout of nearly 7 seconds
+        # Ensure that timeouts work
         assert_raises(StoreUnavailable, S3ChunkStore.from_url,
                       'http://apparently.invalid/',
                       timeout=0.1, extra_timeout=0)
