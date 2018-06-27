@@ -102,10 +102,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         cls.stderr_consumer = None
         try:
             url = cls.start_fakes3('127.0.0.1')
-            try:
-                cls.store = S3ChunkStore.from_url(url, timeout=1)
-            except ImportError:
-                raise SkipTest('S3 requests dependency not installed')
+            cls.store = cls.from_url(url)
             # Ensure that pagination is tested
             # Disabled for now because FakeS3 doesn't implement it correctly
             # (see for example https://github.com/jubos/fake-s3/pull/163).
@@ -138,7 +135,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
     def test_token_without_https(self):
         # Don't allow users to leak their tokens by accident
         assert_raises(StoreUnavailable, S3ChunkStore.from_url,
-                      'http://localhost/', token='secrettoken')
+                      'http://apparently.invalid/', token='secrettoken')
 
     @timed(0.1 + 1 + 0.05)
     @mock.patch('socket.gethostbyname', side_effect=gethostbyname_slow)

@@ -61,7 +61,8 @@ class _BearerAuth(requests.auth.AuthBase):
         self._token = token
 
     def __call__(self, r):
-        r.headers['Authorization'] = 'Bearer ' + token
+        r.headers['Authorization'] = 'Bearer ' + self._token
+        return r
 
 
 def _raise_for_status(response):
@@ -155,7 +156,9 @@ class S3ChunkStore(ChunkStore):
     def _from_url(cls, url, timeout, token):
         """Construct S3 chunk store from endpoint URL (see :meth:`from_url`)."""
         if token is not None:
-            if urlparse.urlparse(url).scheme != 'https':
+            parsed = urlparse.urlparse(url)
+            # The exception for 127.0.0.1 lets the unit test work
+            if parsed.scheme != 'https' and parsed.hostname != '127.0.0.1':
                 raise StoreUnavailable('auth token may only be used with https')
             auth = _BearerAuth(token)
         else:
