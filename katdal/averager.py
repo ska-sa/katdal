@@ -14,77 +14,79 @@
 # limitations under the License.
 ################################################################################
 
+from __future__ import print_function
 import numpy as np
+import numba
 
 
-def block_and_average(vis, weight, flag, avsize, axis=0, flagav=False):
-    """Low-level blockwise averaging of visibilities, flags and weights.
+@numba.jit(nopython=True, parallel=True)
+def _average_visibilities(vis, weight, flag, timeav, chanav, flagav):
+    # Workaround for https://github.com/numba/numba/issues/2921
+    flag_u8 = flag.view(np.uint8)
 
-    It blocks an input array in its last axis at a list of array indices
-    calculated from the input avsize and the shape of the input visibility
-    array. It then weighted-averages the blocked data. For time and channel
-    averaging of 2d input arrays (as with 'average_visibilities') the function
-    is run twice.
+    # Compute shapes
+    n_time, n_chans, n_bl = vis.shape
+    av_n_time = n_time // timeav
+    av_n_chans = n_chans // chanav
+    av_shape = (av_n_time, av_n_chans, n_bl)
 
-    Inputs
-    ------
-    vis: array of input visibilities (as defined in 'average_visibilities')
-    weight: array of input weights   ( " )
-    flag: array of input flags       ( " )
-    avsize: int, The averaging size along the last axis.
-    axis: int, The axis along with to perform the averaging
-    flagav: bool, (as defined in 'average_visibilities')
+    # Allocate output buffers
+    av_vis = np.empty(av_shape, vis.dtype)
+    av_weight = np.empty(av_shape, weight.dtype)
+    av_flag = np.empty(av_shape, flag.dtype)
 
-    Outputs
-    -------
-    av_vis: array of averaged visibilities.
-    av_weight: array of averaged weights.
-    av_flag: array of averaged_flags.
-    indices: array of indices where the blocks were constructed.
+    scale = weight.dtype.type(1.0 / (timeav * chanav))
+    wzero = weight.dtype.type(0)   # Zero constant of correct type
 
-    """
-    # Get the array indices for blocking (if the avsize is bigger than the
-    # array dimension to be averaged, use the size of the array dimension
-    # instead).
-    indices = range(min(avsize, vis.shape[axis]), vis.shape[axis] + 1, min(avsize, vis.shape[axis]))
-
-    # Roll the data so that the averaging axis is the last dimension of the array
-    weight = np.rollaxis(weight, axis, np.ndim(weight))
-    vis = np.rollaxis(vis, axis, np.ndim(vis))
-    flag = np.rollaxis(flag, axis, np.ndim(flag))
-
-    # Block the data at the given indices along the final axis- omit the final
-    # element of the blocked array which is the remainder after equal blocks..
-    block_weight = np.array(np.split(weight, indices, axis=-1)[:-1])
-    block_vis = np.array(np.split(vis, indices, axis=-1)[:-1])
-    block_flag = np.array(np.split(flag, indices, axis=-1)[:-1])
-
-    # Workaround for numpy zero weight problem (set blocks with zero weight to weight 1
-    # so that an average is returned for these blocks, otherwise numpy returns an error).
-    zeroweights = np.where(np.all(block_weight==0.0, axis=-1))
-    block_weight[zeroweights] = 1.0
-
-    # Average the data
-    av_vis = np.average(block_vis, axis=-1, weights=block_weight, returned=False)
-
-    # Undo the weights workaround
-    block_weight[zeroweights] = 0.0
-
-    # And get the final weights
-    av_weight = np.sum(block_weight, axis=-1)
-
-    # Now do the flags
-    if flagav:
-        av_flag = np.any(block_flag, axis=-1)
-    else:
-        av_flag = np.all(block_flag, axis=-1)
-
-    # Rotate the original arrays back to their assumed shape
-    av_vis = np.rollaxis(av_vis, 0, axis + 1)
-    av_weight = np.rollaxis(av_weight, 0, axis + 1)
-    av_flag = np.rollaxis(av_flag, 0, axis + 1)
-
-    return av_vis, av_weight, av_flag, indices
+    bl_step = 128      # Want a chunk to be multiple cache lines but into L1
+    # We put channel as the outer loop just because it's more likely than
+    # time to get parallel speedup with prange (since the time axis is often
+    # short e.g. 1).
+    for av_c in numba.prange(0, av_n_chans):
+        cstart = av_c * chanav
+        vis_sum = np.empty(bl_step, vis.dtype)
+        vis_weight_sum = np.empty(bl_step, vis.dtype)
+        weight_sum = np.empty(bl_step, weight.dtype)
+        flag_any = np.empty(bl_step, np.bool_)
+        flag_all = np.empty(bl_step, np.bool_)
+        for av_t in range(0, av_n_time):
+            tstart = av_t * timeav
+            for bstart in range(0, n_bl, bl_step):
+                bstop = min(n_bl, bstart + bl_step)
+                vis_sum[:] = 0
+                vis_weight_sum[:] = 0
+                weight_sum[:] = 0
+                flag_any[:] = False
+                flag_all[:] = True
+                for t in range(tstart, tstart + timeav):
+                    for c in range(cstart, cstart + chanav):
+                        for b in range(bstop - bstart):
+                            b1 = b + bstart
+                            v = vis[t, c, b1]
+                            w = weight[t, c, b1]
+                            f = (flag_u8[t, c, b1] != 0)
+                            if f:
+                                # Don't simply use 0 here: it causes numba's type
+                                # inference to upgrade w from float32 to float64.
+                                w = wzero
+                            flag_any[b] |= f
+                            flag_all[b] &= f
+                            vis_sum[b] += v
+                            vis_weight_sum[b] += w * v
+                            weight_sum[b] += w
+                for b in range(bstop - bstart):
+                    b1 = b + bstart
+                    w = np.float32(weight_sum[b])
+                    # If everything is flagged/zero-weighted, use an unweighted average
+                    if not w:
+                        v = vis_sum[b] * scale
+                    else:
+                        v = vis_weight_sum[b] / w
+                    f = flag_any[b] if flagav else flag_all[b]
+                    av_vis[av_t, av_c, b1] = v
+                    av_weight[av_t, av_c, b1] = w
+                    av_flag[av_t, av_c, b1] = f
+    return av_vis, av_weight, av_flag
 
 
 def average_visibilities(vis, weight, flag, timestamps, channel_freqs, timeav=10, chanav=8, flagav=False):
@@ -103,11 +105,11 @@ def average_visibilities(vis, weight, flag, timestamps, channel_freqs, timeav=10
 
     Inputs
     ------
-    vis: array(numtimestamps,numchannels) of complex64.
+    vis: array(numtimestamps,numchannels,numbaselines) of complex64.
           The input visibilities to be averaged.
-    weight: array(numtimestamps,numchannels) of float32.
+    weight: array(numtimestamps,numchannels,numbaselines) of float32.
           The input weights (used for weighted averaging).
-    flag: array(numtimestamps,numchannels) of boolean.
+    flag: array(numtimestamps,numchannels,numbaselines) of boolean.
           Input flags (flagged data have weight zero before averaging).
     timestamps: array(numtimestamps) of int.
           The timestamps (in mjd seconds) corresponding to the input data.
@@ -130,19 +132,25 @@ def average_visibilities(vis, weight, flag, timestamps, channel_freqs, timeav=10
     av_freq: array(int(numchannels)/chanav) of int.
 
     """
-    # Set weight of flagged data to zero
-    weight[np.where(flag)] = 0.0
+    # Trim data to integer multiples of the averaging factors
+    n_time, n_chans, n_bl = vis.shape
+    timeav = min(timeav, n_time)
+    flagav = min(flagav, n_chans)
+    n_time = n_time // timeav * timeav
+    n_chans = n_chans // chanav * chanav
 
-    # Get the channel averaged visibilities, weights and flags
-    av_vis_chan, av_weight_chan, av_flag_chan, chan_inds = \
-        block_and_average(vis, weight, flag, chanav, axis=1, flagav=flagav)
+    vis = vis[:n_time, :n_chans]
+    weight = weight[:n_time, :n_chans]
+    flag = flag[:n_time, :n_chans]
+    timestamps = timestamps[:n_time]
+    channel_freqs = channel_freqs[:n_chans]
 
-    # Do the same on the channel averaged data in time
-    av_vis, av_weight, av_flag, time_inds = \
-        block_and_average(av_vis_chan, av_weight_chan, av_flag_chan, timeav, axis=0, flagav=flagav)
+    # Average the data (using a numba-accelerated function)
+    av_vis, av_weight, av_flag = \
+        _average_visibilities(vis, weight, flag, timeav, chanav, flagav)
 
-    # get the mjd of the average visibilities
-    av_freq = np.average(np.array(np.split(channel_freqs, chan_inds)[:-1]), axis=1)
-    av_timestamps = np.average(np.array(np.split(timestamps, time_inds)[:-1]), axis=1)
+    # Average the metadata
+    av_freq = np.mean(channel_freqs.reshape(-1, chanav), axis=-1)
+    av_timestamps = np.mean(timestamps.reshape(-1, timeav), axis=-1)
 
     return av_vis, av_weight, av_flag, av_timestamps, av_freq
