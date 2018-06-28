@@ -106,17 +106,15 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
     ----------
     store : :class:`ChunkStore` object
         Chunk store
-    base_name : string
-        Name of dataset in store, as array name prefix (akin to a filename)
     chunk_info : dict mapping array name to info dict
-        Dict specifying dtype, shape and chunks per array
+        Dict specifying prefix, dtype, shape and chunks per array
     """
-    def __init__(self, store, base_name, chunk_info):
+    def __init__(self, store, chunk_info):
         self.store = store
         darray = {}
         extra_flags = []
-        for array, info in chunk_info.iteritems():
-            array_name = store.join(base_name, array)
+        for array, info in chunk_info.items():
+            array_name = store.join(info['prefix'], array)
             chunk_args = (array_name, info['chunks'], info['dtype'])
             darray[array] = store.get_dask_array(*chunk_args)
             # Find all missing chunks in array and convert to 'data_lost' flags
@@ -128,10 +126,11 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
             extra_flags.append(chunks_lost)
             extra_flags.append('ijk'[:chunks_lost.ndim])
         vis = darray['correlator_data']
+        base_name = chunk_info['correlator_data']['prefix']
+        flags_raw_name = store.join(chunk_info['flags']['prefix'], 'flags_raw')
         # Combine original L0 flags with extras (missing chunks per array)
         flags = da.atop(_multi_or_3d, 'ijk', darray['flags'], 'ijk',
-                        *extra_flags, token=store.join(base_name, 'flags_raw'),
-                        dtype=np.uint8)
+                        *extra_flags, token=flags_raw_name, dtype=np.uint8)
         # Combine low-resolution weights and high-resolution weights_channel
         weights = darray['weights'] * darray['weights_channel'][..., np.newaxis]
         VisFlagsWeights.__init__(self, vis, flags, weights, base_name)
@@ -250,6 +249,14 @@ def _shorten_key(telstate, key):
     return ''
 
 
+def _ensure_prefix_is_set(chunk_info, telstate):
+    """Augment `chunk_info` with chunk name prefix if not set."""
+    for info in chunk_info.values():
+        if 'prefix' not in info:
+            info['prefix'] = telstate['chunk_name']
+    return chunk_info
+
+
 def _infer_chunk_store(url_parts, telstate, npy_store_path=None,
                        s3_endpoint_url=None, **kwargs):
     """Construct chunk store automatically from dataset URL and telstate.
@@ -289,10 +296,36 @@ def _infer_chunk_store(url_parts, telstate, npy_store_path=None,
         # Look for adjacent data directory (presumably containing NPY files)
         rdb_path = os.path.abspath(url_parts.path)
         store_path = os.path.dirname(os.path.dirname(rdb_path))
-        data_path = os.path.join(store_path, telstate['chunk_name'])
+        chunk_info = telstate['chunk_info']
+        chunk_info = _ensure_prefix_is_set(chunk_info, telstate)
+        vis_prefix = chunk_info['correlator_data']['prefix']
+        data_path = os.path.join(store_path, vis_prefix)
         if os.path.isdir(data_path):
             return NpyFileChunkStore(store_path)
     return S3ChunkStore.from_url(telstate['s3_endpoint_url'], **kwargs)
+
+
+def _upgrade_flags(chunk_info, telstate):
+    """Look for associated flag streams and override chunk_info to use them."""
+    try:
+        archived_streams = telstate['sdp_archived_streams']
+        capture_block_id = str(telstate['capture_block_id'])
+        stream_name = str(telstate['stream_name'])
+    except KeyError as e:
+        logger.debug('No additional flag capture streams found: %s', e)
+        return chunk_info
+    for s in archived_streams:
+        telstate_s = telstate.root().view(s)
+        if telstate_s['stream_type'] != 'sdp.flags' or \
+           stream_name not in telstate_s['src_streams']:
+            continue
+        # Look for chunk metadata in appropriate capture_stream telstate view
+        flags_cs = telstate.SEPARATOR.join((capture_block_id, s))
+        telstate_cs = telstate_s.view(flags_cs)
+        flags_info = telstate_cs['chunk_info']
+        flags_info = _ensure_prefix_is_set(flags_info, telstate_cs)
+        chunk_info.update(flags_info)
+    return chunk_info
 
 
 class TelstateDataSource(DataSource):
@@ -343,8 +376,10 @@ class TelstateDataSource(DataSource):
         if chunk_store is None:
             data = None
         else:
-            data = ChunkStoreVisFlagsWeights(
-                chunk_store, telstate['chunk_name'], telstate['chunk_info'])
+            chunk_info = telstate['chunk_info']
+            chunk_info = _ensure_prefix_is_set(chunk_info, telstate)
+            chunk_info = _upgrade_flags(chunk_info, telstate)
+            data = ChunkStoreVisFlagsWeights(chunk_store, chunk_info)
         # Metadata and timestamps with or without data
         DataSource.__init__(self, metadata, timestamps, data)
 
