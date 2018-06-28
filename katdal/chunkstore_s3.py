@@ -29,6 +29,7 @@ import urlparse
 import urllib
 import hashlib
 import base64
+import re
 import warnings
 
 import defusedxml.ElementTree
@@ -50,6 +51,18 @@ class _TimeoutHTTPAdapter(_HTTPAdapter):
         if timeout is None:
             timeout = self._default_timeout
         return super(_TimeoutHTTPAdapter, self).send(request, stream, timeout, *args, **kwargs)
+
+
+class _BearerAuth(requests.auth.AuthBase):
+    def __init__(self, token):
+        # Character set from RFC 6750
+        if not re.match('^[A-Za-z0-9-._~+/]*$', token):
+            raise ValueError('token contains invalid characters')
+        self._token = token
+
+    def __call__(self, r):
+        r.headers['Authorization'] = 'Bearer ' + self._token
+        return r
 
 
 def _raise_for_status(response):
@@ -140,13 +153,20 @@ class S3ChunkStore(ChunkStore):
         self._url = url
 
     @classmethod
-    def _from_url(cls, url, timeout, **kwargs):
+    def _from_url(cls, url, timeout, token):
         """Construct S3 chunk store from endpoint URL (see :meth:`from_url`)."""
-        if not requests:
-            raise ImportError('Please install requests for katdal S3 support')
+        if token is not None:
+            parsed = urlparse.urlparse(url)
+            # The exception for 127.0.0.1 lets the unit test work
+            if parsed.scheme != 'https' and parsed.hostname != '127.0.0.1':
+                raise StoreUnavailable('auth token may only be used with https')
+            auth = _BearerAuth(token)
+        else:
+            auth = None
 
         def session_factory():
             session = requests.Session()
+            session.auth = auth
             adapter = _TimeoutHTTPAdapter(max_retries=2, timeout=timeout)
             session.mount(url, adapter)
             return session
@@ -154,7 +174,7 @@ class S3ChunkStore(ChunkStore):
         return cls(session_factory, url)
 
     @classmethod
-    def from_url(cls, url, timeout=10, extra_timeout=1, **kwargs):
+    def from_url(cls, url, timeout=10, extra_timeout=1, token=None, **kwargs):
         """Construct S3 chunk store from endpoint URL.
 
         Parameters
@@ -166,13 +186,13 @@ class S3ChunkStore(ChunkStore):
         extra_timeout : int or float, optional
             Additional timeout, useful to terminate e.g. slow DNS lookups
             without masking read / connect errors (ignored if `timeout` is None)
+        token : str
+            Bearer token to authenticate
         kwargs : dict
-            Extra keyword arguments: config settings or create_client arguments
+            Extra keyword arguments (unused)
 
         Raises
         ------
-        ImportError
-            If requests is not installed (it's an optional dependency otherwise)
         :exc:`chunkstore.StoreUnavailable`
             If S3 server interaction failed (it's down, no authentication, etc)
         """
@@ -180,15 +200,14 @@ class S3ChunkStore(ChunkStore):
         # (avoiding extra dependency on Python 2, revisit when Python 3 only)
         queue = Queue.Queue()
 
-        def _from_url(url, timeout, **kwargs):
+        def _from_url(url, timeout, token):
             """Construct chunk store and return it (or exception) via queue."""
             try:
-                queue.put(cls._from_url(url, timeout, **kwargs))
+                queue.put(cls._from_url(url, timeout, token))
             except BaseException:
                 queue.put(sys.exc_info())
 
-        thread = threading.Thread(target=_from_url, args=(url, timeout),
-                                  kwargs=kwargs)
+        thread = threading.Thread(target=_from_url, args=(url, timeout, token))
         thread.daemon = True
         thread.start()
         if timeout is not None:

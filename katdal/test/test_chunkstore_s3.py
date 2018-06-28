@@ -88,6 +88,11 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             return 'http://%s:%s' % (host, port)
 
     @classmethod
+    def from_url(cls, url):
+        """Create the chunk store"""
+        return S3ChunkStore.from_url(url, timeout=1)
+
+    @classmethod
     def setup_class(cls):
         """Start Fake S3 service running on temp dir, and ChunkStore on that."""
         cls.tempdir = tempfile.mkdtemp()
@@ -97,10 +102,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         cls.stderr_consumer = None
         try:
             url = cls.start_fakes3('127.0.0.1')
-            try:
-                cls.store = S3ChunkStore.from_url(url, timeout=1)
-            except ImportError:
-                raise SkipTest('S3 requests dependency not installed')
+            cls.store = cls.from_url(url)
             # Ensure that pagination is tested
             # Disabled for now because FakeS3 doesn't implement it correctly
             # (see for example https://github.com/jubos/fake-s3/pull/163).
@@ -130,6 +132,11 @@ class TestS3ChunkStore(ChunkStoreTestBase):
                       'http://apparently.invalid/',
                       timeout=0.1, extra_timeout=0)
 
+    def test_token_without_https(self):
+        # Don't allow users to leak their tokens by accident
+        assert_raises(StoreUnavailable, S3ChunkStore.from_url,
+                      'http://apparently.invalid/', token='secrettoken')
+
     @timed(0.1 + 1 + 0.05)
     @mock.patch('socket.gethostbyname', side_effect=gethostbyname_slow)
     def test_store_unavailable_slow_dns(self, mock_dns_lookup):
@@ -137,3 +144,16 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         assert_raises(StoreUnavailable, S3ChunkStore.from_url,
                       'http://a-valid-domain-is-somehow-harder.kat.ac.za/',
                       timeout=0.1, extra_timeout=1)
+
+
+class TestS3ChunkStoreAuth(TestS3ChunkStore):
+    """Test S3 with authentication headers.
+
+    The FakeS3 server doesn't check these headers. This is just to check that
+    the code doesn't crash.
+    """
+
+    @classmethod
+    def from_url(cls, url):
+        """Create the chunk store"""
+        return S3ChunkStore.from_url(url, timeout=1, token='mysecret')
