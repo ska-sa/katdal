@@ -65,9 +65,9 @@ def load(dataset, indices, vis, weights, flags):
         Outputs, which must have the correct shape and type
     """
     if isinstance(dataset.vis, DaskLazyIndexer):
-        da.store([dataset.vis.dataset[indices],
-                  dataset.weights.dataset[indices],
-                  dataset.flags.dataset[indices]],
+        da.store([dataset.vis.dask_getitem(indices),
+                  dataset.weights.dask_getitem(indices),
+                  dataset.flags.dask_getitem(indices)],
                  [vis, weights, flags], lock=False)
     else:
         vis[:] = dataset.vis[indices]
@@ -591,7 +591,7 @@ def main():
 
                 scan_size_mb = float(scan_size) / (1024**2)
 
-                print("Wrote scan data (%f MB) in %f s (%f MBps)\n"
+                print("Wrote scan data (%f MiB) in %f s (%f MiBps)\n"
                       % (scan_size_mb, s1, scan_size_mb / s1))
 
                 scan_itr += 1
