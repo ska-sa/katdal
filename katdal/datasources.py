@@ -116,7 +116,8 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
             chunk_args = (array_name, info['chunks'], info['dtype'])
             darray[array] = store.get_dask_array(*chunk_args)
             # Find all missing chunks in array and convert to 'data_lost' flags
-            has_arrays.append((store.has_array(array_name, info['chunks']), info['chunks']))
+            has_arrays.append((store.has_array(array_name, info['chunks'], info['dtype']),
+                               info['chunks']))
         vis = darray['correlator_data']
         base_name = chunk_info['correlator_data']['prefix']
         flags_raw_name = store.join(chunk_info['flags']['prefix'], 'flags_raw')

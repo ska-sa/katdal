@@ -458,46 +458,8 @@ class ChunkStore(object):
         """
         raise NotImplementedError
 
-    def has_array(self, array_name, chunks, offset=()):
-        """Check if array is in the store.
-
-        This is an optional optimised version of :meth:`has_dask_array`.
-
-        Parameters
-        ----------
-        array_name : string
-            Identifier of array in chunk store
-        chunks : tuple of tuples of ints
-            Chunk specification
-        offset : tuple of int, optional
-            Offset to add to each dimension when addressing chunks in store
-
-        Returns
-        -------
-        success : :class:`numpy.ndarray` object
-            Array of bools indicating presence of each chunk
-
-        Raises
-        ------
-        NotImplementedError
-            If the underlying store does not have an efficient implementation
-        """
-        # Obtain ID strings of all chunks in store associated with array_name
-        # This might not be implemented by underlying store
-        store_ids = set(self.list_chunk_ids(array_name))
-        # Turn chunks + offset into list of expected chunk ID strings
-        slices = da.core.slices_from_chunks(chunks)
-        if offset:
-            slices = [tuple(slice(ss.start + i, ss.stop + i)
-                            for (ss, i) in zip(s, offset))
-                      for s in slices]
-        chunk_ids = [self.chunk_id_str(s) for s in slices]
-        # Look up expected IDs in set of actual IDs in store
-        success = np.array([cid in store_ids for cid in chunk_ids])
-        return success.reshape(tuple(len(c) for c in chunks))
-
-    def has_dask_array(self, array_name, chunks, dtype, offset=()):
-        """Check if dask array is in the store.
+    def has_array(self, array_name, chunks, dtype, offset=()):
+        """Check which chunks of the array are in the store.
 
         Parameters
         ----------
@@ -512,27 +474,28 @@ class ChunkStore(object):
 
         Returns
         -------
-        success : :class:`dask.array.Array` object
-            Dask array of bools indicating presence of each chunk
+        success : :class:`numpy.ndarray` object
+            Array of bools indicating presence of each chunk
 
         Notes
         -----
         If the underlying store implements :meth:`list_chunk_ids`, that is
         preferred; otherwise :meth:`has_chunk` is called for each chunk.
         """
-        # Make out_name unique to avoid clashes and caches
-        out_name = 'check-{}-{}-{}'.format(array_name, offset, uuid.uuid4().hex)
+        slices = da.core.slices_from_chunks(chunks)
+        if offset:
+            slices = [tuple(slice(ss.start + i, ss.stop + i)
+                            for (ss, i) in zip(s, offset))
+                      for s in slices]
         try:
-            has_array = self.has_array(array_name, chunks, offset)
-            return da.from_array(has_array, chunks=1, name=out_name)
+            # Obtain ID strings of all chunks in store associated with array_name
+            # This might not be implemented by underlying store
+            store_ids = set(self.list_chunk_ids(array_name))
         except NotImplementedError:
-            # Embellish has_chunk to set dtype, pad the output and add offset
-            has = functools.partial(self.has_chunk, dtype=dtype)
-            has = _scalar_to_chunk(has)
-            if offset:
-                has = _add_offset_to_slices(has, offset)
-            # Use dask utility function that forms the core of da.from_array
-            graph = da.core.getem(array_name, chunks, has, out_name=out_name)
-            # The success array has one element per chunk in the input array
-            out_chunks = tuple(len(c) * (1,) for c in chunks)
-            return da.Array(graph, out_name, out_chunks, np.bool_)
+            success = [self.has_chunk(array_name, index, dtype) for index in slices]
+        else:
+            # Turn chunks + offset into list of expected chunk ID strings
+            chunk_ids = [self.chunk_id_str(s) for s in slices]
+            # Look up expected IDs in set of actual IDs in store
+            success = [cid in store_ids for cid in chunk_ids]
+        return np.array(success).reshape(tuple(len(c) for c in chunks))
