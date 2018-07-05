@@ -21,6 +21,7 @@ import threading
 
 import numpy as np
 import dask.array as da
+import dask.optimization
 
 # TODO support advanced integer indexing with non-strictly increasing indices (i.e. out-of-order and duplicates)
 
@@ -443,11 +444,26 @@ class DaskLazyIndexer(object):
                 self._orig_dataset = None
             return self._dataset
 
-    def __getitem__(self, keep):
-        # Workaround for https://github.com/dask/dask/issues/3595
-        # This is equivalent to self.dataset[keep].compute(), but does not
-        # allocate excessive memory.
+    def dask_getitem(self, keep):
+        """Index the array and return a dask array.
+
+        This is functionally equivalent to ``self.dataset[keep]``, but it culls
+        unnecessary nodes from the graph, which makes it cheaper to compute if
+        only a small piece of the graph is needed.
+        """
+        # dask does culling anyway as part of optimization, but it first calls
+        # ensure_dict, which copies all the keys, presumably to speed up the
+        # case where most keys are retained. A lazy indexer is normally used to
+        # fetch a small part of the data.
         kept = self.dataset[keep]
+        kept.dask = dask.optimization.cull(kept.dask, kept.__dask_keys__())[0]
+        return kept
+
+    def __getitem__(self, keep):
+        kept = self.dask_getitem(keep)
+        # Workaround for https://github.com/dask/dask/issues/3595
+        # This is equivalent to kept.compute(), but does not
+        # allocate excessive memory.
         out = np.empty(kept.shape, kept.dtype)
         da.store(kept, out, lock=False)
         return out
