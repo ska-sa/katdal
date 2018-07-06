@@ -170,21 +170,12 @@ class ChunkStoreTestBase(object):
                            "Error retrieving {} / {} / {}"
                            .format(array_name, offset, dask_array.chunks))
 
-    def has_dask_array(self, var_name, slices=()):
+    def has_array(self, var_name, slices=()):
         """Get (part of) an array from store via dask and compare."""
         array_name, dask_array, offset = self.make_dask_array(var_name, slices)
-        pull = self.store.has_dask_array(array_name, dask_array.chunks,
-                                         dask_array.dtype, offset)
-        results = pull.compute()
+        results = self.store.has_array(array_name, dask_array.chunks, dask_array.dtype, offset)
         divisions_per_dim = [len(c) for c in dask_array.chunks]
         assert_array_equal(results, np.full(divisions_per_dim, True))
-        # Also check has_array if available
-        try:
-            arr = self.store.has_array(array_name, dask_array.chunks, offset)
-        except NotImplementedError:
-            pass
-        else:
-            assert_array_equal(arr, np.full(divisions_per_dim, True))
 
     def test_chunk_non_existent(self):
         slices = (slice(0, 1),)
@@ -226,9 +217,9 @@ class ChunkStoreTestBase(object):
     def test_dask_array_basic(self):
         self.put_dask_array('big_y')
         self.get_dask_array('big_y')
-        self.has_dask_array('big_y')
+        self.has_array('big_y')
         self.get_dask_array('big_y', np.s_[0:3, 0:30, 0:2])
-        self.has_dask_array('big_y', np.s_[0:3, 0:30, 0:2])
+        self.has_array('big_y', np.s_[0:3, 0:30, 0:2])
 
     def test_dask_array_put_parts_get_whole(self):
         # Split big array into quarters along existing chunks and reassemble
