@@ -272,8 +272,8 @@ def _upgrade_chunk_info(chunk_info, improved_chunk_info):
         time_chunks = chunks[0]
         n_improved_dumps = sum(time_chunks)
         if n_improved_dumps != n_original_dumps:
-            logger.debug('Original %r array has %d dumps while improved '
-                         'version has %d - forcing it to %d dumps', key,
+            logger.debug("Original '%s' array has %d dumps while improved "
+                         "version has %d - forcing it to %d dumps", key,
                          n_original_dumps, n_improved_dumps, n_original_dumps)
             # Extend/truncate improved version to match original number of dumps
             if n_improved_dumps < n_original_dumps:
@@ -285,8 +285,8 @@ def _upgrade_chunk_info(chunk_info, improved_chunk_info):
         shape = improved_info['shape']
         improved_info['shape'] = (sum(time_chunks),) + shape[1:]
         if improved_info['shape'] != original_info['shape']:
-            raise ValueError('Original {!r} array has shape {} while improved'
-                             'version has shape {}, even after fixing dumps'
+            raise ValueError("Original '{}' array has shape {} while improved"
+                             "version has shape {}, even after fixing dumps"
                              .format(key, original_info['shape'],
                                      improved_info['shape']))
         chunk_info[key] = improved_info
