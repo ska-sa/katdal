@@ -268,22 +268,24 @@ def _upgrade_chunk_info(chunk_info, improved_chunk_info):
     for key, improved_info in improved_chunk_info.items():
         original_info = chunk_info.get(key, improved_info)
         n_original_dumps = original_info['shape'][0]
-        chunks = improved_info['chunks']
-        time_chunks = chunks[0]
-        n_improved_dumps = sum(time_chunks)
+        n_improved_dumps = improved_info['shape'][0]
         if n_improved_dumps != n_original_dumps:
             logger.debug("Original '%s' array has %d dumps while improved "
                          "version has %d - forcing it to %d dumps", key,
                          n_original_dumps, n_improved_dumps, n_original_dumps)
+            chunks = improved_info['chunks']
+            time_chunks = chunks[0]
             # Extend/truncate improved version to match original number of dumps
             if n_improved_dumps < n_original_dumps:
                 time_chunks += (n_original_dumps - n_improved_dumps) * (1,)
             else:
-                while time_chunks and sum(time_chunks) > n_original_dumps:
-                    time_chunks = time_chunks[:-1]
-        improved_info['chunks'] = (time_chunks,) + chunks[1:]
-        shape = improved_info['shape']
-        improved_info['shape'] = (sum(time_chunks),) + shape[1:]
+                for n, total in enumerate(np.cumsum((0,) + time_chunks)):
+                    if total >= n_original_dumps:
+                        time_chunks = time_chunks[:n]
+                        break
+            improved_info['chunks'] = (time_chunks,) + chunks[1:]
+            shape = improved_info['shape']
+            improved_info['shape'] = (sum(time_chunks),) + shape[1:]
         if improved_info['shape'] != original_info['shape']:
             raise ValueError("Original '{}' array has shape {} while improved"
                              "version has shape {}, even after fixing dumps"
