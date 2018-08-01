@@ -25,6 +25,7 @@ from future import standard_library
 standard_library.install_aliases()
 from builtins import str
 from builtins import object
+from future.utils import raise_
 import contextlib
 import io
 import threading
@@ -229,7 +230,7 @@ class S3ChunkStore(ChunkStore):
                 return result
             else:
                 # Assume result is (exception type, exception value, traceback)
-                raise result[0], result[1], result[2]
+                raise_(result[0], result[1], result[2])
 
     def _chunk_url(self, chunk_name):
         return urllib.parse.urljoin(self._url, urllib.parse.quote(chunk_name + '.npy'))
