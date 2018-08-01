@@ -17,6 +17,9 @@
 """Data accessor class for HDF5 files produced by Fringe Finder correlator."""
 from __future__ import print_function, division, absolute_import
 
+from builtins import zip
+from builtins import str
+from builtins import range
 import logging
 import re
 
@@ -214,14 +217,14 @@ class H5DataV1(DataSet):
         scan_states = [_labels_to_state(s, cs) for s, cs in zip(scan_labels, compscan_labels)]
         # The scans are already partitioned into groups - use corresponding segments as start events
         self.sensor['Observation/scan_state'] = CategoricalData(scan_states, self._segments)
-        self.sensor['Observation/scan_index'] = CategoricalData(range(len(scan_states)), self._segments)
+        self.sensor['Observation/scan_index'] = CategoricalData(list(range(len(scan_states))), self._segments)
         # Group scans together based on compscan group name and have one label per compound scan
         compscan = CategoricalData([s.parent.name for s in self._scan_groups], self._segments)
         compscan.remove_repeats()
         label = CategoricalData(compscan_labels, self._segments)
         label.align(compscan.events)
         self.sensor['Observation/label'] = label
-        self.sensor['Observation/compscan_index'] = CategoricalData(range(len(label)), label.events)
+        self.sensor['Observation/compscan_index'] = CategoricalData(list(range(len(label))), label.events)
         # Extract targets from compscan groups, replacing empty or bad descriptions with dummy target
         target = CategoricalData([_robust_target(s.parent.attrs.get('target', ''))
                                   for s in self._scan_groups], self._segments)

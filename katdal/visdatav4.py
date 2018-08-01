@@ -17,6 +17,9 @@
 """Data accessor class for data and metadata from various sources in v4 format."""
 from __future__ import print_function, division, absolute_import
 
+from builtins import zip
+from builtins import range
+from past.builtins import basestring
 import logging
 
 import numpy as np
@@ -251,7 +254,7 @@ class VisibilityDataV4(DataSet):
         # (i.e. each label should introduce a new scan)
         scan.add_unmatched(label.events)
         self.sensor['Observation/scan_state'] = scan
-        self.sensor['Observation/scan_index'] = CategoricalData(range(len(scan)),
+        self.sensor['Observation/scan_index'] = CategoricalData(list(range(len(scan))),
                                                                 scan.events)
         # Move proper label events onto the nearest scan start
         # ASSUMPTION: Number of labels <= number of scans
@@ -262,7 +265,7 @@ class VisibilityDataV4(DataSet):
         if label.events[0] > 0:
             label.add(0, '')
         self.sensor['Observation/label'] = label
-        self.sensor['Observation/compscan_index'] = CategoricalData(range(len(label)),
+        self.sensor['Observation/compscan_index'] = CategoricalData(list(range(len(label))),
                                                                     label.events)
         # Use the target sensor of reference antenna to set target for each scan
         target = self.sensor.get(self.ref_ant + '_target')

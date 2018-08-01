@@ -21,13 +21,18 @@ code to provide HTTP authentication.
 """
 from __future__ import print_function, division, absolute_import
 
+from future import standard_library
+standard_library.install_aliases()
+from builtins import str
+from builtins import object
 import contextlib
 import io
 import threading
-import Queue
+import queue
 import sys
-import urlparse
-import urllib
+import urllib.parse
+import urllib.request
+import urllib.error
 import hashlib
 import base64
 import re
@@ -157,7 +162,7 @@ class S3ChunkStore(ChunkStore):
     def _from_url(cls, url, timeout, token):
         """Construct S3 chunk store from endpoint URL (see :meth:`from_url`)."""
         if token is not None:
-            parsed = urlparse.urlparse(url)
+            parsed = urllib.parse.urlparse(url)
             # The exception for 127.0.0.1 lets the unit test work
             if parsed.scheme != 'https' and parsed.hostname != '127.0.0.1':
                 raise StoreUnavailable('auth token may only be used with https')
@@ -199,14 +204,14 @@ class S3ChunkStore(ChunkStore):
         """
         # XXX This is a poor man's attempt at concurrent.futures functionality
         # (avoiding extra dependency on Python 2, revisit when Python 3 only)
-        queue = Queue.Queue()
+        q = queue.Queue()
 
         def _from_url(url, timeout, token):
             """Construct chunk store and return it (or exception) via queue."""
             try:
-                queue.put(cls._from_url(url, timeout, token))
+                q.put(cls._from_url(url, timeout, token))
             except BaseException:
-                queue.put(sys.exc_info())
+                q.put(sys.exc_info())
 
         thread = threading.Thread(target=_from_url, args=(url, timeout, token))
         thread.daemon = True
@@ -214,9 +219,9 @@ class S3ChunkStore(ChunkStore):
         if timeout is not None:
             timeout += extra_timeout
         try:
-            result = queue.get(timeout=timeout)
-        except Queue.Empty:
-            hostname = urlparse.urlparse(url).hostname
+            result = q.get(timeout=timeout)
+        except queue.Empty:
+            hostname = urllib.parse.urlparse(url).hostname
             raise StoreUnavailable('Timed out, possibly due to DNS lookup '
                                    'of {} stalling'.format(hostname))
         else:
@@ -227,7 +232,7 @@ class S3ChunkStore(ChunkStore):
                 raise result[0], result[1], result[2]
 
     def _chunk_url(self, chunk_name):
-        return urlparse.urljoin(self._url, urllib.quote(chunk_name + '.npy'))
+        return urllib.parse.urljoin(self._url, urllib.parse.quote(chunk_name + '.npy'))
 
     @contextlib.contextmanager
     def _request(self, chunk_name, method, url, *args, **kwargs):
@@ -283,7 +288,7 @@ class S3ChunkStore(ChunkStore):
         """See the docstring of :meth:`ChunkStore.list_chunk_ids`."""
         NS = '{http://s3.amazonaws.com/doc/2006-03-01/}'
         bucket, prefix = self.split(array_name, 1)
-        url = urlparse.urljoin(self._url, urllib.quote(bucket))
+        url = urllib.parse.urljoin(self._url, urllib.parse.quote(bucket))
         params = {
             'prefix': prefix,
             'max-keys': self.list_max_keys

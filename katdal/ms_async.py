@@ -26,6 +26,7 @@ workaround for https://bugs.python.org/issue9914.
 """
 from __future__ import print_function, division, absolute_import
 
+from builtins import object
 from collections import namedtuple
 import contextlib
 import multiprocessing
@@ -183,7 +184,7 @@ def ms_writer_process(
                     ms_extra.write_rows(main_table, main_dict, verbose=options.verbose)
 
                     # Calculate bytes written from the summed arrays in the dict
-                    scan_size += sum(a.nbytes for a in main_dict.itervalues()
+                    scan_size += sum(a.nbytes for a in main_dict.values()
                                      if isinstance(a, np.ndarray))
     except Exception as error:
         result_queue.put(error)

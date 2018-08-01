@@ -21,6 +21,10 @@
 
 from __future__ import print_function, division, absolute_import
 
+from future import standard_library
+standard_library.install_aliases()
+from builtins import zip
+from builtins import range
 from collections import namedtuple
 import itertools
 import os
@@ -29,7 +33,7 @@ import optparse
 import time
 import multiprocessing
 import multiprocessing.sharedctypes
-import Queue
+import queue
 
 import numpy as np
 import dask
@@ -219,7 +223,7 @@ def main():
         ant1_index, ant2_index = antenna_indices(len(dataset.ants), options.no_auto)
         # Order as similarly to the input as possible, which gives better performance
         # in permute_baselines.
-        bl_indices = zip(ant1_index, ant2_index)
+        bl_indices = list(zip(ant1_index, ant2_index))
         bl_indices.sort(key=lambda ants: _cp_index(dataset.ants[ants[0]],
                                                    dataset.ants[ants[1]],
                                                    pols_to_use[0]))
@@ -231,7 +235,7 @@ def main():
 
         # Create actual correlator product index
         cp_index = [_cp_index(a1, a2, p)
-                    for a1, a2 in itertools.izip(ant1, ant2)
+                    for a1, a2 in zip(ant1, ant2)
                     for p in pols_to_use]
         cp_index = np.array(cp_index, dtype=np.int32)
 
@@ -567,7 +571,7 @@ def main():
                     try:
                         result = result_queue.get_nowait()
                         raise result
-                    except Queue.Empty:
+                    except queue.Empty:
                         pass
 
                     work_queue.put(ms_async.QueueItem(
@@ -670,7 +674,7 @@ def main():
                     print(" No calibration antenna ordering in first dataset. "
                           "Can't create solution tables.\n")
                     continue
-                antlist_indices = range(len(antlist))
+                antlist_indices = list(range(len(antlist)))
 
                 # for each solution type in the file, create a table
                 for sol in solution_types:
@@ -732,7 +736,7 @@ def main():
                         times_to_write = np.repeat(sol_mjd, nants)
                         antennas_to_write = np.tile(antlist_indices, ntimes)
                         # just mock up the scans -- this doesnt actually correspond to scans in the data
-                        scans_to_write = np.repeat(range(len(sol_mjd)), nants)
+                        scans_to_write = np.repeat(list(range(len(sol_mjd))), nants)
                         # write the main table
                         main_cal_dict = ms_extra.populate_caltable_main_dict(
                             times_to_write, solutions_to_write, antennas_to_write, scans_to_write)

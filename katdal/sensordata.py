@@ -17,9 +17,15 @@
 """Container that stores cached (interpolated) and uncached (raw) sensor data."""
 from __future__ import print_function, division, absolute_import
 
+from future import standard_library
+standard_library.install_aliases()
+from builtins import zip
+from builtins import str
+from builtins import range
+from builtins import object
 import logging
 import re
-import cPickle as pickle
+import pickle as pickle
 
 import numpy as np
 import katpoint
@@ -496,7 +502,7 @@ def remove_duplicates_and_invalid_values(sensor):
         unique_ind = unique_ind[(status == 'nominal') | (status == 'warn') |
                                 (status == 'error')]
     # Strip 'status' / z field from final output as its job is done
-    data = np.array(zip(x[unique_ind], y[unique_ind]),
+    data = np.array(list(zip(x[unique_ind], y[unique_ind])),
                     dtype=[('timestamp', x.dtype), ('value', y.dtype)])
     return RecordSensorData(data, sensor.name)
 
@@ -577,25 +583,25 @@ class SensorCache(dict):
         # Add virtual sensor templates
         self.virtual = virtual
         # Add sensor aliases
-        for alias, original in aliases.iteritems():
+        for alias, original in aliases.items():
             self.add_aliases(alias, original)
 
     def __str__(self):
         """Verbose human-friendly string representation of sensor cache object."""
-        names = sorted([key for key in self.iterkeys()])
+        names = sorted([key for key in self.keys()])
         maxlen = max([len(name) for name in names])
         objects = [self.get(name, extract=False) for name in names]
         obj_reprs = [(("<numpy.ndarray shape=%s type=%s at 0x%x>" % (obj.shape, obj.dtype, id(obj)))
                      if isinstance(obj, np.ndarray) else repr(obj)) for obj in objects]
         actual = ['%s : %s' % (str(name).ljust(maxlen), obj_repr) for name, obj_repr in zip(names, obj_reprs)]
         virtual = ['%s : <function %s.%s>' % (str(pat).ljust(maxlen), func.__module__, func.__name__)
-                   for pat, func in self.virtual.iteritems()]
+                   for pat, func in self.virtual.items()]
         return '\n'.join(['Actual sensors', '--------------'] + actual +
                          ['\nVirtual sensors', '---------------'] + virtual)
 
     def __repr__(self):
         """Short human-friendly string representation of sensor cache object."""
-        sensors = [self.get(name, extract=False) for name in self.iterkeys()]
+        sensors = [self.get(name, extract=False) for name in self.keys()]
         return "<katdal.%s sensors=%d cached=%d virtual=%d at 0x%x>" % \
                (self.__class__.__name__, len(sensors),
                 np.sum([not isinstance(s, SensorData) for s in sensors]),
@@ -633,11 +639,11 @@ class SensorCache(dict):
 
     def itervalues(self):
         """Custom value iterator that avoids extracting sensor data."""
-        return iter([self.get(key, extract=False) for key in self.iterkeys()])
+        return iter([self.get(key, extract=False) for key in self.keys()])
 
     def iteritems(self):
         """Custom item iterator that avoids extracting sensor data."""
-        return iter([(key, self.get(key, extract=False)) for key in self.iterkeys()])
+        return iter([(key, self.get(key, extract=False)) for key in self.keys()])
 
     def add_aliases(self, alias, original):
         """Add alternate names / aliases for sensors.
@@ -708,7 +714,7 @@ class SensorCache(dict):
             sensor_data = super(SensorCache, self).__getitem__(name)
         except KeyError:
             # Otherwise, iterate through virtual sensor templates and look for a match
-            for pattern, create_sensor in self.virtual.iteritems():
+            for pattern, create_sensor in self.virtual.items():
                 # Expand variable names enclosed in braces to the relevant regular expression
                 pattern = re.sub('({[a-zA-Z_]\w*})', lambda m: '(?P<' + m.group(0)[1:-1] + '>[^//]+)', pattern)
                 match = re.match(pattern, name)
@@ -723,7 +729,7 @@ class SensorCache(dict):
             # Look up properties associated with this specific sensor
             self.props[name] = props = self.props.get(name, {})
             # Look up properties associated with this class of sensor
-            for key, val in self.props.iteritems():
+            for key, val in self.props.items():
                 if key[0] == '*' and name.endswith(key[1:]):
                     props.update(val)
             # Any properties passed directly to this method takes precedence

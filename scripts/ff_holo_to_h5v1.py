@@ -43,7 +43,7 @@ ants_group, corr_group = f['Antennas'], f['Correlator']
 
 # Vague attempt not to mess up the wrong HDF5 file
 if 'version' in f.attrs or f.attrs['k7w_file_version'] != 3 or 'augment' in f.attrs or \
-   len(ants_group) != 2 or len(ants_group[ants_group.keys()[-1]]) > 0:
+   len(ants_group) != 2 or len(ants_group[list(ants_group.keys())[-1]]) > 0:
     raise ValueError('%s does not seem to be an FF holography data file' % (filename,))
 
 # First antenna => scan_ant (also reference), second antenna => ref_ant

@@ -17,7 +17,12 @@
 """Various sources of correlator data and metadata."""
 from __future__ import print_function, division, absolute_import
 
-import urlparse
+from future import standard_library
+standard_library.install_aliases()
+from builtins import str
+from builtins import zip
+from builtins import object
+import urllib.parse
 import os
 import logging
 import itertools
@@ -131,7 +136,7 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
             if has_array.ndim < darray['flags'].ndim:
                 chunks += tuple((x,) for x in darray['flags'].shape[has_array.ndim:])
             intersections = intersect_chunks(darray['flags'].chunks, chunks)
-            for has, pieces in itertools.izip(has_array.flat, intersections):
+            for has, pieces in zip(has_array.flat, intersections):
                 if not has:
                     for piece in pieces:
                         chunk_idx, slices = zip(*piece)
@@ -436,10 +441,10 @@ class TelstateDataSource(DataSource):
         kwargs : dict, optional
             Extra keyword arguments passed to telstate view and chunk store init
         """
-        url_parts = urlparse.urlparse(url, scheme='file')
+        url_parts = urllib.parse.urlparse(url, scheme='file')
         # Merge key-value pairs from URL query with keyword arguments
         # of function (the latter takes precedence)
-        url_kwargs = dict(urlparse.parse_qsl(url_parts.query))
+        url_kwargs = dict(urllib.parse.parse_qsl(url_parts.query))
         url_kwargs.update(kwargs)
         kwargs = url_kwargs
         # Extract Redis database number if provided
@@ -469,7 +474,7 @@ def open_data_source(url, **kwargs):
         return TelstateDataSource.from_url(url, **kwargs)
     except DataSourceNotFound as err:
         # Amend the error message for the case of an IP address without scheme
-        url_parts = urlparse.urlparse(url, scheme='file')
+        url_parts = urllib.parse.urlparse(url, scheme='file')
         if url_parts.scheme == 'file' and not os.path.isfile(url_parts.path):
             raise DataSourceNotFound(
                 '{} (add a URL scheme if {!r} is not meant to be a file)'

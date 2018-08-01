@@ -25,6 +25,7 @@ This can use either casapy (the default) or pyrap to create the MS.
 #
 from __future__ import print_function, division, absolute_import
 
+from builtins import range
 import sys
 import os
 import os.path
@@ -90,7 +91,7 @@ def define_hypercolumn(desc):
     """Add hypercolumn definitions to table description."""
     desc['_define_hypercolumn_'] = dict([(v['dataManagerGroup'],
                                           dict(HCdatanames=[k], HCndim=v['ndim'] + 1))
-                                         for k, v in desc.iteritems() if v['dataManagerType'] == 'TiledShapeStMan'])
+                                         for k, v in desc.items() if v['dataManagerType'] == 'TiledShapeStMan'])
 
 # Map Measurement Set string types to numpy types
 MS_TO_NP_TYPE_MAP = {
@@ -136,7 +137,7 @@ def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
     table_desc = tables.required_ms_desc("MAIN")
 
     # Take columns we wish to modify
-    extra_table_desc = { c: d for c, d in table_desc.iteritems()
+    extra_table_desc = { c: d for c, d in table_desc.items()
                                         if c in modify_columns }
 
     # Used to set the SPEC for each Data Manager Group
@@ -990,14 +991,14 @@ def open_main(ms_name, verbose=True):
 
 
 def write_rows(t, row_dict, verbose=True):
-    num_rows = row_dict.values()[0].shape[0]
+    num_rows = list(row_dict.values())[0].shape[0]
     # Append rows to the table by starting after the last row in table
     startrow = t.nrows()
     # Add the space required for this group of rows
     t.addrows(num_rows)
     if verbose:
         print("  added %d rows" % (num_rows,))
-    for col_name, col_data in row_dict.iteritems():
+    for col_name, col_data in row_dict.items():
         if col_name in t.colnames():
             try:
                 t.putcol(col_name, col_data.T if casacore_binding == 'casapy' else col_data, startrow)
@@ -1012,7 +1013,7 @@ def write_rows(t, row_dict, verbose=True):
 
 def write_dict(ms_dict, ms_name, verbose=True):
     # Iterate through subtables
-    for sub_table_name, sub_dict in ms_dict.iteritems():
+    for sub_table_name, sub_dict in ms_dict.items():
         # Allow parsing of single dict and array of dicts in the same fashion
         if isinstance(sub_dict, dict):
             sub_dict = [sub_dict]

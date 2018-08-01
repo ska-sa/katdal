@@ -17,16 +17,19 @@
 """Data accessor class for HDF5 files produced by RTS correlator."""
 from __future__ import print_function, division, absolute_import
 
+from future import standard_library
+standard_library.install_aliases()
+from builtins import str
+from builtins import zip
+from builtins import range
+from past.builtins import basestring
 import logging
 from collections import Counter
 
 import numpy as np
 import h5py
 import katpoint
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle
+import pickle
 
 from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow,
                       DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target)
@@ -260,7 +263,7 @@ class H5DataV3(DataSet):
         data_duration = self._timestamps[-1] + self.dump_period - self._timestamps[0]
         sensor_start_time = 0.0
         # Pick first regular sensor with longer data record than data (hopefully straddling it)
-        for sensor_name, sensor_data in cache.iteritems():
+        for sensor_name, sensor_data in cache.items():
             if sensor_name.endswith(regular_sensors) and sensor_data:
                 sensor_times = sensor_data['timestamp']
                 proposed_sensor_start_time = sensor_times[0]
@@ -334,7 +337,7 @@ class H5DataV3(DataSet):
             dummy_dataset('dummy_flags', shape=self._vis.shape[:-1], dtype=np.uint8, value=0)
         # Obtain flag descriptions from file or recreate default flag description table
         self._flags_description = data_group['flags_description'] if 'flags_description' in data_group else \
-            np.array(zip(FLAG_NAMES, FLAG_DESCRIPTIONS))
+            np.array(list(zip(FLAG_NAMES, FLAG_DESCRIPTIONS)))
         self._flags_select = np.array([0], dtype=np.uint8)
         self._flags_keep = 'all'
 
@@ -347,7 +350,7 @@ class H5DataV3(DataSet):
             dummy_dataset('dummy_weights_channel', shape=self._vis.shape[:-2], dtype=np.float32, value=1.0)
         # Obtain weight descriptions from file or recreate default weight description table
         self._weights_description = data_group['weights_description'] if 'weights_description' in data_group else \
-            np.array(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS))
+            np.array(list(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS)))
         self._weights_select = []
         self._weights_keep = 'all'
 
@@ -562,7 +565,7 @@ class H5DataV3(DataSet):
         # ASSUMPTION: Number of scans >= number of labels (i.e. each label should introduce a new scan)
         scan.add_unmatched(label.events)
         self.sensor['Observation/scan_state'] = scan
-        self.sensor['Observation/scan_index'] = CategoricalData(range(len(scan)), scan.events)
+        self.sensor['Observation/scan_index'] = CategoricalData(list(range(len(scan))), scan.events)
         # Move proper label events onto the nearest scan start
         # ASSUMPTION: Number of labels <= number of scans (i.e. only a single label allowed per scan)
         label.align(scan.events)
@@ -570,7 +573,7 @@ class H5DataV3(DataSet):
         if label.events[0] > 0:
             label.add(0, '')
         self.sensor['Observation/label'] = label
-        self.sensor['Observation/compscan_index'] = CategoricalData(range(len(label)), label.events)
+        self.sensor['Observation/compscan_index'] = CategoricalData(list(range(len(label))), label.events)
         # Use the target sensor of reference antenna to set the target for each scan
         target = self.sensor.get('Antennas/%s/target' % (self.ref_ant,))
         # RTS workaround: Remove an initial blank target (typically because the antenna is stopped at the start)
@@ -763,7 +766,7 @@ class H5DataV3(DataSet):
             corrprods = cbf_group.attrs['bls_ordering']
             # Work around early RTS correlator bug by re-ordering labels
             if rotate_bls:
-                corrprods = corrprods[range(1, len(corrprods)) + [0]]
+                corrprods = corrprods[list(range(1, len(corrprods))) + [0]]
         return corrprods
 
     @staticmethod

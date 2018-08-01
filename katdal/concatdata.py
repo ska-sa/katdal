@@ -17,6 +17,9 @@
 """Class for concatenating visibility data sets."""
 from __future__ import print_function, division, absolute_import
 
+from builtins import str
+from builtins import zip
+from builtins import range
 import os.path
 import itertools
 
@@ -311,7 +314,7 @@ class ConcatenatedSensorCache(SensorCache):
             virtual.update(cache.virtual)
             self.props.update(cache.props)
         # Pad out actual sensors on each cache (replace with default sensor values where missing)
-        for name, sensor_data in actual.iteritems():
+        for name, sensor_data in actual.items():
             for cache in caches:
                 if name not in cache:
                     # The original "raw" sensor name can differ from the cache
@@ -427,7 +430,7 @@ class ConcatenatedSensorCache(SensorCache):
             # Look up properties associated with this specific sensor
             props = self.props.get(name, {})
             # Look up properties associated with this class of sensor
-            for key, val in self.props.iteritems():
+            for key, val in self.props.items():
                 if key[0] == '*' and name.endswith(key[1:]):
                     props.update(val)
             # Any properties passed directly to this method takes precedence
@@ -500,13 +503,13 @@ class ConcatenatedDataSet(DataSet):
         self.observer = ','.join(unique_in_order([d.observer for d in datasets]))
         self.description = ' | '.join(unique_in_order([d.description for d in datasets]))
         self.experiment_id = ','.join(unique_in_order([d.experiment_id for d in datasets]))
-        obs_params = unique_in_order(reduce(lambda x, y: x + y, [d.obs_params.keys() for d in datasets]))
+        obs_params = unique_in_order(reduce(lambda x, y: x + y, [list(d.obs_params.keys()) for d in datasets]))
         for param in obs_params:
             values = [d.obs_params.get(param, '') for d in datasets]
             # If all values are the same, extract the unique value from the list; otherwise keep the list
             # The itertools.groupby function should work on any value, even unhashable and unorderable ones
             self.obs_params[param] = values[0] if len([k for k in itertools.groupby(values)]) == 1 else values
-        rx_ants = unique_in_order(reduce(lambda x, y: x + y, [d.receivers.keys() for d in datasets]))
+        rx_ants = unique_in_order(reduce(lambda x, y: x + y, [list(d.receivers.keys()) for d in datasets]))
         for ant in rx_ants:
             rx = [d.receivers.get(ant, '') for d in datasets]
             self.receivers[ant] = rx[0] if len([k for k in itertools.groupby(rx)]) == 1 else rx
