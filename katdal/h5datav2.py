@@ -32,6 +32,7 @@ from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindo
 from .sensordata import RecordSensorData, SensorCache
 from .categorical import CategoricalData, sensor_to_categorical
 from .lazy_indexer import LazyIndexer, LazyTransform
+from .h5utils import h5attrs
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,8 @@ def get_single_value(group, name):
         Attribute or last value of dataset
 
     """
-    return group.attrs[name] if name in group.attrs else group[name][-1]
+    attrs = h5attrs(group)
+    return attrs[name] if name in attrs else group[name][-1]
 
 
 def dummy_dataset(name, shape, dtype, value):
@@ -185,7 +187,7 @@ class H5DataV2(DataSet):
         data_group, sensors_group, config_group = f['Data'], f['MetaData/Sensors'], f['MetaData/Configuration']
         markup_group = f['Markup']
         # Get observation script parameters, with defaults
-        for k, v in config_group['Observation'].attrs.items():
+        for k, v in h5attrs(config_group['Observation']).items():
             # For KAT-7 (v2.1) data, strip the 'script_' prefix from most parameters
             k = k if self.version > '2.1' or k in ('script_name', 'script_arguments') else k[7:]
             self.obs_params[str(k)] = v
@@ -278,7 +280,7 @@ class H5DataV2(DataSet):
         # ------ Extract subarrays ------
 
         # By default, only pick antennas that were in use by the script
-        script_ants = config_group['Observation'].attrs['script_ants'].split(',')
+        script_ants = h5attrs(config_group['Observation'])['script_ants'].split(',')
         self.ref_ant = script_ants[0] if not ref_ant else ref_ant
         # Original list of correlation products as pairs of input labels
         corrprods = get_single_value(config_group['Correlator'], 'bls_ordering')
@@ -293,7 +295,7 @@ class H5DataV2(DataSet):
             else:
                 logger.warning('Reapplied k7_capture baseline mask to fix unexpected number of baseline labels')
         # All antennas in configuration as katpoint Antenna objects
-        ants = [katpoint.Antenna(config_group['Antennas'][name].attrs['description'])
+        ants = [katpoint.Antenna(h5attrs(config_group['Antennas'][name])['description'])
                 for name in config_group['Antennas']]
         self.subarrays = [Subarray(ants, corrprods)]
         self.sensor['Observation/subarray'] = CategoricalData(self.subarrays, [0, len(data_timestamps)])
@@ -384,10 +386,10 @@ class H5DataV2(DataSet):
     def _open(filename, mode='r'):
         """Open file and do basic version and augmentation sanity check."""
         f = h5py.File(filename, mode)
-        version = f.attrs.get('version', '1.x')
+        version = h5attrs(f).get('version', '1.x')
         if not version.startswith('2.'):
             raise WrongVersion("Attempting to load version '%s' file with version 2 loader" % (version,))
-        if 'augment_ts' not in f.attrs:
+        if 'augment_ts' not in h5attrs(f):
             raise BrokenFile('HDF5 file not augmented - please run '
                              'k7_augment.py (provided by katcapture package)')
         return f, version
@@ -411,9 +413,9 @@ class H5DataV2(DataSet):
         f, version = H5DataV2._open(filename)
         config_group = f['MetaData/Configuration']
         all_ants = [ant for ant in config_group['Antennas']]
-        script_ants = config_group['Observation'].attrs.get('script_ants')
+        script_ants = h5attrs(config_group['Observation']).get('script_ants')
         script_ants = script_ants.split(',') if script_ants else all_ants
-        return [katpoint.Antenna(config_group['Antennas'][ant].attrs['description'])
+        return [h5attrs(katpoint.Antenna(config_group['Antennas'][ant])['description'])
                 for ant in script_ants if ant in all_ants]
 
     @staticmethod

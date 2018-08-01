@@ -37,6 +37,7 @@ from .sensordata import (SensorCache, RecordSensorData,
                          H5TelstateSensorData, pickle_loads)
 from .categorical import CategoricalData
 from .lazy_indexer import LazyIndexer, LazyTransform
+from .h5utils import h5attrs
 
 logger = logging.getLogger(__name__)
 
@@ -184,10 +185,10 @@ class H5DataV3(DataSet):
 
         # Load main HDF5 groups
         data_group, tm_group = f['Data'], f['TelescopeModel']
-        self.stream_name = str(data_group.attrs.get('stream_name', 'sdp_l0'))
+        self.stream_name = str(h5attrs(data_group).get('stream_name', 'sdp_l0'))
         # Pick first group with appropriate class as CBF
         cbfs = [comp for comp in tm_group
-                if tm_group[comp].attrs.get('class') == 'CorrelatorBeamformer']
+                if h5attrs(tm_group[comp]).get('class') == 'CorrelatorBeamformer']
         cbf_group = tm_group[cbfs[0]]
         # Get SDP group, if present
         sdp_group = tm_group.get('sdp')
@@ -202,7 +203,7 @@ class H5DataV3(DataSet):
             if isinstance(obj, h5py.Dataset) and obj.shape != () and \
                obj.dtype.names == ('timestamp', 'value', 'status'):
                 comp_name, sensor_name = name.split('/', 1)
-                comp_type = tm_group[comp_name].attrs.get('class')
+                comp_type = h5attrs(tm_group[comp_name]).get('class')
                 # Mapping from specific components to generic sensor groups
                 # Put antenna sensors in virtual Antenna group, the rest according to component type
                 group_lookup = {'AntennaPositioner': 'Antennas/' + comp_name}
@@ -224,11 +225,11 @@ class H5DataV3(DataSet):
         # ------ Extract vis and timestamps ------
 
         # Get SDP L0 dump period if available, else fall back to CBF dump period
-        cbf_dump_period = cbf_group.attrs.get('int_time')
+        cbf_dump_period = h5attrs(cbf_group).get('int_time')
         self.dump_period = self._get_l0_attr('int_time', cbf_group, sdp_group)
         # Determine if timestamps are already aligned with middle of dumps
         try:
-            ts_ref = data_group['timestamps'].attrs['timestamp_reference']
+            ts_ref = h5attrs(data_group['timestamps'])['timestamp_reference']
             assert ts_ref == 'centroid', "Don't know timestamp reference %r" % (ts_ref,)
             offset_to_middle_of_dump = 0.0
         except KeyError:
@@ -358,8 +359,8 @@ class H5DataV3(DataSet):
 
         self.obs_params = {}
         # obs_params is a telstate attribute in v3.9 so try that first
-        if 'capture_block_id' in f.attrs:
-            attr_name = f.attrs['capture_block_id'] + '_obs_params'
+        if 'capture_block_id' in h5attrs(f):
+            attr_name = h5attrs(f)['capture_block_id'] + '_obs_params'
             self.obs_params = self._get_telstate_attr(attr_name, {})
         else:
             try:
@@ -387,15 +388,15 @@ class H5DataV3(DataSet):
         # All antennas in configuration as katpoint Antenna objects
         ants = []
         for name in tm_group:
-            if tm_group[name].attrs.get('class') != 'AntennaPositioner':
+            if h5attrs(tm_group[name]).get('class') != 'AntennaPositioner':
                 continue
             try:
                 ant_description = self.sensor['Antennas/%s/observer' % (name,)][0]
             except KeyError:
                 try:
-                    ant_description = tm_group[name].attrs['observer']
+                    ant_description = h5attrs(tm_group[name])['observer']
                 except KeyError:
-                    ant_description = tm_group[name].attrs['description']
+                    ant_description = h5attrs(tm_group[name])['description']
             ants.append(katpoint.Antenna(ant_description))
         # Keep the basic list sorted as far as possible
         ants = sorted(ants)
@@ -605,7 +606,7 @@ class H5DataV3(DataSet):
         (created before 2016-11-30) in which the attributes were not pickled.
         """
         try:
-            value = self.file['TelescopeState'].attrs[key]
+            value = h5attrs(self.file['TelescopeState'])[key]
             return pickle_loads(value, no_unpickle)
         except (KeyError, pickle.UnpicklingError):
             # In some cases the value is placed in a sensor instead. Return
@@ -635,7 +636,7 @@ class H5DataV3(DataSet):
         h5_group = kwargs.get('h5_group')
         if h5_group is not None:
             try:
-                value = h5_group.attrs[attr_name]
+                value = h5attrs(h5_group)[attr_name]
             except KeyError:
                 pass
             else:
@@ -754,16 +755,16 @@ class H5DataV3(DataSet):
         try:
             # If <stream_name>_bls_ordering is present, it should be used in preference
             # to cbf_bls_ordering.
-            corrprods = pickle_loads(f['TelescopeState'].attrs[stream_name + '_bls_ordering'])
+            corrprods = pickle_loads(h5attrs(f['TelescopeState'])[stream_name + '_bls_ordering'])
         except KeyError:
             # Prior to about Nov 2016, ingest would rewrite cbf_bls_ordering in
             # place.
             tm_group = f['TelescopeModel']
             # Pick first group with appropriate class as CBF
             cbfs = [comp for comp in tm_group
-                    if tm_group[comp].attrs.get('class') == 'CorrelatorBeamformer']
+                    if h5attrs(tm_group[comp]).get('class') == 'CorrelatorBeamformer']
             cbf_group = tm_group[cbfs[0]]
-            corrprods = cbf_group.attrs['bls_ordering']
+            corrprods = h5attrs(cbf_group)['bls_ordering']
             # Work around early RTS correlator bug by re-ordering labels
             if rotate_bls:
                 corrprods = corrprods[list(range(1, len(corrprods))) + [0]]
@@ -773,7 +774,7 @@ class H5DataV3(DataSet):
     def _open(filename, mode='r'):
         """Open file and do basic version sanity check."""
         f = h5py.File(filename, mode)
-        version = f.attrs.get('version', '1.x')
+        version = h5attrs(f).get('version', '1.x')
         if not version.startswith('3.'):
             raise WrongVersion("Attempting to load version '%s' file with version 3 loader" % (version,))
         return f, version
@@ -796,18 +797,18 @@ class H5DataV3(DataSet):
         """
         f, version = H5DataV3._open(filename)
         tm_group = f['TelescopeModel']
-        stream_name = f['Data'].attrs.get('stream_name', 'sdp_l0')
+        stream_name = h5attrs(f['Data']).get('stream_name', 'sdp_l0')
         ants = []
         for name in tm_group:
-            if tm_group[name].attrs.get('class') != 'AntennaPositioner':
+            if h5attrs(tm_group[name]).get('class') != 'AntennaPositioner':
                 continue
             try:
                 ant_description = tm_group[name]['observer']['value'][0]
             except KeyError:
                 try:
-                    ant_description = tm_group[name].attrs['observer']
+                    ant_description = h5attrs(tm_group[name])['observer']
                 except KeyError:
-                    ant_description = tm_group[name].attrs['description']
+                    ant_description = h5attrs(tm_group[name])['description']
             ants.append(katpoint.Antenna(ant_description))
         cam_ants = set(ant.name for ant in ants)
         # Original list of correlation products as pairs of input labels
@@ -816,9 +817,9 @@ class H5DataV3(DataSet):
         cbf_ants = set([cp[0][:-1] for cp in corrprods] + [cp[1][:-1] for cp in corrprods])
         # obs_params is a telstate attribute in v3.9 so try that first
         obs_params = {}
-        if 'capture_block_id' in f.attrs:
-            attr_name = f.attrs['capture_block_id'] + '_obs_params'
-            value = f['TelescopeState'].attrs.get(attr_name)
+        if 'capture_block_id' in h5attrs(f):
+            attr_name = h5attrs(f)['capture_block_id'] + '_obs_params'
+            value = h5attrs(f['TelescopeState']).get(attr_name)
             if value is not None:
                 obs_params = pickle_loads(value)
         # Fall back to old obs_params location
