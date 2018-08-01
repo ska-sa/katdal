@@ -20,11 +20,13 @@
 # 1 and 2) or MeerKAT HDF5 file (version 3) using the casapy table tools
 # in the ms_extra module (or pyrap/casacore if casapy is not available).
 
+from __future__ import print_function, division, absolute_import
+
 import mvftoms
 
 
 if __name__ == '__main__':
-    print "h5toms.py is deprecated and has been replaced by mvftoms.py"
-    print "For now it is an alias to run mvftoms.py"
-    print
+    print("h5toms.py is deprecated and has been replaced by mvftoms.py")
+    print("For now it is an alias to run mvftoms.py")
+    print()
     mvftoms.main()

@@ -15,6 +15,7 @@
 ################################################################################
 
 """Base class for accessing a visibility data set."""
+from __future__ import print_function, division, absolute_import
 
 import time
 import logging

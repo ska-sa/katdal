@@ -19,6 +19,7 @@
 It does not support S3 authentication/signatures, relying instead on external
 code to provide HTTP authentication.
 """
+from __future__ import print_function, division, absolute_import
 
 import contextlib
 import io

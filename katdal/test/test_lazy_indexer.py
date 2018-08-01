@@ -15,6 +15,7 @@
 ################################################################################
 
 """Tests for :py:mod:`katdal.lazy_indexer`."""
+from __future__ import print_function, division, absolute_import
 
 import numpy as np
 import dask.array as da

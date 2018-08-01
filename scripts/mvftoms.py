@@ -16,10 +16,10 @@
 # limitations under the License.
 ################################################################################
 
-from __future__ import print_function
-
 # Produce a CASA-compatible Measurement Set from a MeerKAT Visibility Format
 # (MVF) dataset using casapy or casacore.
+
+from __future__ import print_function, division, absolute_import
 
 from collections import namedtuple
 import itertools
@@ -220,9 +220,9 @@ def main():
         # Order as similarly to the input as possible, which gives better performance
         # in permute_baselines.
         bl_indices = zip(ant1_index, ant2_index)
-        bl_indices.sort(key=lambda (a1, a2): _cp_index(dataset.ants[a1],
-                                                       dataset.ants[a2],
-                                                       pols_to_use[0]))
+        bl_indices.sort(key=lambda ants: _cp_index(dataset.ants[ants[0]],
+                                                   dataset.ants[ants[1]],
+                                                   pols_to_use[0]))
         # Undo the zip
         ant1_index[:] = [bl[0] for bl in bl_indices]
         ant2_index[:] = [bl[1] for bl in bl_indices]

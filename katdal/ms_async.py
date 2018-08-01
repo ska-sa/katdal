@@ -24,6 +24,7 @@ This is largely an implementation detail of the mvftoms.py script, and might
 might be suited to other use cases. It is put into a separate module as a
 workaround for https://bugs.python.org/issue9914.
 """
+from __future__ import print_function, division, absolute_import
 
 from collections import namedtuple
 import contextlib

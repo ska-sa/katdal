@@ -15,6 +15,7 @@
 ################################################################################
 
 """Class for concatenating visibility data sets."""
+from __future__ import print_function, division, absolute_import
 
 import os.path
 import itertools
@@ -26,6 +27,7 @@ from .sensordata import SensorData, SensorCache, dummy_sensor_data
 from .categorical import (CategoricalData, unique_in_order, infer_dtype,
                           concatenate_categorical)
 from .dataset import DataSet
+from functools import reduce
 
 
 class ConcatenationError(Exception):

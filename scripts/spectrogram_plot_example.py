@@ -24,6 +24,8 @@
 # 26 June 2012
 #
 
+from __future__ import print_function, division, absolute_import
+
 import optparse
 import time
 
@@ -94,8 +96,8 @@ class ResampledImage(object):
         data = self.extract(self.data, x_slice, y_slice)
         extract_time = time.time() - before
         size_bytes = data.size * np.dtype('complex64').itemsize
-        print "Loaded %d visibilities - x %s y %s - in %.2f seconds (%g MB/s)" % \
-              (data.size, x_slice, y_slice, extract_time, size_bytes * 1e-6 / extract_time)
+        print("Loaded %d visibilities - x %s y %s - in %.2f seconds (%g MB/s)" %
+              (data.size, x_slice, y_slice, extract_time, size_bytes * 1e-6 / extract_time))
         self.image.set_data(data)
         self.image._extent = (im_left, im_right, im_bottom, im_top)
         if self.autoscale:
@@ -118,7 +120,7 @@ parser.add_option('-s', '--autoscale', action='store_true', default=False,
 (opts, args) = parser.parse_args()
 
 if len(args) == 0:
-    print 'Please specify at least one HDF5 file to load'
+    print('Please specify at least one HDF5 file to load')
 else:
     d = katdal.open(args)
     ant = opts.ant if opts.ant is not None else d.ref_ant

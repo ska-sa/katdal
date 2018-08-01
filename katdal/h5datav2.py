@@ -15,6 +15,7 @@
 ################################################################################
 
 """Data accessor class for HDF5 files produced by KAT-7 correlator."""
+from __future__ import print_function, division, absolute_import
 
 import logging
 

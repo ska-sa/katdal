@@ -15,6 +15,7 @@
 ################################################################################
 
 """Container for categorical (i.e. non-numerical) sensor data and related tools."""
+from __future__ import print_function, division, absolute_import
 
 import collections
 

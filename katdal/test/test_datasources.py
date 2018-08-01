@@ -15,6 +15,7 @@
 ################################################################################
 
 """Tests for :py:mod:`katdal.datasources`."""
+from __future__ import print_function, division, absolute_import
 
 import tempfile
 import shutil

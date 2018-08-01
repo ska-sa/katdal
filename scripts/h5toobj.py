@@ -42,6 +42,7 @@ The following useful object parameters are stored in telstate, prefixed by
   - s3_endpoint: endpoint URL of S3 object store
   - <dataset_name>: dict containing chunk info (dtype, shape and chunks)
 """
+from __future__ import print_function, division, absolute_import
 
 import struct
 import logging

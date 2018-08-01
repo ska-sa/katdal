@@ -15,6 +15,7 @@
 ################################################################################
 
 """A store of chunks (i.e. N-dimensional arrays) based on NPY files."""
+from __future__ import print_function, division, absolute_import
 
 import os
 

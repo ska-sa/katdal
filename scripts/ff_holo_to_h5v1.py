@@ -24,6 +24,8 @@
 # 29 July 2013
 #
 
+from __future__ import print_function, division, absolute_import
+
 from optparse import OptionParser
 
 import h5py
@@ -81,11 +83,11 @@ for k, v in scan_ant['Sensors'].items():
 sat_name, lo_freq_hz = 'satellite', 1135.5e6
 # We are using XDM
 if description[0].startswith(' -25:53') and description[1].startswith(' 27:41'):
-    print 'It looks like the antennas were at HartRAO'
+    print('It looks like the antennas were at HartRAO')
     # The default holography source at XDM
     if abs(target_az - (-26)) < 1.0 and abs(target_el - 57) < 1.0:
         sat_name, lo_freq_hz = 'EUTELSAT W2M', 1135.5e6
-        print "It looks like the antennas pointed at '%s'" % (sat_name,)
+        print("It looks like the antennas pointed at '%s'" % (sat_name,))
 # Create an azel target to replace the default dummy target
 f['Scans']['CompoundScan0'].attrs['target'] = '%s, azel, %g, %g' % (sat_name, target_az, target_el)
 f['Scans']['CompoundScan0'].attrs['label'] = 'holo'

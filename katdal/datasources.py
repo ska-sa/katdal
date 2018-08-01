@@ -15,6 +15,7 @@
 ################################################################################
 
 """Various sources of correlator data and metadata."""
+from __future__ import print_function, division, absolute_import
 
 import urlparse
 import os

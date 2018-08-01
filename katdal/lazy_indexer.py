@@ -15,6 +15,7 @@
 ################################################################################
 
 """Two-stage deferred indexer for objects with expensive __getitem__ calls."""
+from __future__ import print_function, division, absolute_import
 
 import copy
 import threading
@@ -22,6 +23,7 @@ import threading
 import numpy as np
 import dask.array as da
 import dask.optimization
+from functools import reduce
 
 # TODO support advanced integer indexing with non-strictly increasing indices (i.e. out-of-order and duplicates)
 

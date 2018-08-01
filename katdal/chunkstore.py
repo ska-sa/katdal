@@ -16,7 +16,7 @@
 
 """Base class for accessing a store of chunks (i.e. N-dimensional arrays)."""
 
-from __future__ import division
+from __future__ import print_function, division, absolute_import
 
 import contextlib
 import functools
