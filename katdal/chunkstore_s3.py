@@ -233,7 +233,7 @@ class S3ChunkStore(ChunkStore):
                 raise_(result[0], result[1], result[2])
 
     def _chunk_url(self, chunk_name):
-        return urllib.parse.urljoin(self._url, urllib.parse.quote(chunk_name + '.npy'))
+        return urllib.parse.urljoin(str(self._url), urllib.parse.quote(chunk_name + '.npy'))
 
     @contextlib.contextmanager
     def _request(self, chunk_name, method, url, *args, **kwargs):
@@ -289,7 +289,7 @@ class S3ChunkStore(ChunkStore):
         """See the docstring of :meth:`ChunkStore.list_chunk_ids`."""
         NS = '{http://s3.amazonaws.com/doc/2006-03-01/}'
         bucket, prefix = self.split(array_name, 1)
-        url = urllib.parse.urljoin(self._url, urllib.parse.quote(bucket))
+        url = urllib.parse.urljoin(str(self._url), urllib.parse.quote(bucket))
         params = {
             'prefix': prefix,
             'max-keys': self.list_max_keys
