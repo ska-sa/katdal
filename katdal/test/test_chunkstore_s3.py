@@ -43,11 +43,11 @@ def consume_stderr_find_port(process, queue):
     # Gobble up lines of text from stderr until it is closed when process exits.
     # This is the same as `for line in process.stderr:` but on Python 2 that
     # version deadlocks (see https://stackoverflow.com/a/1085100).
-    for line in iter(process.stderr.readline, ''):
+    for line in iter(process.stderr.readline, b''):
         if looking_for_port:
-            ports_found = re.search(r' port=([1-9]\d*)$', line.strip())
+            ports_found = re.search(br' port=([1-9]\d*)$', line.strip())
             if ports_found:
-                port_number = ports_found.group(1)
+                port_number = int(ports_found.group(1))
                 queue.put(port_number)
                 looking_for_port = False
 
