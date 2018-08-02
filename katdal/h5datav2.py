@@ -414,7 +414,7 @@ class H5DataV2(DataSet):
         all_ants = [ant for ant in config_group['Antennas']]
         script_ants = to_str(config_group['Observation'].attrs.get('script_ants'))
         script_ants = script_ants.split(',') if script_ants else all_ants
-        return [to_str(katpoint.Antenna(config_group['Antennas'][ant].attrs['description']))
+        return [katpoint.Antenna(to_str(config_group['Antennas'][ant].attrs['description']))
                 for ant in script_ants if ant in all_ants]
 
     @staticmethod
@@ -442,7 +442,7 @@ class H5DataV2(DataSet):
         except Exception:
             # Since h5py errors have varied over the years, we need Exception
             target_list = f['MetaData/Sensors/Beams/Beam0/target']
-        all_target_strings = [target_data[1] for target_data in target_list]
+        all_target_strings = [to_str(target_data[1]) for target_data in target_list]
         return katpoint.Catalogue(np.unique(all_target_strings))
 
     def __str__(self):
@@ -453,8 +453,10 @@ class H5DataV2(DataSet):
             descr.append('-------------------------------------------------------------------------------')
             descr.append('Process log:')
             for proc in self.file['History']['process_log']:
-                param_list = '%15s:' % proc[0]
-                for param in proc[1].split(','):
+                # proc has a structured dtype and to_str doesn't work on it, so
+                # we have to to_str each element.
+                param_list = '%15s:' % to_str(proc[0])
+                for param in to_str(proc[1]).split(','):
                     param_list += '  %s' % param
                 descr.append(param_list)
         return '\n'.join(descr)

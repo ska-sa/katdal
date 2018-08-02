@@ -203,7 +203,7 @@ class H5DataV3(DataSet):
             """A sensor is defined as a non-empty dataset with expected dtype."""
             if isinstance(obj, h5py.Dataset) and obj.shape != () and \
                obj.dtype.names == ('timestamp', 'value', 'status'):
-                comp_name, sensor_name = name.split('/', 1)
+                comp_name, sensor_name = to_str(name).split('/', 1)
                 comp_type = to_str(tm_group[comp_name].attrs.get('class'))
                 # Mapping from specific components to generic sensor groups
                 # Put antenna sensors in virtual Antenna group, the rest according to component type
@@ -219,7 +219,7 @@ class H5DataV3(DataSet):
                 # Before 2016-05-09 the dtype was ('value', 'timestamp')
                 if isinstance(obj, h5py.Dataset) and obj.shape != () and \
                    set(obj.dtype.names) == {'timestamp', 'value'}:
-                    name = 'TelescopeState/' + name
+                    name = 'TelescopeState/' + to_str(name)
                     cache[name] = H5TelstateSensorData(obj, name)
             f.file['TelescopeState'].visititems(register_telstate_sensor)
 
@@ -830,6 +830,7 @@ class H5DataV3(DataSet):
             tm_params = tm_group['obs/params']
             for obs_param in tm_params['value']:
                 if obs_param:
+                    obs_param = to_str(obs_param)
                     key, val = obs_param.split(' ', 1)
                     obs_params[key] = np.lib.utils.safe_eval(val)
         # By default, only pick antennas that were in use by the script
@@ -857,7 +858,7 @@ class H5DataV3(DataSet):
         """
         f, version = H5DataV3._open(filename)
         target_list = f['TelescopeModel/cbf/target']
-        all_target_strings = [target_data[1] for target_data in target_list]
+        all_target_strings = [to_str(target_data[1]) for target_data in target_list]
         return katpoint.Catalogue(np.unique(all_target_strings))
 
     def __str__(self):
@@ -868,8 +869,10 @@ class H5DataV3(DataSet):
             descr.append('-------------------------------------------------------------------------------')
             descr.append('Process log:')
             for proc in self.file['History']['process_log']:
-                param_list = '%15s:' % proc[0]
-                for param in proc[1].split(','):
+                # proc has a structured dtype and to_str doesn't work on it, so
+                # we have to to_str each element.
+                param_list = '%15s:' % to_str(proc[0])
+                for param in to_str(proc[1]).split(','):
                     param_list += '  %s' % param
                 descr.append(param_list)
         return '\n'.join(descr)

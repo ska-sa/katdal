@@ -180,6 +180,7 @@ class H5DataV1(DataSet):
         # the latter to pairs of input labels (this assumes that the corrprod indices are sorted)
         corrprods = []
         for corrind, product in corr_group['input_map']:
+            product = to_str(product)
             match = split_product.match(product)
             if match is None:
                 raise BrokenFile("Unknown DBE input product '%s' in input map (expected e.g. '0x1y')" % (product,))
@@ -271,7 +272,7 @@ class H5DataV1(DataSet):
         """
         f, version = H5DataV1._open(filename)
         ants_group = f['Antennas']
-        antennas = [to_str(katpoint.Antenna(ants_group[group].attrs['description']))
+        antennas = [katpoint.Antenna(to_str(ants_group[group].attrs['description']))
                     for group in ants_group]
         return antennas
 
