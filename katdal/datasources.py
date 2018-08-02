@@ -19,6 +19,7 @@ from __future__ import print_function, division, absolute_import
 
 from future import standard_library
 standard_library.install_aliases()
+from future.utils import bytes_to_native_str
 from builtins import zip
 from builtins import object
 import urllib.parse
@@ -255,6 +256,7 @@ def _shorten_key(telstate, key):
 
     """
     for prefix in telstate.prefixes:
+        prefix = bytes_to_native_str(prefix)
         if key.startswith(prefix):
             return key[len(prefix):]
     return ''
@@ -405,6 +407,7 @@ class TelstateDataSource(DataSource):
         sensors = {}
         for key in telstate.keys():
             if not telstate.is_immutable(key):
+                key = bytes_to_native_str(key)
                 sensor_name = _shorten_key(telstate, key)
                 if sensor_name:
                     sensors[sensor_name] = TelstateSensorData(telstate, key)

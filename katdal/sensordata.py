@@ -19,6 +19,7 @@ from __future__ import print_function, division, absolute_import
 
 from future import standard_library
 standard_library.install_aliases()
+import future.utils
 from builtins import zip
 from builtins import range
 from builtins import object
@@ -163,7 +164,10 @@ class RecordSensorData(SensorData):
 
     def __getitem__(self, key):
         """Extract timestamp, value and status of each sensor data point."""
-        return np.asarray(self._data[key])
+        values = np.asarray(self._data[key])
+        if key == 'value':
+            values = _to_str(values)
+        return values
 
     def __bool__(self):
         """True if sensor has at least one data point."""
@@ -326,6 +330,17 @@ class TelstateSensorData(SensorData):
 # -------------------------------------------------------------------------------------------------
 # -- Utility functions
 # -------------------------------------------------------------------------------------------------
+
+
+def _to_str(values):
+    """Convert an array of byte strings to an array of native strings.
+
+    On Python 2 this is a no-op. On Python 3 it treats the values as UTF-8.
+    If `values.dtype` is not a string type it is also ignored.
+    """
+    if future.utils.PY3 and values.dtype.kind == 'S':
+        values = np.char.decode(values, 'utf-8')
+    return values
 
 
 def _safe_linear_interp(xi, yi, x):
