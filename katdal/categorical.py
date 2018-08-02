@@ -171,6 +171,11 @@ def unique_in_order(elements, return_inverse=False):
         reconstruct original sequence
 
     """
+    # In Python 3, each iteration over a np.ndarray creates new objects. This
+    # can lead to problems if there are NaNs, because NaN != NaN, so we rely
+    # on the behaviour of dict that first checks object identity. We thus
+    # force to list at the start to get consistent object identities.
+    elements = list(elements)
     unique_elements, inverse = [], []
     try:
         # Surprisingly, a zero generator like itertools.repeat does not buy you anything
