@@ -46,7 +46,6 @@ from __future__ import print_function, division, absolute_import
 
 from builtins import input
 from builtins import zip
-from builtins import str
 from builtins import range
 import struct
 import logging
