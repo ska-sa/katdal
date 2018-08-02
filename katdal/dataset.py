@@ -22,6 +22,7 @@ from past.builtins import basestring
 from builtins import object
 import time
 import logging
+import numbers
 
 import numpy as np
 
@@ -757,7 +758,7 @@ class DataSet(object):
                 scan_sensor = self.sensor.get('Observation/scan_state' if k == 'scans' else 'Observation/label')
                 scan_index_sensor = self.sensor.get('Observation/%s_index' % (k[:-1],))
                 for scan in scans:
-                    if isinstance(scan, int):
+                    if isinstance(scan, numbers.Integral):
                         scan_keep |= (scan_index_sensor == scan)
                     elif scan[0] == '~':
                         scan_keep |= ~(scan_sensor == scan[1:])
@@ -769,7 +770,7 @@ class DataSet(object):
                 target_keep = np.zeros(len(self._time_keep), dtype=np.bool)
                 target_index_sensor = self.sensor.get('Observation/target_index')
                 for t in targets:
-                    if isinstance(t, int):
+                    if isinstance(t, numbers.Integral):
                         target_index = t
                     elif t not in self.catalogue:
                         # Warn here, in case the user gets the target subtly wrong and wonders why it is not selected
