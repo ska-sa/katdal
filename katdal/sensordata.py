@@ -636,14 +636,6 @@ class SensorCache(dict):
         if keep is not None:
             self.keep = keep
 
-    def itervalues(self):
-        """Custom value iterator that avoids extracting sensor data."""
-        return iter([self.get(key, extract=False) for key in self.keys()])
-
-    def iteritems(self):
-        """Custom item iterator that avoids extracting sensor data."""
-        return iter([(key, self.get(key, extract=False)) for key in self.keys()])
-
     def add_aliases(self, alias, original):
         """Add alternate names / aliases for sensors.
 
@@ -659,7 +651,7 @@ class SensorCache(dict):
             Sensors with names that end in this will get aliases
 
         """
-        for name, data in self.iteritems():
+        for name, data in list(self.items()):
             if name.endswith(original):
                 self[name.replace(original, alias)] = data
 

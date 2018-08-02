@@ -309,7 +309,7 @@ class ConcatenatedSensorCache(SensorCache):
         # The main point is to discover the name and dtype of each known sensor
         actual, virtual, self.props = {}, {}, {}
         for cache in caches:
-            actual.update(cache.iteritems())
+            actual.update(cache.items())
             virtual.update(cache.virtual)
             self.props.update(cache.props)
         # Pad out actual sensors on each cache (replace with default sensor values where missing)
