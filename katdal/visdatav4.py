@@ -177,7 +177,7 @@ class VisibilityDataV4(DataSet):
         # By default, only pick antennas that were in use by the script
         obs_ants = self.obs_params.get('ants')
         # Otherwise fall back to the list of antennas common to CAM and SDP / CBF
-        obs_ants = obs_ants.split(',') if obs_ants else list(cam_ants & sdp_ants)
+        obs_ants = obs_ants.split(',') if obs_ants else sorted(cam_ants & sdp_ants)
         self.ref_ant = obs_ants[0] if not ref_ant else ref_ant
 
         self.subarrays = subs = [Subarray(ants, corrprods)]

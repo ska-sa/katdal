@@ -465,7 +465,7 @@ class DataSet(object):
         # Now add dynamic information, which depends on the current selection criteria
         descr += ['-------------------------------------------------------------------------------',
                   'Data selected according to the following criteria:']
-        for k, v in self._selection.items():
+        for k, v in sorted(self._selection.items()):
             descr.append('  %s=%s' % (k, ("'%s'" % (v,)) if isinstance(v, basestring) else v))
         descr.append('-------------------------------------------------------------------------------')
         descr.append('Shape: (%d dumps, %d channels, %d correlation products) => Size: %s' %

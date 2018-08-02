@@ -409,7 +409,7 @@ class H5DataV3(DataSet):
         # By default, only pick antennas that were in use by the script
         obs_ants = self.obs_params.get('ants')
         # Otherwise fall back to the list of antennas common to CAM and CBF
-        obs_ants = obs_ants.split(',') if obs_ants else list(cam_ants & cbf_ants)
+        obs_ants = obs_ants.split(',') if obs_ants else sorted(cam_ants & cbf_ants)
         self.ref_ant = obs_ants[0] if not ref_ant else ref_ant
 
         if len(corrprods) != self._vis.shape[2]:
