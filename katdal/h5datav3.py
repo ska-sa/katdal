@@ -28,7 +28,10 @@ from collections import Counter
 import numpy as np
 import h5py
 import katpoint
-import pickle
+try:
+    import cPickle as pickle
+except ImportError:
+    import pickle
 
 from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow,
                       DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target)

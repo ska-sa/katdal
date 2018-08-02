@@ -24,7 +24,10 @@ from builtins import range
 from builtins import object
 import logging
 import re
-import pickle as pickle
+try:
+    import cPickle as pickle
+except ImportError:
+    import pickle
 
 import numpy as np
 import katpoint
