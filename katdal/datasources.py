@@ -19,21 +19,20 @@ from __future__ import print_function, division, absolute_import
 
 from future import standard_library
 standard_library.install_aliases()
-from future.utils import bytes_to_native_str
 from builtins import zip
 from builtins import object
 import urllib.parse
 import os
 import logging
 import itertools
-from collections import defaultdict
+from collections import defaultdict, Mapping
 
 import katsdptelstate
 import numpy as np
 import dask.array as da
 from dask.array.rechunk import intersect_chunks
 
-from .sensordata import TelstateSensorData
+from .sensordata import TelstateSensorData, TelstateToStr
 from .chunkstore_s3 import S3ChunkStore
 from .chunkstore_npy import NpyFileChunkStore
 
@@ -199,7 +198,7 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None,
 
     Returns
     -------
-    telstate : :class:`katsdptelstate.TelescopeState` object
+    telstate : :class:`~katdal.sensordata.TelstateToStr` object
         Telstate with a view that incorporates capture block, stream and combo
 
     Raises
@@ -208,16 +207,17 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None,
         If no capture block or L0 stream could be detected (with no override)
     """
     # Detect the capture block
+    telstate = TelstateToStr(telstate)
     if not capture_block_id:
         try:
-            capture_block_id = str(telstate['capture_block_id'])
+            capture_block_id = telstate['capture_block_id']
         except KeyError:
             raise ValueError('No capture block ID found in telstate - '
                              'please specify it manually')
     # Detect the captured stream
     if not stream_name:
         try:
-            stream_name = str(telstate['stream_name'])
+            stream_name = telstate['stream_name']
         except KeyError:
             raise ValueError('No captured stream found in telstate - '
                              'please specify the stream manually')
@@ -242,7 +242,7 @@ def _shorten_key(telstate, key):
 
     Parameters
     ----------
-    telstate : :class:`katsdptelstate.TelescopeState` object
+    telstate : :class:`katdal.sensordata.TelstateToStr` object
         Telescope state
     key : string
         Telescope state key
@@ -256,7 +256,6 @@ def _shorten_key(telstate, key):
 
     """
     for prefix in telstate.prefixes:
-        prefix = bytes_to_native_str(prefix)
         if key.startswith(prefix):
             return key[len(prefix):]
     return ''
@@ -310,7 +309,7 @@ def _infer_chunk_store(url_parts, telstate, npy_store_path=None,
     ----------
     url_parts : :class:`urlparse.ParseResult` object
         Parsed dataset URL
-    telstate : :class:`katsdptelstate.TelescopeState` object
+    telstate : :class:`~katdal.sensordata.TelstateToStr` object
         Telescope state
     npy_store_path : string, optional
         Top-level directory of NpyFileChunkStore (overrides the default)
@@ -354,8 +353,8 @@ def _upgrade_flags(chunk_info, telstate):
     """Look for associated flag streams and override chunk_info to use them."""
     try:
         archived_streams = telstate['sdp_archived_streams']
-        capture_block_id = str(telstate['capture_block_id'])
-        stream_name = str(telstate['stream_name'])
+        capture_block_id = telstate['capture_block_id']
+        stream_name = telstate['stream_name']
     except KeyError as e:
         logger.debug('No additional flag capture streams found: %s', e)
         return chunk_info
@@ -402,12 +401,11 @@ class TelstateDataSource(DataSource):
     """
     def __init__(self, telstate, chunk_store=None, timestamps=None,
                  source_name='telstate'):
-        self.telstate = telstate
+        self.telstate = TelstateToStr(telstate)
         # Collect sensors
         sensors = {}
         for key in telstate.keys():
             if not telstate.is_immutable(key):
-                key = bytes_to_native_str(key)
                 sensor_name = _shorten_key(telstate, key)
                 if sensor_name:
                     sensors[sensor_name] = TelstateSensorData(telstate, key)

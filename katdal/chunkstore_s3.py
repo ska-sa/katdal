@@ -45,6 +45,7 @@ import requests
 from requests.adapters import HTTPAdapter as _HTTPAdapter
 
 from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk
+from .sensordata import to_str
 
 
 class _TimeoutHTTPAdapter(_HTTPAdapter):
@@ -135,7 +136,7 @@ class S3ChunkStore(ChunkStore):
         one thread at a time.
     url : str
         Base URL for the S3 service. It can be specified as either bytes or
-        unicode; if the former, it is decoded as UTF-8.
+        unicode, and is converted to the native string type with UTF-8.
 
     Raises
     ------
@@ -157,9 +158,7 @@ class S3ChunkStore(ChunkStore):
                      defusedxml.ElementTree.ParseError: StoreUnavailable}
         super(S3ChunkStore, self).__init__(error_map)
         self._session_pool = _Pool(session_factory)
-        if isinstance(url, bytes):
-            url = url.decode('utf-8')
-        self._url = url
+        self._url = to_str(url)
 
     @classmethod
     def _from_url(cls, url, timeout, token):
@@ -235,7 +234,7 @@ class S3ChunkStore(ChunkStore):
                 raise_(result[0], result[1], result[2])
 
     def _chunk_url(self, chunk_name):
-        return urllib.parse.urljoin(self._url, urllib.parse.quote(chunk_name + '.npy'))
+        return urllib.parse.urljoin(self._url, to_str(urllib.parse.quote(chunk_name + '.npy')))
 
     @contextlib.contextmanager
     def _request(self, chunk_name, method, url, *args, **kwargs):
@@ -291,7 +290,7 @@ class S3ChunkStore(ChunkStore):
         """See the docstring of :meth:`ChunkStore.list_chunk_ids`."""
         NS = '{http://s3.amazonaws.com/doc/2006-03-01/}'
         bucket, prefix = self.split(array_name, 1)
-        url = urllib.parse.urljoin(self._url, urllib.parse.quote(bucket))
+        url = urllib.parse.urljoin(self._url, to_str(urllib.parse.quote(bucket)))
         params = {
             'prefix': prefix,
             'max-keys': self.list_max_keys
