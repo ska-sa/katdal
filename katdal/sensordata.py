@@ -501,8 +501,8 @@ def remove_duplicates_and_invalid_values(sensor):
     if z is not None:
         # Explicitly cast status to string type, as k7_augment produced sensors with integer statuses
         status = z[unique_ind].astype('|S7')
-        unique_ind = unique_ind[(status == 'nominal') | (status == 'warn') |
-                                (status == 'error')]
+        unique_ind = unique_ind[(status == b'nominal') | (status == b'warn') |
+                                (status == b'error')]
     # Strip 'status' / z field from final output as its job is done
     data = np.array(list(zip(x[unique_ind], y[unique_ind])),
                     dtype=[('timestamp', x.dtype), ('value', y.dtype)])
