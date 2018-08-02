@@ -272,8 +272,6 @@ class ConcatenatedSensorData(SensorData):
         """True if sensor has at least one data point."""
         return any(bool(sd) for sd in self._data)
 
-    __nonzero__ = __bool__
-
 
 def _calc_dummy(cache, name):
     """Dummy virtual sensor that returns NaNs."""

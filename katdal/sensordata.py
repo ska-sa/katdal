@@ -122,8 +122,6 @@ class SensorData(object):
         """True if sensor has at least one data point."""
         raise NotImplementedError
 
-    __nonzero__ = __bool__
-
     def __repr__(self):
         """Short human-friendly string representation of sensor data object."""
         return "<katdal.%s '%s' type=%s at 0x%x>" % \
@@ -170,8 +168,6 @@ class RecordSensorData(SensorData):
     def __bool__(self):
         """True if sensor has at least one data point."""
         return len(self._data) > 0
-
-    __nonzero__ = __bool__
 
     def __repr__(self):
         """Short human-friendly string representation of sensor data object."""
@@ -305,8 +301,6 @@ class TelstateSensorData(SensorData):
     def __bool__(self):
         """True if sensor has at least one data point (already checked in init)."""
         return True
-
-    __nonzero__ = __bool__
 
     def _cache_data(self):
         if not self._times:
