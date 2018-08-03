@@ -1000,6 +1000,8 @@ def write_rows(t, row_dict, verbose=True):
         print("  added %d rows" % (num_rows,))
     for col_name, col_data in row_dict.items():
         if col_name in t.colnames():
+            if col_data.dtype.kind == 'U':
+                col_data = np.char.encode(col_data, encoding='utf-8')
             try:
                 t.putcol(col_name, col_data.T if casacore_binding == 'casapy' else col_data, startrow)
                 if verbose:
