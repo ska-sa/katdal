@@ -24,6 +24,7 @@ from builtins import zip
 from builtins import range
 from builtins import object
 import logging
+import functools
 import re
 try:
     import cPickle as pickle
@@ -215,6 +216,13 @@ def to_str(value):
         return value
 
 
+# https://stackoverflow.com/questions/11305790
+if future.utils.PY3:
+    _pickle_loads = functools.partial(pickle.loads, encoding='latin1')
+else:
+    _pickle_loads = pickle.loads
+
+
 def pickle_loads(raw, no_unpickle=()):
     """Load a pickle that might be wrapped in np.void or np.ndarray.
 
@@ -229,9 +237,9 @@ def pickle_loads(raw, no_unpickle=()):
     The return value is also passed through :func:`to_str`.
     """
     if isinstance(raw, (np.void, np.ndarray)):
-        return to_str(pickle.loads(raw.tostring()))
+        return to_str(_pickle_loads(raw.tostring()))
     elif raw not in no_unpickle:
-        return to_str(pickle.loads(raw))
+        return to_str(_pickle_loads(raw))
     else:
         return to_str(raw)
 
