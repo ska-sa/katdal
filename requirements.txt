@@ -3,7 +3,7 @@ defusedxml
 docutils
 fakeredis
 future
-h5py==2.8.0
+h5py
 ipaddress
 katversion
 netifaces
