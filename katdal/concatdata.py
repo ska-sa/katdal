@@ -15,7 +15,10 @@
 ################################################################################
 
 """Class for concatenating visibility data sets."""
+from __future__ import print_function, division, absolute_import
 
+from builtins import zip
+from builtins import range
 import os.path
 import itertools
 
@@ -26,6 +29,7 @@ from .sensordata import SensorData, SensorCache, dummy_sensor_data
 from .categorical import (CategoricalData, unique_in_order, infer_dtype,
                           concatenate_categorical)
 from .dataset import DataSet
+from functools import reduce
 
 
 class ConcatenationError(Exception):
@@ -268,8 +272,6 @@ class ConcatenatedSensorData(SensorData):
         """True if sensor has at least one data point."""
         return any(bool(sd) for sd in self._data)
 
-    __nonzero__ = __bool__
-
 
 def _calc_dummy(cache, name):
     """Dummy virtual sensor that returns NaNs."""
@@ -305,11 +307,11 @@ class ConcatenatedSensorCache(SensorCache):
         # The main point is to discover the name and dtype of each known sensor
         actual, virtual, self.props = {}, {}, {}
         for cache in caches:
-            actual.update(cache.iteritems())
+            actual.update(cache.items())
             virtual.update(cache.virtual)
             self.props.update(cache.props)
         # Pad out actual sensors on each cache (replace with default sensor values where missing)
-        for name, sensor_data in actual.iteritems():
+        for name, sensor_data in actual.items():
             for cache in caches:
                 if name not in cache:
                     # The original "raw" sensor name can differ from the cache
@@ -425,7 +427,7 @@ class ConcatenatedSensorCache(SensorCache):
             # Look up properties associated with this specific sensor
             props = self.props.get(name, {})
             # Look up properties associated with this class of sensor
-            for key, val in self.props.iteritems():
+            for key, val in self.props.items():
                 if key[0] == '*' and name.endswith(key[1:]):
                     props.update(val)
             # Any properties passed directly to this method takes precedence
@@ -498,13 +500,13 @@ class ConcatenatedDataSet(DataSet):
         self.observer = ','.join(unique_in_order([d.observer for d in datasets]))
         self.description = ' | '.join(unique_in_order([d.description for d in datasets]))
         self.experiment_id = ','.join(unique_in_order([d.experiment_id for d in datasets]))
-        obs_params = unique_in_order(reduce(lambda x, y: x + y, [d.obs_params.keys() for d in datasets]))
+        obs_params = unique_in_order(reduce(lambda x, y: x + y, [list(d.obs_params.keys()) for d in datasets]))
         for param in obs_params:
             values = [d.obs_params.get(param, '') for d in datasets]
             # If all values are the same, extract the unique value from the list; otherwise keep the list
             # The itertools.groupby function should work on any value, even unhashable and unorderable ones
             self.obs_params[param] = values[0] if len([k for k in itertools.groupby(values)]) == 1 else values
-        rx_ants = unique_in_order(reduce(lambda x, y: x + y, [d.receivers.keys() for d in datasets]))
+        rx_ants = unique_in_order(reduce(lambda x, y: x + y, [list(d.receivers.keys()) for d in datasets]))
         for ant in rx_ants:
             rx = [d.receivers.get(ant, '') for d in datasets]
             self.receivers[ant] = rx[0] if len([k for k in itertools.groupby(rx)]) == 1 else rx

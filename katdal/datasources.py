@@ -15,19 +15,24 @@
 ################################################################################
 
 """Various sources of correlator data and metadata."""
+from __future__ import print_function, division, absolute_import
 
-import urlparse
+from future import standard_library
+standard_library.install_aliases()
+from builtins import zip
+from builtins import object
+import urllib.parse
 import os
 import logging
 import itertools
-from collections import defaultdict
+from collections import defaultdict, Mapping
 
 import katsdptelstate
 import numpy as np
 import dask.array as da
 from dask.array.rechunk import intersect_chunks
 
-from .sensordata import TelstateSensorData
+from .sensordata import TelstateSensorData, TelstateToStr
 from .chunkstore_s3 import S3ChunkStore
 from .chunkstore_npy import NpyFileChunkStore
 
@@ -130,7 +135,7 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
             if has_array.ndim < darray['flags'].ndim:
                 chunks += tuple((x,) for x in darray['flags'].shape[has_array.ndim:])
             intersections = intersect_chunks(darray['flags'].chunks, chunks)
-            for has, pieces in itertools.izip(has_array.flat, intersections):
+            for has, pieces in zip(has_array.flat, intersections):
                 if not has:
                     for piece in pieces:
                         chunk_idx, slices = zip(*piece)
@@ -193,7 +198,7 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None,
 
     Returns
     -------
-    telstate : :class:`katsdptelstate.TelescopeState` object
+    telstate : :class:`~katdal.sensordata.TelstateToStr` object
         Telstate with a view that incorporates capture block, stream and combo
 
     Raises
@@ -202,16 +207,17 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None,
         If no capture block or L0 stream could be detected (with no override)
     """
     # Detect the capture block
+    telstate = TelstateToStr(telstate)
     if not capture_block_id:
         try:
-            capture_block_id = str(telstate['capture_block_id'])
+            capture_block_id = telstate['capture_block_id']
         except KeyError:
             raise ValueError('No capture block ID found in telstate - '
                              'please specify it manually')
     # Detect the captured stream
     if not stream_name:
         try:
-            stream_name = str(telstate['stream_name'])
+            stream_name = telstate['stream_name']
         except KeyError:
             raise ValueError('No captured stream found in telstate - '
                              'please specify the stream manually')
@@ -236,7 +242,7 @@ def _shorten_key(telstate, key):
 
     Parameters
     ----------
-    telstate : :class:`katsdptelstate.TelescopeState` object
+    telstate : :class:`katdal.sensordata.TelstateToStr` object
         Telescope state
     key : string
         Telescope state key
@@ -303,7 +309,7 @@ def _infer_chunk_store(url_parts, telstate, npy_store_path=None,
     ----------
     url_parts : :class:`urlparse.ParseResult` object
         Parsed dataset URL
-    telstate : :class:`katsdptelstate.TelescopeState` object
+    telstate : :class:`~katdal.sensordata.TelstateToStr` object
         Telescope state
     npy_store_path : string, optional
         Top-level directory of NpyFileChunkStore (overrides the default)
@@ -347,8 +353,8 @@ def _upgrade_flags(chunk_info, telstate):
     """Look for associated flag streams and override chunk_info to use them."""
     try:
         archived_streams = telstate['sdp_archived_streams']
-        capture_block_id = str(telstate['capture_block_id'])
-        stream_name = str(telstate['stream_name'])
+        capture_block_id = telstate['capture_block_id']
+        stream_name = telstate['stream_name']
     except KeyError as e:
         logger.debug('No additional flag capture streams found: %s', e)
         return chunk_info
@@ -395,7 +401,7 @@ class TelstateDataSource(DataSource):
     """
     def __init__(self, telstate, chunk_store=None, timestamps=None,
                  source_name='telstate'):
-        self.telstate = telstate
+        self.telstate = TelstateToStr(telstate)
         # Collect sensors
         sensors = {}
         for key in telstate.keys():
@@ -435,10 +441,10 @@ class TelstateDataSource(DataSource):
         kwargs : dict, optional
             Extra keyword arguments passed to telstate view and chunk store init
         """
-        url_parts = urlparse.urlparse(url, scheme='file')
+        url_parts = urllib.parse.urlparse(url, scheme='file')
         # Merge key-value pairs from URL query with keyword arguments
         # of function (the latter takes precedence)
-        url_kwargs = dict(urlparse.parse_qsl(url_parts.query))
+        url_kwargs = dict(urllib.parse.parse_qsl(url_parts.query))
         url_kwargs.update(kwargs)
         kwargs = url_kwargs
         # Extract Redis database number if provided
@@ -468,7 +474,7 @@ def open_data_source(url, **kwargs):
         return TelstateDataSource.from_url(url, **kwargs)
     except DataSourceNotFound as err:
         # Amend the error message for the case of an IP address without scheme
-        url_parts = urlparse.urlparse(url, scheme='file')
+        url_parts = urllib.parse.urlparse(url, scheme='file')
         if url_parts.scheme == 'file' and not os.path.isfile(url_parts.path):
             raise DataSourceNotFound(
                 '{} (add a URL scheme if {!r} is not meant to be a file)'

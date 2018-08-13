@@ -23,7 +23,9 @@ This can use either casapy (the default) or pyrap to create the MS.
 # Ludwig Schwardt
 # 25 March 2008
 #
+from __future__ import print_function, division, absolute_import
 
+from builtins import range
 import sys
 import os
 import os.path
@@ -89,7 +91,7 @@ def define_hypercolumn(desc):
     """Add hypercolumn definitions to table description."""
     desc['_define_hypercolumn_'] = dict([(v['dataManagerGroup'],
                                           dict(HCdatanames=[k], HCndim=v['ndim'] + 1))
-                                         for k, v in desc.iteritems() if v['dataManagerType'] == 'TiledShapeStMan'])
+                                         for k, v in desc.items() if v['dataManagerType'] == 'TiledShapeStMan'])
 
 # Map Measurement Set string types to numpy types
 MS_TO_NP_TYPE_MAP = {
@@ -135,7 +137,7 @@ def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
     table_desc = tables.required_ms_desc("MAIN")
 
     # Take columns we wish to modify
-    extra_table_desc = { c: d for c, d in table_desc.iteritems()
+    extra_table_desc = { c: d for c, d in table_desc.items()
                                         if c in modify_columns }
 
     # Used to set the SPEC for each Data Manager Group
@@ -624,8 +626,8 @@ def populate_polarization_dict(ms_pols=['HH', 'VV'], stokes_i=False, circular=Fa
     pol_types = {'I': 1, 'Q': 2, 'U': 3, 'V': 4, 'RR': 5, 'RL': 6, 'LR': 7, 'LL': 8,
                  'HH': 9, 'VV': 12, 'HV': 10, 'VH': 11}
     if len(ms_pols) > 1 and stokes_i:
-        print "Warning: Polarisation to be marked as stokes, but more than 1 polarisation " \
-              "product specified. Using first specified pol (%s)" % ms_pols[0]
+        print("Warning: Polarisation to be marked as stokes, but more than 1 polarisation "
+              "product specified. Using first specified pol (%s)" % ms_pols[0])
         ms_pols = [ms_pols[0]]
     #  Indices describing receptors of feed going into correlation (integer, 2-dim)
     polarization_dict = {}
@@ -983,51 +985,53 @@ def populate_ms_dict(uvw_coordinates, vis_data, timestamps, antenna1_index, ante
 def open_main(ms_name, verbose=True):
     t = open_table(ms_name, ack=verbose)
     if t is None:
-        print "Failed to open main table for writing."
+        print("Failed to open main table for writing.")
         sys.exit(1)
     return t
 
 
 def write_rows(t, row_dict, verbose=True):
-    num_rows = row_dict.values()[0].shape[0]
+    num_rows = list(row_dict.values())[0].shape[0]
     # Append rows to the table by starting after the last row in table
     startrow = t.nrows()
     # Add the space required for this group of rows
     t.addrows(num_rows)
     if verbose:
-        print "  added %d rows" % (num_rows,)
-    for col_name, col_data in row_dict.iteritems():
+        print("  added %d rows" % (num_rows,))
+    for col_name, col_data in row_dict.items():
         if col_name in t.colnames():
+            if col_data.dtype.kind == 'U':
+                col_data = np.char.encode(col_data, encoding='utf-8')
             try:
                 t.putcol(col_name, col_data.T if casacore_binding == 'casapy' else col_data, startrow)
                 if verbose:
-                    print "  wrote column '%s' with shape %s" % (col_name, col_data.shape)
-            except RuntimeError, err:
-                print "  error writing column '%s' with shape %s (%s)" % (col_name, col_data.shape, err)
+                    print("  wrote column '%s' with shape %s" % (col_name, col_data.shape))
+            except RuntimeError as err:
+                print("  error writing column '%s' with shape %s (%s)" % (col_name, col_data.shape, err))
         else:
             if verbose:
-                print "  column '%s' not in table" % (col_name,)
+                print("  column '%s' not in table" % (col_name,))
 
 
 def write_dict(ms_dict, ms_name, verbose=True):
     # Iterate through subtables
-    for sub_table_name, sub_dict in ms_dict.iteritems():
+    for sub_table_name, sub_dict in ms_dict.items():
         # Allow parsing of single dict and array of dicts in the same fashion
         if isinstance(sub_dict, dict):
             sub_dict = [sub_dict]
         # Iterate through row groups that are separate dicts within the sub_dict array
         for row_dict in sub_dict:
             if verbose:
-                print "Table %s:" % (sub_table_name,)
+                print("Table %s:" % (sub_table_name,))
             # Open table using whichever casacore library was found
             t = open_table(ms_name, ack=verbose) if sub_table_name == 'MAIN' else \
                 open_table(os.path.join(ms_name, sub_table_name))
             if verbose and t is not None:
-                print "  opened successfully"
+                print("  opened successfully")
             if t is None:
-                print "  could not open table!"
+                print("  could not open table!")
                 break
             write_rows(t, row_dict, verbose)
             t.close()
             if verbose:
-                print "  closed successfully"
+                print("  closed successfully")

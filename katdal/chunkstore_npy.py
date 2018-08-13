@@ -15,8 +15,10 @@
 ################################################################################
 
 """A store of chunks (i.e. N-dimensional arrays) based on NPY files."""
+from __future__ import print_function, division, absolute_import
 
 import os
+import errno
 
 import numpy as np
 
@@ -79,7 +81,7 @@ class NpyFileChunkStore(ChunkStore):
             os.makedirs(os.path.dirname(base_filename))
         except OSError as e:
             # Be happy if someone already created the path
-            if e.errno != os.errno.EEXIST:
+            if e.errno != errno.EEXIST:
                 raise
         with self._standard_errors(chunk_name):
             # Rename the file when done writing to make put_chunk() atomic

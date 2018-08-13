@@ -1,11 +1,10 @@
 dask
-defusedxml==0.5.0
+defusedxml
 docutils
 fakeredis
 future
 h5py
 ipaddress
-jmespath==0.9.3
 katversion
 netifaces
 numpy

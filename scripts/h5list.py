@@ -23,6 +23,8 @@
 # 19 December 2011
 #
 
+from __future__ import print_function, division, absolute_import
+
 import os
 import optparse
 import glob
@@ -54,17 +56,17 @@ print("Name          Ver Observer   StartTimeSAST       Shape               Size
 for f in files:
     try:
         d = katdal.open(f, quicklook=True)
-    except Exception, e:
-        print '%s %s - %s' % (f, e.__class__.__name__, e)
+    except Exception as e:
+        print('%s %s - %s' % (f, e.__class__.__name__, e))
         continue
     name = os.path.basename(f)
     name = (name[:10] + '...') if len(name) > 13 else name
     all_ants = ('ant1', 'ant2', 'ant3', 'ant4', 'ant5', 'ant6', 'ant7')
     file_ants = [ant.name for ant in d.ants]
     ants = ''.join([(ant[3:] if ant in file_ants else '-') for ant in all_ants])
-    print '%13s %3s %10s %19s (%6d,%5d,%4d) %6.2f %6.3f %3d %8.3f %s %4d %5d %s' % \
+    print('%13s %3s %10s %19s (%6d,%5d,%4d) %6.2f %6.3f %3d %8.3f %s %4d %5d %s' %
           (name, d.version, d.observer.strip()[:10].ljust(10), d.start_time.local()[:19],
            d.shape[0], d.shape[1], d.shape[2], d.size / 1024. / 1024. / 1024., 1.0 / d.dump_period,
            len(d.spectral_windows), d.spectral_windows[d.spw].centre_freq / 1e6, ants,
-           len(d.catalogue), len(d.scan_indices), d.description)
+           len(d.catalogue), len(d.scan_indices), d.description))
     del d

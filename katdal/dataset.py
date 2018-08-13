@@ -15,9 +15,14 @@
 ################################################################################
 
 """Base class for accessing a visibility data set."""
+from __future__ import print_function, division, absolute_import
 
+from builtins import zip
+from past.builtins import basestring
+from builtins import object
 import time
 import logging
+import numbers
 
 import numpy as np
 
@@ -460,7 +465,7 @@ class DataSet(object):
         # Now add dynamic information, which depends on the current selection criteria
         descr += ['-------------------------------------------------------------------------------',
                   'Data selected according to the following criteria:']
-        for k, v in self._selection.iteritems():
+        for k, v in sorted(self._selection.items()):
             descr.append('  %s=%s' % (k, ("'%s'" % (v,)) if isinstance(v, basestring) else v))
         descr.append('-------------------------------------------------------------------------------')
         descr.append('Shape: (%d dumps, %d channels, %d correlation products) => Size: %s' %
@@ -733,7 +738,7 @@ class DataSet(object):
         # Now add the new selection criteria to the list (after the existing ones were kept or culled)
         self._selection.update(kwargs)
 
-        for k, v in self._selection.iteritems():
+        for k, v in self._selection.items():
             # Selections that affect time axis
             if k == 'dumps':
                 if np.asarray(v).dtype == np.bool:
@@ -753,7 +758,7 @@ class DataSet(object):
                 scan_sensor = self.sensor.get('Observation/scan_state' if k == 'scans' else 'Observation/label')
                 scan_index_sensor = self.sensor.get('Observation/%s_index' % (k[:-1],))
                 for scan in scans:
-                    if isinstance(scan, int):
+                    if isinstance(scan, numbers.Integral):
                         scan_keep |= (scan_index_sensor == scan)
                     elif scan[0] == '~':
                         scan_keep |= ~(scan_sensor == scan[1:])
@@ -765,7 +770,7 @@ class DataSet(object):
                 target_keep = np.zeros(len(self._time_keep), dtype=np.bool)
                 target_index_sensor = self.sensor.get('Observation/target_index')
                 for t in targets:
-                    if isinstance(t, int):
+                    if isinstance(t, numbers.Integral):
                         target_index = t
                     elif t not in self.catalogue:
                         # Warn here, in case the user gets the target subtly wrong and wonders why it is not selected
@@ -927,7 +932,7 @@ class DataSet(object):
         """
         compscans = self.compscan_indices[:]
         # This is the active selection onto which compscan selection will be added
-        preselection = dict(self._selection.items())
+        preselection = dict(list(self._selection.items()))
         # This will ensure that the original selection is properly restored
         preselection['reset'] = 'T'
         old_timekeep = self._time_keep.copy()

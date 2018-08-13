@@ -15,7 +15,13 @@
 ################################################################################
 
 """Data accessor class for HDF5 files produced by RTS correlator."""
+from __future__ import print_function, division, absolute_import
 
+from future import standard_library
+standard_library.install_aliases()
+from builtins import zip
+from builtins import range
+from past.builtins import basestring
 import logging
 from collections import Counter
 
@@ -30,7 +36,7 @@ except ImportError:
 from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow,
                       DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target)
 from .sensordata import (SensorCache, RecordSensorData,
-                         H5TelstateSensorData, pickle_loads)
+                         H5TelstateSensorData, pickle_loads, to_str)
 from .categorical import CategoricalData
 from .lazy_indexer import LazyIndexer, LazyTransform
 
@@ -180,10 +186,10 @@ class H5DataV3(DataSet):
 
         # Load main HDF5 groups
         data_group, tm_group = f['Data'], f['TelescopeModel']
-        self.stream_name = str(data_group.attrs.get('stream_name', 'sdp_l0'))
+        self.stream_name = to_str(data_group.attrs.get('stream_name', 'sdp_l0'))
         # Pick first group with appropriate class as CBF
         cbfs = [comp for comp in tm_group
-                if tm_group[comp].attrs.get('class') == 'CorrelatorBeamformer']
+                if to_str(tm_group[comp].attrs.get('class')) == 'CorrelatorBeamformer']
         cbf_group = tm_group[cbfs[0]]
         # Get SDP group, if present
         sdp_group = tm_group.get('sdp')
@@ -197,8 +203,8 @@ class H5DataV3(DataSet):
             """A sensor is defined as a non-empty dataset with expected dtype."""
             if isinstance(obj, h5py.Dataset) and obj.shape != () and \
                obj.dtype.names == ('timestamp', 'value', 'status'):
-                comp_name, sensor_name = name.split('/', 1)
-                comp_type = tm_group[comp_name].attrs.get('class')
+                comp_name, sensor_name = to_str(name).split('/', 1)
+                comp_type = to_str(tm_group[comp_name].attrs.get('class'))
                 # Mapping from specific components to generic sensor groups
                 # Put antenna sensors in virtual Antenna group, the rest according to component type
                 group_lookup = {'AntennaPositioner': 'Antennas/' + comp_name}
@@ -213,7 +219,7 @@ class H5DataV3(DataSet):
                 # Before 2016-05-09 the dtype was ('value', 'timestamp')
                 if isinstance(obj, h5py.Dataset) and obj.shape != () and \
                    set(obj.dtype.names) == {'timestamp', 'value'}:
-                    name = 'TelescopeState/' + name
+                    name = 'TelescopeState/' + to_str(name)
                     cache[name] = H5TelstateSensorData(obj, name)
             f.file['TelescopeState'].visititems(register_telstate_sensor)
 
@@ -224,7 +230,7 @@ class H5DataV3(DataSet):
         self.dump_period = self._get_l0_attr('int_time', cbf_group, sdp_group)
         # Determine if timestamps are already aligned with middle of dumps
         try:
-            ts_ref = data_group['timestamps'].attrs['timestamp_reference']
+            ts_ref = to_str(data_group['timestamps'].attrs['timestamp_reference'])
             assert ts_ref == 'centroid', "Don't know timestamp reference %r" % (ts_ref,)
             offset_to_middle_of_dump = 0.0
         except KeyError:
@@ -259,7 +265,7 @@ class H5DataV3(DataSet):
         data_duration = self._timestamps[-1] + self.dump_period - self._timestamps[0]
         sensor_start_time = 0.0
         # Pick first regular sensor with longer data record than data (hopefully straddling it)
-        for sensor_name, sensor_data in cache.iteritems():
+        for sensor_name, sensor_data in cache.items():
             if sensor_name.endswith(regular_sensors) and sensor_data:
                 sensor_times = sensor_data['timestamp']
                 proposed_sensor_start_time = sensor_times[0]
@@ -333,7 +339,7 @@ class H5DataV3(DataSet):
             dummy_dataset('dummy_flags', shape=self._vis.shape[:-1], dtype=np.uint8, value=0)
         # Obtain flag descriptions from file or recreate default flag description table
         self._flags_description = data_group['flags_description'] if 'flags_description' in data_group else \
-            np.array(zip(FLAG_NAMES, FLAG_DESCRIPTIONS))
+            np.array(list(zip(FLAG_NAMES, FLAG_DESCRIPTIONS)))
         self._flags_select = np.array([0], dtype=np.uint8)
         self._flags_keep = 'all'
 
@@ -346,7 +352,7 @@ class H5DataV3(DataSet):
             dummy_dataset('dummy_weights_channel', shape=self._vis.shape[:-2], dtype=np.float32, value=1.0)
         # Obtain weight descriptions from file or recreate default weight description table
         self._weights_description = data_group['weights_description'] if 'weights_description' in data_group else \
-            np.array(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS))
+            np.array(list(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS)))
         self._weights_select = []
         self._weights_keep = 'all'
 
@@ -355,7 +361,7 @@ class H5DataV3(DataSet):
         self.obs_params = {}
         # obs_params is a telstate attribute in v3.9 so try that first
         if 'capture_block_id' in f.attrs:
-            attr_name = f.attrs['capture_block_id'] + '_obs_params'
+            attr_name = to_str(f.attrs['capture_block_id']) + '_obs_params'
             self.obs_params = self._get_telstate_attr(attr_name, {})
         else:
             try:
@@ -383,15 +389,15 @@ class H5DataV3(DataSet):
         # All antennas in configuration as katpoint Antenna objects
         ants = []
         for name in tm_group:
-            if tm_group[name].attrs.get('class') != 'AntennaPositioner':
+            if to_str(tm_group[name].attrs.get('class')) != 'AntennaPositioner':
                 continue
             try:
                 ant_description = self.sensor['Antennas/%s/observer' % (name,)][0]
             except KeyError:
                 try:
-                    ant_description = tm_group[name].attrs['observer']
+                    ant_description = to_str(tm_group[name].attrs['observer'])
                 except KeyError:
-                    ant_description = tm_group[name].attrs['description']
+                    ant_description = to_str(tm_group[name].attrs['description'])
             ants.append(katpoint.Antenna(ant_description))
         # Keep the basic list sorted as far as possible
         ants = sorted(ants)
@@ -403,7 +409,7 @@ class H5DataV3(DataSet):
         # By default, only pick antennas that were in use by the script
         obs_ants = self.obs_params.get('ants')
         # Otherwise fall back to the list of antennas common to CAM and CBF
-        obs_ants = obs_ants.split(',') if obs_ants else list(cam_ants & cbf_ants)
+        obs_ants = obs_ants.split(',') if obs_ants else sorted(cam_ants & cbf_ants)
         self.ref_ant = obs_ants[0] if not ref_ant else ref_ant
 
         if len(corrprods) != self._vis.shape[2]:
@@ -561,7 +567,7 @@ class H5DataV3(DataSet):
         # ASSUMPTION: Number of scans >= number of labels (i.e. each label should introduce a new scan)
         scan.add_unmatched(label.events)
         self.sensor['Observation/scan_state'] = scan
-        self.sensor['Observation/scan_index'] = CategoricalData(range(len(scan)), scan.events)
+        self.sensor['Observation/scan_index'] = CategoricalData(list(range(len(scan))), scan.events)
         # Move proper label events onto the nearest scan start
         # ASSUMPTION: Number of labels <= number of scans (i.e. only a single label allowed per scan)
         label.align(scan.events)
@@ -569,7 +575,7 @@ class H5DataV3(DataSet):
         if label.events[0] > 0:
             label.add(0, '')
         self.sensor['Observation/label'] = label
-        self.sensor['Observation/compscan_index'] = CategoricalData(range(len(label)), label.events)
+        self.sensor['Observation/compscan_index'] = CategoricalData(list(range(len(label))), label.events)
         # Use the target sensor of reference antenna to set the target for each scan
         target = self.sensor.get('Antennas/%s/target' % (self.ref_ant,))
         # RTS workaround: Remove an initial blank target (typically because the antenna is stopped at the start)
@@ -601,6 +607,8 @@ class H5DataV3(DataSet):
         (created before 2016-11-30) in which the attributes were not pickled.
         """
         try:
+            # Note: don't apply to_str to value: if it is a binary pickle it
+            # needs to stay binary
             value = self.file['TelescopeState'].attrs[key]
             return pickle_loads(value, no_unpickle)
         except (KeyError, pickle.UnpicklingError):
@@ -631,7 +639,7 @@ class H5DataV3(DataSet):
         h5_group = kwargs.get('h5_group')
         if h5_group is not None:
             try:
-                value = h5_group.attrs[attr_name]
+                value = to_str(h5_group.attrs[attr_name])
             except KeyError:
                 pass
             else:
@@ -757,19 +765,19 @@ class H5DataV3(DataSet):
             tm_group = f['TelescopeModel']
             # Pick first group with appropriate class as CBF
             cbfs = [comp for comp in tm_group
-                    if tm_group[comp].attrs.get('class') == 'CorrelatorBeamformer']
+                    if to_str(tm_group[comp].attrs.get('class')) == 'CorrelatorBeamformer']
             cbf_group = tm_group[cbfs[0]]
-            corrprods = cbf_group.attrs['bls_ordering']
+            corrprods = to_str(cbf_group.attrs['bls_ordering'])
             # Work around early RTS correlator bug by re-ordering labels
             if rotate_bls:
-                corrprods = corrprods[range(1, len(corrprods)) + [0]]
+                corrprods = corrprods[list(range(1, len(corrprods))) + [0]]
         return corrprods
 
     @staticmethod
     def _open(filename, mode='r'):
         """Open file and do basic version sanity check."""
         f = h5py.File(filename, mode)
-        version = f.attrs.get('version', '1.x')
+        version = to_str(f.attrs.get('version', '1.x'))
         if not version.startswith('3.'):
             raise WrongVersion("Attempting to load version '%s' file with version 3 loader" % (version,))
         return f, version
@@ -792,18 +800,18 @@ class H5DataV3(DataSet):
         """
         f, version = H5DataV3._open(filename)
         tm_group = f['TelescopeModel']
-        stream_name = f['Data'].attrs.get('stream_name', 'sdp_l0')
+        stream_name = to_str(f['Data'].attrs.get('stream_name', 'sdp_l0'))
         ants = []
         for name in tm_group:
-            if tm_group[name].attrs.get('class') != 'AntennaPositioner':
+            if to_str(tm_group[name].attrs.get('class')) != 'AntennaPositioner':
                 continue
             try:
                 ant_description = tm_group[name]['observer']['value'][0]
             except KeyError:
                 try:
-                    ant_description = tm_group[name].attrs['observer']
+                    ant_description = to_str(tm_group[name].attrs['observer'])
                 except KeyError:
-                    ant_description = tm_group[name].attrs['description']
+                    ant_description = to_str(tm_group[name].attrs['description'])
             ants.append(katpoint.Antenna(ant_description))
         cam_ants = set(ant.name for ant in ants)
         # Original list of correlation products as pairs of input labels
@@ -813,7 +821,7 @@ class H5DataV3(DataSet):
         # obs_params is a telstate attribute in v3.9 so try that first
         obs_params = {}
         if 'capture_block_id' in f.attrs:
-            attr_name = f.attrs['capture_block_id'] + '_obs_params'
+            attr_name = to_str(f.attrs['capture_block_id']) + '_obs_params'
             value = f['TelescopeState'].attrs.get(attr_name)
             if value is not None:
                 obs_params = pickle_loads(value)
@@ -822,6 +830,7 @@ class H5DataV3(DataSet):
             tm_params = tm_group['obs/params']
             for obs_param in tm_params['value']:
                 if obs_param:
+                    obs_param = to_str(obs_param)
                     key, val = obs_param.split(' ', 1)
                     obs_params[key] = np.lib.utils.safe_eval(val)
         # By default, only pick antennas that were in use by the script
@@ -849,7 +858,7 @@ class H5DataV3(DataSet):
         """
         f, version = H5DataV3._open(filename)
         target_list = f['TelescopeModel/cbf/target']
-        all_target_strings = [target_data[1] for target_data in target_list]
+        all_target_strings = [to_str(target_data[1]) for target_data in target_list]
         return katpoint.Catalogue(np.unique(all_target_strings))
 
     def __str__(self):
@@ -860,8 +869,10 @@ class H5DataV3(DataSet):
             descr.append('-------------------------------------------------------------------------------')
             descr.append('Process log:')
             for proc in self.file['History']['process_log']:
-                param_list = '%15s:' % proc[0]
-                for param in proc[1].split(','):
+                # proc has a structured dtype and to_str doesn't work on it, so
+                # we have to to_str each element.
+                param_list = '%15s:' % to_str(proc[0])
+                for param in to_str(proc[1]).split(','):
                     param_list += '  %s' % param
                 descr.append(param_list)
         return '\n'.join(descr)

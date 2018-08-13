@@ -14,7 +14,9 @@
 # limitations under the License.
 ################################################################################
 
-from __future__ import print_function
+from __future__ import print_function, division, absolute_import
+
+from builtins import range
 import numpy as np
 import numba
 

@@ -18,11 +18,13 @@
 
 # Update the antenna positions in the specified HDF5 file.
 
+from __future__ import print_function, division, absolute_import
+
 import h5py
 import sys
 
 if len(sys.argv) < 2:
-    print "Update antenna positions in the specified HDF5 file.\n\nUsage: fix_ant_positions.py <filename.h5>\n"
+    print("Update antenna positions in the specified HDF5 file.\n\nUsage: fix_ant_positions.py <filename.h5>\n")
     sys.exit()
 
 f = h5py.File(sys.argv[1])
@@ -37,4 +39,4 @@ f['MetaData/Configuration/Antennas/ant7'].attrs['description'] = 'ant7, -30:43:1
 
 f.close()
 
-print "Updated antenna positions..."
+print("Updated antenna positions...")

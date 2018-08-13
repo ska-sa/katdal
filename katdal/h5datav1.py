@@ -15,7 +15,10 @@
 ################################################################################
 
 """Data accessor class for HDF5 files produced by Fringe Finder correlator."""
+from __future__ import print_function, division, absolute_import
 
+from builtins import zip
+from builtins import range
 import logging
 import re
 
@@ -25,7 +28,7 @@ import katpoint
 
 from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow,
                       DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target)
-from .sensordata import RecordSensorData, SensorCache
+from .sensordata import RecordSensorData, SensorCache, to_str
 from .categorical import CategoricalData
 from .lazy_indexer import LazyIndexer, LazyTransform
 from .concatdata import ConcatenatedLazyIndexer
@@ -99,9 +102,9 @@ class H5DataV1(DataSet):
         # Load main HDF5 groups
         ants_group, corr_group, data_group = f['Antennas'], f['Correlator'], f['Scans']
         # Get observation script parameters, with defaults
-        self.observer = self.obs_params['observer'] = f.attrs.get('observer', '')
-        self.description = self.obs_params['description'] = f.attrs.get('description', '')
-        self.experiment_id = self.obs_params['experiment_id'] = f.attrs.get('experiment_id', '')
+        self.observer = self.obs_params['observer'] = to_str(f.attrs.get('observer', ''))
+        self.description = self.obs_params['description'] = to_str(f.attrs.get('description', ''))
+        self.experiment_id = self.obs_params['experiment_id'] = to_str(f.attrs.get('experiment_id', ''))
 
         # Collect all groups below data group that fit the description of a scan group
         scan_groups = []
@@ -152,7 +155,7 @@ class H5DataV1(DataSet):
             if isinstance(obj, h5py.Dataset) and obj.shape != () and \
                obj.dtype.names == ('timestamp', 'value', 'status'):
                 # Assume sensor dataset name is AntennaN/Sensors/dataset and rename it to Antennas/{ant}/dataset
-                ant_name = obj.parent.parent.attrs['description'].split(',')[0]
+                ant_name = to_str(obj.parent.parent.attrs['description']).split(',')[0]
                 standardised_name = 'Antennas/%s/%s' % (ant_name, name.split('/')[-1])
                 cache[standardised_name] = RecordSensorData(obj, standardised_name)
         ants_group.visititems(register_sensor)
@@ -164,12 +167,12 @@ class H5DataV1(DataSet):
 
         # ------ Extract subarrays ------
 
-        ants = [katpoint.Antenna(ants_group[group].attrs['description']) for group in ants_group]
+        ants = [katpoint.Antenna(to_str(ants_group[group].attrs['description'])) for group in ants_group]
         self.ref_ant = ants[0].name if not ref_ant else ref_ant
         # Map from (old-style) DBE input label (e.g. '0x') to the new antenna-based input label (e.g. 'ant1h')
-        input_label = dict([(ants_group[group]['H'].attrs['dbe_input'], ant.name + 'h')
+        input_label = dict([(to_str(ants_group[group]['H'].attrs['dbe_input']), ant.name + 'h')
                             for ant, group in zip(ants, ants_group.keys()) if 'H' in ants_group[group]])
-        input_label.update(dict([(ants_group[group]['V'].attrs['dbe_input'], ant.name + 'v')
+        input_label.update(dict([(to_str(ants_group[group]['V'].attrs['dbe_input']), ant.name + 'v')
                                  for ant, group in zip(ants, ants_group.keys()) if 'V' in ants_group[group]]))
         # Split DBE input product string into its separate inputs
         split_product = re.compile(r'(\d+[xy])(\d+[xy])')
@@ -177,6 +180,7 @@ class H5DataV1(DataSet):
         # the latter to pairs of input labels (this assumes that the corrprod indices are sorted)
         corrprods = []
         for corrind, product in corr_group['input_map']:
+            product = to_str(product)
             match = split_product.match(product)
             if match is None:
                 raise BrokenFile("Unknown DBE input product '%s' in input map (expected e.g. '0x1y')" % (product,))
@@ -208,21 +212,21 @@ class H5DataV1(DataSet):
         # ------ Extract scans / compound scans / targets ------
 
         # Fringe Finder augment does not store antenna activity sensors - use scan + compscan labels as a guess
-        scan_labels = [s.attrs.get('label', '') for s in self._scan_groups]
-        compscan_labels = [s.parent.attrs.get('label', '') for s in self._scan_groups]
+        scan_labels = [to_str(s.attrs.get('label', '')) for s in self._scan_groups]
+        compscan_labels = [to_str(s.parent.attrs.get('label', '')) for s in self._scan_groups]
         scan_states = [_labels_to_state(s, cs) for s, cs in zip(scan_labels, compscan_labels)]
         # The scans are already partitioned into groups - use corresponding segments as start events
         self.sensor['Observation/scan_state'] = CategoricalData(scan_states, self._segments)
-        self.sensor['Observation/scan_index'] = CategoricalData(range(len(scan_states)), self._segments)
+        self.sensor['Observation/scan_index'] = CategoricalData(list(range(len(scan_states))), self._segments)
         # Group scans together based on compscan group name and have one label per compound scan
         compscan = CategoricalData([s.parent.name for s in self._scan_groups], self._segments)
         compscan.remove_repeats()
         label = CategoricalData(compscan_labels, self._segments)
         label.align(compscan.events)
         self.sensor['Observation/label'] = label
-        self.sensor['Observation/compscan_index'] = CategoricalData(range(len(label)), label.events)
+        self.sensor['Observation/compscan_index'] = CategoricalData(list(range(len(label))), label.events)
         # Extract targets from compscan groups, replacing empty or bad descriptions with dummy target
-        target = CategoricalData([_robust_target(s.parent.attrs.get('target', ''))
+        target = CategoricalData([_robust_target(to_str(s.parent.attrs.get('target', '')))
                                   for s in self._scan_groups], self._segments)
         target.align(compscan.events)
         self.sensor['Observation/target'] = target
@@ -242,7 +246,7 @@ class H5DataV1(DataSet):
     def _open(filename, mode='r'):
         """Open file and do basic version and augmentation sanity check."""
         f = h5py.File(filename, mode)
-        version = f.attrs.get('version', '1.x')
+        version = to_str(f.attrs.get('version', '1.x'))
         if not version.startswith('1.'):
             raise WrongVersion("Attempting to load version '%s' file with version 1 loader" % (version,))
         if 'augment' not in f.attrs:
@@ -268,7 +272,7 @@ class H5DataV1(DataSet):
         """
         f, version = H5DataV1._open(filename)
         ants_group = f['Antennas']
-        antennas = [katpoint.Antenna(ants_group[group].attrs['description'])
+        antennas = [katpoint.Antenna(to_str(ants_group[group].attrs['description']))
                     for group in ants_group]
         return antennas
 
@@ -291,7 +295,7 @@ class H5DataV1(DataSet):
         """
         f, version = H5DataV1._open(filename)
         compound_scans = f['Scans']
-        all_target_strings = [compound_scans[group].attrs['target']
+        all_target_strings = [to_str(compound_scans[group].attrs['target'])
                               for group in compound_scans]
         return katpoint.Catalogue(np.unique(all_target_strings))
 

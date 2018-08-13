@@ -15,7 +15,11 @@
 ################################################################################
 
 """Data accessor class for data and metadata from various sources in v4 format."""
+from __future__ import print_function, division, absolute_import
 
+from builtins import zip
+from builtins import range
+from past.builtins import basestring
 import logging
 
 import numpy as np
@@ -173,7 +177,7 @@ class VisibilityDataV4(DataSet):
         # By default, only pick antennas that were in use by the script
         obs_ants = self.obs_params.get('ants')
         # Otherwise fall back to the list of antennas common to CAM and SDP / CBF
-        obs_ants = obs_ants.split(',') if obs_ants else list(cam_ants & sdp_ants)
+        obs_ants = obs_ants.split(',') if obs_ants else sorted(cam_ants & sdp_ants)
         self.ref_ant = obs_ants[0] if not ref_ant else ref_ant
 
         self.subarrays = subs = [Subarray(ants, corrprods)]
@@ -250,7 +254,7 @@ class VisibilityDataV4(DataSet):
         # (i.e. each label should introduce a new scan)
         scan.add_unmatched(label.events)
         self.sensor['Observation/scan_state'] = scan
-        self.sensor['Observation/scan_index'] = CategoricalData(range(len(scan)),
+        self.sensor['Observation/scan_index'] = CategoricalData(list(range(len(scan))),
                                                                 scan.events)
         # Move proper label events onto the nearest scan start
         # ASSUMPTION: Number of labels <= number of scans
@@ -261,7 +265,7 @@ class VisibilityDataV4(DataSet):
         if label.events[0] > 0:
             label.add(0, '')
         self.sensor['Observation/label'] = label
-        self.sensor['Observation/compscan_index'] = CategoricalData(range(len(label)),
+        self.sensor['Observation/compscan_index'] = CategoricalData(list(range(len(label))),
                                                                     label.events)
         # Use the target sensor of reference antenna to set target for each scan
         target = self.sensor.get(self.ref_ant + '_target')

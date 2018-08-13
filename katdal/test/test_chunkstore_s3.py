@@ -15,13 +15,16 @@
 ################################################################################
 
 """Tests for :py:mod:`katdal.chunkstore_s3`."""
+from __future__ import print_function, division, absolute_import
 
+from future import standard_library
+standard_library.install_aliases()
 import tempfile
 import shutil
 import subprocess
 import re
 import threading
-import Queue
+import queue
 import os
 import time
 
@@ -40,11 +43,11 @@ def consume_stderr_find_port(process, queue):
     # Gobble up lines of text from stderr until it is closed when process exits.
     # This is the same as `for line in process.stderr:` but on Python 2 that
     # version deadlocks (see https://stackoverflow.com/a/1085100).
-    for line in iter(process.stderr.readline, ''):
+    for line in iter(process.stderr.readline, b''):
         if looking_for_port:
-            ports_found = re.search(r' port=([1-9]\d*)$', line.strip())
+            ports_found = re.search(br' port=([1-9]\d*)$', line.strip())
             if ports_found:
-                port_number = ports_found.group(1)
+                port_number = int(ports_found.group(1))
                 queue.put(port_number)
                 looking_for_port = False
 
@@ -71,7 +74,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         except OSError:
             raise SkipTest('Could not start fakes3 server (is it installed?)')
         # The assigned port number is scraped from stderr and returned via queue
-        port_queue = Queue.Queue()
+        port_queue = queue.Queue()
         # Ensure that the stderr of fakes3 process is continuously consumed.
         # This pattern is inspired by the "Launch, Interact, Get Output in
         # Real Time, Terminate" section of
@@ -82,7 +85,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         # Give up after waiting a few seconds for Fake S3 to announce its port
         try:
             port = port_queue.get(timeout=5)
-        except Queue.Empty:
+        except queue.Empty:
             raise OSError('Could not connect to fakes3 server')
         else:
             return 'http://%s:%s' % (host, port)

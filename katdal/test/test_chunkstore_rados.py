@@ -15,6 +15,7 @@
 ################################################################################
 
 """Tests for :py:mod:`katdal.chunkstore_s3`."""
+from __future__ import print_function, division, absolute_import
 
 from nose import SkipTest
 from nose.tools import assert_raises

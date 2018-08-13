@@ -24,6 +24,10 @@
 # 26 June 2012
 #
 
+from __future__ import print_function, division, absolute_import
+
+from builtins import range
+from builtins import object
 import optparse
 import time
 
@@ -82,8 +86,8 @@ class ResampledImage(object):
         # print "range = %d:%d:%d, %d:%d:%d" % (x_from, x_to, x_step, y_from, y_to, y_step)
         x_slice = slice(x_from, x_to, x_step)
         y_slice = slice(y_from, y_to, y_step)
-        x_inds = range(*x_slice.indices(self.data.shape[1]))
-        y_inds = range(*y_slice.indices(self.data.shape[0]))
+        x_inds = list(range(*x_slice.indices(self.data.shape[1])))
+        y_inds = list(range(*y_slice.indices(self.data.shape[0])))
         im_left = x_inds[0] / data_scale_x + data_limits.x0
         im_right = (x_inds[-1] + 1) / data_scale_x + data_limits.x0
         im_bottom = y_inds[0] / data_scale_y + data_limits.y0
@@ -94,8 +98,8 @@ class ResampledImage(object):
         data = self.extract(self.data, x_slice, y_slice)
         extract_time = time.time() - before
         size_bytes = data.size * np.dtype('complex64').itemsize
-        print "Loaded %d visibilities - x %s y %s - in %.2f seconds (%g MB/s)" % \
-              (data.size, x_slice, y_slice, extract_time, size_bytes * 1e-6 / extract_time)
+        print("Loaded %d visibilities - x %s y %s - in %.2f seconds (%g MB/s)" %
+              (data.size, x_slice, y_slice, extract_time, size_bytes * 1e-6 / extract_time))
         self.image.set_data(data)
         self.image._extent = (im_left, im_right, im_bottom, im_top)
         if self.autoscale:
@@ -118,7 +122,7 @@ parser.add_option('-s', '--autoscale', action='store_true', default=False,
 (opts, args) = parser.parse_args()
 
 if len(args) == 0:
-    print 'Please specify at least one HDF5 file to load'
+    print('Please specify at least one HDF5 file to load')
 else:
     d = katdal.open(args)
     ant = opts.ant if opts.ant is not None else d.ref_ant

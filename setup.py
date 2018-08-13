@@ -16,6 +16,8 @@
 # limitations under the License.
 ################################################################################
 
+from __future__ import print_function, division, absolute_import
+
 import os.path
 
 from setuptools import setup, find_packages
@@ -48,16 +50,17 @@ setup(name='katdal',
           'Programming Language :: Python',
           'Programming Language :: Python :: 2',
           'Programming Language :: Python :: 2.7',
+          'Programming Language :: Python :: 3',
           'Topic :: Software Development :: Libraries :: Python Modules',
           'Topic :: Scientific/Engineering :: Astronomy'],
       platforms=['OS Independent'],
       keywords='meerkat ska',
-      python_requires='~=2.7',
+      python_requires='>=2.7,!=3.0,!=3.1,!=3.2',
       setup_requires=['katversion'],
       use_katversion=True,
       install_requires=['numpy', 'katpoint', 'h5py>=2.3',
                         'katsdptelstate[rdb]', 'dask[array]',
-                        'requests', 'defusedxml'],
+                        'requests', 'defusedxml', 'future'],
       extras_require={
           'ms': ['python-casacore >= 2.2.1', 'numba'],
           's3': [],

@@ -15,10 +15,21 @@
 ################################################################################
 
 """Container that stores cached (interpolated) and uncached (raw) sensor data."""
+from __future__ import print_function, division, absolute_import
 
+from future import standard_library
+standard_library.install_aliases()
+import future.utils
+from builtins import zip
+from builtins import range
+from builtins import object
 import logging
+import functools
 import re
-import cPickle as pickle
+try:
+    import cPickle as pickle
+except ImportError:
+    import pickle
 
 import numpy as np
 import katpoint
@@ -113,8 +124,6 @@ class SensorData(object):
         """True if sensor has at least one data point."""
         raise NotImplementedError
 
-    __nonzero__ = __bool__
-
     def __repr__(self):
         """Short human-friendly string representation of sensor data object."""
         return "<katdal.%s '%s' type=%s at 0x%x>" % \
@@ -155,20 +164,63 @@ class RecordSensorData(SensorData):
         self._data = data
 
     def __getitem__(self, key):
-        """Extract timestamp, value and status of each sensor data point."""
-        return np.asarray(self._data[key])
+        """Extract timestamp, value and status of each sensor data point.
+
+        Values are passed through :func:`to_str`.
+        """
+        values = np.asarray(self._data[key])
+        if key == 'value':
+            values = to_str(values)
+        return values
 
     def __bool__(self):
         """True if sensor has at least one data point."""
         return len(self._data) > 0
-
-    __nonzero__ = __bool__
 
     def __repr__(self):
         """Short human-friendly string representation of sensor data object."""
         return "<katdal.%s '%s' len=%d type=%s at 0x%x>" % \
                (self.__class__.__name__, self.name,
                 len(self._data), self.dtype, id(self))
+
+
+def to_str(value):
+    """Convert string-likes to the native string type.
+
+    On Python 3, bytes are decoded to str, with surrogateencoding error
+    handler. On Python 2, unicode is encoded to str, with UTF-8 encoding.
+
+    Tuples, lists, dicts and numpy arrays are processed recursively, with the
+    exception that numpy structured types with string or object fields won't
+    be handled.
+    """
+    if future.utils.PY3:
+        if isinstance(value, np.ndarray) and value.dtype.kind == 'S':
+            return np.char.decode(value, 'utf-8', 'surrogateescape')
+        elif isinstance(value, bytes):
+            return value.decode('utf-8', 'surrogateescape')
+    else:
+        if isinstance(value, np.ndarray) and value.dtype.kind == 'U':
+            return np.char.encode(value, 'utf-8')
+        elif isinstance(value, unicode):
+            return value.encode('utf-8')
+
+    # We use type(value) so that subclasses are reconstructed correctly
+    if isinstance(value, (list, tuple)):
+        return type(value)(to_str(item) for item in value)
+    elif isinstance(value, dict):
+        return type(value)((to_str(key), to_str(val)) for key, val in value.items())
+    elif isinstance(value, np.ndarray) and value.dtype == 'O':
+        return np.vectorize(to_str, otypes='O')(value)
+    else:
+        return value
+
+
+# https://stackoverflow.com/questions/11305790
+if future.utils.PY3:
+    _pickle_loads = functools.partial(pickle.loads, encoding='latin1')
+else:
+    _pickle_loads = pickle.loads
 
 
 def pickle_loads(raw, no_unpickle=()):
@@ -181,13 +233,15 @@ def pickle_loads(raw, no_unpickle=()):
     If the value is a string and is in no_unpickle, it is returned verbatim.
     This is for backwards compatibility with older files that didn't use
     pickles.
+
+    The return value is also passed through :func:`to_str`.
     """
     if isinstance(raw, (np.void, np.ndarray)):
-        return pickle.loads(raw.tostring())
+        return to_str(_pickle_loads(raw.tostring()))
     elif raw not in no_unpickle:
-        return pickle.loads(raw)
+        return to_str(_pickle_loads(raw))
     else:
-        return raw
+        return to_str(raw)
 
 
 def _h5_telstate_unpack(s):
@@ -249,6 +303,59 @@ class H5TelstateSensorData(RecordSensorData):
             raise ValueError("Sensor %r data has no key '%s'" % (self.name, key))
 
 
+class TelstateToStr(object):
+    """Wrap an existing telescope state and pass return values through :meth:`to_str`"""
+    def __init__(self, telstate):
+        if isinstance(telstate, TelstateToStr):
+            self._telstate = telstate._telstate
+        else:
+            self._telstate = telstate
+
+    def view(self, name, add_separator=True, exclusive=False):
+        return TelstateToStr(self._telstate.view(name, add_separator, exclusive))
+
+    def root(self):
+        return TelstateToStr(self._telstate.root())
+
+    def keys(self, filter='*'):
+        return to_str(self._telstate.keys(filter))
+
+    @property
+    def prefixes(self):
+        return to_str(self._telstate.prefixes)
+
+    def __getattr__(self, key):
+        # __getattr__ can be used for item access or to get a property of the
+        # class.
+        if hasattr(self._telstate.__class__, key):
+            return getattr(self._telstate, key)
+        else:
+            return to_str(getattr(self._telstate, key))
+
+    def __contains__(self, key):
+        # Needed because __getattr__ won't pick it up from child
+        return key in self._telstate
+
+    def __getitem__(self, key):
+        return to_str(self._telstate[key])
+
+    def get_message(self, channel=None):
+        return to_str(self._telstate.get_message(channel))
+
+    def get(self, key, default=None, return_pickle=False):
+        value = self._telstate.get(key, default, return_pickle)
+        if not return_pickle:
+            value = to_str(value)
+        return value
+
+    def get_range(self, key, st=None, et=None,
+                  include_previous=None, include_end=False, return_pickle=False):
+        value = self._telstate.get_range(key, st, et, include_previous, include_end, return_pickle)
+        if not return_pickle:
+            value = to_str(value)
+        return value
+
+
 class TelstateSensorData(SensorData):
     """Raw (uninterpolated) sensor data stored in original TelescopeState.
 
@@ -281,7 +388,7 @@ class TelstateSensorData(SensorData):
     """
 
     def __init__(self, telstate, name):
-        self._telstate = telstate
+        self._telstate = TelstateToStr(telstate)
         # This cache simplifies separate 'timestamp' / 'value' access pattern
         self._values = self._times = None
         if name not in telstate:
@@ -296,8 +403,6 @@ class TelstateSensorData(SensorData):
     def __bool__(self):
         """True if sensor has at least one data point (already checked in init)."""
         return True
-
-    __nonzero__ = __bool__
 
     def _cache_data(self):
         if not self._times:
@@ -492,10 +597,10 @@ def remove_duplicates_and_invalid_values(sensor):
     if z is not None:
         # Explicitly cast status to string type, as k7_augment produced sensors with integer statuses
         status = z[unique_ind].astype('|S7')
-        unique_ind = unique_ind[(status == 'nominal') | (status == 'warn') |
-                                (status == 'error')]
+        unique_ind = unique_ind[(status == b'nominal') | (status == b'warn') |
+                                (status == b'error')]
     # Strip 'status' / z field from final output as its job is done
-    data = np.array(zip(x[unique_ind], y[unique_ind]),
+    data = np.array(list(zip(x[unique_ind], y[unique_ind])),
                     dtype=[('timestamp', x.dtype), ('value', y.dtype)])
     return RecordSensorData(data, sensor.name)
 
@@ -576,25 +681,25 @@ class SensorCache(dict):
         # Add virtual sensor templates
         self.virtual = virtual
         # Add sensor aliases
-        for alias, original in aliases.iteritems():
+        for alias, original in aliases.items():
             self.add_aliases(alias, original)
 
     def __str__(self):
         """Verbose human-friendly string representation of sensor cache object."""
-        names = sorted([key for key in self.iterkeys()])
+        names = sorted([key for key in self.keys()])
         maxlen = max([len(name) for name in names])
         objects = [self.get(name, extract=False) for name in names]
         obj_reprs = [(("<numpy.ndarray shape=%s type=%s at 0x%x>" % (obj.shape, obj.dtype, id(obj)))
                      if isinstance(obj, np.ndarray) else repr(obj)) for obj in objects]
         actual = ['%s : %s' % (str(name).ljust(maxlen), obj_repr) for name, obj_repr in zip(names, obj_reprs)]
         virtual = ['%s : <function %s.%s>' % (str(pat).ljust(maxlen), func.__module__, func.__name__)
-                   for pat, func in self.virtual.iteritems()]
+                   for pat, func in self.virtual.items()]
         return '\n'.join(['Actual sensors', '--------------'] + actual +
                          ['\nVirtual sensors', '---------------'] + virtual)
 
     def __repr__(self):
         """Short human-friendly string representation of sensor cache object."""
-        sensors = [self.get(name, extract=False) for name in self.iterkeys()]
+        sensors = [self.get(name, extract=False) for name in self.keys()]
         return "<katdal.%s sensors=%d cached=%d virtual=%d at 0x%x>" % \
                (self.__class__.__name__, len(sensors),
                 np.sum([not isinstance(s, SensorData) for s in sensors]),
@@ -630,14 +735,6 @@ class SensorCache(dict):
         if keep is not None:
             self.keep = keep
 
-    def itervalues(self):
-        """Custom value iterator that avoids extracting sensor data."""
-        return iter([self.get(key, extract=False) for key in self.iterkeys()])
-
-    def iteritems(self):
-        """Custom item iterator that avoids extracting sensor data."""
-        return iter([(key, self.get(key, extract=False)) for key in self.iterkeys()])
-
     def add_aliases(self, alias, original):
         """Add alternate names / aliases for sensors.
 
@@ -653,7 +750,7 @@ class SensorCache(dict):
             Sensors with names that end in this will get aliases
 
         """
-        for name, data in self.iteritems():
+        for name, data in list(self.items()):
             if name.endswith(original):
                 self[name.replace(original, alias)] = data
 
@@ -707,7 +804,7 @@ class SensorCache(dict):
             sensor_data = super(SensorCache, self).__getitem__(name)
         except KeyError:
             # Otherwise, iterate through virtual sensor templates and look for a match
-            for pattern, create_sensor in self.virtual.iteritems():
+            for pattern, create_sensor in self.virtual.items():
                 # Expand variable names enclosed in braces to the relevant regular expression
                 pattern = re.sub('({[a-zA-Z_]\w*})', lambda m: '(?P<' + m.group(0)[1:-1] + '>[^//]+)', pattern)
                 match = re.match(pattern, name)
@@ -722,7 +819,7 @@ class SensorCache(dict):
             # Look up properties associated with this specific sensor
             self.props[name] = props = self.props.get(name, {})
             # Look up properties associated with this class of sensor
-            for key, val in self.props.iteritems():
+            for key, val in self.props.items():
                 if key[0] == '*' and name.endswith(key[1:]):
                     props.update(val)
             # Any properties passed directly to this method takes precedence

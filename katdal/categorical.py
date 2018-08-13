@@ -15,7 +15,11 @@
 ################################################################################
 
 """Container for categorical (i.e. non-numerical) sensor data and related tools."""
+from __future__ import print_function, division, absolute_import
 
+from builtins import zip
+from builtins import range
+from builtins import object
 import collections
 
 import numpy as np
@@ -167,6 +171,11 @@ def unique_in_order(elements, return_inverse=False):
         reconstruct original sequence
 
     """
+    # In Python 3, each iteration over a np.ndarray creates new objects. This
+    # can lead to problems if there are NaNs, because NaN != NaN, so we rely
+    # on the behaviour of dict that first checks object identity. We thus
+    # force to list at the start to get consistent object identities.
+    elements = list(elements)
     unique_elements, inverse = [], []
     try:
         # Surprisingly, a zero generator like itertools.repeat does not buy you anything
@@ -184,7 +193,7 @@ def unique_in_order(elements, return_inverse=False):
     else:
         for index, element in enumerate(lookup):
             lookup[element] = index
-        unique_elements = lookup.keys()
+        unique_elements = list(lookup.keys())
         if return_inverse:
             inverse = [lookup[element] for element in elements]
     # Force inverse to int dtype in case it is an empty array (float otherwise)
@@ -307,7 +316,7 @@ class CategoricalData(object):
         """
         if isinstance(key, slice):
             # Convert slice notation to the corresponding sequence of dump indices
-            key = range(*key.indices(self.events[-1]))
+            key = list(range(*key.indices(self.events[-1])))
         # Convert sequence of bools (one per dump) to sequence of indices where key is True
         elif np.asarray(key).dtype == np.bool and len(np.asarray(key)) == self.events[-1]:
             key = np.nonzero(key)[0]

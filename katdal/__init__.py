@@ -218,9 +218,13 @@ available at `d.catalogue`, and the original HDF5 file is still accessible via
 a back door installed at `d.file` in the case of a single-file data set.
 
 """
+from __future__ import print_function, division, absolute_import
 
+from future import standard_library
+standard_library.install_aliases()
+from past.builtins import basestring
 import logging as _logging
-import urlparse
+import urllib.parse
 
 from .datasources import open_data_source
 from .dataset import DataSet, WrongVersion
@@ -341,7 +345,7 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
     datasets = []
     for f in filenames:
         # V4 RDB file with optional URL-style query string
-        if urlparse.urlsplit(f).path.endswith('.rdb'):
+        if urllib.parse.urlsplit(f).path.endswith('.rdb'):
             dataset = VisibilityDataV4(open_data_source(f, **kwargs),
                                        ref_ant, time_offset, **kwargs)
         else:

@@ -42,7 +42,11 @@ The following useful object parameters are stored in telstate, prefixed by
   - s3_endpoint: endpoint URL of S3 object store
   - <dataset_name>: dict containing chunk info (dtype, shape and chunks)
 """
+from __future__ import print_function, division, absolute_import
 
+from builtins import input
+from builtins import zip
+from builtins import range
 import struct
 import logging
 import sys
@@ -150,7 +154,7 @@ def generate_chunks(shape, dtype, target_object_size, dims_to_split=(0, 1)):
 def dsk_from_chunks(chunks, out_name):
     keys = list(product([out_name], *[range(len(bds)) for bds in chunks]))
     slices = da.core.slices_from_chunks(chunks)
-    return zip(keys, slices)
+    return list(zip(keys, slices))
 
 
 if __name__ == '__main__':
@@ -258,7 +262,7 @@ if __name__ == '__main__':
     schedule = dask.threaded.get
     output_keys = []
     h5_store = DictChunkStore(**h5_file['Data'])
-    for dataset, arr in h5_store.arrays.iteritems():
+    for dataset, arr in h5_store.arrays.items():
         dataset = str(dataset)
         dtype = arr.dtype
         shape = arr.shape
@@ -287,6 +291,6 @@ if __name__ == '__main__':
     logger.info("Staging complete...")
 
     if args.redis is None:
-        raw_input("You have started a local Redis server. "
+        input("You have started a local Redis server. "
                   "Hit enter to kill this and cleanup.")
         local_redis.terminate()
