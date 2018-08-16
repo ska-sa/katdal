@@ -72,17 +72,21 @@ class NpyFileChunkStore(ChunkStore):
                                    dtype, shape))
         return chunk
 
-    def put_chunk(self, array_name, slices, chunk):
-        """See the docstring of :meth:`ChunkStore.put_chunk`."""
-        chunk_name, _ = self.chunk_metadata(array_name, slices, chunk=chunk)
-        base_filename = os.path.join(self.path, chunk_name)
+    def create_array(self, array_name):
+        """See the docstring of :meth:`ChunkStore.create_array`."""
         # Ensure any subdirectories are in place
+        array_dir = os.path.join(self.path, array_name)
         try:
-            os.makedirs(os.path.dirname(base_filename))
+            os.makedirs(array_dir)
         except OSError as e:
             # Be happy if someone already created the path
             if e.errno != errno.EEXIST:
                 raise
+
+    def put_chunk(self, array_name, slices, chunk):
+        """See the docstring of :meth:`ChunkStore.put_chunk`."""
+        chunk_name, _ = self.chunk_metadata(array_name, slices, chunk=chunk)
+        base_filename = os.path.join(self.path, chunk_name)
         with self._standard_errors(chunk_name):
             # Rename the file when done writing to make put_chunk() atomic
             temp_filename = base_filename + '.writing.npy'
@@ -99,7 +103,13 @@ class NpyFileChunkStore(ChunkStore):
         """See the docstring of :meth:`ChunkStore.list_chunk_ids`."""
         array_dir = os.path.join(self.path, array_name)
         # Strip the .npy extension to get the chunk ID string
-        return [fn[:-4] for fn in os.listdir(array_dir) if fn.endswith('.npy')]
+        try:
+            return [fn[:-4] for fn in os.listdir(array_dir) if fn.endswith('.npy')]
+        except OSError as e:
+            # If the directory is missing, there cannot be any objects
+            if e.errno != errno.ENOENT:
+                raise
+            return []
 
     get_chunk.__doc__ = ChunkStore.get_chunk.__doc__
     put_chunk.__doc__ = ChunkStore.put_chunk.__doc__

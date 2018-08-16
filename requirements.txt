@@ -1,6 +1,8 @@
+botocore==1.10.78
 dask
 defusedxml
 docutils
+jmespath==0.9.3
 fakeredis
 future
 h5py

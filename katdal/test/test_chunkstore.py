@@ -137,6 +137,7 @@ class ChunkStoreTestBase(object):
         """Put a single chunk into store, check it, get it back and compare."""
         array_name = self.array_name(var_name)
         chunk = getattr(self, var_name)[slices]
+        self.store.create_array(array_name)
         self.store.put_chunk(array_name, slices, chunk)
         assert_true(self.store.has_chunk(array_name, slices, chunk.dtype))
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
@@ -156,6 +157,7 @@ class ChunkStoreTestBase(object):
     def put_dask_array(self, var_name, slices=()):
         """Put (part of) an array into store via dask."""
         array_name, dask_array, offset = self.make_dask_array(var_name, slices)
+        self.store.create_array(array_name)
         push = self.store.put_dask_array(array_name, dask_array, offset)
         results = push.compute()
         divisions_per_dim = [len(c) for c in dask_array.chunks]
@@ -213,6 +215,7 @@ class ChunkStoreTestBase(object):
         self.put_has_get_chunk('z', ())
 
     def test_put_chunk_noraise(self):
+        self.store.create_array("x")
         result = self.store.put_chunk_noraise("x", (1, 2), [])
         assert_is_instance(result, BadChunk)
 

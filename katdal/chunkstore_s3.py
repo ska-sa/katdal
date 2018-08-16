@@ -24,7 +24,7 @@ from __future__ import print_function, division, absolute_import
 from future import standard_library
 standard_library.install_aliases()
 from builtins import object
-from future.utils import raise_
+from future.utils import raise_, bytes_to_native_str
 import contextlib
 import io
 import threading
@@ -37,15 +37,37 @@ import hashlib
 import base64
 import re
 import warnings
+import copy
+import json
 
 import defusedxml.ElementTree
 import defusedxml.cElementTree
 import numpy as np
 import requests
 from requests.adapters import HTTPAdapter as _HTTPAdapter
+try:
+    import botocore.credentials
+    import botocore.auth
+except ImportError:
+    botocore = None
 
 from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk
 from .sensordata import to_str
+
+
+_BUCKET_POLICY = {
+    "Version": "2012-10-17",
+    "Id": "KatdalPolicy",
+    "Statement": [
+        {
+            "Sid": "PublicAccess",
+            "Effect": "Allow",
+            "Principal": "*",
+            "Action": ["s3:GetObject", "s3:ListBucket"],
+            "Resource": ["PLACEHOLDER"],
+        }
+    ]
+}
 
 
 class _TimeoutHTTPAdapter(_HTTPAdapter):
@@ -69,6 +91,20 @@ class _BearerAuth(requests.auth.AuthBase):
 
     def __call__(self, r):
         r.headers['Authorization'] = 'Bearer ' + self._token
+        return r
+
+
+class _AWSAuth(requests.auth.AuthBase):
+    def __init__(self, credentials):
+        credentials = botocore.credentials.ReadOnlyCredentials(
+            credentials[0], credentials[1], None)
+        self._signer = botocore.auth.HmacV1Auth(credentials)
+
+    def __call__(self, r):
+        split = urllib.parse.urlsplit(r.url)
+        signature = self._signer.get_signature(r.method, split, r.headers)
+        r.headers['Authorization'] = 'AWS {}:{}'.format(
+            self._signer.credentials.access_key, signature)
         return r
 
 
@@ -137,6 +173,9 @@ class S3ChunkStore(ChunkStore):
     url : str
         Base URL for the S3 service. It can be specified as either bytes or
         unicode, and is converted to the native string type with UTF-8.
+    public_read : bool
+        If set to true, new buckets will be created with a policy that allows
+        everyone (including unauthenticated users) to read the data.
 
     Raises
     ------
@@ -144,7 +183,7 @@ class S3ChunkStore(ChunkStore):
         If requests is not installed (it's an optional dependency otherwise)
     """
 
-    def __init__(self, session_factory, url):
+    def __init__(self, session_factory, url, public_read=False):
         try:
             # Quick smoke test to see if the S3 server is available,
             # by listing buckets
@@ -159,9 +198,10 @@ class S3ChunkStore(ChunkStore):
         super(S3ChunkStore, self).__init__(error_map)
         self._session_pool = _Pool(session_factory)
         self._url = to_str(url)
+        self.public_read = public_read
 
     @classmethod
-    def _from_url(cls, url, timeout, token):
+    def _from_url(cls, url, timeout, token, credentials, public_read):
         """Construct S3 chunk store from endpoint URL (see :meth:`from_url`)."""
         if token is not None:
             parsed = urllib.parse.urlparse(url)
@@ -169,6 +209,10 @@ class S3ChunkStore(ChunkStore):
             if parsed.scheme != 'https' and parsed.hostname != '127.0.0.1':
                 raise StoreUnavailable('auth token may only be used with https')
             auth = _BearerAuth(token)
+        elif credentials is not None:
+            if not botocore:
+                raise StoreUnavailable('passing credentials required botocore to be installed')
+            auth = _AWSAuth(credentials)
         else:
             auth = None
 
@@ -179,10 +223,11 @@ class S3ChunkStore(ChunkStore):
             session.mount(url, adapter)
             return session
 
-        return cls(session_factory, url)
+        return cls(session_factory, url, public_read)
 
     @classmethod
-    def from_url(cls, url, timeout=10, extra_timeout=1, token=None, **kwargs):
+    def from_url(cls, url, timeout=10, extra_timeout=1,
+                 token=None, credentials=None, public_read=False, **kwargs):
         """Construct S3 chunk store from endpoint URL.
 
         Parameters
@@ -196,6 +241,11 @@ class S3ChunkStore(ChunkStore):
             without masking read / connect errors (ignored if `timeout` is None)
         token : str
             Bearer token to authenticate
+        credentials: tuple of str
+            AWS access key and secret key to authenticate
+        public_read : bool
+            If set to true, new buckets will be created with a policy that allows
+            everyone (including unauthenticated users) to read the data.
         kwargs : dict
             Extra keyword arguments (unused)
 
@@ -204,18 +254,22 @@ class S3ChunkStore(ChunkStore):
         :exc:`chunkstore.StoreUnavailable`
             If S3 server interaction failed (it's down, no authentication, etc)
         """
+        if token is not None and credentials is not None:
+            raise ValueError('Cannot specify both token and credentials')
+
         # XXX This is a poor man's attempt at concurrent.futures functionality
         # (avoiding extra dependency on Python 2, revisit when Python 3 only)
         q = queue.Queue()
 
-        def _from_url(url, timeout, token):
+        def _from_url(url, timeout, token, credentials, public_read):
             """Construct chunk store and return it (or exception) via queue."""
             try:
-                q.put(cls._from_url(url, timeout, token))
+                q.put(cls._from_url(url, timeout, token, credentials, public_read))
             except BaseException:
                 q.put(sys.exc_info())
 
-        thread = threading.Thread(target=_from_url, args=(url, timeout, token))
+        thread = threading.Thread(target=_from_url,
+                                  args=(url, timeout, token, credentials, public_read))
         thread.daemon = True
         thread.start()
         if timeout is not None:
@@ -259,6 +313,27 @@ class S3ChunkStore(ChunkStore):
                                    dtype, shape))
         return chunk
 
+    def create_array(self, array_name):
+        """See the docstring of :meth:`ChunkStore.create_array`."""
+        # The array name is formatted as bucket/array, but we only need to create the bucket
+        bucket = array_name.split(self.NAME_SEP)[0]
+        url = urllib.parse.urljoin(self._url, to_str(urllib.parse.quote(bucket)))
+        with self._standard_errors(), self._session_pool() as session:
+            with contextlib.closing(session.put(url)) as response:
+                if response.status_code != 409:
+                    # 409 indicates the bucket already exists
+                    _raise_for_status(response)
+
+        if self.public_read:
+            policy_url = urllib.parse.urljoin(url, '?policy')
+            policy = copy.deepcopy(_BUCKET_POLICY)
+            policy['Statement'][0]['Resource'] = [
+                'arn:aws:s3:::{}/*'.format(bucket),
+                'arn:aws:s3:::{}'.format(bucket)
+            ]
+            with self._request(None, 'PUT', policy_url, data=json.dumps(policy)):
+                pass
+
     def put_chunk(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put_chunk`."""
         chunk_name, _ = self.chunk_metadata(array_name, slices, chunk=chunk)
@@ -267,7 +342,7 @@ class S3ChunkStore(ChunkStore):
         np.lib.format.write_array(fp, chunk, allow_pickle=False)
         md5 = base64.b64encode(hashlib.md5(fp.getvalue()).digest())
         fp.seek(0)
-        headers = {'Content-MD5': md5}
+        headers = {'Content-MD5': bytes_to_native_str(md5)}
         with self._request(chunk_name, 'PUT', url, headers=headers, data=fp):
             pass
 
