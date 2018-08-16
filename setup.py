@@ -64,6 +64,7 @@ setup(name='katdal',
       extras_require={
           'ms': ['python-casacore >= 2.2.1', 'numba'],
           's3': [],
+          's3credentials': ['botocore'],
           # rados is not in PyPI but available as Debian package python-rados
           'rados': ['rados']
       },

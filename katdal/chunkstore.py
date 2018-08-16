@@ -211,6 +211,21 @@ class ChunkStore(object):
             chunk_name, shape = self.chunk_metadata(array_name, slices)
             return np.zeros(shape, dtype)
 
+    def create_array(self, array_name):
+        """Create a new array if it does not already exist.
+
+        Parameters
+        ----------
+        array_name : string
+            Identifier of array
+
+        Raises
+        ------
+        :exc:`chunkstore.StoreUnavailable`
+            If interaction with chunk store failed (offline, bad auth, bad config)
+        """
+        raise NotImplementedError
+
     def put_chunk(self, array_name, slices, chunk):
         """Put chunk into the store.
 

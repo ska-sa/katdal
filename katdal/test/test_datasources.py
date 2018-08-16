@@ -65,6 +65,8 @@ def put_fake_dataset(store, prefix, shape, chunk_overrides=None):
     chunk_info = {k: {'prefix': prefix, 'chunks': darray.chunks,
                       'dtype': darray.dtype, 'shape': darray.shape}
                   for k, darray in ddata.items()}
+    for k, darray in ddata.items():
+        store.create_array(store.join(prefix, k))
     push = [store.put_dask_array(store.join(prefix, k), darray)
             for k, darray in ddata.items()]
     da.compute(*push)

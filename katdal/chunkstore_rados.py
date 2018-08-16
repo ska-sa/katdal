@@ -120,6 +120,9 @@ class RadosChunkStore(ChunkStore):
                                    actual_bytes))
         return np.ndarray(shape, dtype, data_str)
 
+    def create_array(self, array_name):
+        pass
+
     def put_chunk(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put_chunk`."""
         key, _ = self.chunk_metadata(array_name, slices, chunk=chunk)

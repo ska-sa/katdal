@@ -50,6 +50,10 @@ class DictChunkStore(ChunkStore):
                                    dtype, shape))
         return chunk
 
+    def create_array(self, array_name):
+        if array_name not in self.arrays:
+            raise NotImplementedError
+
     def put_chunk(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put_chunk`."""
         self.chunk_metadata(array_name, slices, chunk=chunk)
