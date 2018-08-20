@@ -30,6 +30,7 @@ import http.server
 import urllib.parse
 import contextlib
 
+import numpy as np
 from nose import SkipTest
 from nose.tools import assert_raises, timed
 import mock
@@ -91,9 +92,11 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         raise OSError('Could not connect to minio server')
 
     @classmethod
-    def from_url(cls, url):
+    def from_url(cls, url, authenticate=True, **kwargs):
         """Create the chunk store"""
-        return S3ChunkStore.from_url(url, timeout=1, credentials=cls.credentials)
+        if authenticate:
+            kwargs['credentials'] = cls.credentials
+        return S3ChunkStore.from_url(url, timeout=1, **kwargs)
 
     @classmethod
     def setup_class(cls):
@@ -106,8 +109,8 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         cls.devnull = open(os.devnull, 'wb')
         cls.minio = None
         try:
-            url = cls.start_minio('127.0.0.1')
-            cls.store = cls.from_url(url)
+            cls.url = cls.start_minio('127.0.0.1')
+            cls.store = cls.from_url(cls.url)
             # Ensure that pagination is tested
             cls.store.list_max_keys = 3
         except Exception:
@@ -125,6 +128,25 @@ class TestS3ChunkStore(ChunkStoreTestBase):
     def array_name(self, path):
         bucket = 'katdal-unittest'
         return self.store.join(bucket, path)
+
+    def test_public_read(self):
+        reader = self.from_url(self.url, authenticate=False)
+        # Create a non-public-read array.
+        # This test deliberately doesn't use array_name so that it can create
+        # several different buckets.
+        slices = np.index_exp[0:5]
+        x = np.arange(5)
+        self.store.create_array('private')
+        self.store.put_chunk('private', slices, x)
+        with assert_raises(StoreUnavailable):
+            reader.get_chunk('private', slices, x.dtype)
+
+        # Now a public-read array
+        store = self.from_url(self.url, public_read=True)
+        store.create_array('public')
+        store.put_chunk('public', slices, x)
+        y = reader.get_chunk('public', slices, x.dtype)
+        np.testing.assert_array_equal(x, y)
 
     @timed(0.1 + 0.05)
     def test_store_unavailable_invalid_url(self):
@@ -188,28 +210,34 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
 
     @classmethod
     def setup_class(cls):
+        cls.proxy_url = None
         cls.httpd = None
-        cls.httpd_thread = None
         super(TestS3ChunkStoreToken, cls).setup_class()
 
     @classmethod
     def teardown_class(cls):
-        if cls.httpd:
+        if cls.httpd is not None:
             cls.httpd.session.close()
             cls.httpd.shutdown()
             cls.httpd_thread.join()
         super(TestS3ChunkStoreToken, cls).teardown_class()
 
     @classmethod
-    def from_url(cls, url):
+    def from_url(cls, url, authenticate=True, **kwargs):
         """Create the chunk store"""
-        proxy_host = '127.0.0.1'
-        proxy_port = get_free_port(proxy_host)
-        cls.httpd = http.server.HTTPServer((proxy_host, proxy_port), _TokenHTTPProxyHandler)
-        cls.httpd.target = url
-        cls.httpd.session = requests.Session()
-        cls.httpd.auth = _AWSAuth(cls.credentials)
-        cls.httpd_thread = threading.Thread(target=cls.httpd.serve_forever)
-        cls.httpd_thread.start()
-        proxy_url = 'http://{}:{}'.format(proxy_host, proxy_port)
-        return S3ChunkStore.from_url(proxy_url, timeout=1, token='mysecret')
+        if not authenticate:
+            return S3ChunkStore.from_url(url, timeout=1, **kwargs)
+
+        if cls.httpd is None:
+            proxy_host = '127.0.0.1'
+            proxy_port = get_free_port(proxy_host)
+            cls.httpd = http.server.HTTPServer((proxy_host, proxy_port), _TokenHTTPProxyHandler)
+            cls.httpd.target = url
+            cls.httpd.session = requests.Session()
+            cls.httpd.auth = _AWSAuth(cls.credentials)
+            cls.httpd_thread = threading.Thread(target=cls.httpd.serve_forever)
+            cls.httpd_thread.start()
+            cls.proxy_url = 'http://{}:{}'.format(proxy_host, proxy_port)
+        elif url != cls.httpd.target:
+            raise RuntimeError('Cannot use multiple target URLs with http proxy')
+        return S3ChunkStore.from_url(cls.proxy_url, timeout=1, token='mysecret', **kwargs)
