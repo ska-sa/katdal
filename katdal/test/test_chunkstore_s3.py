@@ -18,38 +18,26 @@
 from __future__ import print_function, division, absolute_import
 
 from future import standard_library
-standard_library.install_aliases()
+standard_library.install_aliases()     # noqa: E402
 import tempfile
 import shutil
 import subprocess
-import re
 import threading
-import queue
 import os
 import time
+import socket
+import http.server
+import urllib.parse
+import contextlib
 
 from nose import SkipTest
 from nose.tools import assert_raises, timed
 import mock
+import requests
 
-from katdal.chunkstore_s3 import S3ChunkStore
+from katdal.chunkstore_s3 import S3ChunkStore, _AWSAuth
 from katdal.chunkstore import StoreUnavailable
 from katdal.test.test_chunkstore import ChunkStoreTestBase
-
-
-def consume_stderr_find_port(process, queue):
-    """Look for assigned port number in fakes3 output while also consuming it."""
-    looking_for_port = True
-    # Gobble up lines of text from stderr until it is closed when process exits.
-    # This is the same as `for line in process.stderr:` but on Python 2 that
-    # version deadlocks (see https://stackoverflow.com/a/1085100).
-    for line in iter(process.stderr.readline, b''):
-        if looking_for_port:
-            ports_found = re.search(br' port=([1-9]\d*)$', line.strip())
-            if ports_found:
-                port_number = int(ports_found.group(1))
-                queue.put(port_number)
-                looking_for_port = False
 
 
 def gethostbyname_slow(host):
@@ -58,69 +46,79 @@ def gethostbyname_slow(host):
     return '127.0.0.1'
 
 
+def get_free_port(host):
+    """Get an unused port number.
+
+    Note that this is racy, because another process could claim the port
+    between the time this function returns and the time the port is bound.
+    """
+    with contextlib.closing(socket.socket()) as sock:
+        sock.bind((host, 0))
+        port = sock.getsockname()[1]
+        return port
+
+
 class TestS3ChunkStore(ChunkStoreTestBase):
-    """Test S3 functionality against an actual (fake) S3 service."""
+    """Test S3 functionality against an actual (minio) S3 service."""
 
     @classmethod
-    def start_fakes3(cls, host):
-        """Start Fake S3 service as `host` and return its URL."""
+    def start_minio(cls, host):
+        """Start Fake S3 service on `host` and return its URL."""
+        port = get_free_port(host)
         try:
-            # Port number is automatically assigned
-            cls.fakes3 = subprocess.Popen(['fakes3', 'server',
-                                           '-r', cls.tempdir, '-p', '0',
-                                           '-a', host, '-H', host],
-                                          stdout=cls.devnull,
-                                          stderr=subprocess.PIPE)
+            env = os.environ.copy()
+            env['MINIO_BROWSER'] = 'off'
+            env['MINIO_ACCESS_KEY'] = cls.credentials[0]
+            env['MINIO_SECRET_KEY'] = cls.credentials[1]
+            cls.minio = subprocess.Popen(['minio', 'server', '--quiet',
+                                          '--address', '{}:{}'.format(host, port),
+                                          '-C', os.path.join(cls.tempdir, 'config'),
+                                          os.path.join(cls.tempdir, 'data')],
+                                         stdout=cls.devnull,
+                                         stderr=cls.devnull,
+                                         env=env)
         except OSError:
-            raise SkipTest('Could not start fakes3 server (is it installed?)')
-        # The assigned port number is scraped from stderr and returned via queue
-        port_queue = queue.Queue()
-        # Ensure that the stderr of fakes3 process is continuously consumed.
-        # This pattern is inspired by the "Launch, Interact, Get Output in
-        # Real Time, Terminate" section of
-        # https://dzone.com/articles/interacting-with-a-long-running-child-process-in-p
-        cls.stderr_consumer = threading.Thread(target=consume_stderr_find_port,
-                                               args=(cls.fakes3, port_queue))
-        cls.stderr_consumer.start()
-        # Give up after waiting a few seconds for Fake S3 to announce its port
-        try:
-            port = port_queue.get(timeout=5)
-        except queue.Empty:
-            raise OSError('Could not connect to fakes3 server')
-        else:
-            return 'http://%s:%s' % (host, port)
+            raise SkipTest('Could not start minio server (is it installed?)')
+        # Wait for minio to start listening on its port.
+        for i in range(50):
+            with contextlib.closing(socket.socket()) as sock:
+                try:
+                    sock.connect((host, port))
+                except IOError:
+                    time.sleep(0.1)
+                else:
+                    return 'http://%s:%s' % (host, port)
+        raise OSError('Could not connect to minio server')
 
     @classmethod
     def from_url(cls, url):
         """Create the chunk store"""
-        return S3ChunkStore.from_url(url, timeout=1)
+        return S3ChunkStore.from_url(url, timeout=1, credentials=cls.credentials)
 
     @classmethod
     def setup_class(cls):
-        """Start Fake S3 service running on temp dir, and ChunkStore on that."""
+        """Start minio service running on temp dir, and ChunkStore on that."""
+        cls.credentials = ('access*key', 'secret*key')
         cls.tempdir = tempfile.mkdtemp()
+        os.mkdir(os.path.join(cls.tempdir, 'config'))
+        os.mkdir(os.path.join(cls.tempdir, 'data'))
         # XXX Python 3.3+ can use subprocess.DEVNULL instead
         cls.devnull = open(os.devnull, 'wb')
-        cls.fakes3 = None
-        cls.stderr_consumer = None
+        cls.minio = None
         try:
-            url = cls.start_fakes3('127.0.0.1')
+            url = cls.start_minio('127.0.0.1')
             cls.store = cls.from_url(url)
             # Ensure that pagination is tested
-            # Disabled for now because FakeS3 doesn't implement it correctly
-            # (see for example https://github.com/jubos/fake-s3/pull/163).
-            # cls.store.list_max_keys = 3
+            cls.store.list_max_keys = 3
         except Exception:
             cls.teardown_class()
             raise
 
     @classmethod
     def teardown_class(cls):
-        if cls.fakes3:
-            cls.fakes3.terminate()
-            cls.fakes3.wait()
-        if cls.stderr_consumer:
-            cls.stderr_consumer.join()
+        if cls.minio:
+            cls.minio.terminate()
+            cls.minio.wait()
         cls.devnull.close()
         shutil.rmtree(cls.tempdir)
 
@@ -149,14 +147,69 @@ class TestS3ChunkStore(ChunkStoreTestBase):
                       timeout=0.1, extra_timeout=1)
 
 
-class TestS3ChunkStoreAuth(TestS3ChunkStore):
-    """Test S3 with authentication headers.
+class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
+    """HTTP proxy that substitutes AWS credentials in place of a bearer token"""
+    def __getattr__(self, name):
+        if name.startswith('do_'):
+            return self.do_all
+        else:
+            return getattr(super(_TokenHTTPProxyHandler, self), name)
 
-    The FakeS3 server doesn't check these headers. This is just to check that
-    the code doesn't crash.
-    """
+    def do_all(self):
+        self.protocol_version = 'HTTP/1.1'
+        url = urllib.parse.urljoin(self.server.target, self.path)
+        data_len = int(self.headers.get('Content-Length', 0))
+        data = self.rfile.read(data_len)
+        if self.headers.get('Authorization') != 'Bearer mysecret':
+            self.send_response(401, 'Unauthorized')
+            self.end_headers()
+            return
+
+        with contextlib.closing(self.server.session.request(self.command, url,
+                                                            headers=self.headers, data=data,
+                                                            auth=self.server.auth,
+                                                            allow_redirects=False)) as resp:
+            self.send_response(resp.status_code, resp.reason)
+            for key, value in resp.headers.items():
+                if key.lower() not in ['date', 'server', 'transfer-encoding']:
+                    self.send_header(key, value)
+            self.end_headers()
+            content = resp.content
+            self.wfile.write(content)
+
+    def log_message(self, format, *args):
+        # Print to stdout instead of stderr so that it doesn't spew all over
+        # the screen in normal operation.
+        print(format % args)
+
+
+class TestS3ChunkStoreToken(TestS3ChunkStore):
+    """Test S3 with token authentication headers."""
+
+    @classmethod
+    def setup_class(cls):
+        cls.httpd = None
+        cls.httpd_thread = None
+        super(TestS3ChunkStoreToken, cls).setup_class()
+
+    @classmethod
+    def teardown_class(cls):
+        if cls.httpd:
+            cls.httpd.session.close()
+            cls.httpd.shutdown()
+            cls.httpd_thread.join()
+        super(TestS3ChunkStoreToken, cls).teardown_class()
 
     @classmethod
     def from_url(cls, url):
         """Create the chunk store"""
-        return S3ChunkStore.from_url(url, timeout=1, token='mysecret')
+        proxy_host = '127.0.0.1'
+        proxy_port = get_free_port(proxy_host)
+        cls.httpd = http.server.HTTPServer((proxy_host, proxy_port), _TokenHTTPProxyHandler)
+        cls.httpd.target = url
+        cls.httpd.session = requests.Session()
+        cls.httpd.auth = _AWSAuth(cls.credentials)
+        cls.httpd_thread = threading.Thread(target=cls.httpd.serve_forever)
+        cls.httpd_thread.start()
+        proxy_url = 'http://{}:{}'.format(proxy_host, proxy_port)
+        return S3ChunkStore.from_url(proxy_url, timeout=1, token='mysecret')

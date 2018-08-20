@@ -215,8 +215,9 @@ class ChunkStoreTestBase(object):
         self.put_has_get_chunk('z', ())
 
     def test_put_chunk_noraise(self):
-        self.store.create_array("x")
-        result = self.store.put_chunk_noraise("x", (1, 2), [])
+        name = self.array_name('x')
+        self.store.create_array(name)
+        result = self.store.put_chunk_noraise(name, (1, 2), [])
         assert_is_instance(result, BadChunk)
 
     def test_dask_array_basic(self):

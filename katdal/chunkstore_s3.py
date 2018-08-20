@@ -185,11 +185,15 @@ class S3ChunkStore(ChunkStore):
 
     def __init__(self, session_factory, url, public_read=False):
         try:
-            # Quick smoke test to see if the S3 server is available,
-            # by listing buckets
+            # Quick smoke test to see if the S3 server is available, by listing
+            # buckets. Depending on the server in use, this may return a 403
+            # error if we do not have credentials (this occurs for minio, but
+            # Ceph RGW just returns an empty list).
             with session_factory() as session:
                 with contextlib.closing(session.get(url)) as response:
-                    _raise_for_status(response)
+                    if (response.status_code != 403
+                            or 'Authorization' in response.request.headers):
+                        _raise_for_status(response)
         except requests.exceptions.RequestException as error:
             raise StoreUnavailable(str(error))
 
