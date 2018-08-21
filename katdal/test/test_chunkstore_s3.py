@@ -41,6 +41,22 @@ from katdal.chunkstore import StoreUnavailable
 from katdal.test.test_chunkstore import ChunkStoreTestBase
 
 
+def consume_stdout_check_ready(process, ready):
+    """Look for message indicating the server is ready.
+
+    This is used as a workaround for
+    https://github.com/minio/minio/issues/6324. Once fixed it would be simpler
+    to poll the HTTP port.
+    """
+    # Gobble up lines of text from stdout until it is closed when process exits.
+    # This is the same as `for line in process.stdout:` but on Python 2 that
+    # version deadlocks (see https://stackoverflow.com/a/1085100).
+    for line in iter(process.stdout.readline, b''):
+        if line.strip() == b'Object API (Amazon S3 compatible):':
+            ready.set()
+    ready.set()  # Avoid blocking the consumer if minio crashed
+
+
 def gethostbyname_slow(host):
     """Mock DNS lookup that is meant to be slow."""
     time.sleep(30)
@@ -76,26 +92,28 @@ class TestS3ChunkStore(ChunkStoreTestBase):
                 env['MINIO_BROWSER'] = 'off'
                 env['MINIO_ACCESS_KEY'] = cls.credentials[0]
                 env['MINIO_SECRET_KEY'] = cls.credentials[1]
-                cls.minio = subprocess.Popen(['minio', 'server', '--quiet',
+                cls.minio = subprocess.Popen(['minio', 'server',
                                               '--address', '{}:{}'.format(host, port),
                                               '-C', os.path.join(cls.tempdir, 'config'),
                                               os.path.join(cls.tempdir, 'data')],
-                                             stdout=cls.devnull,
-                                             stderr=cls.devnull,
+                                             stdout=subprocess.PIPE,
                                              env=env)
             except OSError:
                 raise SkipTest('Could not start minio server (is it installed?)')
 
-        # Wait for minio to start listening on its port.
-        for i in range(50):
-            with contextlib.closing(socket.socket()) as sock:
-                try:
-                    sock.connect((host, port))
-                except IOError:
-                    time.sleep(0.1)
-                else:
-                    return 'http://%s:%s' % (host, port)
-        raise OSError('Could not connect to minio server')
+        ready = threading.Event()
+        # Ensure that the stdout of minio process is continuously consumed.
+        # This pattern is inspired by the "Launch, Interact, Get Output in
+        # Real Time, Terminate" section of
+        # https://dzone.com/articles/interacting-with-a-long-running-child-process-in-p
+        cls.stdout_consumer = threading.Thread(target=consume_stdout_check_ready,
+                                               args=(cls.minio, ready))
+        cls.stdout_consumer.start()
+
+        # Wait for minio to be ready to service requests
+        if not ready.wait(timeout=30):
+            raise OSError('Timed out waiting for minio to be ready')
+        return 'http://%s:%s' % (host, port)
 
     @classmethod
     def from_url(cls, url, authenticate=True, **kwargs):
@@ -114,6 +132,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         # XXX Python 3.3+ can use subprocess.DEVNULL instead
         cls.devnull = open(os.devnull, 'wb')
         cls.minio = None
+        cls.stdout_consumer = None
         try:
             cls.url = cls.start_minio('127.0.0.1')
             cls.store = cls.from_url(cls.url)
@@ -128,6 +147,8 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         if cls.minio:
             cls.minio.terminate()
             cls.minio.wait()
+        if cls.stdout_consumer:
+            cls.stdout_consumer.join()
         cls.devnull.close()
         shutil.rmtree(cls.tempdir)
 
