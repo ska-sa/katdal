@@ -39,22 +39,6 @@ from .categorical import (ComparableArrayWrapper, infer_dtype,
 
 logger = logging.getLogger(__name__)
 
-# This is needed for tab completion, but is ignored if no IPython is installed
-try:
-    # IPython 0.11 and above
-    from IPython.core.error import TryNext
-except ImportError:
-    try:
-        # IPython 0.10 and below
-        from IPython.ipapi import TryNext
-    except ImportError:
-        pass
-# The same goes for readline
-try:
-    import readline
-except ImportError:
-    readline = None
-
 # Optionally depend on scikits.fitting for higher-order sensor data interpolation
 try:
     from scikits.fitting import PiecewisePolynomial1DFit
@@ -896,44 +880,3 @@ class SensorCache(dict):
             except KeyError:
                 logger.debug('Could not find %s sensor with name %r, trying next option' % (sensor_type, name))
         raise KeyError('Could not find any %s sensor, tried %s' % (sensor_type, names))
-
-
-# -------------------------------------------------------------------------------------------------
-# -- FUNCTION :  _sensor_completer
-# -------------------------------------------------------------------------------------------------
-
-dict_lookup_match = re.compile(r"""(?:.*\=)?(.*)\[(?P<quote>['|"])(?!.*(?P=quote))(.*)$""")
-
-
-def _sensor_completer(context, event):
-    """Custom IPython completer for sensor name lookups in sensor cache.
-
-    This is inspired by Darren Dale's custom dict-like completer for h5py.
-
-    """
-    # Parse command line as (ignored = )base['start_of_name
-    base, start_of_name = dict_lookup_match.split(event.line)[1:4:2]
-
-    # Avoid calling any functions during eval()...
-    if '(' in base:
-        raise TryNext
-
-    # Obtain sensor cache object from user namespace
-    try:
-        cache = eval(base, context.user_ns)
-    except (NameError, AttributeError):
-        try:
-            # IPython version < 1.0
-            cache = eval(base, context.shell.user_ns)
-        except (NameError, AttributeError):
-            raise TryNext
-
-    # Only continue if this object is actually a sensor cache
-    if not isinstance(cache, SensorCache):
-        raise TryNext
-
-    if readline:
-        # Remove space and plus from delimiter list, so completion works past spaces and pluses in names
-        readline.set_completer_delims(readline.get_completer_delims().replace(' ', '').replace('+', ''))
-
-    return [name for name in cache.iterkeys() if name[:len(start_of_name)] == start_of_name]
