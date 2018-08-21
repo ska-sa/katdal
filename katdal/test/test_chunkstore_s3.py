@@ -120,7 +120,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         """Create the chunk store"""
         if authenticate:
             kwargs['credentials'] = cls.credentials
-        return S3ChunkStore.from_url(url, timeout=1, **kwargs)
+        return S3ChunkStore.from_url(url, timeout=10, **kwargs)
 
     @classmethod
     def setup_class(cls):
