@@ -47,16 +47,21 @@ def gethostbyname_slow(host):
     return '127.0.0.1'
 
 
+@contextlib.contextmanager
 def get_free_port(host):
     """Get an unused port number.
 
-    Note that this is racy, because another process could claim the port
-    between the time this function returns and the time the port is bound.
+    This is a context manager that returns a port, while holding open the
+    socket bound to it. This prevents another ephemeral process from
+    obtaining the port in the meantime. The target process should bind the
+    port with SO_REUSEADDR, after which the context should be exited to close
+    the temporary socket.
     """
     with contextlib.closing(socket.socket()) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((host, 0))
         port = sock.getsockname()[1]
-        return port
+        yield port
 
 
 class TestS3ChunkStore(ChunkStoreTestBase):
@@ -65,21 +70,22 @@ class TestS3ChunkStore(ChunkStoreTestBase):
     @classmethod
     def start_minio(cls, host):
         """Start Fake S3 service on `host` and return its URL."""
-        port = get_free_port(host)
-        try:
-            env = os.environ.copy()
-            env['MINIO_BROWSER'] = 'off'
-            env['MINIO_ACCESS_KEY'] = cls.credentials[0]
-            env['MINIO_SECRET_KEY'] = cls.credentials[1]
-            cls.minio = subprocess.Popen(['minio', 'server', '--quiet',
-                                          '--address', '{}:{}'.format(host, port),
-                                          '-C', os.path.join(cls.tempdir, 'config'),
-                                          os.path.join(cls.tempdir, 'data')],
-                                         stdout=cls.devnull,
-                                         stderr=cls.devnull,
-                                         env=env)
-        except OSError:
-            raise SkipTest('Could not start minio server (is it installed?)')
+        with get_free_port(host) as port:
+            try:
+                env = os.environ.copy()
+                env['MINIO_BROWSER'] = 'off'
+                env['MINIO_ACCESS_KEY'] = cls.credentials[0]
+                env['MINIO_SECRET_KEY'] = cls.credentials[1]
+                cls.minio = subprocess.Popen(['minio', 'server', '--quiet',
+                                              '--address', '{}:{}'.format(host, port),
+                                              '-C', os.path.join(cls.tempdir, 'config'),
+                                              os.path.join(cls.tempdir, 'data')],
+                                             stdout=cls.devnull,
+                                             stderr=cls.devnull,
+                                             env=env)
+            except OSError:
+                raise SkipTest('Could not start minio server (is it installed?)')
+
         # Wait for minio to start listening on its port.
         for i in range(50):
             with contextlib.closing(socket.socket()) as sock:
@@ -247,8 +253,8 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
 
         if cls.httpd is None:
             proxy_host = '127.0.0.1'
-            proxy_port = get_free_port(proxy_host)
-            httpd = http.server.HTTPServer((proxy_host, proxy_port), _TokenHTTPProxyHandler)
+            with get_free_port(proxy_host) as proxy_port:
+                httpd = http.server.HTTPServer((proxy_host, proxy_port), _TokenHTTPProxyHandler)
             httpd.target = url
             httpd.session = requests.Session()
             httpd.auth = _AWSAuth(cls.credentials)
