@@ -215,7 +215,7 @@ class S3ChunkStore(ChunkStore):
             auth = _BearerAuth(token)
         elif credentials is not None:
             if not botocore:
-                raise StoreUnavailable('passing credentials required botocore to be installed')
+                raise StoreUnavailable('passing credentials requires botocore to be installed')
             auth = _AWSAuth(credentials)
         else:
             auth = None

@@ -187,17 +187,32 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        with contextlib.closing(self.server.session.request(self.command, url,
-                                                            headers=self.headers, data=data,
-                                                            auth=self.server.auth,
-                                                            allow_redirects=False)) as resp:
-            self.send_response(resp.status_code, resp.reason)
-            for key, value in resp.headers.items():
-                if key.lower() not in ['date', 'server', 'transfer-encoding']:
-                    self.send_header(key, value)
-            self.end_headers()
-            content = resp.content
-            self.wfile.write(content)
+        try:
+            with contextlib.closing(
+                    self.server.session.request(self.command, url,
+                                                headers=self.headers, data=data,
+                                                auth=self.server.auth,
+                                                allow_redirects=False,
+                                                timeout=20)) as resp:
+                content = resp.content
+                status_code = resp.status_code
+                reason = resp.reason
+                headers = resp.headers.copy()
+        except requests.RequestException as e:
+            content = str(e).encode('utf-8')
+            status_code = 503
+            reason = 'Service unavailable'
+            headers = {
+                'Content-type': 'text/plain',
+                'Content-length': str(len(content))
+            }
+
+        self.send_response(status_code, reason)
+        for key, value in headers.items():
+            if key.lower() not in ['date', 'server', 'transfer-encoding']:
+                self.send_header(key, value)
+        self.end_headers()
+        self.wfile.write(content)
 
     def log_message(self, format, *args):
         # Print to stdout instead of stderr so that it doesn't spew all over
@@ -219,7 +234,9 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         if cls.httpd is not None:
             cls.httpd.session.close()
             cls.httpd.shutdown()
+            cls.httpd = None
             cls.httpd_thread.join()
+            cls.httpd_thread = None
         super(TestS3ChunkStoreToken, cls).teardown_class()
 
     @classmethod
@@ -231,12 +248,16 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         if cls.httpd is None:
             proxy_host = '127.0.0.1'
             proxy_port = get_free_port(proxy_host)
-            cls.httpd = http.server.HTTPServer((proxy_host, proxy_port), _TokenHTTPProxyHandler)
-            cls.httpd.target = url
-            cls.httpd.session = requests.Session()
-            cls.httpd.auth = _AWSAuth(cls.credentials)
-            cls.httpd_thread = threading.Thread(target=cls.httpd.serve_forever)
+            httpd = http.server.HTTPServer((proxy_host, proxy_port), _TokenHTTPProxyHandler)
+            httpd.target = url
+            httpd.session = requests.Session()
+            httpd.auth = _AWSAuth(cls.credentials)
+            cls.httpd_thread = threading.Thread(target=httpd.serve_forever)
             cls.httpd_thread.start()
+            # We delay setting cls.httpd until we've launched serve_forever,
+            # because teardown calls httpd.shutdown and that hangs if
+            # serve_forever wasn't called.
+            cls.httpd = httpd
             cls.proxy_url = 'http://{}:{}'.format(proxy_host, proxy_port)
         elif url != cls.httpd.target:
             raise RuntimeError('Cannot use multiple target URLs with http proxy')
