@@ -395,7 +395,28 @@ class S3ChunkStore(ChunkStore):
         # Strip the array name and .npy extension to get the chunk ID string
         return [key[len(prefix) + 1:-4] for key in keys if key.endswith('.npy')]
 
+    def mark_complete(self, array_name):
+        """See the docstring of :meth:`ChunkStore.mark_complete`."""
+        self.create_array(array_name)
+        obj_name = self.join(array_name, 'complete')
+        url = urllib.parse.urljoin(self._url, obj_name)
+        with self._request(obj_name, 'PUT', url, data=b''):
+            pass
+
+    def is_complete(self, array_name):
+        """See the docstring of :meth:`ChunkStore.is_complete`."""
+        obj_name = self.join(array_name, 'complete')
+        url = urllib.parse.urljoin(self._url, obj_name)
+        try:
+            with self._request(obj_name, 'GET', url):
+                pass
+        except ChunkNotFound:
+            return False
+        return True
+
     get_chunk.__doc__ = ChunkStore.get_chunk.__doc__
     put_chunk.__doc__ = ChunkStore.put_chunk.__doc__
     has_chunk.__doc__ = ChunkStore.has_chunk.__doc__
     list_chunk_ids.__doc__ = ChunkStore.list_chunk_ids.__doc__
+    mark_complete.__doc__ = ChunkStore.mark_complete.__doc__
+    is_complete.__doc__ = ChunkStore.is_complete.__doc__

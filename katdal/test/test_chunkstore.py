@@ -257,3 +257,13 @@ class ChunkStoreTestBase(object):
             slices = da.core.slices_from_chunks(dask_array.chunks)
             ref_chunk_ids = [self.store.chunk_id_str(s) for s in slices]
             assert_equal(set(chunk_ids), set(ref_chunk_ids))
+
+    def test_mark_complete(self):
+        name = self.array_name('completetest')
+        try:
+            assert_false(self.store.is_complete(name))
+        except NotImplementedError:
+            pass
+        else:
+            self.store.mark_complete(name)
+            assert_true(self.store.is_complete(name))

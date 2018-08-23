@@ -289,6 +289,29 @@ class ChunkStore(object):
         else:
             return True
 
+    def mark_complete(self, array_name):
+        """Write a special object to indicate that `array_name` is finished.
+
+        This operation is idempotent.
+
+        The `array_name` need not correspond to any array written with
+        :meth:`put_chunk`. This has no effect on katdal, but a producer can
+        call this method to provide a hint to a consumer that no further data
+        will be coming for this array. When arrays are arranged in a hierarchy,
+        a producer and consumer may agree to write a single completion marker
+        at a higher level of the hierarchy rather than one per actual array.
+
+        It is not necessary to call :meth:`create_array` first; the
+        implementation will do so if appropriate.
+
+        The presence of this marker can be checked with :meth:`is_complete`.
+        """
+        raise NotImplementedError
+
+    def is_complete(self, array_name):
+        """Check whether :meth:`mark_complete` has been called for this array."""
+        raise NotImplementedError
+
     NAME_SEP = '/'
     # Width sufficient to store any dump / channel / corrprod index for MeerKAT
     NAME_INDEX_WIDTH = 5
