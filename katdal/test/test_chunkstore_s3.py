@@ -288,4 +288,4 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
             cls.proxy_url = 'http://{}:{}'.format(proxy_host, proxy_port)
         elif url != cls.httpd.target:
             raise RuntimeError('Cannot use multiple target URLs with http proxy')
-        return S3ChunkStore.from_url(cls.proxy_url, timeout=1, token='mysecret', **kwargs)
+        return S3ChunkStore.from_url(cls.proxy_url, timeout=10, token='mysecret', **kwargs)
