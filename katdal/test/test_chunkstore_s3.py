@@ -270,7 +270,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
     def from_url(cls, url, authenticate=True, **kwargs):
         """Create the chunk store"""
         if not authenticate:
-            return S3ChunkStore.from_url(url, timeout=1, **kwargs)
+            return S3ChunkStore.from_url(url, timeout=10, **kwargs)
 
         if cls.httpd is None:
             proxy_host = '127.0.0.1'
