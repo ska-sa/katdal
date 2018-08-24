@@ -111,7 +111,21 @@ class NpyFileChunkStore(ChunkStore):
                 raise
             return []
 
+    def mark_complete(self, array_name):
+        """See the docstring of :meth:`ChunkStore.mark_complete`."""
+        self.create_array(array_name)
+        touch_file = os.path.join(self.path, array_name, 'complete')
+        with open(touch_file, 'a'):
+            os.utime(touch_file, None)
+
+    def is_complete(self, array_name):
+        """See the docstring of :meth:`ChunkStore.is_complete`."""
+        touch_file = os.path.join(self.path, array_name, 'complete')
+        return os.path.isfile(touch_file)
+
     get_chunk.__doc__ = ChunkStore.get_chunk.__doc__
     put_chunk.__doc__ = ChunkStore.put_chunk.__doc__
     has_chunk.__doc__ = ChunkStore.has_chunk.__doc__
     list_chunk_ids.__doc__ = ChunkStore.list_chunk_ids.__doc__
+    mark_complete.__doc__ = ChunkStore.mark_complete.__doc__
+    is_complete.__doc__ = ChunkStore.is_complete.__doc__
