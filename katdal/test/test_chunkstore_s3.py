@@ -217,6 +217,11 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
             return getattr(super(_TokenHTTPProxyHandler, self), name)
 
     def do_all(self):
+        # See https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Connection
+        HOP_HEADERS = {
+            'keep-alive', 'transfer-encoding', 'te', 'connection', 'trailer',
+            'upgrade', 'proxy-authorization', 'proxy-authenticate'
+        }
         self.protocol_version = 'HTTP/1.1'
         url = urllib.parse.urljoin(self.server.target, self.path)
         data_len = int(self.headers.get('Content-Length', 0))
@@ -226,10 +231,16 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             return
 
+        # Clear out hop-to-hop headers
+        request_headers = dict(self.headers.items())
+        for header in self.headers:
+            if header.lower() in HOP_HEADERS:
+                del request_headers[header]
+
         try:
             with contextlib.closing(
                     self.server.session.request(self.command, url,
-                                                headers=self.headers, data=data,
+                                                headers=request_headers, data=data,
                                                 auth=self.server.auth,
                                                 allow_redirects=False,
                                                 timeout=5)) as resp:
@@ -248,7 +259,8 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
 
         self.send_response(status_code, reason)
         for key, value in headers.items():
-            if key.lower() not in ['date', 'server', 'transfer-encoding']:
+            # The base class automatically sets Date and Server headers
+            if key.lower() not in HOP_HEADERS.union({'date', 'server'}):
                 self.send_header(key, value)
         self.end_headers()
         self.wfile.write(content)
