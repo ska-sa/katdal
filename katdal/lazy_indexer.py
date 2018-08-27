@@ -402,24 +402,22 @@ class DaskLazyIndexer(object):
     ----------
     dataset : :class:`dask.Array`
         The full dataset, from which a subset is chosen by `keep`.
-    keep : tuple
-        Index expression. This object wraps `dataset[keep]`, although
-        fancy indices are applied independently per axis.
-    transforms : sequence
+    keep : tuple, optional
+        Index expression describing first-stage selection (i.e. as applied by
+        :meth:`katdal.DataSet.select`). This object wraps `dataset[keep]`,
+        although fancy indices are applied independently per axis.
+    transforms : sequence of function, signature ``array = f(array)``, optional
         Transformations that are applied after indexing by `keep` but
         before indexing on this object. Each transformation is a callable
         that takes a dask array and returns another dask array.
 
     Attributes
     ----------
+    name : str
+        The name of the (full) underlying dataset, useful for reporting
     dataset : :class:`dask.Array`
-        The dask array that is accessed by indexing. It can be used
-        directly to perform dask computations.
-    keep : tuple
-        The index expression that is used to compute :attr:`dataset`.
-        It may be an alternative form to that given in the constructor.
-    transforms : list
-        The transformations given in the constructor.
+        The dask array that is accessed by indexing (after applying `keep` and
+        `transforms`). It can be used directly to perform dask computations.
     """
     def __init__(self, dataset, keep=(), transforms=()):
         self.name = getattr(dataset, 'name', '')
@@ -434,6 +432,7 @@ class DaskLazyIndexer(object):
 
     @property
     def dataset(self):
+        """Array after first-stage indexing and transformation."""
         with self._lock:
             if self._dataset is None:
                 try:
@@ -450,7 +449,7 @@ class DaskLazyIndexer(object):
             return self._dataset
 
     def dask_getitem(self, keep):
-        """Index the array and return a dask array.
+        """Index the dataset and return a dask array.
 
         This is functionally equivalent to ``self.dataset[keep]``, but it culls
         unnecessary nodes from the graph, which makes it cheaper to compute if
@@ -465,6 +464,24 @@ class DaskLazyIndexer(object):
         return kept
 
     def __getitem__(self, keep):
+        """Extract a selected array from the underlying dataset.
+
+        This applies the given second-stage index on top of the current
+        dataset, which already has a first-stage index and optional transforms
+        applied to it. The indexer also finally stops being lazy and triggers
+        dask computation to arrive at the output array.
+
+        Parameters
+        ----------
+        keep : tuple of int or slice or sequence of int or sequence of bool
+            Second-stage index as a valid index or slice specification
+            (supports arbitrary slicing or advanced indexing on any dimension)
+
+        Returns
+        -------
+        out : :class:`numpy.ndarray`
+            Extracted output array (computed from the final dask version)
+        """
         kept = self.dask_getitem(keep)
         # Workaround for https://github.com/dask/dask/issues/3595
         # This is equivalent to kept.compute(), but does not
@@ -484,8 +501,10 @@ class DaskLazyIndexer(object):
 
     @property
     def shape(self):
+        """Shape of array after first-stage indexing and transformation."""
         return self.dataset.shape
 
     @property
     def dtype(self):
+        """Data type of array after first-stage indexing and transformation."""
         return self.dataset.dtype
