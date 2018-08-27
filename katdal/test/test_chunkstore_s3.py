@@ -232,7 +232,7 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
                                                 headers=self.headers, data=data,
                                                 auth=self.server.auth,
                                                 allow_redirects=False,
-                                                timeout=20)) as resp:
+                                                timeout=5)) as resp:
                 content = resp.content
                 status_code = resp.status_code
                 reason = resp.reason
