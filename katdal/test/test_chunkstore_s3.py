@@ -14,7 +14,18 @@
 # limitations under the License.
 ################################################################################
 
-"""Tests for :py:mod:`katdal.chunkstore_s3`."""
+"""Tests for :py:mod:`katdal.chunkstore_s3`.
+
+The tests require `minio`_ to be installed on the :envvar:`PATH`. If not found,
+the test will be skipped.
+
+Versions of minio prior to 2018-08-25T01:56:38Z contain a `race condition`_
+that can cause it to crash when queried at the wrong point during startup. If
+an older version is detected, the test will be skipped.
+
+.. _minio: https://github.com/minio/minio
+.. _race condition: https://github.com/minio/minio/issues/6324
+"""
 from __future__ import print_function, division, absolute_import
 
 from future import standard_library
@@ -39,22 +50,6 @@ import requests
 from katdal.chunkstore_s3 import S3ChunkStore, _AWSAuth
 from katdal.chunkstore import StoreUnavailable
 from katdal.test.test_chunkstore import ChunkStoreTestBase
-
-
-def consume_stdout_check_ready(process, ready):
-    """Look for message indicating the server is ready.
-
-    This is used as a workaround for
-    https://github.com/minio/minio/issues/6324. Once fixed it would be simpler
-    to poll the HTTP port.
-    """
-    # Gobble up lines of text from stdout until it is closed when process exits.
-    # This is the same as `for line in process.stdout:` but on Python 2 that
-    # version deadlocks (see https://stackoverflow.com/a/1085100).
-    for line in iter(process.stdout.readline, b''):
-        if line.strip() == b'Object API (Amazon S3 compatible):':
-            ready.set()
-    ready.set()  # Avoid blocking the consumer if minio crashed
 
 
 def gethostbyname_slow(host):
@@ -86,6 +81,26 @@ class TestS3ChunkStore(ChunkStoreTestBase):
     @classmethod
     def start_minio(cls, host):
         """Start Fake S3 service on `host` and return its URL."""
+
+        # Check minio version
+        try:
+            version_data = subprocess.check_output(['minio', 'version'])
+        except OSError as e:
+            raise SkipTest('Could not run minio (is it installed): {}'.format(e))
+        except subprocess.CalledProcessError:
+            raise SkipTest('Failed to get minio version (is it too old)?')
+
+        min_version = u'2018-08-25T01:56:38Z'
+        version = None
+        version_fields = version_data.decode('utf-8').splitlines()
+        for line in version_fields:
+            if line.startswith(u'Version: '):
+                version = line.split(u' ', 1)[1]
+        if version is None:
+            raise RuntimeError('Could not parse minio version')
+        elif version < min_version:
+            raise SkipTest(u'Minio version is {} but {} is required'.format(version, min_version))
+
         with get_free_port(host) as port:
             try:
                 env = os.environ.copy()
@@ -93,27 +108,27 @@ class TestS3ChunkStore(ChunkStoreTestBase):
                 env['MINIO_ACCESS_KEY'] = cls.credentials[0]
                 env['MINIO_SECRET_KEY'] = cls.credentials[1]
                 cls.minio = subprocess.Popen(['minio', 'server',
+                                              '--quiet',
                                               '--address', '{}:{}'.format(host, port),
                                               '-C', os.path.join(cls.tempdir, 'config'),
                                               os.path.join(cls.tempdir, 'data')],
-                                             stdout=subprocess.PIPE,
+                                             stdout=cls.devnull,
                                              env=env)
             except OSError:
                 raise SkipTest('Could not start minio server (is it installed?)')
 
-        ready = threading.Event()
-        # Ensure that the stdout of minio process is continuously consumed.
-        # This pattern is inspired by the "Launch, Interact, Get Output in
-        # Real Time, Terminate" section of
-        # https://dzone.com/articles/interacting-with-a-long-running-child-process-in-p
-        cls.stdout_consumer = threading.Thread(target=consume_stdout_check_ready,
-                                               args=(cls.minio, ready))
-        cls.stdout_consumer.start()
-
         # Wait for minio to be ready to service requests
-        if not ready.wait(timeout=30):
-            raise OSError('Timed out waiting for minio to be ready')
-        return 'http://%s:%s' % (host, port)
+        url = 'http://%s:%s' % (host, port)
+        health_url = urllib.parse.urljoin(url, '/minio/health/live')
+        for i in range(100):
+            try:
+                with contextlib.closing(requests.get(health_url)) as resp:
+                    if resp.status_code == 200:
+                        return url
+            except requests.ConnectionError:
+                pass
+            time.sleep(0.1)
+        raise OSError('Timed out waiting for minio to be ready')
 
     @classmethod
     def from_url(cls, url, authenticate=True, **kwargs):
@@ -132,7 +147,6 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         # XXX Python 3.3+ can use subprocess.DEVNULL instead
         cls.devnull = open(os.devnull, 'wb')
         cls.minio = None
-        cls.stdout_consumer = None
         try:
             cls.url = cls.start_minio('127.0.0.1')
             cls.store = cls.from_url(cls.url)
@@ -147,8 +161,6 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         if cls.minio:
             cls.minio.terminate()
             cls.minio.wait()
-        if cls.stdout_consumer:
-            cls.stdout_consumer.join()
         cls.devnull.close()
         shutil.rmtree(cls.tempdir)
 
