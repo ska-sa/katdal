@@ -60,7 +60,7 @@ setup(name='katdal',
       use_katversion=True,
       install_requires=['numpy', 'katpoint', 'h5py>=2.3',
                         'katsdptelstate[rdb]', 'dask[array]',
-                        'requests', 'defusedxml', 'future'],
+                        'requests >= 2.18.0', 'defusedxml', 'future'],
       extras_require={
           'ms': ['python-casacore >= 2.2.1', 'numba'],
           's3': [],

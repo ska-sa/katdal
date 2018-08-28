@@ -122,7 +122,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         health_url = urllib.parse.urljoin(url, '/minio/health/live')
         for i in range(100):
             try:
-                with contextlib.closing(requests.get(health_url)) as resp:
+                with requests.get(health_url) as resp:
                     if resp.status_code == 200:
                         return url
             except requests.ConnectionError:
@@ -238,12 +238,11 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
                 del request_headers[header]
 
         try:
-            with contextlib.closing(
-                    self.server.session.request(self.command, url,
-                                                headers=request_headers, data=data,
-                                                auth=self.server.auth,
-                                                allow_redirects=False,
-                                                timeout=5)) as resp:
+            with self.server.session.request(self.command, url,
+                                             headers=request_headers, data=data,
+                                             auth=self.server.auth,
+                                             allow_redirects=False,
+                                             timeout=5) as resp:
                 content = resp.content
                 status_code = resp.status_code
                 reason = resp.reason
