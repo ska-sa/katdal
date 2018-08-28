@@ -190,7 +190,7 @@ class S3ChunkStore(ChunkStore):
             # error if we do not have credentials (this occurs for minio, but
             # Ceph RGW just returns an empty list).
             with session_factory() as session:
-                with contextlib.closing(session.get(url)) as response:
+                with session.get(url) as response:
                     if (response.status_code != 403
                             or 'Authorization' in response.request.headers):
                         _raise_for_status(response)
@@ -298,7 +298,7 @@ class S3ChunkStore(ChunkStore):
     def _request(self, chunk_name, method, url, *args, **kwargs):
         """Run a request on a session from the pool, raising HTTP errors"""
         with self._standard_errors(chunk_name), self._session_pool() as session:
-            with contextlib.closing(session.request(method, url, *args, **kwargs)) as response:
+            with session.request(method, url, *args, **kwargs) as response:
                 _raise_for_status(response)
                 yield response
 
@@ -323,7 +323,7 @@ class S3ChunkStore(ChunkStore):
         bucket = array_name.split(self.NAME_SEP)[0]
         url = urllib.parse.urljoin(self._url, to_str(urllib.parse.quote(bucket)))
         with self._standard_errors(), self._session_pool() as session:
-            with contextlib.closing(session.put(url)) as response:
+            with session.put(url) as response:
                 if response.status_code != 409:
                     # 409 indicates the bucket already exists
                     _raise_for_status(response)
