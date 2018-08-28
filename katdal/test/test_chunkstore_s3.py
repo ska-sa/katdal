@@ -72,7 +72,6 @@ def get_free_port(host):
     the temporary socket.
     """
     with contextlib.closing(socket.socket()) as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         sock.bind((host, 0))
         port = sock.getsockname()[1]
