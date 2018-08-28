@@ -32,7 +32,10 @@ from future import standard_library
 standard_library.install_aliases()     # noqa: E402
 import tempfile
 import shutil
-import subprocess
+# Using subprocess32 is important (on 2.7) because it closes non-stdio file
+# descriptors in the child. Without that, OS X runs into problems with minio
+# failing to bind the socket.
+import subprocess32 as subprocess
 import threading
 import os
 import time
@@ -113,7 +116,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
                                               '--address', '{}:{}'.format(host, port),
                                               '-C', os.path.join(cls.tempdir, 'config'),
                                               os.path.join(cls.tempdir, 'data')],
-                                             stdout=cls.devnull,
+                                             stdout=subprocess.DEVNULL,
                                              env=env)
             except OSError:
                 raise SkipTest('Could not start minio server (is it installed?)')
@@ -145,8 +148,6 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         cls.tempdir = tempfile.mkdtemp()
         os.mkdir(os.path.join(cls.tempdir, 'config'))
         os.mkdir(os.path.join(cls.tempdir, 'data'))
-        # XXX Python 3.3+ can use subprocess.DEVNULL instead
-        cls.devnull = open(os.devnull, 'wb')
         cls.minio = None
         try:
             cls.url = cls.start_minio('127.0.0.1')
@@ -162,7 +163,6 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         if cls.minio:
             cls.minio.terminate()
             cls.minio.wait()
-        cls.devnull.close()
         shutil.rmtree(cls.tempdir)
 
     def array_name(self, path):

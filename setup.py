@@ -68,4 +68,4 @@ setup(name='katdal',
           # rados is not in PyPI but available as Debian package python-rados
           'rados': ['rados']
       },
-      tests_require=['mock', 'nose'])
+      tests_require=['mock', 'nose', 'subprocess32'])
