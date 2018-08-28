@@ -1,4 +1,5 @@
 botocore==1.10.78
+certifi
 chardet
 dask
 defusedxml
