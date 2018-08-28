@@ -65,11 +65,12 @@ def get_free_port(host):
     This is a context manager that returns a port, while holding open the
     socket bound to it. This prevents another ephemeral process from
     obtaining the port in the meantime. The target process should bind the
-    port with SO_REUSEADDR, after which the context should be exited to close
+    port with SO_REUSEPORT, after which the context should be exited to close
     the temporary socket.
     """
     with contextlib.closing(socket.socket()) as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         sock.bind((host, 0))
         port = sock.getsockname()[1]
         yield port
@@ -270,6 +271,18 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
         print(format % args)
 
 
+class _TokenHTTPProxyServer(http.server.HTTPServer):
+    """Server for use with :class:`_TokenHTTPProxyHandler`.
+
+    It sets SO_REUSEPORT so that it is compatible with a socket created by
+    :func:`get_free_port`, including on OS X.
+    """
+    def server_bind(self):
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        # In Python 2.7 it's an old-style class, so super doesn't work
+        http.server.HTTPServer.server_bind(self)
+
+
 class TestS3ChunkStoreToken(TestS3ChunkStore):
     """Test S3 with token authentication headers."""
 
@@ -298,7 +311,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         if cls.httpd is None:
             proxy_host = '127.0.0.1'
             with get_free_port(proxy_host) as proxy_port:
-                httpd = http.server.HTTPServer((proxy_host, proxy_port), _TokenHTTPProxyHandler)
+                httpd = _TokenHTTPProxyServer((proxy_host, proxy_port), _TokenHTTPProxyHandler)
             httpd.target = url
             httpd.session = requests.Session()
             httpd.auth = _AWSAuth(cls.credentials)
