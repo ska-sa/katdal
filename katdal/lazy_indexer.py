@@ -36,10 +36,10 @@ def _simplify_index(shape, indices):
 
     In the current implementation, boolean numpy arrays which select contiguous
     ranges are converted to slices. Note that when indexing along multiple axes
-    with arrays, this may change the semantics of the indexing (see this `NEP`_
-    for details).
+    with arrays, this may change the semantics of the indexing (see NumPy's
+    `NEP 21`_ for details).
 
-    .. _NEP: https://gist.github.com/seberg/976373b6a2b7c4188591
+    .. _NEP 21: http://www.numpy.org/neps/nep-0021-advanced-indexing.html
 
     If the expression is invalid in some way (e.g. wrong length array index)
     the original index is returned so that that an exception will be raised
@@ -74,6 +74,39 @@ def _simplify_index(shape, indices):
                     index = slice(selected[0], selected[-1] + 1)
             out.append(index)
     return tuple(out)
+
+
+def _dask_getitem(x, keep):
+    """Index a dask array, with N-D fancy index support and better performance.
+
+    This is a drop-in replacement for ``x[keep]`` that goes one further
+    by implementing "N-D fancy indexing" which is still unsupported in dask.
+    If `keep` contains multiple fancy indices, perform outer (`oindex`)
+    indexing. This behaviour deviates from NumPy, which performs the more
+    general (but also more obtuse) vectorized (`vindex`) indexing in this case.
+    See  NumPy `NEP 21`_, dask/dask#433 and h5py/h5py#652 for more details.
+
+    .. _NEP 21: http://www.numpy.org/neps/nep-0021-advanced-indexing.html
+
+    In addition, this optimises performance by culling unnecessary nodes from
+    the dask graph after indexing, which makes it cheaper to compute if only a
+    small piece of the graph is needed, and by collapsing fancy indices in
+    `keep` to slices where possible (which also implies oindex semantics).
+    """
+    keep = _simplify_index(x.shape, keep)
+    try:
+        kept = x[keep]
+    except NotImplementedError:
+        # Dask does not like multiple boolean indices: go one dim at a time
+        kept = x
+        for dim, keep_per_dim in enumerate(keep):
+            kept = da.take(kept, keep_per_dim, axis=dim)
+    # dask does culling anyway as part of optimization, but it first calls
+    # ensure_dict, which copies all the keys, presumably to speed up the
+    # case where most keys are retained. A lazy indexer is normally used to
+    # fetch a small part of the data.
+    kept.dask = dask.optimization.cull(kept.dask, kept.__dask_keys__())[0]
+    return kept
 
 
 # -------------------------------------------------------------------------------------------------
@@ -421,7 +454,6 @@ class DaskLazyIndexer(object):
     """
     def __init__(self, dataset, keep=(), transforms=()):
         self.name = getattr(dataset, 'name', '')
-        keep = _simplify_index(dataset.shape, keep)
         # Fancy indices can be mutable arrays, so take a copy to protect
         # against the caller mutating the array before we apply it.
         self.keep = copy.deepcopy(keep)
@@ -435,33 +467,12 @@ class DaskLazyIndexer(object):
         """Array after first-stage indexing and transformation."""
         with self._lock:
             if self._dataset is None:
-                try:
-                    dataset = self._orig_dataset[self.keep]
-                except NotImplementedError:
-                    # Dask does not like multiple boolean indices: go one dim at a time
-                    dataset = self._orig_dataset
-                    for dim, keep_per_dim in enumerate(self.keep):
-                        dataset = da.take(dataset, keep_per_dim, axis=dim)
+                dataset = _dask_getitem(self._orig_dataset, self.keep)
                 for transform in self.transforms:
                     dataset = transform(dataset)
                 self._dataset = dataset
                 self._orig_dataset = None
             return self._dataset
-
-    def dask_getitem(self, keep):
-        """Index the dataset and return a dask array.
-
-        This is functionally equivalent to ``self.dataset[keep]``, but it culls
-        unnecessary nodes from the graph, which makes it cheaper to compute if
-        only a small piece of the graph is needed.
-        """
-        # dask does culling anyway as part of optimization, but it first calls
-        # ensure_dict, which copies all the keys, presumably to speed up the
-        # case where most keys are retained. A lazy indexer is normally used to
-        # fetch a small part of the data.
-        kept = self.dataset[keep]
-        kept.dask = dask.optimization.cull(kept.dask, kept.__dask_keys__())[0]
-        return kept
 
     def __getitem__(self, keep):
         """Extract a selected array from the underlying dataset.
@@ -482,7 +493,7 @@ class DaskLazyIndexer(object):
         out : :class:`numpy.ndarray`
             Extracted output array (computed from the final dask version)
         """
-        kept = self.dask_getitem(keep)
+        kept = _dask_getitem(self.dataset, keep)
         # Workaround for https://github.com/dask/dask/issues/3595
         # This is equivalent to kept.compute(), but does not
         # allocate excessive memory.
