@@ -23,7 +23,8 @@ import numpy as np
 import dask.array as da
 from nose.tools import assert_raises
 
-from katdal.lazy_indexer import _simplify_index, _dask_getitem, DaskLazyIndexer
+from katdal.lazy_indexer import (_simplify_index, _dask_getitem,
+                                 _is_integer, DaskLazyIndexer)
 
 
 class TestSimplifyIndices(object):
@@ -73,60 +74,143 @@ class TestSimplifyIndices(object):
         self._test_index_error(np.s_[0, 0, 0, 0])
 
 
+def slice_to_range(s, l):
+    return range(*s.indices(l))
+
+
+def ix_(keep, shape):
+    """Extend numpy.ix_ to accept slices and single ints as well."""
+    # Inspired by Zarr's indexing.py (https://github.com/zarr-developers/zarr)
+    keep = [slice_to_range(k, s) if isinstance(k, slice)
+            else [k] if _is_integer(k)
+            else k
+            for k, s in zip(keep, shape)]
+    return np.ix_(*keep)
+
+
+def numpy_oindex(x, keep):
+    """Perform outer indexing on a NumPy array (inspired by Zarr).
+
+    This is more onerous, but calls `x.__getitem__` only once.
+    """
+    # Inspired by Zarr's indexing.py (https://github.com/zarr-developers/zarr)
+    # Get rid of ellipsis
+    keep = da.slicing.normalize_index(keep, x.shape)
+    new_axes = tuple(n for n, k in enumerate(keep) if k is np.newaxis)
+    drop_axes = tuple(n for n, k in enumerate(keep) if _is_integer(k))
+    # Get rid of newaxis
+    keep = tuple(k for k in keep if k is not np.newaxis)
+    keep = ix_(keep, x.shape)
+    result = x[keep]
+    for ax in new_axes:
+        result = np.expand_dims(result, ax)
+    result = result.squeeze(axis=drop_axes)
+    return result
+
+
+def numpy_oindex_lite(x, keep):
+    """Perform outer indexing on a NumPy array (compact version).
+
+    This is more compact, but calls `x.__getitem__` `x.ndim` times.
+
+    It also assumes that `keep` contains no ellipsis to be as pure as possible.
+    """
+    dim = 0
+    result = x
+    for k in keep:
+        cumulative_index = (slice(None),) * dim + (k,)
+        result = result[cumulative_index]
+        # Handle dropped dimensions
+        if not _is_integer(k):
+            dim += 1
+    return result
+
+
+class TestNumPyOIndex(object):
+    """Test the :func:`~numpy_oindex` function."""
+    def setup(self):
+        shape = (10, 10, 10, 10)
+        self.data = np.arange(np.product(shape)).reshape(shape)
+
+    def _test_with(self, indices, indices_without_ellipsis=None):
+        """An even more compact version of numpy_oindex..."""
+        outer = numpy_oindex(self.data, indices)
+        if indices_without_ellipsis is None:
+            indices_without_ellipsis = indices
+        expected = numpy_oindex_lite(self.data, indices_without_ellipsis)
+        np.testing.assert_array_equal(outer, expected)
+
+    def test_outer_indexing(self):
+        self._test_with(())
+        # ellipsis
+        self._test_with(np.s_[[0], ...], np.s_[[0], :, :, :])
+        self._test_with(np.s_[:, [0], ...], np.s_[:, [0], :, :])
+        # list of ints
+        self._test_with(np.s_[:, [0], [0], :])
+        self._test_with(np.s_[:, [0], :, [0]])
+        self._test_with(np.s_[:, [0], [0, 1], :])
+        self._test_with(np.s_[:, [0], :, [0, 1]])
+        # booleans
+        pick_one = np.zeros(10, dtype=np.bool_)
+        pick_one[6] = True
+        self._test_with(np.s_[:, [True, False] * 5, pick_one, :])
+        self._test_with(np.s_[:, [False, True] * 5, :, pick_one])
+        # slices
+        self._test_with(np.s_[0:2, 2:4, 4:6, 6:8])
+        self._test_with(np.s_[-8:-6, -4:-2, slice(3, 10, 2), -2:])
+        # single ints
+        self._test_with(np.s_[:, [0], 0, :])
+        self._test_with(np.s_[:, [0], :, 0])
+        # newaxis
+        self._test_with(np.s_[np.newaxis, :, [0], :, 0])
+        self._test_with(np.s_[:, [0], np.newaxis, 0, :])
+        # the lot
+        self._test_with(np.s_[..., 2:5, [4, 6], np.newaxis, 0],
+                        np.s_[:, 2:5, [4, 6], np.newaxis, 0])
+
+
 class TestDaskGetitem(object):
     """Test the :func:`~katdal.lazy_indexer._dask_getitem` function."""
     def setup(self):
-        # Derived from example in NEP 21
-        shape = (5, 6, 7, 8)
+        shape = (10, 10, 10, 10)
         self.data = np.arange(np.product(shape)).reshape(shape)
-        self.data_dask = da.from_array(self.data, chunks=(1, 2, 1, 2))
+        self.data_dask = da.from_array(self.data, chunks=(2, 5, 2, 5))
 
-    def _check_shape(self, indices, shape):
-        us = _dask_getitem(self.data_dask, indices).compute()
-        np.testing.assert_equal(us.shape, shape)
-
-    def _compare_indexing(self, indices):
-        npy = self.data[indices]
-        us = _dask_getitem(self.data_dask, indices).compute()
-        np.testing.assert_array_equal(us, npy)
-
-    def _test_with(self, indices, expected_error=None):
-        if expected_error is None:
-            self._compare_indexing(indices)
-        else:
-            with assert_raises(expected_error):
-                self._compare_indexing(indices)
-
-    def test_legacy_fancy_indexing(self):
-        self._test_with(np.s_[[0], ...])
-        self._test_with(np.s_[:, [0], ...])
-        self._test_with(np.s_[:, [0], [0], :], AssertionError)  # future error
-        self._test_with(np.s_[:, [0], :, [0]], AssertionError)  # future error
-        self._test_with(np.s_[:, [0], 0, :])
-        self._test_with(np.s_[:, [0], :, 0], AssertionError)  # future error
-        # Create boolean index with one True value for the last two dimensions
-        bindx = np.zeros((7, 8), dtype=np.bool_)
-        bindx[0, 0] = True
-        self._test_with(np.s_[:, 0, bindx], IndexError)  # dask can't handle it
-        self._test_with(np.s_[0, :, bindx], IndexError)  # dask can't handle it
-        self._test_with(np.s_[[0], :, bindx], IndexError)  # dask failure
-        self._test_with(np.s_[:, [0, 1], bindx], IndexError)  # dask failure
+    def _test_with(self, indices):
+        npy = numpy_oindex(self.data, indices)
+        getitem = _dask_getitem(self.data_dask, indices).compute()
+        np.testing.assert_array_equal(getitem, npy)
 
     def test_outer_indexing(self):
-        self._check_shape(np.s_[:, [0], [0, 1], :], (5, 1, 2, 8))
-        self._check_shape(np.s_[:, [0], :, [0, 1]], (5, 1, 7, 2))
-        self._check_shape(np.s_[:, [0], 0, :], (5, 1, 8))
-        self._check_shape(np.s_[:, [0], :, 0], (5, 1, 7))
-        # Restrict ourselves to more practical 1-D boolean indices
-        bindx2 = np.zeros(7, dtype=np.bool_)
-        bindx2[0] = True
-        bindx3 = np.zeros(8, dtype=np.bool_)
-        bindx3[0] = True
-        bindx3[3] = True
-        self._check_shape(np.s_[:, 0, bindx2, bindx3], (5, 1, 2))
-        self._check_shape(np.s_[0, :, bindx2, bindx3], (6, 1, 2))
-        self._check_shape(np.s_[[0], :, bindx2, bindx3], (1, 6, 1, 2))
-        self._check_shape(np.s_[:, [0, 1], bindx2, bindx3], (5, 2, 1, 2))
+        self._test_with(())
+        # ellipsis
+        self._test_with(np.s_[[0], ...])
+        self._test_with(np.s_[:, [0], ...])
+        # list of ints
+        self._test_with(np.s_[:, [0], [0], :])
+        self._test_with(np.s_[:, [0], :, [0]])
+        self._test_with(np.s_[:, [0], [0, 1], :])
+        self._test_with(np.s_[:, [0], :, [0, 1]])
+        # booleans
+        pick_one = np.zeros(10, dtype=np.bool_)
+        pick_one[6] = True
+        self._test_with(np.s_[:, [True, False] * 5, pick_one, :])
+        self._test_with(np.s_[:, [False, True] * 5, :, pick_one])
+        self._test_with(np.s_[4:9, [False, True] * 5,
+                              [True, False] * 5, pick_one])
+        # slices
+        self._test_with(np.s_[0:2, 2:4, 4:6, 6:8])
+        self._test_with(np.s_[-8:-6, -4:-2, slice(3, 10, 2), -2:])
+        # single ints
+        self._test_with(np.s_[:, [0], 0, :])
+        self._test_with(np.s_[:, [0], :, 0])
+        self._test_with(np.s_[:, 0, [0, 2], [1, 3, 5]])
+        # newaxis
+        self._test_with(np.s_[np.newaxis, :, [0], :, 0])
+        self._test_with(np.s_[:, [0], np.newaxis, 0, :])
+        # the lot
+        self._test_with(np.s_[..., 0, 2:5, [True, False] * 5,
+                              np.newaxis, [4, 6]])
 
 
 class TestDaskLazyIndexer(object):
@@ -136,20 +220,23 @@ class TestDaskLazyIndexer(object):
         self.data = np.arange(np.product(shape)).reshape(shape)
         self.data_dask = da.from_array(self.data, chunks=(1, 4, 5))
 
-    def test_stage1_slices(self):
-        stage1 = np.s_[5:, :, 1::2]
+    def _test_with(self, stage1=(), stage2=()):
+        npy1 = numpy_oindex(self.data, stage1)
+        npy2 = numpy_oindex(npy1, stage2)
         indexer = DaskLazyIndexer(self.data_dask, stage1)
-        np.testing.assert_array_equal(indexer[:], self.data[stage1])
+        np.testing.assert_array_equal(indexer[stage2], npy2)
+
+    def test_stage1_slices(self):
+        self._test_with(np.s_[5:, :, 1::2])
 
     def test_stage1_multiple_boolean_indices(self):
-        stage1 = tuple([True] * d for d in self.data.shape)
-        indexer = DaskLazyIndexer(self.data_dask, stage1)
-        np.testing.assert_array_equal(indexer[:], self.data)
+        self._test_with(tuple([True] * d for d in self.data.shape))
+        self._test_with(tuple([True, False] * (d // 2)
+                              for d in self.data.shape))
 
     def test_stage2_multiple_boolean_indices(self):
         stage1 = tuple([True] * d for d in self.data.shape)
-        indexer = DaskLazyIndexer(self.data_dask, stage1)
-        stage2 = tuple([True] * 2 + [False] * (d - 2) for d in self.data.shape)
-        # Since this is oindex, direct NumPy indexing won't work - check shape
-        np.testing.assert_equal(indexer[stage2].shape,
-                                tuple(sum(s) for s in stage2))
+        stage2 = tuple([True] * 4 + [False] * (d - 4) for d in self.data.shape)
+        self._test_with(stage1, stage2)
+        stage2 = tuple([True, False] * (d // 2) for d in self.data.shape)
+        self._test_with(stage1, stage2)

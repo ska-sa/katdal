@@ -22,6 +22,7 @@ from builtins import range
 from builtins import object
 import copy
 import threading
+import numbers
 
 import numpy as np
 import dask.array as da
@@ -76,6 +77,10 @@ def _simplify_index(shape, indices):
     return tuple(out)
 
 
+def _is_integer(x):
+    return isinstance(x, numbers.Integral)
+
+
 def _dask_getitem(x, keep):
     """Index a dask array, with N-D fancy index support and better performance.
 
@@ -100,10 +105,16 @@ def _dask_getitem(x, keep):
     try:
         kept = x[keep]
     except NotImplementedError:
-        # Dask does not like multiple boolean indices: go one dim at a time
+        # Unpack ellipsis first as da.take does not like it
+        keep = da.slicing.normalize_index(keep, x.shape)
+        # Perform outer indexing, one dimension at a time
         kept = x
-        for dim, keep_per_dim in enumerate(keep):
+        dim = 0
+        for keep_per_dim in keep:
             kept = da.take(kept, keep_per_dim, axis=dim)
+            # Handle dropped dimensions
+            if not _is_integer(keep_per_dim):
+                dim += 1
     # dask does culling anyway as part of optimization, but it first calls
     # ensure_dict, which copies all the keys, presumably to speed up the
     # case where most keys are retained. A lazy indexer is normally used to
