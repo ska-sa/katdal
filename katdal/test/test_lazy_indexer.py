@@ -115,6 +115,8 @@ def numpy_oindex_lite(x, keep):
 
     It also assumes that `keep` contains no ellipsis to be as pure as possible.
     """
+    if not isinstance(keep, tuple):
+        keep = (keep,)
     dim = 0
     result = x
     for k in keep:
@@ -142,6 +144,8 @@ class TestNumPyOIndex(object):
 
     def test_outer_indexing(self):
         self._test_with(())
+        self._test_with(2)
+        self._test_with((2, 3, 4, 5))
         # ellipsis
         self._test_with(np.s_[[0], ...], np.s_[[0], :, :, :])
         self._test_with(np.s_[:, [0], ...], np.s_[:, [0], :, :])
@@ -185,6 +189,8 @@ class TestDaskGetitem(object):
 
     def test_outer_indexing(self):
         self._test_with(())
+        self._test_with(2)
+        self._test_with((2, 3, 4, 5))
         # ellipsis
         self._test_with(np.s_[[0], ...])
         self._test_with(np.s_[:, [0], ...])
@@ -232,6 +238,9 @@ class TestDaskLazyIndexer(object):
 
     def test_stage1_slices(self):
         self._test_with(np.s_[5:, :, 1::2])
+
+    def test_stage2_ints(self):
+        self._test_with(np.s_[5:, :, 1::2], np.s_[1, 2, -1])
 
     def test_stage1_multiple_boolean_indices(self):
         self._test_with(tuple([True] * d for d in self.data.shape))
