@@ -84,9 +84,12 @@ def _dask_getitem(x, keep):
     If `keep` contains multiple fancy indices, perform outer (`oindex`)
     indexing. This behaviour deviates from NumPy, which performs the more
     general (but also more obtuse) vectorized (`vindex`) indexing in this case.
-    See  NumPy `NEP 21`_, dask/dask#433 and h5py/h5py#652 for more details.
+    See  NumPy `NEP 21`_, `dask #433`_ and `h5py #652`_ for more
+    details.
 
     .. _NEP 21: http://www.numpy.org/neps/nep-0021-advanced-indexing.html
+    .. _dask #433: https://github.com/dask/dask/issues/433
+    .. _h5py #652: https://github.com/h5py/h5py/issues/652
 
     In addition, this optimises performance by culling unnecessary nodes from
     the dask graph after indexing, which makes it cheaper to compute if only a
@@ -493,6 +496,10 @@ class DaskLazyIndexer(object):
         dataset, which already has a first-stage index and optional transforms
         applied to it. The indexer also finally stops being lazy and triggers
         dask computation to arrive at the output array.
+
+        Both indexing stages perform "outer" indexing (aka oindex), which
+        indexes each dimension independently. This is especially relevant for
+        advanced or fancy indexing.
 
         Parameters
         ----------
