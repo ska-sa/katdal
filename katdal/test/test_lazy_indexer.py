@@ -161,6 +161,8 @@ class TestNumPyOIndex(object):
         # single ints
         self._test_with(np.s_[:, [0], 0, :])
         self._test_with(np.s_[:, [0], :, 0])
+        self._test_with(np.s_[:, [0], -1, :])
+        self._test_with(np.s_[:, [0], :, -1])
         # newaxis
         self._test_with(np.s_[np.newaxis, :, [0], :, 0])
         self._test_with(np.s_[:, [0], np.newaxis, 0, :])
@@ -204,6 +206,8 @@ class TestDaskGetitem(object):
         # single ints
         self._test_with(np.s_[:, [0], 0, :])
         self._test_with(np.s_[:, [0], :, 0])
+        self._test_with(np.s_[:, [0], -1, :])
+        self._test_with(np.s_[:, [0], :, -1])
         self._test_with(np.s_[:, 0, [0, 2], [1, 3, 5]])
         # newaxis
         self._test_with(np.s_[np.newaxis, :, [0], :, 0])
