@@ -32,7 +32,7 @@ from functools import reduce
 # TODO support advanced integer indexing with non-strictly increasing indices (i.e. out-of-order and duplicates)
 
 
-def _simplify_index(shape, indices):
+def _simplify_index(indices, shape):
     """Generate an equivalent index expression that is cheaper to evaluate.
 
     In the current implementation, boolean numpy arrays which select contiguous
@@ -101,7 +101,7 @@ def _dask_getitem(x, keep):
     small piece of the graph is needed, and by collapsing fancy indices in
     `keep` to slices where possible (which also implies oindex semantics).
     """
-    keep = _simplify_index(x.shape, keep)
+    keep = _simplify_index(keep, x.shape)
     try:
         kept = x[keep]
     except NotImplementedError:

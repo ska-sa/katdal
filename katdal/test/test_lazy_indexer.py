@@ -35,12 +35,12 @@ class TestSimplifyIndices(object):
 
     def _test_with(self, indices):
         expected = self.data[indices]
-        simplified = _simplify_index(self.data.shape, indices)
+        simplified = _simplify_index(indices, self.data.shape)
         actual = self.data[simplified]
         np.testing.assert_array_equal(actual, expected)
 
     def _test_index_error(self, indices):
-        simplified = _simplify_index(self.data.shape, indices)
+        simplified = _simplify_index(indices, self.data.shape)
         with assert_raises(IndexError):
             self.data[simplified]
         with assert_raises(IndexError):
