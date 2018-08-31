@@ -108,6 +108,26 @@ class _AWSAuth(requests.auth.AuthBase):
         return r
 
 
+class _Multipart(object):
+    """Allow a sequence of bytes-like objects to be used as a request body.
+
+    This is intended to allow a zero-copy upload of bytes-like objects that
+    are not contiguous in memory. The requests library treats standard
+    iterable classes (list, tuple) specially, which is why a custom class is
+    needed.
+    """
+    def __init__(self, items=()):
+        self.items = list(items)
+
+    def __iter__(self):
+        return iter(self.items)
+
+    @property
+    def len(self):
+        """Total content length (retrieved by requests to set Content-Length)"""
+        return sum(len(item) for item in self.items)
+
+
 def _raise_for_status(response):
     """Like :meth:`requests.Response.raise_for_status`, but uses ChunkStore exception types."""
     try:
@@ -338,16 +358,31 @@ class S3ChunkStore(ChunkStore):
             with self._request(None, 'PUT', policy_url, data=json.dumps(policy)):
                 pass
 
+    @classmethod
+    def _numpy_header(cls, chunk):
+        fp = io.BytesIO()
+        header_fields = np.lib.format.header_data_from_array_1_0(chunk)
+        np.lib.format.write_array_header_1_0(fp, header_fields)
+        return fp.getvalue()
+
     def put_chunk(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put_chunk`."""
         chunk_name, _ = self.chunk_metadata(array_name, slices, chunk=chunk)
         url = self._chunk_url(chunk_name)
-        fp = io.BytesIO()
-        np.lib.format.write_array(fp, chunk, allow_pickle=False)
-        md5 = base64.b64encode(hashlib.md5(fp.getvalue()).digest())
-        fp.seek(0)
+        # Note: ascontiguousarray will change a 0-D array to a 1-D array!
+        # np.require does not.
+        chunk = np.require(chunk, requirements='C')
+        # Need an array of bytes to so that _Multipart.len gives the right value
+        chunk_view = memoryview(np.ravel(chunk).view(np.uint8))
+        npy_header = self._numpy_header(chunk)
+        # Compute the MD5 sum to protect the object against corruption in
+        # transmission.
+        md5_gen = hashlib.md5(npy_header)
+        md5_gen.update(chunk_view)
+        md5 = base64.b64encode(md5_gen.digest())
         headers = {'Content-MD5': bytes_to_native_str(md5)}
-        with self._request(chunk_name, 'PUT', url, headers=headers, data=fp):
+        with self._request(chunk_name, 'PUT', url, headers=headers,
+                           data=_Multipart([npy_header, chunk_view])):
             pass
 
     def has_chunk(self, array_name, slices, dtype):
