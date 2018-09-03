@@ -18,17 +18,49 @@
 from __future__ import print_function, division, absolute_import
 
 from builtins import object
+from numbers import Integral
 
 import numpy as np
 import dask.array as da
-from nose.tools import assert_raises
+from nose.tools import assert_raises, assert_equal
 
-from katdal.lazy_indexer import (_simplify_index, _dask_getitem,
-                                 _is_integer, DaskLazyIndexer)
+from katdal.lazy_indexer import (_range_to_slice, _simplify_index,
+                                 _dask_getitem, DaskLazyIndexer)
 
 
-class TestSimplifyIndices(object):
-    """Test the :func:`~katdal.lazy_indexer._simplify_indices` function."""
+def slice_to_range(s, l):
+    return range(*s.indices(l))
+
+
+class TestRangeToSlice(object):
+    """Test the :func:`~katdal.lazy_indexer._range_to_slice` function."""
+    @staticmethod
+    def _check_slice(start, stop, step):
+        s = slice(start, stop, step)
+        length = max(start, stop) + 1
+        r = slice_to_range(s, length)
+        assert_equal(_range_to_slice(r), s)
+
+    def test_basic_slices(self):
+        # For testing both `start` and `stop` need to be non-negative
+        self._check_slice(0, 10, 1)   # contiguous, ascending
+        self._check_slice(0, 10, 2)   # strided, ascending
+        self._check_slice(10, 0, -1)  # contiguous, ascending
+        self._check_slice(10, 0, -2)  # strided, descending
+        self._check_slice(0, 1, 1)    # single element (treated as ascending)
+        self._check_slice(0, 10, 5)   # any two elements (has stop = 2 * end)
+
+    def test_zero_increments(self):
+        with assert_raises(ValueError):
+            _range_to_slice([1, 1, 1, 1])
+
+    def test_nonuniform_increments(self):
+        with assert_raises(ValueError):
+            _range_to_slice([1, 1, 2, 3, 5, 8, 13])
+
+
+class TestSimplifyIndex(object):
+    """Test the :func:`~katdal.lazy_indexer._simplify_index` function."""
     def setup(self):
         self.shape = (3, 4, 5)
         self.data = np.arange(np.product(self.shape)).reshape(self.shape)
@@ -40,20 +72,26 @@ class TestSimplifyIndices(object):
         np.testing.assert_array_equal(actual, expected)
 
     def _test_index_error(self, indices):
-        simplified = _simplify_index(indices, self.data.shape)
         with assert_raises(IndexError):
+            simplified = _simplify_index(indices, self.data.shape)
             self.data[simplified]
-        with assert_raises(IndexError):
             self.data[indices]
 
     def test_1d(self):
         self._test_with(np.s_[np.array([False, True, False])])
+        self._test_with(np.s_[[1]])
 
     def test_contiguous(self):
         self._test_with(np.s_[:, np.array([False, True, True, False]), :])
+        self._test_with(np.s_[:, [1, 2], :])
+
+    def test_discontiguous_but_regular(self):
+        self._test_with(np.s_[:, [False, True, False, True], :])
+        self._test_with(np.s_[:, [1, 3], :])
 
     def test_discontiguous(self):
-        self._test_with(np.s_[:, np.array([False, True, False, True]), :])
+        self._test_with(np.s_[:, [True, True, False, True], :])
+        self._test_with(np.s_[:, [0, 1, 3], :])
 
     def test_all_false(self):
         self._test_with(np.s_[:, np.array([False, False, False, False]), :])
@@ -74,15 +112,11 @@ class TestSimplifyIndices(object):
         self._test_index_error(np.s_[0, 0, 0, 0])
 
 
-def slice_to_range(s, l):
-    return range(*s.indices(l))
-
-
 def ix_(keep, shape):
     """Extend numpy.ix_ to accept slices and single ints as well."""
     # Inspired by Zarr's indexing.py (https://github.com/zarr-developers/zarr)
     keep = [slice_to_range(k, s) if isinstance(k, slice)
-            else [k] if _is_integer(k)
+            else [k] if isinstance(k, Integral)
             else k
             for k, s in zip(keep, shape)]
     return np.ix_(*keep)
@@ -97,7 +131,7 @@ def numpy_oindex(x, keep):
     # Get rid of ellipsis
     keep = da.slicing.normalize_index(keep, x.shape)
     new_axes = tuple(n for n, k in enumerate(keep) if k is np.newaxis)
-    drop_axes = tuple(n for n, k in enumerate(keep) if _is_integer(k))
+    drop_axes = tuple(n for n, k in enumerate(keep) if isinstance(k, Integral))
     # Get rid of newaxis
     keep = tuple(k for k in keep if k is not np.newaxis)
     keep = ix_(keep, x.shape)
@@ -123,56 +157,9 @@ def numpy_oindex_lite(x, keep):
         cumulative_index = (slice(None),) * dim + (k,)
         result = result[cumulative_index]
         # Handle dropped dimensions
-        if not _is_integer(k):
+        if not isinstance(k, Integral):
             dim += 1
     return result
-
-
-class TestNumPyOIndex(object):
-    """Test the :func:`~numpy_oindex` function."""
-    def setup(self):
-        shape = (10, 10, 10, 10)
-        self.data = np.arange(np.product(shape)).reshape(shape)
-
-    def _test_with(self, indices, indices_without_ellipsis=None):
-        """An even more compact version of numpy_oindex..."""
-        outer = numpy_oindex(self.data, indices)
-        if indices_without_ellipsis is None:
-            indices_without_ellipsis = indices
-        expected = numpy_oindex_lite(self.data, indices_without_ellipsis)
-        np.testing.assert_array_equal(outer, expected)
-
-    def test_outer_indexing(self):
-        self._test_with(())
-        self._test_with(2)
-        self._test_with((2, 3, 4, 5))
-        # ellipsis
-        self._test_with(np.s_[[0], ...], np.s_[[0], :, :, :])
-        self._test_with(np.s_[:, [0], ...], np.s_[:, [0], :, :])
-        # list of ints
-        self._test_with(np.s_[:, [0], [0], :])
-        self._test_with(np.s_[:, [0], :, [0]])
-        self._test_with(np.s_[:, [0], [0, 1], :])
-        self._test_with(np.s_[:, [0], :, [0, 1]])
-        # booleans
-        pick_one = np.zeros(10, dtype=np.bool_)
-        pick_one[6] = True
-        self._test_with(np.s_[:, [True, False] * 5, pick_one, :])
-        self._test_with(np.s_[:, [False, True] * 5, :, pick_one])
-        # slices
-        self._test_with(np.s_[0:2, 2:4, 4:6, 6:8])
-        self._test_with(np.s_[-8:-6, -4:-2, slice(3, 10, 2), -2:])
-        # single ints
-        self._test_with(np.s_[:, [0], 0, :])
-        self._test_with(np.s_[:, [0], :, 0])
-        self._test_with(np.s_[:, [0], -1, :])
-        self._test_with(np.s_[:, [0], :, -1])
-        # newaxis
-        self._test_with(np.s_[np.newaxis, :, [0], :, 0])
-        self._test_with(np.s_[:, [0], np.newaxis, 0, :])
-        # the lot
-        self._test_with(np.s_[..., 2:5, [4, 6], np.newaxis, 0],
-                        np.s_[:, 2:5, [4, 6], np.newaxis, 0])
 
 
 class TestDaskGetitem(object):
@@ -182,9 +169,13 @@ class TestDaskGetitem(object):
         self.data = np.arange(np.product(shape)).reshape(shape)
         self.data_dask = da.from_array(self.data, chunks=(2, 5, 2, 5))
 
-    def _test_with(self, indices):
+    def _test_with(self, indices, indices_without_ellipsis=None):
         npy = numpy_oindex(self.data, indices)
+        if indices_without_ellipsis is None:
+            indices_without_ellipsis = indices
+        npy_lite = numpy_oindex_lite(self.data, indices_without_ellipsis)
         getitem = _dask_getitem(self.data_dask, indices).compute()
+        np.testing.assert_array_equal(npy, npy_lite)
         np.testing.assert_array_equal(getitem, npy)
 
     def test_outer_indexing(self):
@@ -192,8 +183,8 @@ class TestDaskGetitem(object):
         self._test_with(2)
         self._test_with((2, 3, 4, 5))
         # ellipsis
-        self._test_with(np.s_[[0], ...])
-        self._test_with(np.s_[:, [0], ...])
+        self._test_with(np.s_[[0], ...], np.s_[[0], :, :, :])
+        self._test_with(np.s_[:, [0], ...], np.s_[:, [0], :, :])
         # list of ints
         self._test_with(np.s_[:, [0], [0], :])
         self._test_with(np.s_[:, [0], :, [0]])
@@ -220,7 +211,8 @@ class TestDaskGetitem(object):
         self._test_with(np.s_[:, [0], np.newaxis, 0, :])
         # the lot
         self._test_with(np.s_[..., 0, 2:5, [True, False] * 5,
-                              np.newaxis, [4, 6]])
+                              np.newaxis, [4, 6]],
+                        np.s_[0, 2:5, [True, False] * 5, np.newaxis, [4, 6]])
 
 
 class TestDaskLazyIndexer(object):

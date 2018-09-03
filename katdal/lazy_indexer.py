@@ -22,7 +22,7 @@ from builtins import range
 from builtins import object
 import copy
 import threading
-import numbers
+from numbers import Integral
 
 import numpy as np
 import dask.array as da
@@ -32,61 +32,59 @@ from functools import reduce
 # TODO support advanced integer indexing with non-strictly increasing indices (i.e. out-of-order and duplicates)
 
 
+def _range_to_slice(index):
+    """Convert sequence of ints to equivalent slice (or raise ValueError)."""
+    if not len(index):
+        return slice(None, 0, None)
+    increments_left = set(np.diff(index))
+    increment = increments_left.pop() if increments_left else 1
+    if not increment or increments_left:
+        raise ValueError('Could not convert {} to a slice (non-uniform or '
+                         'zero increments)'.format(index))
+    return slice(index[0], index[-1] + increment, increment)
+
+
 def _simplify_index(indices, shape):
     """Generate an equivalent index expression that is cheaper to evaluate.
 
-    In the current implementation, boolean numpy arrays which select contiguous
-    ranges are converted to slices. Note that when indexing along multiple axes
-    with arrays, this may change the semantics of the indexing (see NumPy's
-    `NEP 21`_ for details).
+    Advanced ("fancy") indexing using arrays/lists of booleans or ints is much
+    slower than basic indexing using slices and scalar ints in dask. If the
+    fancy index on a specific axis/dimension selects a range with a fixed
+    (non-zero) step size between indices, however, it can be converted into an
+    equivalent slice to get a simple index instead.
+
+    Note that when indexing along multiple axes with arrays, this may change
+    the semantics of the indexing (see NumPy's `NEP 21`_ for details). This
+    simplification is only guaranteed to be safe when used with outer indexing.
 
     .. _NEP 21: http://www.numpy.org/neps/nep-0021-advanced-indexing.html
-
-    If the expression is invalid in some way (e.g. wrong length array index)
-    the original index is returned so that that an exception will be raised
-    when the index is used.
-
-    Ellipses are currently not supported, and will result in the original
-    index being returned.
     """
-    if not isinstance(indices, tuple):
-        indices = (indices,)
+    # First clean up and check indices, unpacking ellipsis and boolean arrays
+    indices = da.slicing.normalize_index(indices, shape)
     out = []
     axis = 0
     for index in indices:
-        if index is Ellipsis:
-            return indices     # Not supported
-        elif index is np.newaxis:
-            out.append(index)
-        else:
-            if axis >= len(shape):
-                return indices   # Invalid index expression
+        if index is not np.newaxis:
             length = shape[axis]
             axis += 1
-            try:
-                bool_array = (index.dtype == np.bool_ and index.shape == (length,))
-            except AttributeError:
-                bool_array = False
-            if bool_array:
-                selected = np.nonzero(index)[0]
-                if not len(selected):
-                    index = slice(0, 0)
-                elif selected[-1] - selected[0] + 1 == len(selected):
-                    index = slice(selected[0], selected[-1] + 1)
-            out.append(index)
+            # If there is 1-D fancy index on this axis, try to convert to slice
+            if isinstance(index, np.ndarray) and index.ndim == 1:
+                try:
+                    index = _range_to_slice(index)
+                except ValueError:
+                    pass
+                else:
+                    index = da.slicing.normalize_slice(index, length)
+        out.append(index)
     return tuple(out)
 
 
-def _is_integer(x):
-    return isinstance(x, numbers.Integral)
-
-
-def _dask_getitem(x, keep):
+def _dask_getitem(x, indices):
     """Index a dask array, with N-D fancy index support and better performance.
 
-    This is a drop-in replacement for ``x[keep]`` that goes one further
+    This is a drop-in replacement for ``x[indices]`` that goes one further
     by implementing "N-D fancy indexing" which is still unsupported in dask.
-    If `keep` contains multiple fancy indices, perform outer (`oindex`)
+    If `indices` contains multiple fancy indices, perform outer (`oindex`)
     indexing. This behaviour deviates from NumPy, which performs the more
     general (but also more obtuse) vectorized (`vindex`) indexing in this case.
     See  NumPy `NEP 21`_, `dask #433`_ and `h5py #652`_ for more
@@ -99,28 +97,26 @@ def _dask_getitem(x, keep):
     In addition, this optimises performance by culling unnecessary nodes from
     the dask graph after indexing, which makes it cheaper to compute if only a
     small piece of the graph is needed, and by collapsing fancy indices in
-    `keep` to slices where possible (which also implies oindex semantics).
+    `indices` to slices where possible (which also implies oindex semantics).
     """
-    keep = _simplify_index(keep, x.shape)
+    indices = _simplify_index(indices, x.shape)
     try:
-        kept = x[keep]
+        out = x[indices]
     except NotImplementedError:
-        # Unpack ellipsis first as da.take does not like it
-        keep = da.slicing.normalize_index(keep, x.shape)
         # Perform outer indexing, one dimension at a time
-        kept = x
-        dim = 0
-        for keep_per_dim in keep:
-            kept = da.take(kept, keep_per_dim, axis=dim)
-            # Handle dropped dimensions
-            if not _is_integer(keep_per_dim):
-                dim += 1
+        out = x
+        axis = 0
+        for index in indices:
+            out = da.take(out, index, axis=axis)
+            # If axis wasn't dropped by a scalar index:
+            if not isinstance(index, Integral):
+                axis += 1
     # dask does culling anyway as part of optimization, but it first calls
     # ensure_dict, which copies all the keys, presumably to speed up the
     # case where most keys are retained. A lazy indexer is normally used to
     # fetch a small part of the data.
-    kept.dask = dask.optimization.cull(kept.dask, kept.__dask_keys__())[0]
-    return kept
+    out.dask = dask.optimization.cull(out.dask, out.__dask_keys__())[0]
+    return out
 
 
 # -------------------------------------------------------------------------------------------------
