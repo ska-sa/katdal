@@ -37,7 +37,7 @@ class TestRangeToSlice(object):
     @staticmethod
     def _check_slice(start, stop, step):
         s = slice(start, stop, step)
-        length = max(start, stop) + 1
+        length = max(start, 0 if stop is None else stop) + 1
         r = slice_to_range(s, length)
         assert_equal(_range_to_slice(r), s)
 
@@ -45,16 +45,21 @@ class TestRangeToSlice(object):
         # For testing both `start` and `stop` need to be non-negative
         self._check_slice(0, 10, 1)   # contiguous, ascending
         self._check_slice(0, 10, 2)   # strided, ascending
-        self._check_slice(10, 0, -1)  # contiguous, ascending
+        self._check_slice(10, 0, -1)  # contiguous, descending
         self._check_slice(10, 0, -2)  # strided, descending
+        self._check_slice(10, None, -2)  # strided, descending all the way to 0
         self._check_slice(0, 1, 1)    # single element (treated as ascending)
-        self._check_slice(0, 10, 5)   # any two elements (has stop = 2 * end)
+        self._check_slice(0, 10, 5)   # any two elements (has stop = 2 * step)
+
+    def test_negative_elements(self):
+        with assert_raises(ValueError):
+            _range_to_slice([-1, -2, -3, -4])
 
     def test_zero_increments(self):
         with assert_raises(ValueError):
             _range_to_slice([1, 1, 1, 1])
 
-    def test_nonuniform_increments(self):
+    def test_uneven_increments(self):
         with assert_raises(ValueError):
             _range_to_slice([1, 1, 2, 3, 5, 8, 13])
 
@@ -185,18 +190,25 @@ class TestDaskGetitem(object):
         # ellipsis
         self._test_with(np.s_[[0], ...], np.s_[[0], :, :, :])
         self._test_with(np.s_[:, [0], ...], np.s_[:, [0], :, :])
-        # list of ints
+        # evenly spaced ints
         self._test_with(np.s_[:, [0], [0], :])
         self._test_with(np.s_[:, [0], :, [0]])
-        self._test_with(np.s_[:, [0], [0, 1], :])
-        self._test_with(np.s_[:, [0], :, [0, 1]])
-        # booleans
+        self._test_with(np.s_[:, [0], [0, 1, 2, 3], :])
+        self._test_with(np.s_[[0], [-1, -2, -3, -4, -5], :, [8, 6, 4, 2, 0]])
+        # evenly spaced booleans
         pick_one = np.zeros(10, dtype=np.bool_)
         pick_one[6] = True
         self._test_with(np.s_[:, [True, False] * 5, pick_one, :])
         self._test_with(np.s_[:, [False, True] * 5, :, pick_one])
         self._test_with(np.s_[4:9, [False, True] * 5,
                               [True, False] * 5, pick_one])
+        # unevenly spaced fancy indexing
+        self._test_with(np.s_[:, [0, 1, 3], [1, 2, 4], :])
+        uneven = np.zeros(10, dtype=np.bool_)
+        uneven[[1, 2, 3, 6, 7, 9]] = True
+        self._test_with(np.s_[uneven, uneven, uneven, uneven])
+        # repeated fancy indexing
+        self._test_with(np.s_[:, [1, 1, 1], [6, 6, 6], :])
         # slices
         self._test_with(np.s_[0:2, 2:4, 4:6, 6:8])
         self._test_with(np.s_[-8:-6, -4:-2, slice(3, 10, 2), -2:])
@@ -207,12 +219,11 @@ class TestDaskGetitem(object):
         self._test_with(np.s_[:, [0], :, -1])
         self._test_with(np.s_[:, 0, [0, 2], [1, 3, 5]])
         # newaxis
-        self._test_with(np.s_[np.newaxis, :, [0], :, 0])
-        self._test_with(np.s_[:, [0], np.newaxis, 0, :])
+        self._test_with(np.s_[np.newaxis, :, uneven, :, 0])
+        self._test_with(np.s_[:, uneven, np.newaxis, 0, :])
         # the lot
-        self._test_with(np.s_[..., 0, 2:5, [True, False] * 5,
-                              np.newaxis, [4, 6]],
-                        np.s_[0, 2:5, [True, False] * 5, np.newaxis, [4, 6]])
+        self._test_with(np.s_[..., 0, 2:5, uneven, np.newaxis, [4, 6]],
+                        np.s_[0, 2:5, uneven, np.newaxis, [4, 6]])
 
 
 class TestDaskLazyIndexer(object):
@@ -238,10 +249,18 @@ class TestDaskLazyIndexer(object):
         self._test_with(tuple([True] * d for d in self.data.shape))
         self._test_with(tuple([True, False] * (d // 2)
                               for d in self.data.shape))
+        uneven = np.zeros(10, dtype=np.bool_)
+        uneven[[1, 2, 3, 6, 7, 9]] = True
+        self._test_with(np.s_[uneven, np.r_[uneven, uneven], :24])
 
     def test_stage2_multiple_boolean_indices(self):
         stage1 = tuple([True] * d for d in self.data.shape)
         stage2 = tuple([True] * 4 + [False] * (d - 4) for d in self.data.shape)
         self._test_with(stage1, stage2)
         stage2 = tuple([True, False] * (d // 2) for d in self.data.shape)
+        self._test_with(stage1, stage2)
+        uneven = np.zeros(10, dtype=np.bool_)
+        uneven[[1, 2, 3, 6, 7, 9]] = True
+        stage1 = np.s_[uneven, np.r_[uneven, uneven], :24]
+        stage2 = np.s_[:3, [1, 2, 3, 4, 6, 9], [8, 6, 4, 2, 0]]
         self._test_with(stage1, stage2)

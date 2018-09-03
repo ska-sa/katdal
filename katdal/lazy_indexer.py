@@ -33,15 +33,31 @@ from functools import reduce
 
 
 def _range_to_slice(index):
-    """Convert sequence of ints to equivalent slice (or raise ValueError)."""
+    """Convert sequence of evenly spaced non-negative ints to equivalent slice.
+
+    If the returned slice object is `s = slice(start, stop, step)`, the
+    following holds:
+
+        list(range(*s.indices(length))) == list(index)
+
+    where `length = max(start, 0 if stop is None else stop) + 1` (a proxy for
+    `max(index) + 1`). If the spacing between elements of `index` is zero
+    or uneven, raise ValueError.
+    """
     if not len(index):
         return slice(None, 0, None)
+    if any(i for i in index if i < 0):
+        raise ValueError('Could not convert {} to a slice (contains negative '
+                         'elements)'.format(index))
     increments_left = set(np.diff(index))
-    increment = increments_left.pop() if increments_left else 1
-    if not increment or increments_left:
-        raise ValueError('Could not convert {} to a slice (non-uniform or '
+    step = increments_left.pop() if increments_left else 1
+    if step == 0 or increments_left:
+        raise ValueError('Could not convert {} to a slice (unevenly spaced or '
                          'zero increments)'.format(index))
-    return slice(index[0], index[-1] + increment, increment)
+    start = index[0]
+    stop = index[-1] + step
+    # Avoid descending below 0 and thereby wrapping back to the top
+    return slice(start, stop if stop >= 0 else None, step)
 
 
 def _simplify_index(indices, shape):
