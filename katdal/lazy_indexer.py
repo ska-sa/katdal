@@ -251,7 +251,7 @@ class LazyIndexer(object):
     dataset : :class:`h5py.Dataset` object or equivalent
         Underlying dataset or array object on which lazy indexing will be done.
         This can be any object with shape, dtype and __getitem__ members.
-    keep : tuple of int or slice or sequence of int or sequence of bool, optional
+    keep : NumPy index expression, optional
         First-stage index as a valid index or slice specification
         (supports arbitrary slicing or advanced indexing on any dimension)
     transforms : list of :class:`LazyTransform` objects or None, optional
@@ -337,7 +337,7 @@ class LazyIndexer(object):
 
         Parameters
         ----------
-        keep : tuple of int or slice or sequence of int or sequence of bool
+        keep : NumPy index expression
             Second-stage index as a valid index or slice specification
             (supports arbitrary slicing or advanced indexing on any dimension)
 
@@ -457,21 +457,25 @@ class LazyIndexer(object):
 class DaskLazyIndexer(object):
     """Turn a dask Array into a LazyIndexer by computing it upon indexing.
 
-    The internals are computed only on first use, so there is minimal
-    cost in constructing an instance and immediately throwing it away again.
+    The LazyIndexer wraps an underlying `dataset` in the form of a dask Array.
+    Upon first use, it applies a stored first-stage selection (`keep`) to the
+    array, followed by a series of `transforms`. All of these actions are lazy
+    and only update the dask graph of the `dataset`. Since these updates are
+    computed only on first use, there is minimal cost in constructing an
+    instance and immediately throwing it away again.
 
-    Fancy indexing is supported but much slower. However, a boolean array
-    for which a contiguous interval of values is selected is treated as a
-    special case and becomes a slice.
+    Second-stage selection occurs via a :meth:`__getitem__` call on this
+    object, which also triggers dask computation to return the final
+    :class:`numpy.ndarray` output. Both selection steps follow outer indexing
+    ("oindex") semantics, by indexing each dimension / axis separately.
 
     Parameters
     ----------
     dataset : :class:`dask.Array`
-        The full dataset, from which a subset is chosen by `keep`.
-    keep : tuple, optional
-        Index expression describing first-stage selection (i.e. as applied by
-        :meth:`katdal.DataSet.select`). This object wraps `dataset[keep]`,
-        although fancy indices are applied independently per axis.
+        The full dataset, from which a subset is chosen by `keep`
+    keep : NumPy index expression, optional
+        Index expression describing first-stage selection (e.g. as applied by
+        :meth:`katdal.DataSet.select`), with oindex semantics
     transforms : sequence of function, signature ``array = f(array)``, optional
         Transformations that are applied after indexing by `keep` but
         before indexing on this object. Each transformation is a callable
@@ -490,10 +494,15 @@ class DaskLazyIndexer(object):
         # Fancy indices can be mutable arrays, so take a copy to protect
         # against the caller mutating the array before we apply it.
         self.keep = copy.deepcopy(keep)
-        self.transforms = list(transforms)
+        self._transforms = list(transforms)
         self._orig_dataset = dataset
         self._dataset = None
         self._lock = threading.Lock()
+
+    @property
+    def transforms(self):
+        """Transformations that are applied after first-stage indexing."""
+        return self._transforms
 
     @property
     def dataset(self):
@@ -511,13 +520,12 @@ class DaskLazyIndexer(object):
         """Add another transform to the end of the transform chain.
 
         The `transform` is a callable that takes a dask array and returns
-        another dask array. Apply it directly to the current dataset if
-        first-stage indexing and initial transformation has already happened.
+        another dask array.
         """
         with self._lock:
             if self._dataset is not None:
                 self._dataset = transform(self._dataset)
-            self.transforms.append(transform)
+            self._transforms.append(transform)
 
     def __getitem__(self, keep):
         """Extract a selected array from the underlying dataset.
@@ -533,7 +541,7 @@ class DaskLazyIndexer(object):
 
         Parameters
         ----------
-        keep : tuple of int or slice or sequence of int or sequence of bool
+        keep : NumPy index expression
             Second-stage index as a valid index or slice specification
             (supports arbitrary slicing or advanced indexing on any dimension)
 

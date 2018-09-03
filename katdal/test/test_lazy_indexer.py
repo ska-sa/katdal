@@ -17,7 +17,7 @@
 """Tests for :py:mod:`katdal.lazy_indexer`."""
 from __future__ import print_function, division, absolute_import
 
-from builtins import object
+from builtins import object, range
 from numbers import Integral
 
 import numpy as np
@@ -80,6 +80,7 @@ class TestSimplifyIndex(object):
         with assert_raises(IndexError):
             simplified = _simplify_index(indices, self.data.shape)
             self.data[simplified]
+        with assert_raises(IndexError):
             self.data[indices]
 
     def test_1d(self):
@@ -115,6 +116,9 @@ class TestSimplifyIndex(object):
 
     def test_too_many_axes(self):
         self._test_index_error(np.s_[0, 0, 0, 0])
+
+    def test_bad_index_dtype(self):
+        self._test_index_error(np.s_[:, np.array([1.2, 3.4])])
 
 
 def ix_(keep, shape):
@@ -167,14 +171,13 @@ def numpy_oindex_lite(x, keep):
     return result
 
 
-UNEVEN = np.zeros(10, dtype=np.bool_)
-UNEVEN[[1, 2, 3, 6, 7, 9]] = True
+UNEVEN = [False, True, True, True, False, False, True, True, False, True]
 
 
 class TestDaskGetitem(object):
     """Test the :func:`~katdal.lazy_indexer._dask_getitem` function."""
     def setup(self):
-        shape = (10, 10, 10, 10)
+        shape = (10, 20, 30, 40)
         self.data = np.arange(np.product(shape)).reshape(shape)
         self.data_dask = da.from_array(self.data, chunks=(2, 5, 2, 5))
 
@@ -197,6 +200,7 @@ class TestDaskGetitem(object):
     def test_ellipsis(self):
         self._test_with(np.s_[[0], ...], np.s_[[0], :, :, :])
         self._test_with(np.s_[:, [0], ...], np.s_[:, [0], :, :])
+        self._test_with(np.s_[[0], ..., [0]], np.s_[[0], :, :, [0]])
 
     def test_evenly_spaced_ints(self):
         self._test_with(np.s_[:, [0], [0], :])
@@ -205,23 +209,23 @@ class TestDaskGetitem(object):
         self._test_with(np.s_[[0], [-1, -2, -3, -4, -5], :, [8, 6, 4, 2, 0]])
 
     def test_evenly_spaced_booleans(self):
-        pick_one = np.zeros(10, dtype=np.bool_)
+        pick_one = np.zeros(40, dtype=np.bool_)
         pick_one[6] = True
-        self._test_with(np.s_[:, [True, False] * 5, pick_one, :])
-        self._test_with(np.s_[:, [False, True] * 5, :, pick_one])
-        self._test_with(np.s_[4:9, [False, True] * 5,
-                              [True, False] * 5, pick_one])
+        self._test_with(np.s_[:, [True, False] * 10, pick_one[:30], :])
+        self._test_with(np.s_[:, [False, True] * 10, :, pick_one])
+        self._test_with(np.s_[4:9, [False, True] * 10,
+                              [True, False] * 15, pick_one])
 
     def test_unevenly_spaced_fancy_indexing(self):
         self._test_with(np.s_[:, [0, 1, 3], [1, 2, 4], :])
-        self._test_with(np.s_[UNEVEN, UNEVEN, UNEVEN, UNEVEN])
+        self._test_with(np.s_[UNEVEN, 2 * UNEVEN, 3 * UNEVEN, 4 * UNEVEN])
 
     def test_repeated_fancy_indexing(self):
         self._test_with(np.s_[:, [1, 1, 1], [6, 6, 6], :])
 
     def test_slices(self):
         self._test_with(np.s_[0:2, 2:4, 4:6, 6:8])
-        self._test_with(np.s_[-8:-6, -4:-2, slice(3, 10, 2), -2:])
+        self._test_with(np.s_[-8:-6, -4:-2, 3:10:2, -2:])
 
     def test_single_ints(self):
         self._test_with(np.s_[:, [0], 0, :])
@@ -231,12 +235,13 @@ class TestDaskGetitem(object):
         self._test_with(np.s_[:, 0, [0, 2], [1, 3, 5]])
 
     def test_newaxis(self):
-        self._test_with(np.s_[np.newaxis, :, UNEVEN, :, 0])
-        self._test_with(np.s_[:, UNEVEN, np.newaxis, 0, :])
+        self._test_with(np.s_[np.newaxis, :, 2 * UNEVEN, :, 0])
+        self._test_with(np.s_[:, 2 * UNEVEN, np.newaxis, 0, :])
+        self._test_with(np.s_[0, np.newaxis, 1, np.newaxis, 2, np.newaxis, 3])
 
     def test_the_lot(self):
-        self._test_with(np.s_[..., 0, 2:5, UNEVEN, np.newaxis, [4, 6]],
-                        np.s_[0, 2:5, UNEVEN, np.newaxis, [4, 6]])
+        self._test_with(np.s_[..., 0, 2:5, 3 * UNEVEN, np.newaxis, [4, 6]],
+                        np.s_[0, 2:5, 3 * UNEVEN, np.newaxis, [4, 6]])
 
 
 class TestDaskLazyIndexer(object):
@@ -262,7 +267,7 @@ class TestDaskLazyIndexer(object):
         self._test_with(tuple([True] * d for d in self.data.shape))
         self._test_with(tuple([True, False] * (d // 2)
                               for d in self.data.shape))
-        self._test_with(np.s_[UNEVEN, np.r_[UNEVEN, UNEVEN], :24])
+        self._test_with(np.s_[UNEVEN, 2 * UNEVEN, :24])
 
     def test_stage2_multiple_boolean_indices(self):
         stage1 = tuple([True] * d for d in self.data.shape)
@@ -270,6 +275,20 @@ class TestDaskLazyIndexer(object):
         self._test_with(stage1, stage2)
         stage2 = tuple([True, False] * (d // 2) for d in self.data.shape)
         self._test_with(stage1, stage2)
-        stage1 = np.s_[UNEVEN, np.r_[UNEVEN, UNEVEN], :24]
+        stage1 = np.s_[UNEVEN, 2 * UNEVEN, :24]
         stage2 = np.s_[:3, [1, 2, 3, 4, 6, 9], [8, 6, 4, 2, 0]]
         self._test_with(stage1, stage2)
+
+    def test_transforms(self):
+        # Add transform at initialisation
+        indexer = DaskLazyIndexer(self.data_dask, transforms=[lambda x: 0 * x])
+        np.testing.assert_array_equal(indexer[:], np.zeros_like(indexer))
+        # Add transform before first access of dataset property
+        indexer = DaskLazyIndexer(self.data_dask)
+        indexer.add_transform(lambda x: 0 * x)
+        np.testing.assert_array_equal(indexer[:], np.zeros_like(indexer))
+        # Add transform after first access of dataset property
+        indexer = DaskLazyIndexer(self.data_dask)
+        indexer.dataset
+        indexer.add_transform(lambda x: 0 * x)
+        np.testing.assert_array_equal(indexer[:], np.zeros_like(indexer))
