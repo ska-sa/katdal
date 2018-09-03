@@ -25,7 +25,7 @@ import dask.array as da
 from nose.tools import assert_raises, assert_equal
 
 from katdal.lazy_indexer import (_range_to_slice, _simplify_index,
-                                 _dask_getitem, DaskLazyIndexer)
+                                 _dask_oindex, _dask_getitem, DaskLazyIndexer)
 
 
 def slice_to_range(s, l):
@@ -167,6 +167,10 @@ def numpy_oindex_lite(x, keep):
     return result
 
 
+UNEVEN = np.zeros(10, dtype=np.bool_)
+UNEVEN[[1, 2, 3, 6, 7, 9]] = True
+
+
 class TestDaskGetitem(object):
     """Test the :func:`~katdal.lazy_indexer._dask_getitem` function."""
     def setup(self):
@@ -174,56 +178,65 @@ class TestDaskGetitem(object):
         self.data = np.arange(np.product(shape)).reshape(shape)
         self.data_dask = da.from_array(self.data, chunks=(2, 5, 2, 5))
 
-    def _test_with(self, indices, indices_without_ellipsis=None):
+    def _test_with(self, indices, normalised_indices=None):
         npy = numpy_oindex(self.data, indices)
-        if indices_without_ellipsis is None:
-            indices_without_ellipsis = indices
-        npy_lite = numpy_oindex_lite(self.data, indices_without_ellipsis)
+        if normalised_indices is None:
+            normalised_indices = indices
+        npy_lite = numpy_oindex_lite(self.data, normalised_indices)
+        oindex = _dask_oindex(self.data_dask, normalised_indices).compute()
         getitem = _dask_getitem(self.data_dask, indices).compute()
         np.testing.assert_array_equal(npy, npy_lite)
         np.testing.assert_array_equal(getitem, npy)
+        np.testing.assert_array_equal(oindex, npy)
 
-    def test_outer_indexing(self):
+    def test_misc_indices(self):
         self._test_with(())
-        self._test_with(2)
+        self._test_with(2, (2,))
         self._test_with((2, 3, 4, 5))
-        # ellipsis
+
+    def test_ellipsis(self):
         self._test_with(np.s_[[0], ...], np.s_[[0], :, :, :])
         self._test_with(np.s_[:, [0], ...], np.s_[:, [0], :, :])
-        # evenly spaced ints
+
+    def test_evenly_spaced_ints(self):
         self._test_with(np.s_[:, [0], [0], :])
         self._test_with(np.s_[:, [0], :, [0]])
         self._test_with(np.s_[:, [0], [0, 1, 2, 3], :])
         self._test_with(np.s_[[0], [-1, -2, -3, -4, -5], :, [8, 6, 4, 2, 0]])
-        # evenly spaced booleans
+
+    def test_evenly_spaced_booleans(self):
         pick_one = np.zeros(10, dtype=np.bool_)
         pick_one[6] = True
         self._test_with(np.s_[:, [True, False] * 5, pick_one, :])
         self._test_with(np.s_[:, [False, True] * 5, :, pick_one])
         self._test_with(np.s_[4:9, [False, True] * 5,
                               [True, False] * 5, pick_one])
-        # unevenly spaced fancy indexing
+
+    def test_unevenly_spaced_fancy_indexing(self):
         self._test_with(np.s_[:, [0, 1, 3], [1, 2, 4], :])
-        uneven = np.zeros(10, dtype=np.bool_)
-        uneven[[1, 2, 3, 6, 7, 9]] = True
-        self._test_with(np.s_[uneven, uneven, uneven, uneven])
-        # repeated fancy indexing
+        self._test_with(np.s_[UNEVEN, UNEVEN, UNEVEN, UNEVEN])
+
+    def test_repeated_fancy_indexing(self):
         self._test_with(np.s_[:, [1, 1, 1], [6, 6, 6], :])
-        # slices
+
+    def test_slices(self):
         self._test_with(np.s_[0:2, 2:4, 4:6, 6:8])
         self._test_with(np.s_[-8:-6, -4:-2, slice(3, 10, 2), -2:])
-        # single ints
+
+    def test_single_ints(self):
         self._test_with(np.s_[:, [0], 0, :])
         self._test_with(np.s_[:, [0], :, 0])
         self._test_with(np.s_[:, [0], -1, :])
         self._test_with(np.s_[:, [0], :, -1])
         self._test_with(np.s_[:, 0, [0, 2], [1, 3, 5]])
-        # newaxis
-        self._test_with(np.s_[np.newaxis, :, uneven, :, 0])
-        self._test_with(np.s_[:, uneven, np.newaxis, 0, :])
-        # the lot
-        self._test_with(np.s_[..., 0, 2:5, uneven, np.newaxis, [4, 6]],
-                        np.s_[0, 2:5, uneven, np.newaxis, [4, 6]])
+
+    def test_newaxis(self):
+        self._test_with(np.s_[np.newaxis, :, UNEVEN, :, 0])
+        self._test_with(np.s_[:, UNEVEN, np.newaxis, 0, :])
+
+    def test_the_lot(self):
+        self._test_with(np.s_[..., 0, 2:5, UNEVEN, np.newaxis, [4, 6]],
+                        np.s_[0, 2:5, UNEVEN, np.newaxis, [4, 6]])
 
 
 class TestDaskLazyIndexer(object):
@@ -249,9 +262,7 @@ class TestDaskLazyIndexer(object):
         self._test_with(tuple([True] * d for d in self.data.shape))
         self._test_with(tuple([True, False] * (d // 2)
                               for d in self.data.shape))
-        uneven = np.zeros(10, dtype=np.bool_)
-        uneven[[1, 2, 3, 6, 7, 9]] = True
-        self._test_with(np.s_[uneven, np.r_[uneven, uneven], :24])
+        self._test_with(np.s_[UNEVEN, np.r_[UNEVEN, UNEVEN], :24])
 
     def test_stage2_multiple_boolean_indices(self):
         stage1 = tuple([True] * d for d in self.data.shape)
@@ -259,8 +270,6 @@ class TestDaskLazyIndexer(object):
         self._test_with(stage1, stage2)
         stage2 = tuple([True, False] * (d // 2) for d in self.data.shape)
         self._test_with(stage1, stage2)
-        uneven = np.zeros(10, dtype=np.bool_)
-        uneven[[1, 2, 3, 6, 7, 9]] = True
-        stage1 = np.s_[uneven, np.r_[uneven, uneven], :24]
+        stage1 = np.s_[UNEVEN, np.r_[UNEVEN, UNEVEN], :24]
         stage2 = np.s_[:3, [1, 2, 3, 4, 6, 9], [8, 6, 4, 2, 0]]
         self._test_with(stage1, stage2)

@@ -95,6 +95,20 @@ def _simplify_index(indices, shape):
     return tuple(out)
 
 
+def _dask_oindex(x, indices):
+    """Perform outer indexing on dask array `x`, one dimension at a time.
+
+    It is assumed that `indices` is suitably normalised (no ellipsis, etc.)
+    """
+    axis = 0
+    for index in indices:
+        x = da.take(x, index, axis=axis)
+        # If axis wasn't dropped by a scalar index:
+        if not isinstance(index, Integral):
+            axis += 1
+    return x
+
+
 def _dask_getitem(x, indices):
     """Index a dask array, with N-D fancy index support and better performance.
 
@@ -119,14 +133,7 @@ def _dask_getitem(x, indices):
     try:
         out = x[indices]
     except NotImplementedError:
-        # Perform outer indexing, one dimension at a time
-        out = x
-        axis = 0
-        for index in indices:
-            out = da.take(out, index, axis=axis)
-            # If axis wasn't dropped by a scalar index:
-            if not isinstance(index, Integral):
-                axis += 1
+        out = _dask_oindex(x, indices)
     # dask does culling anyway as part of optimization, but it first calls
     # ensure_dict, which copies all the keys, presumably to speed up the
     # case where most keys are retained. A lazy indexer is normally used to
