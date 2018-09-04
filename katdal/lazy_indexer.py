@@ -27,7 +27,7 @@ from numbers import Integral
 import numpy as np
 import dask.array as da
 import dask.optimization
-from functools import reduce
+from functools import reduce, partial
 
 # TODO support advanced integer indexing with non-strictly increasing indices (i.e. out-of-order and duplicates)
 
@@ -140,6 +140,16 @@ def _dask_getitem(x, indices):
     # fetch a small part of the data.
     out.dask = dask.optimization.cull(out.dask, out.__dask_keys__())[0]
     return out
+
+
+def _callable_name(f):
+    """Determine appropriate name for callable `f` (akin to function name)."""
+    try:
+        return f.__name__
+    except AttributeError:
+        if isinstance(f, partial):
+            return f.func.__name__
+        return f.__class__.__name__
 
 
 # -------------------------------------------------------------------------------------------------
@@ -566,6 +576,18 @@ class DaskLazyIndexer(object):
         """Iterator."""
         for index in range(len(self)):
             yield self[index]
+
+    def __repr__(self):
+        """Short human-friendly string representation of indexer object."""
+        return "<katdal.{} '{}': shape {}, type {} at 0x{:x}>".format(
+            self.__class__.__name__, self.name, self.shape, self.dtype,
+            id(self))
+
+    def __str__(self):
+        """Verbose human-friendly string representation of indexer object."""
+        names = [self.name]
+        names += [_callable_name(transform) for transform in self.transforms]
+        return ' | '.join(names) + ' -> {} {}'.format(self.shape, self.dtype)
 
     @property
     def shape(self):

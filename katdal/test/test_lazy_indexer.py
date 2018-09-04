@@ -19,6 +19,7 @@ from __future__ import print_function, division, absolute_import
 
 from builtins import object, range
 from numbers import Integral
+from functools import partial
 
 import numpy as np
 import dask.array as da
@@ -249,7 +250,24 @@ class TestDaskLazyIndexer(object):
     def setup(self):
         shape = (10, 20, 30)
         self.data = np.arange(np.product(shape)).reshape(shape)
-        self.data_dask = da.from_array(self.data, chunks=(1, 4, 5))
+        self.data_dask = da.from_array(self.data, chunks=(1, 4, 5), name='x')
+
+    def test_str_repr(self):
+        def transform1(x):
+            return x
+        transform2 = lambda x: x    # noqa: E731
+        class Transform3(object):   # noqa: E306
+            def __call__(self, x):
+                return x
+        transform3 = Transform3()
+        transform4 = partial(transform1)
+        transforms = [transform1, transform2, transform3, transform4]
+        indexer = DaskLazyIndexer(self.data_dask, transforms=transforms)
+        expected = 'x | transform1 | <lambda> | Transform3 | transform1'
+        expected += ' -> {} {}'.format(indexer.shape, indexer.dtype)
+        assert_equal(str(indexer), expected)
+        # Simply exercise repr - no need to check result
+        repr(indexer)
 
     def _test_with(self, stage1=(), stage2=()):
         npy1 = numpy_oindex(self.data, stage1)
@@ -283,11 +301,11 @@ class TestDaskLazyIndexer(object):
         # Add transform at initialisation
         indexer = DaskLazyIndexer(self.data_dask, transforms=[lambda x: 0 * x])
         np.testing.assert_array_equal(indexer[:], np.zeros_like(indexer))
-        # Add transform before first access of dataset property
+        # Add transform before first use of object
         indexer = DaskLazyIndexer(self.data_dask)
         indexer.add_transform(lambda x: 0 * x)
         np.testing.assert_array_equal(indexer[:], np.zeros_like(indexer))
-        # Add transform after first access of dataset property
+        # Add transform after first use of object
         indexer = DaskLazyIndexer(self.data_dask)
         indexer.dataset
         indexer.add_transform(lambda x: 0 * x)
