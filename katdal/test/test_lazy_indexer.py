@@ -281,13 +281,14 @@ class TestDaskLazyIndexer(object):
     def test_stage2_ints(self):
         self._test_with(np.s_[5:, :, 1::2], np.s_[1, 2, -1])
 
-    def test_stage1_multiple_boolean_indices(self):
+    def test_stage1_multiple_fancy_indices(self):
         self._test_with(tuple([True] * d for d in self.data.shape))
         self._test_with(tuple([True, False] * (d // 2)
                               for d in self.data.shape))
         self._test_with(np.s_[UNEVEN, 2 * UNEVEN, :24])
+        self._test_with(np.s_[:3, [1, 2, 3, 4, 6, 9], [8, 6, 4, 2, 0]])
 
-    def test_stage2_multiple_boolean_indices(self):
+    def test_stage2_multiple_fancy_indices(self):
         stage1 = tuple([True] * d for d in self.data.shape)
         stage2 = tuple([True] * 4 + [False] * (d - 4) for d in self.data.shape)
         self._test_with(stage1, stage2)
