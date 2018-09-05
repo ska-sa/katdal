@@ -32,6 +32,7 @@ from .dataset import (DataSet, BrokenFile, Subarray, SpectralWindow,
 from .sensordata import SensorCache
 from .categorical import CategoricalData
 from .lazy_indexer import DaskLazyIndexer
+from .applycal import add_applycal_sensors
 
 
 logger = logging.getLogger(__name__)
@@ -288,6 +289,13 @@ class VisibilityDataV4(DataSet):
         # Ensure that each target flux model spans all frequencies
         # in data set if possible
         self._fix_flux_freq_range()
+
+        # ------ Register applycal virtual sensors ------
+
+        cal_ants = attrs.get('cal_antlist', [])
+        cal_pols = attrs.get('cal_pol_ordering', [])
+        freqs = self.spectral_windows[0].channel_freqs
+        add_applycal_sensors(self.sensor, cal_ants, cal_pols, freqs)
 
         # Apply default selection and initialise all members that depend
         # on selection in the process
