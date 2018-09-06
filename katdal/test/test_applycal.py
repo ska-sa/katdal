@@ -21,10 +21,14 @@ from builtins import object, range
 import numpy as np
 from numpy.testing import assert_array_equal
 from nose.tools import assert_raises
+import dask.array as da
 
 from katdal.sensordata import SensorCache
 from katdal.categorical import CategoricalData
-from katdal.applycal import calc_delay_correction, add_applycal_sensors
+from katdal.lazy_indexer import DaskLazyIndexer
+from katdal.applycal import (calc_delay_correction, add_applycal_sensors,
+                             calc_correction_per_corrprod,
+                             apply_vis_correction, add_applycal_transform)
 
 
 POLS = ['v', 'h']
@@ -56,6 +60,18 @@ def create_sensor_cache():
 def delay_gains(pol, ant):
     delay = (-1) ** pol * ant
     return np.exp(2j * np.pi * delay / SAMPLE_RATE * FREQS).astype('complex64')
+
+
+def gains_per_corrprod(dumps, channels):
+    input_map = {ant + pol: (pol_idx, ant_idx)
+                 for (pol_idx, pol) in enumerate(POLS)
+                 for (ant_idx, ant) in enumerate(ANTS)}
+    gains_per_input = np.array([delay_gains(*input_map[inp])
+                                for inp in INPUTS])
+    gains_per_input = gains_per_input[:, channels]
+    gain1 = gains_per_input[INDEX1].T
+    gain2 = gains_per_input[INDEX2].T
+    return gain1 * gain2.conj()
 
 
 class TestCorrectionPerInput(object):
@@ -94,3 +110,55 @@ class TestVirtualCorrectionSensors(object):
             self.cache.get(known_input + '_correction_unknown')
         with assert_raises(KeyError):
             self.cache.get(known_input + '_correction_K_unknown')
+
+
+class TestCorrectionPerCorrprod(object):
+    """Test :func:`~katdal.applycal.calc_correction_per_corrprod` function."""
+    def setup(self):
+        self.cache = create_sensor_cache()
+        add_applycal_sensors(self.cache, ANTS, POLS, FREQS)
+
+    def test_correction_per_corrprod(self):
+        dump = 15
+        channels = list(range(22, 38))
+        cal_products = ['K']
+        gains = calc_correction_per_corrprod(dump, channels, self.cache,
+                                             INPUTS, INDEX1, INDEX2,
+                                             cal_products)
+        expected_gains = gains_per_corrprod([dump], channels)
+        assert_array_equal(gains, expected_gains)
+
+
+class TestApplyCal(object):
+    """Test :func:`~katdal.applycal.add_applycal_transform` function."""
+    def setup(self):
+        self.cache = create_sensor_cache()
+        add_applycal_sensors(self.cache, ANTS, POLS, FREQS)
+        time_keep = np.full(N_DUMPS, False, dtype=np.bool_)
+        time_keep[10:20] = True
+        freq_keep = np.full(N_CHANS, False, dtype=np.bool_)
+        freq_keep[22:38] = True
+        corrprod_keep = np.full(N_CORRPRODS, True, dtype=np.bool_)
+        self.keep = (time_keep, freq_keep, corrprod_keep)
+
+    def test_applycal_limitations(self):
+        vis = da.ones((N_DUMPS, N_CHANS, N_CORRPRODS), dtype='complex64',
+                      chunks=(10, 4, 6))
+        indexer = DaskLazyIndexer(vis, self.keep)
+        cal_products = ['K']
+        with assert_raises(ValueError):
+            add_applycal_transform(indexer, self.cache, CORRPRODS,
+                                   cal_products, apply_vis_correction)
+
+    def test_applycal_vis(self):
+        vis = da.ones((N_DUMPS, N_CHANS, N_CORRPRODS), dtype='complex64',
+                      chunks=(10, 4, N_CORRPRODS))
+        indexer = DaskLazyIndexer(vis, self.keep)
+        cal_products = ['K']
+        add_applycal_transform(indexer, self.cache, CORRPRODS, cal_products,
+                               apply_vis_correction)
+        calibrated_vis = indexer[5]
+        dumps = self.keep[0].nonzero()[0]
+        channels = self.keep[1].nonzero()[0]
+        expected_vis = gains_per_corrprod(dumps[5], channels)
+        assert_array_equal(calibrated_vis, expected_vis)
