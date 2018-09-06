@@ -27,24 +27,25 @@ from katdal.categorical import CategoricalData
 from katdal.applycal import calc_delay_correction, add_applycal_sensors
 
 
-CAL_POLS = ['v', 'h']
-CAL_ANTS = ['m000', 'm001', 'm002', 'm003']
+POLS = ['v', 'h']
+ANTS = ['m000', 'm001', 'm002', 'm003']
 CENTRE_FREQ = 1284.0
 BANDWIDTH = 856.0
 N_CHANS = 128
 N_DUMPS = 100
 SAMPLE_RATE = 1712.
+
+INPUTS = [ant + pol for ant in ANTS for pol in POLS]
 FREQS = CENTRE_FREQ + BANDWIDTH / N_CHANS * (np.arange(N_CHANS) - N_CHANS // 2)
-
-
-def delay_gains(delay):
-    return np.exp(2j * np.pi * delay / SAMPLE_RATE * FREQS).astype('complex64')
+INDEX1, INDEX2 = np.triu_indices(len(INPUTS))
+CORRPRODS = [(INPUTS[i1], INPUTS[i2]) for i1, i2 in zip(INDEX1, INDEX2)]
+N_CORRPRODS = len(CORRPRODS)
 
 
 def create_sensor_cache():
     """Create a SensorCache for testing applycal sensors."""
     cache = {}
-    delays = np.arange(len(CAL_ANTS))
+    delays = np.arange(len(ANTS))
     delays = np.array([delays, -delays]) / SAMPLE_RATE
     cache['cal_product_K'] = CategoricalData([np.zeros_like(delays), delays],
                                              events=[0, 10, N_DUMPS])
@@ -52,19 +53,23 @@ def create_sensor_cache():
                        dump_period=1.)
 
 
-class TestCalcCorrection(object):
+def delay_gains(pol, ant):
+    delay = (-1) ** pol * ant
+    return np.exp(2j * np.pi * delay / SAMPLE_RATE * FREQS).astype('complex64')
+
+
+class TestCorrectionPerInput(object):
     """Test the :func:`~katdal.applycal.calc_*_correction` functions."""
     def setup(self):
         self.cache = create_sensor_cache()
 
     def test_calc_delay_correction(self):
-        for n in range(len(CAL_ANTS)):
-            for m in range(len(CAL_POLS)):
+        for n in range(len(ANTS)):
+            for m in range(len(POLS)):
                 sensor = calc_delay_correction(self.cache, 'K', (m, n), FREQS)
                 assert_array_equal(sensor[n],
                                    np.ones(N_CHANS, dtype='complex64'))
-                expected_delay = (-1) ** m * n
-                assert_array_equal(sensor[10 + n], delay_gains(expected_delay))
+                assert_array_equal(sensor[10 + n], delay_gains(m, n))
 
 
 class TestVirtualCorrectionSensors(object):
@@ -72,18 +77,17 @@ class TestVirtualCorrectionSensors(object):
     def setup(self):
         self.cache = create_sensor_cache()
         add_applycal_sensors(self.cache, [], [], [])   # this does nothing
-        add_applycal_sensors(self.cache, CAL_ANTS, CAL_POLS, FREQS)
+        add_applycal_sensors(self.cache, ANTS, POLS, FREQS)
 
     def test_delay_sensors(self):
-        for n, ant in enumerate(CAL_ANTS):
-            for m, pol in enumerate(CAL_POLS):
+        for n, ant in enumerate(ANTS):
+            for m, pol in enumerate(POLS):
                 sensor_name = 'Calibration/{}{}_correction_K'.format(ant, pol)
                 sensor = self.cache.get(sensor_name)
-                expected_delay = (-1) ** m * n
-                assert_array_equal(sensor[10 + n], delay_gains(expected_delay))
+                assert_array_equal(sensor[10 + n], delay_gains(m, n))
 
     def test_unknown_inputs_and_products(self):
-        known_input = 'Calibration/{}{}'.format(CAL_ANTS[0], CAL_POLS[0])
+        known_input = 'Calibration/{}{}'.format(ANTS[0], POLS[0])
         with assert_raises(KeyError):
             self.cache.get('Calibration/unknown_correction_K')
         with assert_raises(KeyError):
