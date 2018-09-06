@@ -126,7 +126,7 @@ class _Multipart(object):
     @property
     def len(self):
         """Total content length (retrieved by requests to set Content-Length)"""
-        return sum(len(item) for item in self.items)
+        return sum(memoryview(item).nbytes for item in self.items)
 
 
 def _raise_for_status(response):
@@ -373,20 +373,18 @@ class S3ChunkStore(ChunkStore):
         # Note: don't use ascontiguousarray as it turns 0D into 1D.
         # See https://github.com/numpy/numpy/issues/5300
         chunk = np.asarray(chunk, order='C')
-        # Need an array of bytes to so that _Multipart.len gives the right value
-        chunk_view = memoryview(np.ravel(chunk).view(np.uint8))
         npy_header = self._numpy_header(chunk)
         # Compute the MD5 sum to protect the object against corruption in
         # transmission.
         md5_gen = hashlib.md5(npy_header)
-        md5_gen.update(chunk_view)
+        md5_gen.update(chunk)
         md5 = base64.b64encode(md5_gen.digest())
         headers = {'Content-MD5': bytes_to_native_str(md5)}
         if future.utils.PY2:
             # Python 2's httplib doesn't support a sequence of byte-likes.
-            data = npy_header + chunk_view.tobytes()
+            data = npy_header + chunk.tobytes()
         else:
-            data = _Multipart([npy_header, chunk_view])
+            data = _Multipart([npy_header, chunk])
         with self._request(chunk_name, 'PUT', url, headers=headers, data=data):
             pass
 
