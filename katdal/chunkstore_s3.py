@@ -23,6 +23,7 @@ from __future__ import print_function, division, absolute_import
 
 from future import standard_library
 standard_library.install_aliases()
+import future.utils
 from builtins import object
 from future.utils import raise_, bytes_to_native_str
 import contextlib
@@ -106,6 +107,26 @@ class _AWSAuth(requests.auth.AuthBase):
         r.headers['Authorization'] = 'AWS {}:{}'.format(
             self._signer.credentials.access_key, signature)
         return r
+
+
+class _Multipart(object):
+    """Allow a sequence of bytes-like objects to be used as a request body.
+
+    This is intended to allow a zero-copy upload of bytes-like objects that
+    are not contiguous in memory. The requests library treats standard
+    iterable classes (list, tuple) specially, which is why a custom class is
+    needed.
+    """
+    def __init__(self, items=()):
+        self.items = list(items)
+
+    def __iter__(self):
+        return iter(self.items)
+
+    @property
+    def len(self):
+        """Total content length (retrieved by requests to set Content-Length)"""
+        return sum(memoryview(item).nbytes for item in self.items)
 
 
 def _raise_for_status(response):
@@ -338,16 +359,33 @@ class S3ChunkStore(ChunkStore):
             with self._request(None, 'PUT', policy_url, data=json.dumps(policy)):
                 pass
 
+    @classmethod
+    def _numpy_header(cls, chunk):
+        fp = io.BytesIO()
+        header_fields = np.lib.format.header_data_from_array_1_0(chunk)
+        np.lib.format.write_array_header_1_0(fp, header_fields)
+        return fp.getvalue()
+
     def put_chunk(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put_chunk`."""
         chunk_name, _ = self.chunk_metadata(array_name, slices, chunk=chunk)
         url = self._chunk_url(chunk_name)
-        fp = io.BytesIO()
-        np.lib.format.write_array(fp, chunk, allow_pickle=False)
-        md5 = base64.b64encode(hashlib.md5(fp.getvalue()).digest())
-        fp.seek(0)
+        # Note: don't use ascontiguousarray as it turns 0D into 1D.
+        # See https://github.com/numpy/numpy/issues/5300
+        chunk = np.asarray(chunk, order='C')
+        npy_header = self._numpy_header(chunk)
+        # Compute the MD5 sum to protect the object against corruption in
+        # transmission.
+        md5_gen = hashlib.md5(npy_header)
+        md5_gen.update(chunk)
+        md5 = base64.b64encode(md5_gen.digest())
         headers = {'Content-MD5': bytes_to_native_str(md5)}
-        with self._request(chunk_name, 'PUT', url, headers=headers, data=fp):
+        if future.utils.PY2:
+            # Python 2's httplib doesn't support a sequence of byte-likes.
+            data = npy_header + chunk.tobytes()
+        else:
+            data = _Multipart([npy_header, chunk])
+        with self._request(chunk_name, 'PUT', url, headers=headers, data=data):
             pass
 
     def has_chunk(self, array_name, slices, dtype):
