@@ -228,7 +228,7 @@ import urllib.parse
 
 from .datasources import open_data_source
 from .dataset import DataSet, WrongVersion
-from .lazy_indexer import LazyTransform
+from .lazy_indexer import LazyTransform, dask_getitem
 from .concatdata import ConcatenatedDataSet
 from .h5datav1 import H5DataV1
 from .h5datav2 import H5DataV2

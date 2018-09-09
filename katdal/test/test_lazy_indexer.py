@@ -26,7 +26,7 @@ import dask.array as da
 from nose.tools import assert_raises, assert_equal
 
 from katdal.lazy_indexer import (_range_to_slice, _simplify_index,
-                                 _dask_oindex, _dask_getitem, DaskLazyIndexer)
+                                 _dask_oindex, dask_getitem, DaskLazyIndexer)
 
 
 def slice_to_range(s, l):
@@ -176,7 +176,7 @@ UNEVEN = [False, True, True, True, False, False, True, True, False, True]
 
 
 class TestDaskGetitem(object):
-    """Test the :func:`~katdal.lazy_indexer._dask_getitem` function."""
+    """Test the :func:`~katdal.lazy_indexer.dask_getitem` function."""
     def setup(self):
         shape = (10, 20, 30, 40)
         self.data = np.arange(np.product(shape)).reshape(shape)
@@ -188,7 +188,7 @@ class TestDaskGetitem(object):
             normalised_indices = indices
         npy_lite = numpy_oindex_lite(self.data, normalised_indices)
         oindex = _dask_oindex(self.data_dask, normalised_indices).compute()
-        getitem = _dask_getitem(self.data_dask, indices).compute()
+        getitem = dask_getitem(self.data_dask, indices).compute()
         np.testing.assert_array_equal(npy, npy_lite)
         np.testing.assert_array_equal(getitem, npy)
         np.testing.assert_array_equal(oindex, npy)

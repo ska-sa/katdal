@@ -127,7 +127,7 @@ def _dask_oindex(x, indices):
     return x
 
 
-def _dask_getitem(x, indices):
+def dask_getitem(x, indices):
     """Index a dask array, with N-D fancy index support and better performance.
 
     This is a drop-in replacement for ``x[indices]`` that goes one further
@@ -537,7 +537,7 @@ class DaskLazyIndexer(object):
         """Array after first-stage indexing and transformation."""
         with self._lock:
             if self._dataset is None:
-                dataset = _dask_getitem(self._orig_dataset, self.keep)
+                dataset = dask_getitem(self._orig_dataset, self.keep)
                 for transform in self.transforms:
                     dataset = transform(dataset)
                 self._dataset = dataset
@@ -578,7 +578,7 @@ class DaskLazyIndexer(object):
         out : :class:`numpy.ndarray`
             Extracted output array (computed from the final dask version)
         """
-        kept = _dask_getitem(self.dataset, keep)
+        kept = dask_getitem(self.dataset, keep)
         # Workaround for https://github.com/dask/dask/issues/3595
         # This is equivalent to kept.compute(), but does not
         # allocate excessive memory.
