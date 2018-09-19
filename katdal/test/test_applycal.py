@@ -62,15 +62,15 @@ def delay_gains(pol, ant):
     return np.exp(2j * np.pi * delay / SAMPLE_RATE * FREQS).astype('complex64')
 
 
-def gains_per_corrprod(dumps, channels):
+def gains_per_corrprod(dumps, channels, corrprods=()):
     input_map = {ant + pol: (pol_idx, ant_idx)
                  for (pol_idx, pol) in enumerate(POLS)
                  for (ant_idx, ant) in enumerate(ANTS)}
     gains_per_input = np.array([delay_gains(*input_map[inp])
                                 for inp in INPUTS])
     gains_per_input = gains_per_input[:, channels]
-    gain1 = gains_per_input[INDEX1].T
-    gain2 = gains_per_input[INDEX2].T
+    gain1 = gains_per_input[INDEX1[corrprods]].T
+    gain2 = gains_per_input[INDEX2[corrprods]].T
     return gain1 * gain2.conj()
 
 
@@ -145,26 +145,44 @@ class TestApplyCal(object):
         freq_keep = np.full(N_CHANS, False, dtype=np.bool_)
         freq_keep[22:38] = True
         corrprod_keep = np.full(N_CORRPRODS, True, dtype=np.bool_)
-        self.keep = (time_keep, freq_keep, corrprod_keep)
+        # Throw out the first antenna
+        for n, inp in enumerate(INPUTS):
+            if inp.startswith(ANTS[0]):
+                corrprod_keep[INDEX1 == n] = False
+                corrprod_keep[INDEX2 == n] = False
+        self.stage1 = (time_keep, freq_keep, corrprod_keep)
+        # List of selected correlation products
+        self.corrprods = [cp for n, cp in enumerate(CORRPRODS)
+                          if corrprod_keep[n]]
 
     def test_applycal_expects_single_chunk_along_corrprod_axis(self):
         vis = da.ones((N_DUMPS, N_CHANS, N_CORRPRODS), dtype='complex64',
                       chunks=(10, 4, N_CORRPRODS // 4))
-        indexer = DaskLazyIndexer(vis, self.keep)
+        indexer = DaskLazyIndexer(vis, self.stage1)
         cal_products = ['K']
         with assert_raises(ValueError):
-            add_applycal_transform(indexer, self.cache, CORRPRODS,
+            add_applycal_transform(indexer, self.cache, self.corrprods,
                                    cal_products, apply_vis_correction)
 
     def test_applycal_vis(self):
-        vis = da.ones((N_DUMPS, N_CHANS, N_CORRPRODS), dtype='complex64',
-                      chunks=(10, 4, N_CORRPRODS))
-        indexer = DaskLazyIndexer(vis, self.keep)
+        vis_real = np.random.randn(N_DUMPS, N_CHANS, N_CORRPRODS)
+        vis_imag = np.random.randn(N_DUMPS, N_CHANS, N_CORRPRODS)
+        vis = np.asarray(vis_real + 1j * vis_imag, dtype='complex64')
+        vis_dask = da.from_array(vis, chunks=(10, 4, N_CORRPRODS))
+        indexer = DaskLazyIndexer(vis_dask, self.stage1)
         cal_products = ['K']
-        add_applycal_transform(indexer, self.cache, CORRPRODS, cal_products,
-                               apply_vis_correction)
-        calibrated_vis = indexer[5]
-        dumps = self.keep[0].nonzero()[0]
-        channels = self.keep[1].nonzero()[0]
-        expected_vis = gains_per_corrprod(dumps[5], channels)
+        add_applycal_transform(indexer, self.cache, self.corrprods,
+                               cal_products, apply_vis_correction)
+        # Apply stage 2 selection on top of stage 1
+        stage2 = np.s_[5, 2:5, :]
+        stage1_indices = tuple(k.nonzero()[0] for k in self.stage1)
+        final_indices = tuple(i[s] for s, i in zip(stage2, stage1_indices))
+        gains = gains_per_corrprod(*final_indices)
+        # Quick and dirty oindex of vis (yet another way doing axes in reverse)
+        selected_vis = vis
+        dims = reversed(range(vis.ndim))
+        for dim, indices in zip(dims, reversed(final_indices)):
+            selected_vis = np.take(selected_vis, indices, axis=dim)
+        expected_vis = selected_vis * gains
+        calibrated_vis = indexer[stage2]
         assert_array_equal(calibrated_vis, expected_vis)
