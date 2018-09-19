@@ -20,7 +20,7 @@ from builtins import object, range
 
 import numpy as np
 from numpy.testing import assert_array_equal
-from nose.tools import assert_raises
+from nose.tools import assert_raises, assert_equal
 import dask.array as da
 
 from katdal.sensordata import SensorCache
@@ -37,7 +37,7 @@ CENTRE_FREQ = 1284.0
 BANDWIDTH = 856.0
 N_CHANS = 128
 N_DUMPS = 100
-SAMPLE_RATE = 1712.
+SAMPLE_RATE = 1712.0
 
 INPUTS = [ant + pol for ant in ANTS for pol in POLS]
 FREQS = CENTRE_FREQ + BANDWIDTH / N_CHANS * (np.arange(N_CHANS) - N_CHANS // 2)
@@ -50,7 +50,7 @@ def create_sensor_cache():
     """Create a SensorCache for testing applycal sensors."""
     cache = {}
     delays = np.arange(len(ANTS))
-    delays = np.array([delays, -delays]) / SAMPLE_RATE
+    delays = np.array([delays, 100 * delays]) / SAMPLE_RATE
     cache['cal_product_K'] = CategoricalData([np.zeros_like(delays), delays],
                                              events=[0, 10, N_DUMPS])
     return SensorCache(cache, timestamps=np.arange(N_DUMPS, dtype=float),
@@ -58,7 +58,7 @@ def create_sensor_cache():
 
 
 def delay_gains(pol, ant):
-    delay = (-1) ** pol * ant
+    delay = 100 ** pol * ant
     return np.exp(2j * np.pi * delay / SAMPLE_RATE * FREQS).astype('complex64')
 
 
@@ -92,8 +92,14 @@ class TestVirtualCorrectionSensors(object):
     """Test :func:`~katdal.applycal.add_applycal_sensors` function."""
     def setup(self):
         self.cache = create_sensor_cache()
-        add_applycal_sensors(self.cache, [], [], [])   # this does nothing
         add_applycal_sensors(self.cache, ANTS, POLS, FREQS)
+
+    def test_add_sensors_does_nothing_if_no_ants_or_pols(self):
+        cache = create_sensor_cache()
+        n_virtuals_before = len(cache.virtual)
+        add_applycal_sensors(cache, [], [], [])
+        n_virtuals_after = len(cache.virtual)
+        assert_equal(n_virtuals_after, n_virtuals_before)
 
     def test_delay_sensors(self):
         for n, ant in enumerate(ANTS):
@@ -141,9 +147,9 @@ class TestApplyCal(object):
         corrprod_keep = np.full(N_CORRPRODS, True, dtype=np.bool_)
         self.keep = (time_keep, freq_keep, corrprod_keep)
 
-    def test_applycal_limitations(self):
+    def test_applycal_expects_single_chunk_along_corrprod_axis(self):
         vis = da.ones((N_DUMPS, N_CHANS, N_CORRPRODS), dtype='complex64',
-                      chunks=(10, 4, 6))
+                      chunks=(10, 4, N_CORRPRODS // 4))
         indexer = DaskLazyIndexer(vis, self.keep)
         cal_products = ['K']
         with assert_raises(ValueError):

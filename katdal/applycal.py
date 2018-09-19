@@ -17,6 +17,7 @@
 """Utilities for applying calibration solutions to visibilities and weights."""
 
 from functools import partial
+import copy
 
 import numpy as np
 import dask.array as da
@@ -70,7 +71,7 @@ def add_applycal_sensors(cache, cal_ants, cal_pols, freqs):
             raise KeyError("No calibration solutions available for input "
                            "'{}' - available ones are {}"
                            .format(inp, sorted(cal_input_map.keys())))
-        if product.startswith('K'):
+        if product == 'K':
             sensor_data = calc_delay_correction(cache, product, index, freqs)
         else:
             raise KeyError("Unknown calibration product '{}'".format(product))
@@ -128,7 +129,7 @@ def calc_correction_per_corrprod(dump, channels, cache, inputs,
 
 
 def apply_vis_correction(out, correction):
-    """Apply `correction` in-place to visibility data in `out`."""
+    """Clean up and apply `correction` in-place to visibility data in `out`."""
     correction[np.isnan(correction)] = np.complex64(1)
     out *= correction
 
@@ -169,6 +170,8 @@ def add_applycal_transform(indexer, cache, corrprods, cal_products,
     inputs = sorted(set(np.ravel(corrprods)))
     input1_index = [inputs.index(cp[0]) for cp in corrprods]
     input2_index = [inputs.index(cp[1]) for cp in corrprods]
+    # Prevent cal_products from changing underneath us if caller changes theirs
+    cal_products = copy.deepcopy(cal_products)
     ccpc_args = (cache, inputs, input1_index, input2_index, cal_products)
 
     def calibrate_chunk(chunk, block_id):
