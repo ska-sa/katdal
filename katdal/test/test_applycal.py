@@ -155,20 +155,11 @@ class TestApplyCal(object):
         self.corrprods = [cp for n, cp in enumerate(CORRPRODS)
                           if corrprod_keep[n]]
 
-    def test_applycal_expects_single_chunk_along_corrprod_axis(self):
-        vis = da.ones((N_DUMPS, N_CHANS, N_CORRPRODS), dtype='complex64',
-                      chunks=(10, 4, N_CORRPRODS // 4))
-        indexer = DaskLazyIndexer(vis, self.stage1)
-        cal_products = ['K']
-        with assert_raises(ValueError):
-            add_applycal_transform(indexer, self.cache, self.corrprods,
-                                   cal_products, apply_vis_correction)
-
     def test_applycal_vis(self):
         vis_real = np.random.randn(N_DUMPS, N_CHANS, N_CORRPRODS)
         vis_imag = np.random.randn(N_DUMPS, N_CHANS, N_CORRPRODS)
         vis = np.asarray(vis_real + 1j * vis_imag, dtype='complex64')
-        vis_dask = da.from_array(vis, chunks=(10, 4, N_CORRPRODS))
+        vis_dask = da.from_array(vis, chunks=(10, 4, 6))
         indexer = DaskLazyIndexer(vis_dask, self.stage1)
         cal_products = ['K']
         add_applycal_transform(indexer, self.cache, self.corrprods,

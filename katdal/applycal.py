@@ -160,29 +160,27 @@ def add_applycal_transform(indexer, cache, corrprods, cal_products,
     apply_correction : function, signature ``out = f(out, correction)``
         Function that will actually apply correction to data from indexer
     """
-    if indexer.dataset.chunks[2] != (len(corrprods),):
-        raise ValueError('Applycal currently assumes a single chunk '
-                         'along the corrprod axis')
     chunk_starts = [np.cumsum((0,) + c) for c in indexer.dataset.chunks]
-    dump_index = indexer.keep[0].nonzero()[0]
-    channel_index = indexer.keep[1].nonzero()[0]
+    stage1_indices = tuple(k.nonzero()[0] for k in indexer.keep)
     # Turn corrprods into a list of input labels and two lists of indices
     inputs = sorted(set(np.ravel(corrprods)))
     input1_index = [inputs.index(cp[0]) for cp in corrprods]
     input2_index = [inputs.index(cp[1]) for cp in corrprods]
     # Prevent cal_products from changing underneath us if caller changes theirs
     cal_products = copy.deepcopy(cal_products)
-    ccpc_args = (cache, inputs, input1_index, input2_index, cal_products)
 
     def calibrate_chunk(chunk, block_id):
         """Apply all specified calibration corrections to chunk."""
         corrected_chunk = chunk.copy()
         array_location = [(chunk_starts[ij][j], chunk_starts[ij][j + 1])
                           for ij, j in enumerate(block_id)]
-        dumps = dump_index[slice(*array_location[0])]
-        chans = channel_index[slice(*array_location[1])]
+        slices = tuple(slice(*l) for l in array_location)
+        dumps, chans, _ = tuple(i[s] for i, s in zip(stage1_indices, slices))
+        index1 = input1_index[slices[2]]
+        index2 = input2_index[slices[2]]
+        ccpc_args = (chans, cache, inputs, index1, index2, cal_products)
         for n, dump in enumerate(dumps):
-            correction = calc_correction_per_corrprod(dump, chans, *ccpc_args)
+            correction = calc_correction_per_corrprod(dump, *ccpc_args)
             apply_correction(corrected_chunk[n], correction)
         return corrected_chunk
 
