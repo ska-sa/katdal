@@ -251,7 +251,7 @@ class S3ChunkStore(ChunkStore):
         return cls(session_factory, url, public_read)
 
     @classmethod
-    def from_url(cls, url, timeout=10, extra_timeout=1,
+    def from_url(cls, url, timeout=300, extra_timeout=10,
                  token=None, credentials=None, public_read=False, **kwargs):
         """Construct S3 chunk store from endpoint URL.
 
