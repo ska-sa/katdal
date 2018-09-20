@@ -45,12 +45,22 @@ INDEX1, INDEX2 = np.triu_indices(len(INPUTS))
 CORRPRODS = [(INPUTS[i1], INPUTS[i2]) for i1, i2 in zip(INDEX1, INDEX2)]
 N_CORRPRODS = len(CORRPRODS)
 
+SKIP_ANT = 0
+BAD_DELAY_ANT = 1
+
+
+def create_delay(pol, ant):
+    """Synthesise a delay in seconds from `pol` and `ant` indices."""
+    return (100 ** pol * ant / SAMPLE_RATE) if ant != BAD_DELAY_ANT else np.nan
+
 
 def create_sensor_cache():
     """Create a SensorCache for testing applycal sensors."""
     cache = {}
-    delays = np.arange(len(ANTS))
-    delays = np.array([delays, 100 * delays]) / SAMPLE_RATE
+    pols = range(len(POLS))
+    ants = range(len(ANTS))
+    delays = [create_delay(pol, ant) for pol in pols for ant in ants]
+    delays = np.array(delays).reshape(len(pols), len(ants))
     cache['cal_product_K'] = CategoricalData([np.zeros_like(delays), delays],
                                              events=[0, 10, N_DUMPS])
     return SensorCache(cache, timestamps=np.arange(N_DUMPS, dtype=float),
@@ -58,11 +68,14 @@ def create_sensor_cache():
 
 
 def delay_gains(pol, ant):
-    delay = 100 ** pol * ant
-    return np.exp(2j * np.pi * delay / SAMPLE_RATE * FREQS).astype('complex64')
+    """Figure out gain correction for delay given `pol` and `ant` indices."""
+    # Zero out missing delays (indicated by NaN)
+    delay = np.nan_to_num(create_delay(pol, ant))
+    return np.exp(2j * np.pi * delay * FREQS).astype('complex64')
 
 
 def gains_per_corrprod(dumps, channels, corrprods=()):
+    """Predict corrprod correction for a time-frequency-baseline selection."""
     input_map = {ant + pol: (pol_idx, ant_idx)
                  for (pol_idx, pol) in enumerate(POLS)
                  for (ant_idx, ant) in enumerate(ANTS)}
@@ -145,9 +158,9 @@ class TestApplyCal(object):
         freq_keep = np.full(N_CHANS, False, dtype=np.bool_)
         freq_keep[22:38] = True
         corrprod_keep = np.full(N_CORRPRODS, True, dtype=np.bool_)
-        # Throw out the first antenna
+        # Throw out one antenna
         for n, inp in enumerate(INPUTS):
-            if inp.startswith(ANTS[0]):
+            if inp.startswith(ANTS[SKIP_ANT]):
                 corrprod_keep[INDEX1 == n] = False
                 corrprod_keep[INDEX2 == n] = False
         self.stage1 = (time_keep, freq_keep, corrprod_keep)
