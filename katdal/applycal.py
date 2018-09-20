@@ -160,7 +160,6 @@ def add_applycal_transform(indexer, cache, corrprods, cal_products,
     apply_correction : function, signature ``out = f(out, correction)``
         Function that will actually apply correction to data from indexer
     """
-    chunk_starts = [np.cumsum((0,) + c) for c in indexer.dataset.chunks]
     stage1_indices = tuple(k.nonzero()[0] for k in indexer.keep)
     # Turn corrprods into a list of input labels and two lists of indices
     inputs = sorted(set(np.ravel(corrprods)))
@@ -169,12 +168,11 @@ def add_applycal_transform(indexer, cache, corrprods, cal_products,
     # Prevent cal_products from changing underneath us if caller changes theirs
     cal_products = copy.deepcopy(cal_products)
 
-    def calibrate_chunk(chunk, block_id):
+    def calibrate_chunk(chunk, block_info):
         """Apply all specified calibration corrections to chunk."""
         corrected_chunk = chunk.copy()
-        array_location = [(chunk_starts[ij][j], chunk_starts[ij][j + 1])
-                          for ij, j in enumerate(block_id)]
-        slices = tuple(slice(*l) for l in array_location)
+        # Tuple of slices that cuts out `chunk` from full array
+        slices = tuple(slice(*l) for l in block_info[0]['array-location'])
         dumps, chans, _ = tuple(i[s] for i, s in zip(stage1_indices, slices))
         index1 = input1_index[slices[2]]
         index2 = input2_index[slices[2]]
