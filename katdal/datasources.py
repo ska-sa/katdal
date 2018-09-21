@@ -31,6 +31,7 @@ import katsdptelstate
 import numpy as np
 import dask.array as da
 from dask.array.rechunk import intersect_chunks
+import numba
 
 from .sensordata import TelstateSensorData, TelstateToStr
 from .chunkstore_s3 import S3ChunkStore
@@ -102,6 +103,61 @@ def _apply_data_lost(orig_flags, lost, block_id):
     return flags
 
 
+def _corrprod_to_autocorr(corrprod):
+    """Find the autocorrelation indices of correlation products.
+
+    Parameters
+    ----------
+    corrprod : sequence of 2-tuples or ndarray
+        Input labels of the correlation products
+
+    Returns
+    -------
+    auto_indices : np.ndarray
+        The indices in corrprod that correspond to auto-correlations
+    index1, index2 : np.ndarray
+        Lists of the same length as corrprod, containing the indices within
+        `auto_indices` referring to the first and second corresponding
+        autocorrelations.
+
+    Raises
+    ------
+    KeyError
+        If any of the autocorrelations are missing
+    """
+    auto_indices = []
+    auto_lookup = {}
+    for i, baseline in enumerate(corrprod):
+        if baseline[0] == baseline[1]:
+            auto_lookup[baseline[0]] = len(auto_indices)
+            auto_indices.append(i)
+    index1 = [auto_lookup[a] for (a, b) in corrprod]
+    index2 = [auto_lookup[b] for (a, b) in corrprod]
+    return np.array(auto_indices), np.array(index1), np.array(index2)
+
+
+@numba.jit(nopython=True, nogil=True)
+def _power_scale(block, auto_indices, index1, index2):
+    """map_blocks callback to compute weight scale from visibility data"""
+    auto_scale = np.empty(len(auto_indices), np.float32)
+    power_scale = np.empty(block.shape, np.float32)
+    bad_weight = np.float32(2.0**-32)
+    for i in range(block.shape[0]):
+        for j in range(block.shape[1]):
+            for k in range(len(auto_indices)):
+                auto_scale[k] = np.divide(1, np.sqrt(block[i, j, auto_indices[k]].real))
+            for k in range(block.shape[2]):
+                p = auto_scale[index1[k]] * auto_scale[index2[k]]
+                # If either or both of the autocorrelations has zero power then
+                # there is likely something wrong with the system. Set the
+                # weight to very close to zero (not actually zero, since that
+                # can cause divide-by-zero problems downstream).
+                if not np.isfinite(p):
+                    p = bad_weight
+                power_scale[i, j, k] = p
+    return power_scale
+
+
 class ChunkStoreVisFlagsWeights(VisFlagsWeights):
     """Correlator data stored in a chunk store.
 
@@ -111,8 +167,12 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
         Chunk store
     chunk_info : dict mapping array name to info dict
         Dict specifying prefix, dtype, shape and chunks per array
+    corrprods : sequence of 2-tuples of input labels
+        Correlation products. If given, the weights for baseline (inp1, inp2)
+        will be divided by the square root of the product of the corresponding
+        autocorrelations vis[inp1,inp1] and vis[inp2,inp2].
     """
-    def __init__(self, store, chunk_info):
+    def __init__(self, store, chunk_info, corrprods):
         self.store = store
         darray = {}
         has_arrays = []
@@ -144,6 +204,17 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
                               name=flags_raw_name, lost=lost)
         # Combine low-resolution weights and high-resolution weights_channel
         weights = darray['weights'] * darray['weights_channel'][..., np.newaxis]
+        # Scale weights according to power
+        if corrprods is not None:
+            assert len(corrprods) == vis.shape[2]
+            # Ensure that we have only a single chunk on the baseline axis.
+            if len(vis.chunks[2]) > 1:
+                vis = vis.rechunk({2: vis.shape[2]})
+            auto_indices, index1, index2 = _corrprod_to_autocorr(corrprods)
+            power_scale = da.map_blocks(_power_scale, vis, dtype=np.float32,
+                                        auto_indices=auto_indices, index1=index1, index2=index2)
+            weights *= power_scale
+
         VisFlagsWeights.__init__(self, vis, flags, weights, base_name)
 
 
@@ -421,9 +492,13 @@ class TelstateDataSource(DataSource):
             data = None
         else:
             chunk_info = telstate['chunk_info']
+            if telstate.get('need_weights_power_scale', False):
+                corrprods = telstate['bls_ordering']
+            else:
+                corrprods = None
             chunk_info = _ensure_prefix_is_set(chunk_info, telstate)
             chunk_info = _upgrade_flags(chunk_info, telstate)
-            data = ChunkStoreVisFlagsWeights(chunk_store, chunk_info)
+            data = ChunkStoreVisFlagsWeights(chunk_store, chunk_info, corrprods)
         # Metadata and timestamps with or without data
         DataSource.__init__(self, metadata, timestamps, data)
 

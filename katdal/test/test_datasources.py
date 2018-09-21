@@ -90,7 +90,7 @@ class TestChunkStoreVisFlagsWeights(object):
         prefix = 'cb1'
         shape = (10, 64, 30)
         data, chunk_info = put_fake_dataset(store, prefix, shape)
-        vfw = ChunkStoreVisFlagsWeights(store, chunk_info)
+        vfw = ChunkStoreVisFlagsWeights(store, chunk_info, None)
         weights = data['weights'] * data['weights_channel'][..., np.newaxis]
         # Check that data is as expected when accessed via VisFlagsWeights
         assert_equal(vfw.shape, data['correlator_data'].shape)
@@ -114,7 +114,7 @@ class TestChunkStoreVisFlagsWeights(object):
             for culled_slice in culled_slices:
                 chunk_name, shape = store.chunk_metadata(array_name, culled_slice)
                 os.remove(os.path.join(store.path, chunk_name) + '.npy')
-        vfw = ChunkStoreVisFlagsWeights(store, chunk_info)
+        vfw = ChunkStoreVisFlagsWeights(store, chunk_info, None)
         # Check that (only) missing chunks have been replaced by zeros
         vis = data['correlator_data']
         for culled_slice in missing_chunks['correlator_data']:

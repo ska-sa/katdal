@@ -11,7 +11,9 @@ h5py
 idna
 ipaddress
 katversion
+llvmlite
 netifaces
+numba
 numpy
 pyephem
 python-dateutil
