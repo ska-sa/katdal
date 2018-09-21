@@ -53,12 +53,15 @@ def to_dask_array(x, chunks=None):
     return da.from_array(x, chunks)
 
 
-def put_fake_dataset(store, prefix, shape, chunk_overrides=None):
+def put_fake_dataset(store, prefix, shape, chunk_overrides=None, array_overrides={}):
     """Write a fake dataset into the chunk store."""
     data = {'correlator_data': ramp(shape, dtype=np.float32) * (1 - 1j),
             'flags': np.ones(shape, dtype=np.uint8),
             'weights': ramp(shape, slope=255. / np.prod(shape), dtype=np.uint8),
             'weights_channel': ramp(shape[:-1], dtype=np.float32)}
+    for name in data:
+        if name in array_overrides:
+            data[name] = array_overrides[name]
     if chunk_overrides is None:
         chunk_overrides = {}
     ddata = {k: to_dask_array(array, chunk_overrides.get(k)) for k, array in data.items()}
@@ -92,6 +95,44 @@ class TestChunkStoreVisFlagsWeights(object):
         data, chunk_info = put_fake_dataset(store, prefix, shape)
         vfw = ChunkStoreVisFlagsWeights(store, chunk_info, None)
         weights = data['weights'] * data['weights_channel'][..., np.newaxis]
+        # Check that data is as expected when accessed via VisFlagsWeights
+        assert_equal(vfw.shape, data['correlator_data'].shape)
+        assert_array_equal(vfw.vis.compute(), data['correlator_data'])
+        assert_array_equal(vfw.flags.compute(), data['flags'])
+        assert_array_equal(vfw.weights.compute(), weights)
+
+    def test_weight_power_scale(self):
+        ants = 7
+        index1, index2 = np.triu_indices(ants)
+        inputs = ['m{:03}h'.format(i) for i in range(ants)]
+        corrprods = np.array([(inputs[a], inputs[b]) for (a, b) in zip(index1, index2)])
+        # Put fake dataset into chunk store
+        store = NpyFileChunkStore(self.tempdir)
+        prefix = 'cb1'
+        shape = (10, 64, len(index1))
+
+        # Make up some vis data where the expected scaling factors can be
+        # computed by hand. Note: the autocorrs are all set to powers of
+        # 4 so that we avoid any rounding errors.
+        vis = np.full(shape, 2 + 3j, np.complex64)
+        vis[:, :, index1 == index2] = 4     # Make all autocorrs real
+        vis[3, :, index1 == index2] = 16     # Tests time indexing
+        vis[:, 7, index1 == index2] = 16    # Tests frequency indexing
+        vis[:, :, ants] *= 64               # The (1, 1) baseline
+        vis[4, 5, 0] = 0                    # The (0, 0) baseline
+        expected_scale = np.full(shape, 0.25, np.float32)
+        expected_scale[3, :, :] = 1 / 16
+        expected_scale[:, 7, :] = 1 / 16
+        expected_scale[:, :, index1 == 1] /= 8
+        expected_scale[:, :, index2 == 1] /= 8
+        expected_scale[4, 5, index1 == 0] = 2.0**-32
+        expected_scale[4, 5, index2 == 0] = 2.0**-32
+
+        data, chunk_info = put_fake_dataset(
+            store, prefix, shape, array_overrides={'correlator_data': vis})
+        vfw = ChunkStoreVisFlagsWeights(store, chunk_info, corrprods)
+        weights = data['weights'] * data['weights_channel'][..., np.newaxis] * expected_scale
+
         # Check that data is as expected when accessed via VisFlagsWeights
         assert_equal(vfw.shape, data['correlator_data'].shape)
         assert_array_equal(vfw.vis.compute(), data['correlator_data'])
