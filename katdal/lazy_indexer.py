@@ -578,11 +578,39 @@ class DaskLazyIndexer(object):
         out : :class:`numpy.ndarray`
             Extracted output array (computed from the final dask version)
         """
-        kept = dask_getitem(self.dataset, keep)
+        return self.get([self], keep)[0]
+
+    @classmethod
+    def get(cls, arrays, keep, out=None):
+        """Extract several arrays from the underlying dataset.
+
+        This is a variant of :meth:`__getitem__` that pulls from several arrays
+        jointly. This can be significantly more efficient if intermediate dask
+        nodes can be shared.
+
+        Parameters
+        ----------
+        arrays : list of :class:`DaskLazyIndexer`
+            Arrays to index
+        keep : NumPy index expression
+            Second-stage index as a valid index or slice specification
+            (supports arbitrary slicing or advanced indexing on any dimension)
+        out : list of :class:`np.ndarray`
+            If specified, output arrays in which to store results. It must be
+            the same length as `arrays` and each array must have the
+            appropriate shape and dtype.
+
+        Returns
+        -------
+        out : sequence of :class:`numpy.ndarray`
+            Extracted output array (computed from the final dask version)
+        """
+        kept = [dask_getitem(array.dataset, keep) for array in arrays]
         # Workaround for https://github.com/dask/dask/issues/3595
-        # This is equivalent to kept.compute(), but does not
-        # allocate excessive memory.
-        out = np.empty(kept.shape, kept.dtype)
+        # This is equivalent to da.compute(kept), but does not allocate
+        # excessive memory.
+        if out is None:
+            out = [np.empty(array.shape, array.dtype) for array in kept]
         da.store(kept, out, lock=False)
         return out
 
