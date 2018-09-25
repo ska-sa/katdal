@@ -103,7 +103,7 @@ def _apply_data_lost(orig_flags, lost, block_id):
     return flags
 
 
-def _corrprod_to_autocorr(corrprod):
+def corrprod_to_autocorr(corrprod):
     """Find the autocorrelation indices of correlation products.
 
     Parameters
@@ -137,10 +137,29 @@ def _corrprod_to_autocorr(corrprod):
 
 
 @numba.jit(nopython=True, nogil=True)
-def _power_scale(block, auto_indices, index1, index2):
-    """map_blocks callback to compute weight scale from visibility data"""
-    auto_scale = np.empty(len(auto_indices), np.float32)
-    power_scale = np.empty(block.shape, np.float32)
+def weight_power_scale(block, auto_indices, index1, index2, out=None, tmp=None):
+    """Compute weight scale from visibility data.
+
+    This function is designed to be usable with
+    :func:`dask.array.map_blocks`.
+
+    Parameters
+    ----------
+    block : np.ndarray
+        Chunk of visibility data, with dimensions time, frequency, baseline
+        (or any two dimensions then baseline). It must contain all the
+        baselines of a stream.
+    auto_indices, index1, index2 : np.ndarray
+        Arrays returned by :func:`corrprod_to_autocrr`
+    out : np.ndarray, optional
+        If specified, the output array, with same shape as `block` and dtype ``np.float32``
+    tmp : np.ndarray, optional
+        If specified, an array to use as internal scratch space (useful to
+        reuse the space across multiple calls). It must have the same shape
+        as `auto_indices` and dtype ``np.float32``.
+    """
+    auto_scale = np.empty(len(auto_indices), np.float32) if tmp is None else tmp
+    power_scale = np.empty(block.shape, np.float32) if out is None else out
     bad_weight = np.float32(2.0**-32)
     for i in range(block.shape[0]):
         for j in range(block.shape[1]):
@@ -210,8 +229,8 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
             # Ensure that we have only a single chunk on the baseline axis.
             if len(vis.chunks[2]) > 1:
                 vis = vis.rechunk({2: vis.shape[2]})
-            auto_indices, index1, index2 = _corrprod_to_autocorr(corrprods)
-            power_scale = da.map_blocks(_power_scale, vis, dtype=np.float32,
+            auto_indices, index1, index2 = corrprod_to_autocorr(corrprods)
+            power_scale = da.map_blocks(weight_power_scale, vis, dtype=np.float32,
                                         auto_indices=auto_indices, index1=index1, index2=index2)
             weights *= power_scale
 
