@@ -492,7 +492,7 @@ class TelstateDataSource(DataSource):
             data = None
         else:
             chunk_info = telstate['chunk_info']
-            if telstate.get('need_weights_power_scale', False):
+            if True or telstate.get('need_weights_power_scale', False):
                 corrprods = telstate['bls_ordering']
             else:
                 corrprods = None

@@ -25,7 +25,6 @@ import threading
 from numbers import Integral
 
 import numpy as np
-import dask
 import dask.array as da
 import dask.optimization
 from functools import reduce, partial
@@ -61,20 +60,6 @@ def _range_to_slice(index):
     return slice(start, stop if stop >= 0 else None, step)
 
 
-def _check_boolean_index_length(indices, shape):
-    """Workaround for check_index failure in dask < 0.18.2."""
-    if not isinstance(indices, tuple):
-        indices = (indices,)
-    indices = da.slicing.replace_ellipsis(len(shape), indices)
-    indices = (ind for ind in indices if ind is not np.newaxis)
-    for dim, ind in zip(shape, indices):
-        if isinstance(ind, (list, np.ndarray)):
-            x = np.asanyarray(ind)
-            if x.dtype == bool and x.size != dim:
-                raise IndexError("Boolean array length {} doesn't equal "
-                                 "dimension {}".format(x.size, dim))
-
-
 def _simplify_index(indices, shape):
     """Generate an equivalent index expression that is cheaper to evaluate.
 
@@ -90,9 +75,6 @@ def _simplify_index(indices, shape):
 
     .. _NEP 21: http://www.numpy.org/neps/nep-0021-advanced-indexing.html
     """
-    # XXX Workaround to be removed at some stage
-    if dask.__version__ < '0.18.2':
-        _check_boolean_index_length(indices, shape)
     # First clean up and check indices, unpacking ellipsis and boolean arrays
     indices = da.slicing.normalize_index(indices, shape)
     out = []
