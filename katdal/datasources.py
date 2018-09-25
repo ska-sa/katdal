@@ -145,7 +145,7 @@ def _power_scale(block, auto_indices, index1, index2):
     for i in range(block.shape[0]):
         for j in range(block.shape[1]):
             for k in range(len(auto_indices)):
-                auto_scale[k] = np.divide(1, np.sqrt(block[i, j, auto_indices[k]].real))
+                auto_scale[k] = np.divide(1, block[i, j, auto_indices[k]].real)
             for k in range(block.shape[2]):
                 p = auto_scale[index1[k]] * auto_scale[index2[k]]
                 # If either or both of the autocorrelations has zero power then

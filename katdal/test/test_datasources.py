@@ -113,12 +113,12 @@ class TestChunkStoreVisFlagsWeights(object):
 
         # Make up some vis data where the expected scaling factors can be
         # computed by hand. Note: the autocorrs are all set to powers of
-        # 4 so that we avoid any rounding errors.
+        # 2 so that we avoid any rounding errors.
         vis = np.full(shape, 2 + 3j, np.complex64)
-        vis[:, :, index1 == index2] = 4     # Make all autocorrs real
-        vis[3, :, index1 == index2] = 16     # Tests time indexing
-        vis[:, 7, index1 == index2] = 16    # Tests frequency indexing
-        vis[:, :, ants] *= 64               # The (1, 1) baseline
+        vis[:, :, index1 == index2] = 2     # Make all autocorrs real
+        vis[3, :, index1 == index2] = 4     # Tests time indexing
+        vis[:, 7, index1 == index2] = 4     # Tests frequency indexing
+        vis[:, :, ants] *= 8                # The (1, 1) baseline
         vis[4, 5, 0] = 0                    # The (0, 0) baseline
         expected_scale = np.full(shape, 0.25, np.float32)
         expected_scale[3, :, :] = 1 / 16
