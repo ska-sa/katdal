@@ -384,7 +384,7 @@ class S3ChunkStore(ChunkStore):
             # Python 2's httplib doesn't support a sequence of byte-likes.
             data = npy_header + chunk.tobytes()
         else:
-            data = _Multipart([npy_header, chunk])
+            data = _Multipart([npy_header, memoryview(chunk)])
         with self._request(chunk_name, 'PUT', url, headers=headers, data=data):
             pass
 
