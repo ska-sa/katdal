@@ -23,6 +23,7 @@ from builtins import object
 import time
 import logging
 import numbers
+import threading
 
 import numpy as np
 
@@ -120,6 +121,11 @@ class SpectralWindow(object):
     increasing with index). For further information the receiver band and
     correlator product names are also available.
 
+    .. warning::
+
+        Instances should be treated as immutable. Changing the attributes will
+        lead to inconsistencies between them.
+
     Parameters
     ----------
     centre_freq : float
@@ -139,7 +145,8 @@ class SpectralWindow(object):
     ----------
     channel_freqs : array of float, shape (*F*,)
         Centre frequency of each frequency channel (assuming LSB mixing), in Hz
-
+    bandwidth : float
+        Total bandwidth across all channels
     """
 
     def __init__(self, centre_freq, channel_width, num_chans, product=None,
@@ -150,9 +157,18 @@ class SpectralWindow(object):
         self.product = product if product is not None else ''
         self.sideband = sideband
         self.band = band
-        # Don't subtract half a channel width as channel 0 is centred on 0 Hz in baseband
-        self.channel_freqs = centre_freq + sideband * channel_width * (
-            np.arange(num_chans) - num_chans // 2)
+        # channel_freqs is computed on demand
+        self._channel_freqs_lock = threading.Lock()
+        self._channel_freqs = None
+
+    @property
+    def channel_freqs(self):
+        with self._channel_freqs_lock:
+            if self._channel_freqs is None:
+                # Don't subtract half a channel width as channel 0 is centred on 0 Hz in baseband
+                self._channel_freqs = self.centre_freq + self.sideband * self.channel_width * (
+                    np.arange(self.num_chans) - self.num_chans // 2)
+            return self._channel_freqs
 
     def __repr__(self):
         """Short human-friendly string representation of spectral window object."""
@@ -168,9 +184,13 @@ class SpectralWindow(object):
     def _description(self):
         """Complete hashable representation, used internally for comparisons."""
         # Pick values that enable a sensible ordering of spectral windows
-        return (self.channel_freqs[0], self.channel_freqs[-1],
+        return (self.centre_freq,
                 -self.channel_width, self.num_chans, self.sideband,
                 self.band, self.product)
+
+    @property
+    def bandwidth(self):
+        return self.channel_width * self.num_chans
 
     def __eq__(self, other):
         """Equality comparison operator."""
@@ -189,6 +209,46 @@ class SpectralWindow(object):
     def __hash__(self):
         """Base hash on description tuple, just like equality operator."""
         return hash(self._description)
+
+    def subset(self, first, last):
+        """Get a new :class:`SpectralWindow` representing a subset of the channels.
+
+        The returned :class:`SpectralWindow` covers the same frequencies as
+        channels [first, last) of the original.
+
+        Raises
+        ------
+        IndexError
+            If [first, last) is not a (non-empty) subinterval of the channels
+        """
+        if not (0 <= first < last <= self.num_chans):
+            raise IndexError('indices out of range')
+        channel_shift = (first + last) // 2 - self.num_chans // 2
+        return SpectralWindow(
+            self.centre_freq + channel_shift * self.channel_width * self.sideband,
+            self.channel_width, last - first, self.product, self.sideband, self.band)
+
+    def rechannelise(self, num_chans):
+        """Get a new :class:`SpectralWindow` with a different number of channels.
+
+        The returned :class:`SpectralWindow` covers the same frequencies as the
+        original, but dividing the bandwidth into a different number of
+        channels.
+        """
+        if num_chans == self.num_chans:
+            return self
+        # Find the centre of the bandwidth (whereas centre_freq is the centre
+        # of the middle channel)
+        centre_freq = self.centre_freq
+        if self.num_chans % 2 == 0:
+            centre_freq -= self.sideband * 0.5 * self.channel_width
+        channel_width = self.channel_width * self.num_chans / num_chans
+        # Now convert to the centre of the new middle channel
+        if num_chans % 2 == 0:
+            centre_freq += self.sideband * 0.5 * channel_width
+        return SpectralWindow(
+            centre_freq, channel_width, num_chans,
+            self.product, self.sideband, self.band)
 
 
 def _robust_target(description):
