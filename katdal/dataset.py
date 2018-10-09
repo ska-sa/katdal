@@ -222,7 +222,7 @@ class SpectralWindow(object):
             If [first, last) is not a (non-empty) subinterval of the channels
         """
         if not (0 <= first < last <= self.num_chans):
-            raise IndexError('indices out of range')
+            raise IndexError('channel indices out of range')
         channel_shift = (first + last) // 2 - self.num_chans // 2
         return SpectralWindow(
             self.centre_freq + channel_shift * self.channel_width * self.sideband,
