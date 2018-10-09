@@ -210,7 +210,7 @@ class SpectralWindow(object):
         """Base hash on description tuple, just like equality operator."""
         return hash(self._description)
 
-    def subset(self, first, last):
+    def subrange(self, first, last):
         """Get a new :class:`SpectralWindow` representing a subset of the channels.
 
         The returned :class:`SpectralWindow` covers the same frequencies as
