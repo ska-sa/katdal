@@ -173,17 +173,56 @@ class DataSource(object):
         return name
 
 
-def view_capture_stream(telstate, capture_block_id=None, stream_name=None,
-                        **kwargs):
-    """Create telstate view based on capture block ID and stream name.
+def view_capture_stream(telstate, capture_block_id, stream_name):
+    """Create telstate view based on given capture block ID and stream name.
 
-    This figures out the appropriate capture block ID and L0 stream name from
-    a capture-stream specific telstate, or uses the provided ones. It then
-    constructs a view on `telstate` with at least the prefixes
+    It constructs a view on `telstate` with at least the prefixes
 
       - <capture_block_id>_<stream_name>
       - <capture_block_id>
       - <stream_name>
+
+    Additionally if there is a <stream_name>_inherit key, that stream is
+    added too (recursively).
+
+    Parameters
+    ----------
+    telstate : :class:`katsdptelstate.TelescopeState` object
+        Original telescope state
+    capture_block_id : string
+        Capture block ID
+    stream_name : string
+        Stream name
+
+    Returns
+    -------
+    telstate : :class:`~katdal.sensordata.TelescopeState` object
+        Telstate with a view that incorporates capture block, stream and combo
+    """
+    streams = [stream_name]
+    while True:
+        inherit = telstate.view(streams[-1], exclusive=True).get('inherit')
+        if inherit is None:
+            break
+        streams.append(inherit)
+    streams.reverse()
+
+    for stream in streams:
+        telstate = telstate.view(stream)
+    telstate = telstate.view(capture_block_id)
+    for stream in streams:
+        capture_stream = telstate.SEPARATOR.join((capture_block_id, stream))
+        telstate = telstate.view(capture_stream)
+    return telstate
+
+
+def view_l0_capture_stream(telstate, capture_block_id=None, stream_name=None,
+                           **kwargs):
+    """Create telstate view based on auto-determined capture block ID and stream name.
+
+    This figures out the appropriate capture block ID and L0 stream name from
+    a capture-stream specific telstate, or uses the provided ones. It then
+    calls :meth:`view_capture_capture` to generate a view.
 
     Parameters
     ----------
@@ -221,8 +260,9 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None,
         except KeyError:
             raise ValueError('No captured stream found in telstate - '
                              'please specify the stream manually')
+    # Build the view
+    telstate = view_capture_stream(telstate, capture_block_id, stream_name)
     # Check the stream type
-    telstate = telstate.view(stream_name)
     stream_type = telstate.get('stream_type', 'unknown')
     expected_type = 'sdp.vis'
     if stream_type != expected_type:
@@ -231,9 +271,6 @@ def view_capture_stream(telstate, capture_block_id=None, stream_name=None,
                                                  expected_type))
     logger.info('Using capture block %r and stream %r',
                 capture_block_id, stream_name)
-    telstate = telstate.view(capture_block_id)
-    capture_stream = telstate.SEPARATOR.join((capture_block_id, stream_name))
-    telstate = telstate.view(capture_stream)
     return telstate
 
 
@@ -359,13 +396,11 @@ def _upgrade_flags(chunk_info, telstate):
         logger.debug('No additional flag capture streams found: %s', e)
         return chunk_info
     for s in archived_streams:
-        telstate_s = telstate.root().view(s)
-        if telstate_s['stream_type'] != 'sdp.flags' or \
-           stream_name not in telstate_s['src_streams']:
+        telstate_cs = view_capture_stream(telstate, capture_block_id, s)
+        if telstate_cs['stream_type'] != 'sdp.flags' or \
+           stream_name not in telstate_cs['src_streams']:
             continue
         # Look for chunk metadata in appropriate capture_stream telstate view
-        flags_cs = telstate.SEPARATOR.join((capture_block_id, s))
-        telstate_cs = telstate_s.view(flags_cs)
         flags_info = telstate_cs['chunk_info']
         flags_info = _ensure_prefix_is_set(flags_info, telstate_cs)
         chunk_info = _upgrade_chunk_info(chunk_info, flags_info)
@@ -462,7 +497,7 @@ class TelstateDataSource(DataSource):
                 telstate = katsdptelstate.TelescopeState(url_parts.netloc, db)
             except katsdptelstate.ConnectionError as e:
                 raise DataSourceNotFound(str(e))
-        telstate = view_capture_stream(telstate, **kwargs)
+        telstate = view_l0_capture_stream(telstate, **kwargs)
         if chunk_store == 'auto':
             chunk_store = _infer_chunk_store(url_parts, telstate, **kwargs)
         return cls(telstate, chunk_store, source_name=url_parts.geturl())
