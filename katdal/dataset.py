@@ -237,7 +237,7 @@ class SpectralWindow(object):
         # We use self.bandwidth and self.num_chans to avoid rounding errors
         # that might accumulate if channel_width is inexact.
         centre_freq = self.centre_freq \
-            + channel_shift * self.bandwidth * self.sideband / self.num_chans,
+            + channel_shift * self.bandwidth * self.sideband / self.num_chans
         return SpectralWindow(
             centre_freq, self.channel_width, num_chans,
             self.product, self.sideband, self.band,
