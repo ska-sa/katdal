@@ -4,6 +4,8 @@ chardet
 dask
 defusedxml
 docutils
+enum34
+funcsigs
 jmespath==0.9.3
 fakeredis
 future
@@ -21,6 +23,7 @@ python-lzf
 rdbtools
 redis
 requests
+singledispatch
 six
 subprocess32==3.5.2     # katsdpdockerbase version refuses to install on Python 3
 toolz
