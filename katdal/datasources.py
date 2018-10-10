@@ -103,20 +103,20 @@ def _apply_data_lost(orig_flags, lost, block_id):
     return flags
 
 
-def corrprod_to_autocorr(corrprod):
+def corrprod_to_autocorr(corrprods):
     """Find the autocorrelation indices of correlation products.
 
     Parameters
     ----------
-    corrprod : sequence of 2-tuples or ndarray
+    corrprods : sequence of 2-tuples or ndarray
         Input labels of the correlation products
 
     Returns
     -------
     auto_indices : np.ndarray
-        The indices in corrprod that correspond to auto-correlations
+        The indices in corrprods that correspond to auto-correlations
     index1, index2 : np.ndarray
-        Lists of the same length as corrprod, containing the indices within
+        Lists of the same length as corrprods, containing the indices within
         `auto_indices` referring to the first and second corresponding
         autocorrelations.
 
@@ -127,12 +127,12 @@ def corrprod_to_autocorr(corrprod):
     """
     auto_indices = []
     auto_lookup = {}
-    for i, baseline in enumerate(corrprod):
+    for i, baseline in enumerate(corrprods):
         if baseline[0] == baseline[1]:
             auto_lookup[baseline[0]] = len(auto_indices)
             auto_indices.append(i)
-    index1 = [auto_lookup[a] for (a, b) in corrprod]
-    index2 = [auto_lookup[b] for (a, b) in corrprod]
+    index1 = [auto_lookup[a] for (a, b) in corrprods]
+    index2 = [auto_lookup[b] for (a, b) in corrprods]
     return np.array(auto_indices), np.array(index1), np.array(index2)
 
 
