@@ -4,6 +4,8 @@ chardet
 dask
 defusedxml
 docutils
+enum34
+funcsigs
 jmespath==0.9.3
 fakeredis
 future
@@ -11,7 +13,9 @@ h5py
 idna
 ipaddress
 katversion
+llvmlite
 netifaces
+numba
 numpy
 pyephem
 python-dateutil
@@ -19,6 +23,7 @@ python-lzf
 rdbtools
 redis
 requests
+singledispatch
 six
 subprocess32==3.5.2     # katsdpdockerbase version refuses to install on Python 3
 toolz

@@ -31,6 +31,7 @@ import katsdptelstate
 import numpy as np
 import dask.array as da
 from dask.array.rechunk import intersect_chunks
+import numba
 
 from .sensordata import TelstateSensorData, TelstateToStr
 from .chunkstore_s3 import S3ChunkStore
@@ -102,6 +103,83 @@ def _apply_data_lost(orig_flags, lost, block_id):
     return flags
 
 
+def corrprod_to_autocorr(corrprods):
+    """Find the autocorrelation indices of correlation products.
+
+    Parameters
+    ----------
+    corrprods : sequence of 2-tuples or ndarray
+        Input labels of the correlation products
+
+    Returns
+    -------
+    auto_indices : np.ndarray
+        The indices in corrprods that correspond to auto-correlations
+    index1, index2 : np.ndarray
+        Lists of the same length as corrprods, containing the indices within
+        `auto_indices` referring to the first and second corresponding
+        autocorrelations.
+
+    Raises
+    ------
+    KeyError
+        If any of the autocorrelations are missing
+    """
+    auto_indices = []
+    auto_lookup = {}
+    for i, baseline in enumerate(corrprods):
+        if baseline[0] == baseline[1]:
+            auto_lookup[baseline[0]] = len(auto_indices)
+            auto_indices.append(i)
+    index1 = [auto_lookup[a] for (a, b) in corrprods]
+    index2 = [auto_lookup[b] for (a, b) in corrprods]
+    return np.array(auto_indices), np.array(index1), np.array(index2)
+
+
+@numba.jit(nopython=True, nogil=True)
+def weight_power_scale(block, auto_indices, index1, index2, out=None, tmp=None):
+    """Compute weight scale from visibility data.
+
+    This function is designed to be usable with
+    :func:`dask.array.map_blocks`.
+
+    Parameters
+    ----------
+    block : np.ndarray
+        Chunk of visibility data, with dimensions time, frequency, baseline
+        (or any two dimensions then baseline). It must contain all the
+        baselines of a stream.
+    auto_indices, index1, index2 : np.ndarray
+        Arrays returned by :func:`corrprod_to_autocrr`
+    out : np.ndarray, optional
+        If specified, the output array, with same shape as `block` and dtype ``np.float32``
+    tmp : np.ndarray, optional
+        If specified, an array to use as internal scratch space (useful to
+        reuse the space across multiple calls). It must have the same shape
+        as `auto_indices` and dtype ``np.float32``.
+    """
+    auto_scale = np.empty(len(auto_indices), np.float32) if tmp is None else tmp
+    power_scale = np.empty(block.shape, np.float32) if out is None else out
+    bad_weight = np.float32(2.0**-32)
+    for i in range(block.shape[0]):
+        for j in range(block.shape[1]):
+            for k in range(len(auto_indices)):
+                # Have to force to an array here, because standard Python
+                # division raises ZeroDivisionError on divide by zero but we
+                # want to get IEEE semantics (Inf/NaN).
+                auto_scale[k] = 1 / np.array(block[i, j, auto_indices[k]].real)
+            for k in range(block.shape[2]):
+                p = auto_scale[index1[k]] * auto_scale[index2[k]]
+                # If either or both of the autocorrelations has zero power then
+                # there is likely something wrong with the system. Set the
+                # weight to very close to zero (not actually zero, since that
+                # can cause divide-by-zero problems downstream).
+                if not np.isfinite(p):
+                    p = bad_weight
+                power_scale[i, j, k] = p
+    return power_scale
+
+
 class ChunkStoreVisFlagsWeights(VisFlagsWeights):
     """Correlator data stored in a chunk store.
 
@@ -111,8 +189,12 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
         Chunk store
     chunk_info : dict mapping array name to info dict
         Dict specifying prefix, dtype, shape and chunks per array
+    corrprods : sequence of 2-tuples of input labels
+        Correlation products. If given, the weights for baseline (inp1, inp2)
+        will be divided by the square root of the product of the corresponding
+        autocorrelations vis[inp1,inp1] and vis[inp2,inp2].
     """
-    def __init__(self, store, chunk_info):
+    def __init__(self, store, chunk_info, corrprods):
         self.store = store
         darray = {}
         has_arrays = []
@@ -144,6 +226,17 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
                               name=flags_raw_name, lost=lost)
         # Combine low-resolution weights and high-resolution weights_channel
         weights = darray['weights'] * darray['weights_channel'][..., np.newaxis]
+        # Scale weights according to power
+        if corrprods is not None:
+            assert len(corrprods) == vis.shape[2]
+            # Ensure that we have only a single chunk on the baseline axis.
+            if len(vis.chunks[2]) > 1:
+                vis = vis.rechunk({2: vis.shape[2]})
+            auto_indices, index1, index2 = corrprod_to_autocorr(corrprods)
+            power_scale = da.map_blocks(weight_power_scale, vis, dtype=np.float32,
+                                        auto_indices=auto_indices, index1=index1, index2=index2)
+            weights *= power_scale
+
         VisFlagsWeights.__init__(self, vis, flags, weights, base_name)
 
 
@@ -456,9 +549,13 @@ class TelstateDataSource(DataSource):
             data = None
         else:
             chunk_info = telstate['chunk_info']
+            if telstate.get('need_weights_power_scale', False):
+                corrprods = telstate['bls_ordering']
+            else:
+                corrprods = None
             chunk_info = _ensure_prefix_is_set(chunk_info, telstate)
             chunk_info = _upgrade_flags(chunk_info, telstate)
-            data = ChunkStoreVisFlagsWeights(chunk_store, chunk_info)
+            data = ChunkStoreVisFlagsWeights(chunk_store, chunk_info, corrprods)
         # Metadata and timestamps with or without data
         DataSource.__init__(self, metadata, timestamps, data)
 
