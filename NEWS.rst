@@ -1,6 +1,16 @@
 History
 =======
 
+0.11 (2018-10-15)
+-----------------
+* Python 3 support via python-future (finally!)
+* Load L1 flags if available (#164)
+* Reduced memory usage (#165) and speedups (#155, #169, #170, #171, #182)
+* S3 chunk store now uses requests directly instead of via botocore (#166)
+* Let lazy indexer use oindex semantics like in the past (#180)
+* Fix concatenated data sets (#161)
+* Fix IPython / Jupyter tab completion for sensor cache (#176)
+
 0.10.1 (2018-05-18)
 -------------------
 * Restore NumPy 1.14 support (all data flagged otherwise)
