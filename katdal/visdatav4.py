@@ -292,10 +292,8 @@ class VisibilityDataV4(DataSet):
 
         # ------ Register applycal virtual sensors ------
 
-        cal_ants = attrs.get('cal_antlist', [])
-        cal_pols = attrs.get('cal_pol_ordering', [])
         freqs = self.spectral_windows[0].channel_freqs
-        add_applycal_sensors(self.sensor, cal_ants, cal_pols, freqs)
+        add_applycal_sensors(self.sensor, attrs, freqs)
 
         # Apply default selection and initialise all members that depend
         # on selection in the process

@@ -27,7 +27,7 @@ from katdal.sensordata import SensorCache
 from katdal.categorical import CategoricalData
 from katdal.lazy_indexer import DaskLazyIndexer
 from katdal.applycal import (calc_delay_correction, add_applycal_sensors,
-                             calc_correction_per_corrprod,
+                             get_cal_product, calc_correction_per_corrprod,
                              apply_vis_correction, add_applycal_transform)
 
 
@@ -38,6 +38,8 @@ BANDWIDTH = 856.0
 N_CHANS = 128
 N_DUMPS = 100
 SAMPLE_RATE = 1712.0
+
+ATTRS = {'cal_antlist': ANTS, 'cal_pol_ordering': POLS}
 
 INPUTS = [ant + pol for ant in ANTS for pol in POLS]
 FREQS = CENTRE_FREQ + BANDWIDTH / N_CHANS * (np.arange(N_CHANS) - N_CHANS // 2)
@@ -93,24 +95,27 @@ class TestCorrectionPerInput(object):
         self.cache = create_sensor_cache()
 
     def test_calc_delay_correction(self):
+        product_sensor = get_cal_product(self.cache, ATTRS, 'K')
         for n in range(len(ANTS)):
             for m in range(len(POLS)):
-                sensor = calc_delay_correction(self.cache, 'K', (m, n), FREQS)
-                assert_array_equal(sensor[n],
+                correction_sensor = calc_delay_correction(product_sensor,
+                                                          (m, n), FREQS)
+                assert_array_equal(correction_sensor[n],
                                    np.ones(N_CHANS, dtype='complex64'))
-                assert_array_equal(sensor[10 + n], delay_gains(m, n))
+                assert_array_equal(correction_sensor[10 + n],
+                                   delay_gains(m, n))
 
 
 class TestVirtualCorrectionSensors(object):
     """Test :func:`~katdal.applycal.add_applycal_sensors` function."""
     def setup(self):
         self.cache = create_sensor_cache()
-        add_applycal_sensors(self.cache, ANTS, POLS, FREQS)
+        add_applycal_sensors(self.cache, ATTRS, FREQS)
 
     def test_add_sensors_does_nothing_if_no_ants_or_pols(self):
         cache = create_sensor_cache()
         n_virtuals_before = len(cache.virtual)
-        add_applycal_sensors(cache, [], [], [])
+        add_applycal_sensors(cache, {}, [])
         n_virtuals_after = len(cache.virtual)
         assert_equal(n_virtuals_after, n_virtuals_before)
 
@@ -135,7 +140,7 @@ class TestCorrectionPerCorrprod(object):
     """Test :func:`~katdal.applycal.calc_correction_per_corrprod` function."""
     def setup(self):
         self.cache = create_sensor_cache()
-        add_applycal_sensors(self.cache, ANTS, POLS, FREQS)
+        add_applycal_sensors(self.cache, ATTRS, FREQS)
 
     def test_correction_per_corrprod(self):
         dump = 15
@@ -152,7 +157,7 @@ class TestApplyCal(object):
     """Test :func:`~katdal.applycal.add_applycal_transform` function."""
     def setup(self):
         self.cache = create_sensor_cache()
-        add_applycal_sensors(self.cache, ANTS, POLS, FREQS)
+        add_applycal_sensors(self.cache, ATTRS, FREQS)
         time_keep = np.full(N_DUMPS, False, dtype=np.bool_)
         time_keep[10:20] = True
         freq_keep = np.full(N_CHANS, False, dtype=np.bool_)
