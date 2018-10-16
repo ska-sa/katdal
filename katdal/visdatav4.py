@@ -26,9 +26,9 @@ import numpy as np
 import katpoint
 import dask.array as da
 
-from .dataset import (DataSet, BrokenFile, Subarray, SpectralWindow,
-                      DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
-                      _robust_target)
+from .dataset import (DataSet, BrokenFile, Subarray, _robust_target,
+                      DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS)
+from .spectral_window import SpectralWindow
 from .sensordata import SensorCache
 from .categorical import CategoricalData
 from .lazy_indexer import DaskLazyIndexer

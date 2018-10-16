@@ -33,8 +33,10 @@ try:
 except ImportError:
     import pickle
 
-from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow,
-                      DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target)
+from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray,
+                      DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
+                      _robust_target)
+from .spectral_window import SpectralWindow
 from .sensordata import (SensorCache, RecordSensorData,
                          H5TelstateSensorData, pickle_loads, to_str)
 from .categorical import CategoricalData

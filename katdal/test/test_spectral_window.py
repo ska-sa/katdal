@@ -1,4 +1,4 @@
-################################################################################
+###############################################################################
 # Copyright (c) 2018, National Research Foundation (Square Kilometre Array)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
@@ -12,9 +12,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-################################################################################
+###############################################################################
 
-"""Tests for :py:mod:`katdal.dataset`."""
+"""Tests for :py:mod:`katdal.spectral_window`."""
+
 from __future__ import print_function, division, absolute_import
 
 from builtins import object
@@ -23,7 +24,7 @@ import numpy as np
 from numpy.testing import assert_array_equal, assert_array_almost_equal
 from nose.tools import assert_equal
 
-from katdal.dataset import SpectralWindow
+from katdal.spectral_window import SpectralWindow
 
 
 class TestSpectralWindow(object):
@@ -34,7 +35,8 @@ class TestSpectralWindow(object):
         # channel_width will not be an exact float. The values have been
         # chosen so that bandwidth / num_chans * num_chans does not quite
         # equal bandwidth.
-        self.inexact = SpectralWindow(1000.0, None, 14, sideband=1, bandwidth=230.0)
+        self.inexact = SpectralWindow(1000.0, None, 14, sideband=1,
+                                      bandwidth=230.0)
 
     def test_width_properties(self):
         assert_equal(self.lsb.channel_width, 10.0)
@@ -65,7 +67,8 @@ class TestSpectralWindow(object):
         assert_array_equal(lsb_sub.channel_freqs, [1030.0, 1020.0, 1010.0])
         assert_equal(lsb_sub.product, self.lsb.product)
         usb_sub = self.usb.subrange(2, 6)
-        assert_array_equal(usb_sub.channel_freqs, [990.0, 1000.0, 1010.0, 1020.0])
+        assert_array_equal(usb_sub.channel_freqs,
+                           [990.0, 1000.0, 1010.0, 1020.0])
         assert_equal(usb_sub.band, self.usb.band)
         # Check that updated bandwidth doesn't have rounding errors
         inexact_sub = self.inexact.subrange(0, 7)
@@ -88,4 +91,3 @@ class TestSpectralWindow(object):
         assert_array_equal(usb.channel_freqs, [975.0, 995.0, 1015.0])
         odd = self.odd.rechannelise(1)
         assert_array_equal(odd.channel_freqs, [1000.0])
-
