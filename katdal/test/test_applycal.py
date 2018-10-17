@@ -19,15 +19,16 @@ from __future__ import print_function, division, absolute_import
 from builtins import object, range
 
 import numpy as np
-from numpy.testing import assert_array_equal
+from numpy.testing import assert_array_equal, assert_allclose
 from nose.tools import assert_raises, assert_equal
 import dask.array as da
 
 from katdal.sensordata import SensorCache
 from katdal.categorical import CategoricalData
 from katdal.lazy_indexer import DaskLazyIndexer
-from katdal.applycal import (calc_delay_correction, add_applycal_sensors,
-                             get_cal_product, calc_correction_per_corrprod,
+from katdal.applycal import (complex_interp, calc_correction_per_corrprod,
+                             calc_delay_correction,
+                             get_cal_product, add_applycal_sensors,
                              apply_vis_correction, add_applycal_transform)
 
 
@@ -87,6 +88,25 @@ def gains_per_corrprod(dumps, channels, corrprods=()):
     gain1 = gains_per_input[INDEX1[corrprods]].T
     gain2 = gains_per_input[INDEX2[corrprods]].T
     return gain1 * gain2.conj()
+
+
+class TestComplexInterp(object):
+    """Test the :func:`~katdal.applycal.complex_interp` function."""
+    def setup(self):
+        self.xi = np.arange(1., 10.)
+        self.yi = np.exp(2j * np.pi * self.xi / 10.)
+        rs = np.random.RandomState(1234)
+        self.x = 10 * rs.rand(100)
+
+    def test_phase_only_interpolation(self):
+        y = complex_interp(self.x, self.xi, self.yi)
+        assert_allclose(np.abs(y), 1.0, rtol=1e-14)
+
+    def test_complex64_interpolation(self):
+        yi = self.yi.astype(np.complex64)
+        y = complex_interp(self.x, self.xi, yi)
+        assert_equal(y.dtype, yi.dtype)
+        assert_allclose(np.abs(y), 1.0, rtol=1e-7)
 
 
 class TestCorrectionPerInput(object):

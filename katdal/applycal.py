@@ -25,6 +25,46 @@ import dask.array as da
 from .categorical import CategoricalData, ComparableArrayWrapper
 
 
+def complex_interp(x, xi, yi):
+    """Piecewise linear interpolation of magnitude and phase of complex values.
+
+    Given discrete data points (`xi`, `yi`), this returns a 1-D piecewise
+    linear interpolation `y` evaluated at the `x` coordinates, similar to
+    `numpy.interp(x, xi, yi)`. While :func:`numpy.interp` interpolates the real
+    and imaginary parts of `yi` separately, this function interpolates
+    magnitude and phase separately instead. This is useful when the phase of
+    `yi` changes more rapidly than its magnitude, as in electronic gains.
+
+    Parameters
+    ----------
+    x : 1-D sequence of float, length *M*
+        The x-coordinates at which to evaluate the interpolated values
+    xi : 1-D sequence of float, length *N*
+        The x-coordinates of the data points, must be sorted in ascending order
+    yi : 1-D sequence of complex, length *N*
+        The y-coordinates of the data points, same length as `xi`
+
+    Returns
+    -------
+    y : array of complex, length *M*
+        The evaluated y-coordinates, same length as `x` and same dtype as `yi`
+
+    Notes
+    -----
+    The phase interpolation is done by the usual real-imaginary interpolation
+    of a normalised version of the complex values followed by renormalisation.
+    This is not perfect because the angular velocity changes over the
+    interpolated region (slower at the ends and faster in the middle), but it
+    avoids the loss of amplitude that occurs without any normalisation.
+    """
+    magi = np.abs(yi)
+    phasei = yi / magi
+    mag = np.interp(x, xi, magi)
+    phase = np.interp(x, xi, phasei)
+    y = phase / np.abs(phase) * mag
+    return y.astype(yi.dtype)
+
+
 def get_cal_product(cache, attrs, product):
     """Extract calibration solution `product` from `cache` as a sensor.
 
@@ -36,6 +76,7 @@ def get_cal_product(cache, attrs, product):
         parts = int(attrs[key + '_parts'])
     except KeyError:
         return cache.get(key)
+    # Stitch together multi-part cal product
     events = None
     values = []
     for part in range(parts):
