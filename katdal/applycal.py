@@ -34,7 +34,7 @@ def get_cal_product(cache, attrs, product):
     key = 'cal_product_' + product
     try:
         parts = int(attrs[key + '_parts'])
-    except (KeyError, TypeError):
+    except KeyError:
         return cache.get(key)
     events = None
     values = []
