@@ -26,8 +26,10 @@ import numpy as np
 import h5py
 import katpoint
 
-from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray, SpectralWindow,
-                      DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS, _robust_target)
+from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray,
+                      DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
+                      _robust_target)
+from .spectral_window import SpectralWindow
 from .sensordata import RecordSensorData, SensorCache, to_str
 from .categorical import CategoricalData, sensor_to_categorical
 from .lazy_indexer import LazyIndexer, LazyTransform

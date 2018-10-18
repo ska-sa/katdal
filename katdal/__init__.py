@@ -221,13 +221,15 @@ a back door installed at `d.file` in the case of a single-file data set.
 from __future__ import print_function, division, absolute_import
 
 from future import standard_library
-standard_library.install_aliases()
+standard_library.install_aliases()  # noqa: E402
 from past.builtins import basestring
+
 import logging as _logging
 import urllib.parse
 
 from .datasources import open_data_source
 from .dataset import DataSet, WrongVersion
+from .spectral_window import SpectralWindow
 from .lazy_indexer import LazyTransform, dask_getitem
 from .concatdata import ConcatenatedDataSet
 from .h5datav1 import H5DataV1
@@ -240,7 +242,9 @@ from .visdatav4 import VisibilityDataV4
 _dataset, _concatdata, _sensordata = dataset, concatdata, sensordata
 _h5datav1, _h5datav2, _h5datav3 = h5datav1, h5datav2, h5datav3
 _categorical, _lazy_indexer = categorical, lazy_indexer
-del dataset, concatdata, h5datav1, h5datav2, h5datav3, sensordata, categorical, lazy_indexer
+_spectral_window, _visdatav4 = spectral_window, visdatav4
+del dataset, concatdata, sensordata, h5datav1, h5datav2, h5datav3
+del categorical, lazy_indexer, spectral_window, visdatav4
 
 
 # Setup library logger and add a print-like handler used when no logging is configured

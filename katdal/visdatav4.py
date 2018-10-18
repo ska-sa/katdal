@@ -26,9 +26,9 @@ import numpy as np
 import katpoint
 import dask.array as da
 
-from .dataset import (DataSet, BrokenFile, Subarray, SpectralWindow,
-                      DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
-                      _robust_target)
+from .dataset import (DataSet, BrokenFile, Subarray, _robust_target,
+                      DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS)
+from .spectral_window import SpectralWindow
 from .sensordata import SensorCache
 from .categorical import CategoricalData
 from .lazy_indexer import DaskLazyIndexer
@@ -292,10 +292,8 @@ class VisibilityDataV4(DataSet):
 
         # ------ Register applycal virtual sensors ------
 
-        cal_ants = attrs.get('cal_antlist', [])
-        cal_pols = attrs.get('cal_pol_ordering', [])
         freqs = self.spectral_windows[0].channel_freqs
-        add_applycal_sensors(self.sensor, cal_ants, cal_pols, freqs)
+        add_applycal_sensors(self.sensor, attrs, freqs)
 
         # Apply default selection and initialise all members that depend
         # on selection in the process
