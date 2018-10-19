@@ -23,6 +23,7 @@ import numpy as np
 import dask.array as da
 
 from .categorical import CategoricalData, ComparableArrayWrapper
+from .spectral_window import SpectralWindow
 
 
 def complex_interp(x, xi, yi):
@@ -83,7 +84,7 @@ def get_cal_product(cache, attrs, product):
         sensor_part = cache.get(key + str(part))
         if part == 0:
             events = sensor_part.events
-        elif sensor_part.events != events:
+        elif not np.array_equal(sensor_part.events, events):
             raise ValueError("Cal product '{}' part {} does not align in time "
                              "with the rest".format(product, part))
         values.append([sensor_part[n] for n in events[:-1]])
@@ -92,25 +93,48 @@ def get_cal_product(cache, attrs, product):
     return CategoricalData(values, events)
 
 
-def calc_delay_correction(sensor, index, freqs):
+def calc_delay_correction(sensor, index, data_freqs):
     """Calculate correction sensor from delay calibration solution sensor.
 
     Given the delay calibration solution `sensor`, this extracts the delay time
     series of the input specified by `index` (in the form (pol, ant)) and
     builds a categorical sensor for the corresponding complex correction terms
-    (channelised by `freqs`).
+    (channelised by `data_freqs`).
 
     Invalid delays (NaNs) are replaced by zeros, since bandpass calibration
     still has a shot at fixing any residual delay.
     """
     delays = [np.nan_to_num(sensor[n][index]) for n in sensor.events[:-1]]
     # Delays returned by cal pipeline are already corrections (no minus needed)
-    corrections = [np.exp(2j * np.pi * d * freqs).astype('complex64')
+    corrections = [np.exp(2j * np.pi * d * data_freqs).astype('complex64')
                    for d in delays]
+    corrections = [ComparableArrayWrapper(c) for c in corrections]
     return CategoricalData(corrections, sensor.events)
 
 
-def add_applycal_sensors(cache, attrs, freqs):
+def calc_bandpass_correction(sensor, index, data_freqs, cal_freqs):
+    """Calculate correction sensor from bandpass calibration solution sensor.
+
+    Given the bandpass calibration solution `sensor`, this extracts the time
+    series of bandpasses (channelised by `cal_freqs`) for the input specified
+    by `index` (in the form (pol, ant)) and builds a categorical sensor for
+    the corresponding complex correction terms (channelised by `data_freqs`).
+
+    Invalid solutions (NaNs) are replaced by linear interpolations over
+    frequency (separately for magnitude and phase), as long as some channels
+    have valid solutions.
+    """
+    corrections = []
+    for n in sensor.events[:-1]:
+        bp = sensor[n][(slice(None),) + index]
+        valid = np.isfinite(bp)
+        if valid.any():
+            bp = complex_interp(data_freqs, cal_freqs[valid], bp[valid])
+        corrections.append(ComparableArrayWrapper(1 / bp))
+    return CategoricalData(corrections, sensor.events)
+
+
+def add_applycal_sensors(cache, attrs, data_freqs):
     """Add virtual sensors that store calibration corrections, to sensor cache.
 
     This maps receptor inputs to the relevant indices in each calibration
@@ -119,7 +143,7 @@ def add_applycal_sensors(cache, attrs, freqs):
     with template 'Calibration/{inp}_correction_{product}'. The virtual sensor
     function picks the appropriate correction calculator based on the cal
     product name, which also uses auxiliary info like the channel frequencies,
-    `freqs`.
+    `data_freqs`.
     """
     cal_ants = attrs.get('cal_antlist', [])
     cal_pols = attrs.get('cal_pol_ordering', [])
@@ -127,6 +151,13 @@ def add_applycal_sensors(cache, attrs, freqs):
                      for (pol_idx, pol) in enumerate(cal_pols)
                      for (ant_idx, ant) in enumerate(cal_ants)}
     if not cal_input_map:
+        return
+    try:
+        cal_spw = SpectralWindow(attrs['cal_center_freq'], None,
+                                 attrs['cal_n_chans'], sideband=1,
+                                 bandwidth=attrs['cal_bandwidth'])
+        cal_freqs = cal_spw.channel_freqs
+    except KeyError:
         return
 
     def calc_correction_per_input(cache, name, inp, product):
@@ -139,8 +170,11 @@ def add_applycal_sensors(cache, attrs, freqs):
                            "'{}' - available ones are {}"
                            .format(inp, sorted(cal_input_map.keys())))
         if product == 'K':
-            correction_sensor = calc_delay_correction(product_sensor,
-                                                      index, freqs)
+            correction_sensor = calc_delay_correction(product_sensor, index,
+                                                      data_freqs)
+        elif product == 'B':
+            correction_sensor = calc_bandpass_correction(product_sensor, index,
+                                                         data_freqs, cal_freqs)
         else:
             raise KeyError("Unknown calibration product '{}'".format(product))
         cache[name] = correction_sensor
