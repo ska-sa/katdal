@@ -28,17 +28,14 @@ from collections import Counter
 import numpy as np
 import h5py
 import katpoint
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle
+import katsdptelstate
 
 from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray,
                       DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
                       _robust_target)
 from .spectral_window import SpectralWindow
 from .sensordata import (SensorCache, RecordSensorData,
-                         H5TelstateSensorData, pickle_loads, to_str)
+                         H5TelstateSensorData, telstate_decode, to_str)
 from .categorical import CategoricalData
 from .lazy_indexer import LazyIndexer, LazyTransform
 
@@ -438,7 +435,7 @@ class H5DataV3(DataSet):
             if 'TelescopeState' in f.file:
                 # Newer RTS, AR1 and beyond use the subarray band attribute / sensor
                 band = self._get_telstate_attr('sub_band', default='',
-                                               no_unpickle=('l', 's', 'u', 'x'))
+                                               no_decode=('l', 's', 'u', 'x'))
             else:
                 # Fallback for the original RTS before 2016-07-21 (not reliable)
                 # Find the most common valid indexer position in the subarray
@@ -598,22 +595,22 @@ class H5DataV3(DataSet):
         # Apply default selection and initialise all members that depend on selection in the process
         self.select(spw=0, subarray=0, ants=obs_ants)
 
-    def _get_telstate_attr(self, key, default=None, no_unpickle=()):
+    def _get_telstate_attr(self, key, default=None, no_decode=()):
         """Retrieve an attribute from the TelescopeState.
 
         If there is no TelescopeState group, the key is missing, or it cannot
-        be unpickled, returns `default` instead.
+        be decoded, returns `default` instead.
 
-        If the raw value is a member of `no_unpickle`, returns it directly
-        rather than attempting to unpickle it. This is to support older files
-        (created before 2016-11-30) in which the attributes were not pickled.
+        If the raw value is a member of `no_decode`, returns it directly
+        rather than attempting to decode it. This is to support older files
+        (created before 2016-11-30) in which the attributes were not encoded.
         """
         try:
-            # Note: don't apply to_str to value: if it is a binary pickle it
+            # Note: don't apply to_str to value: if it is a binary encoding it
             # needs to stay binary
             value = self.file['TelescopeState'].attrs[key]
-            return pickle_loads(value, no_unpickle)
-        except (KeyError, pickle.UnpicklingError):
+            return telstate_decode(value, no_decode)
+        except katsdptelstate.DecodeError:
             # In some cases the value is placed in a sensor instead. Return
             # the most recent value.
             try:
@@ -760,7 +757,7 @@ class H5DataV3(DataSet):
         try:
             # If <stream_name>_bls_ordering is present, it should be used in preference
             # to cbf_bls_ordering.
-            corrprods = pickle_loads(f['TelescopeState'].attrs[stream_name + '_bls_ordering'])
+            corrprods = telstate_decode(f['TelescopeState'].attrs[stream_name + '_bls_ordering'])
         except KeyError:
             # Prior to about Nov 2016, ingest would rewrite cbf_bls_ordering in
             # place.
@@ -826,7 +823,7 @@ class H5DataV3(DataSet):
             attr_name = to_str(f.attrs['capture_block_id']) + '_obs_params'
             value = f['TelescopeState'].attrs.get(attr_name)
             if value is not None:
-                obs_params = pickle_loads(value)
+                obs_params = telstate_decode(value)
         # Fall back to old obs_params location
         else:
             tm_params = tm_group['obs/params']

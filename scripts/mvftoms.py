@@ -45,7 +45,7 @@ import katdal
 from katdal import averager
 from katdal import ms_extra
 from katdal import ms_async
-from katdal.sensordata import pickle_loads
+from katdal.sensordata import telstate_decode
 from katdal.lazy_indexer import DaskLazyIndexer
 
 
@@ -664,7 +664,7 @@ def main():
                 #   newer files have the cal antlist as a sensor
                 if 'cal_antlist' in first_dataset.file['TelescopeState'].keys():
                     a0 = first_dataset.file['TelescopeState']['cal_antlist'].value
-                    antlist = pickle_loads(a0[0][1])
+                    antlist = telstate_decode(a0[0][1])
                 #   older files have the cal antlist as an attribute
                 elif 'cal_antlist' in first_dataset.file['TelescopeState'].attrs.keys():
                     antlist = np.safe_eval(first_dataset.file['TelescopeState'].attrs['cal_antlist'])
@@ -687,7 +687,7 @@ def main():
                         soltimes, solvals = [], []
                         for t, s in solutions:
                             soltimes.append(t)
-                            solvals.append(pickle_loads(s))
+                            solvals.append(telstate_decode(s))
                         solvals = np.array(solvals)
 
                         # convert averaged UTC timestamps to MJD seconds.

@@ -26,13 +26,10 @@ from builtins import object
 import logging
 import functools
 import re
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle
 
 import numpy as np
 import katpoint
+import katsdptelstate
 
 from .categorical import (ComparableArrayWrapper, infer_dtype,
                           sensor_to_categorical)
@@ -200,40 +197,33 @@ def to_str(value):
         return value
 
 
-# https://stackoverflow.com/questions/11305790
-if future.utils.PY3:
-    _pickle_loads = functools.partial(pickle.loads, encoding='latin1')
-else:
-    _pickle_loads = pickle.loads
+def telstate_decode(raw, no_decode=()):
+    """Load a katsdptelstate-encoded value that might be wrapped in np.void or
+    np.ndarray.
 
+    The np.void/np.ndarray wrapping is needed to pass variable-length binary
+    strings through h5py.
 
-def pickle_loads(raw, no_unpickle=()):
-    """Load a pickle that might be wrapped in np.void or np.ndarray.
-
-    The np.void wrapping is needed to pass variable-length binary strings
-    through h5py. The pickle module handles it transparently, but cPickle does
-    not.
-
-    If the value is a string and is in no_unpickle, it is returned verbatim.
+    If the value is a string and is in no_decode, it is returned verbatim.
     This is for backwards compatibility with older files that didn't use
-    pickles.
+    any encoding at all.
 
     The return value is also passed through :func:`to_str`.
     """
     if isinstance(raw, (np.void, np.ndarray)):
-        return to_str(_pickle_loads(raw.tostring()))
-    elif raw not in no_unpickle:
-        return to_str(_pickle_loads(raw))
+        return to_str(katsdptelstate.decode_value(raw.tostring()))
+    elif raw not in no_decode:
+        return to_str(katsdptelstate.decode_value(raw))
     else:
         return to_str(raw)
 
 
 def _h5_telstate_unpack(s):
-    """Unpack a telstate value from its string representation."""
+    """Unpack a telstate value from its encoded representation."""
     try:
-        # Since 2016-05-09 the HDF5 TelescopeState contains pickled values
-        return pickle_loads(s)
-    except (pickle.UnpicklingError, ValueError, EOFError):
+        # Since 2016-05-09 the HDF5 TelescopeState contains encoded values
+        return telstate_decode(s)
+    except katsdptelstate.DecodeError:
         try:
             # Before 2016-05-09 the telstate values were str() representations
             # This cannot be unpacked in general but works for numbers at least
@@ -248,7 +238,7 @@ class H5TelstateSensorData(RecordSensorData):
 
     This wraps the telstate sensors stored in recent HDF5 files. It differs
     in two ways from the normal HDF5 sensors: no 'status' field and values
-    stored as pickles.
+    encoded by katsdptelstate.
 
     TODO: This is a temporary fix to get at missing sensors in telstate and
     should be replaced by a proper wrapping of any telstate object.
@@ -268,7 +258,7 @@ class H5TelstateSensorData(RecordSensorData):
 
     def __init__(self, data, name=None):
         super(H5TelstateSensorData, self).__init__(data, name)
-        # The dtype is not immediately available - need to unpickle data first
+        # The dtype is not immediately available - need to decode data first
         self.dtype = None
 
     def __getitem__(self, key):
@@ -326,16 +316,16 @@ class TelstateToStr(object):
     def get_message(self, channel=None):
         return to_str(self._telstate.get_message(channel))
 
-    def get(self, key, default=None, return_pickle=False):
-        value = self._telstate.get(key, default, return_pickle)
-        if not return_pickle:
+    def get(self, key, default=None, return_encoded=False):
+        value = self._telstate.get(key, default, return_encoded)
+        if not return_encoded:
             value = to_str(value)
         return value
 
     def get_range(self, key, st=None, et=None,
-                  include_previous=None, include_end=False, return_pickle=False):
-        value = self._telstate.get_range(key, st, et, include_previous, include_end, return_pickle)
-        if not return_pickle:
+                  include_previous=None, include_end=False, return_encoded=False):
+        value = self._telstate.get_range(key, st, et, include_previous, include_end, return_encoded)
+        if not return_encoded:
             value = to_str(value)
         return value
 
@@ -381,7 +371,7 @@ class TelstateSensorData(SensorData):
         if telstate.is_immutable(name):
             raise KeyError("No sensor named %r in telstate (it's an attribute)" %
                            (name,))
-        # The dtype is not immediately available - need to unpickle data first
+        # The dtype is not immediately available - need to decode data first
         super(TelstateSensorData, self).__init__(name, None)
 
     def __bool__(self):
