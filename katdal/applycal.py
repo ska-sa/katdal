@@ -136,7 +136,9 @@ def calc_bandpass_correction(sensor, index, data_freqs, cal_freqs):
         valid = np.isfinite(bp)
         if valid.any():
             bp = complex_interp(data_freqs, cal_freqs[valid], bp[valid])
-        corrections.append(ComparableArrayWrapper(1 / bp))
+        else:
+            bp = np.full(len(data_freqs), np.nan + 1j * np.nan, dtype=bp.dtype)
+        corrections.append(ComparableArrayWrapper(np.reciprocal(bp)))
     return CategoricalData(corrections, sensor.events)
 
 

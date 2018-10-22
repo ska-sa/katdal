@@ -23,6 +23,7 @@ from numpy.testing import assert_array_equal, assert_allclose
 from nose.tools import assert_raises, assert_equal
 import dask.array as da
 
+from katdal.spectral_window import SpectralWindow
 from katdal.sensordata import SensorCache
 from katdal.categorical import CategoricalData
 from katdal.lazy_indexer import DaskLazyIndexer
@@ -34,14 +35,21 @@ from katdal.applycal import (complex_interp, calc_correction_per_corrprod,
 
 POLS = ['v', 'h']
 ANTS = ['m000', 'm001', 'm002', 'm003']
-CENTRE_FREQ = 1284.0
-BANDWIDTH = 856.0
-N_CHANS = 128
 N_DUMPS = 100
 SAMPLE_RATE = 1712.0
 
+CENTRE_FREQ = 1284.0
+BANDWIDTH = 856.0
+N_CHANS = 128
+FREQS = SpectralWindow(CENTRE_FREQ, None, N_CHANS,
+                       sideband=1, bandwidth=BANDWIDTH).channel_freqs
+CAL_CENTRE_FREQ = 1200.0
+CAL_BANDWIDTH = 800.0
+CAL_N_CHANS = 64
+CAL_FREQS = SpectralWindow(CAL_CENTRE_FREQ, None, CAL_N_CHANS,
+                           sideband=1, bandwidth=CAL_BANDWIDTH).channel_freqs
+
 INPUTS = [ant + pol for ant in ANTS for pol in POLS]
-FREQS = CENTRE_FREQ + BANDWIDTH / N_CHANS * (np.arange(N_CHANS) - N_CHANS // 2)
 INDEX1, INDEX2 = np.triu_indices(len(INPUTS))
 CORRPRODS = [(INPUTS[i1], INPUTS[i2]) for i1, i2 in zip(INDEX1, INDEX2)]
 N_CORRPRODS = len(CORRPRODS)
@@ -49,15 +57,15 @@ N_CORRPRODS = len(CORRPRODS)
 SKIP_ANT = 0
 BAD_DELAY_ANT = 1
 BAD_BANDPASS_ANT = 2
-BAD_CHANNELS = np.full(N_CHANS, False)
+BAD_CHANNELS = np.full(CAL_N_CHANS, False)
 BAD_CHANNELS[30:40] = True
 BAD_CHANNELS[50] = True
 BANDPASS_PARTS = 4
 CAL_PRODUCTS = ['K', 'B']
 
 ATTRS = {'cal_antlist': ANTS, 'cal_pol_ordering': POLS,
-         'cal_center_freq': CENTRE_FREQ, 'cal_bandwidth': BANDWIDTH,
-         'cal_n_chans': N_CHANS, 'cal_product_B_parts': BANDPASS_PARTS}
+         'cal_center_freq': CAL_CENTRE_FREQ, 'cal_bandwidth': CAL_BANDWIDTH,
+         'cal_n_chans': CAL_N_CHANS, 'cal_product_B_parts': BANDPASS_PARTS}
 
 
 def create_delay(pol, ant):
@@ -67,7 +75,8 @@ def create_delay(pol, ant):
 
 def create_bandpass(pol, ant):
     """Synthesise a bandpass response from `pol` and `ant` indices."""
-    bp = N_CHANS * ant + np.arange(N_CHANS) + 1j * (1 + pol) * np.ones(N_CHANS)
+    bp = (CAL_N_CHANS * ant + np.arange(CAL_N_CHANS) +
+          1j * (1 + pol) * np.ones(CAL_N_CHANS))
     if ant == BAD_BANDPASS_ANT:
         bp[:] = np.nan
     else:
@@ -116,8 +125,10 @@ def bandpass_gains(pol, ant):
     bp = create_bandpass(pol, ant)
     valid = np.isfinite(bp)
     if valid.any():
-        bp = complex_interp(FREQS, FREQS[valid], bp[valid])
-    return 1 / bp
+        bp = complex_interp(FREQS, CAL_FREQS[valid], bp[valid])
+    else:
+        bp = np.full(N_CHANS, np.nan + 1j * np.nan, dtype=bp.dtype)
+    return np.reciprocal(bp)
 
 
 def gains_per_corrprod(dumps, channels, corrprods=()):
@@ -182,8 +193,8 @@ class TestCorrectionPerInput(object):
         product_sensor = get_cal_product(self.cache, ATTRS, 'K')
         for n in range(len(ANTS)):
             for m in range(len(POLS)):
-                args = (product_sensor, (m, n), FREQS)
-                correction_sensor = calc_delay_correction(*args)
+                correction_sensor = calc_delay_correction(
+                    product_sensor, (m, n), FREQS)
                 assert_array_equal(correction_sensor[n],
                                    np.ones(N_CHANS, dtype='complex64'))
                 assert_array_equal(correction_sensor[10 + n],
@@ -193,8 +204,8 @@ class TestCorrectionPerInput(object):
         product_sensor = get_cal_product(self.cache, ATTRS, 'B')
         for n in range(len(ANTS)):
             for m in range(len(POLS)):
-                args = (product_sensor, (m, n), FREQS, FREQS)
-                correction_sensor = calc_bandpass_correction(*args)
+                correction_sensor = calc_bandpass_correction(
+                    product_sensor, (m, n), FREQS, CAL_FREQS)
                 assert_array_equal(correction_sensor[n],
                                    np.ones(N_CHANS, dtype='complex64'))
                 assert_array_equal(correction_sensor[12 + n],
