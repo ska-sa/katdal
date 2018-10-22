@@ -20,12 +20,16 @@ from builtins import range, zip
 
 from functools import partial
 import copy
+import logging
 
 import numpy as np
 import dask.array as da
 
 from .categorical import CategoricalData, ComparableArrayWrapper
 from .spectral_window import SpectralWindow
+
+
+logger = logging.getLogger(__name__)
 
 
 def complex_interp(x, xi, yi):
@@ -160,6 +164,7 @@ def add_applycal_sensors(cache, attrs, data_freqs):
                                  bandwidth=attrs['cal_bandwidth'])
         cal_freqs = cal_spw.channel_freqs
     except KeyError:
+        logger.warning('Missing cal spectral attributes, disabling applycal')
         return
 
     def calc_correction_per_input(cache, name, inp, product):

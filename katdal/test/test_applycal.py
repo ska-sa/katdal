@@ -82,11 +82,9 @@ def create_product(func):
     values = [func(pol, ant) for pol in pols for ant in ants]
     values = np.array(values)
     pol_ant = (len(pols), len(ants))
-    if values.ndim == 1:
-        return values.reshape(pol_ant)
-    else:
-        rest = values.shape[1:]
-        return np.moveaxis(values, 0, -1).reshape(rest + pol_ant)
+    # Pols, ants are final 2 dims; values shape (8, 128) becomes (128, 2, 4)
+    rest = values.shape[1:]
+    return np.moveaxis(values, 0, -1).reshape(rest + pol_ant)
 
 
 def create_sensor_cache():
