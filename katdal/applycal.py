@@ -15,6 +15,8 @@
 ###############################################################################
 
 """Utilities for applying calibration solutions to visibilities and weights."""
+from __future__ import print_function, division, absolute_import
+from builtins import range, zip
 
 from functools import partial
 import copy
