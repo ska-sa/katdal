@@ -142,7 +142,9 @@ def calc_bandpass_correction(sensor, index, data_freqs, cal_freqs):
         bp = sensor[n][(slice(None),) + index]
         valid = np.isfinite(bp)
         if valid.any():
-            bp = complex_interp(data_freqs, cal_freqs[valid], bp[valid])
+            # Don't extrapolate to edges of band where gain typically drops off
+            bp = complex_interp(data_freqs, cal_freqs[valid], bp[valid],
+                                left=np.nan, right=np.nan)
         else:
             bp = np.full(len(data_freqs), np.nan + 1j * np.nan, dtype=bp.dtype)
         corrections.append(ComparableArrayWrapper(np.reciprocal(bp)))

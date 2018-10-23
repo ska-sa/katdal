@@ -125,7 +125,8 @@ def bandpass_gains(pol, ant):
     bp = create_bandpass(pol, ant)
     valid = np.isfinite(bp)
     if valid.any():
-        bp = complex_interp(FREQS, CAL_FREQS[valid], bp[valid])
+        bp = complex_interp(FREQS, CAL_FREQS[valid], bp[valid],
+                            left=np.nan, right=np.nan)
     else:
         bp = np.full(N_CHANS, np.nan + 1j * np.nan, dtype=bp.dtype)
     return np.reciprocal(bp)
@@ -228,12 +229,14 @@ class TestCorrectionPerInput(object):
 
     def test_calc_bandpass_correction(self):
         product_sensor = get_cal_product(self.cache, ATTRS, 'B')
+        constant_bandpass = np.ones(N_CHANS, dtype='complex64')
+        constant_bandpass[FREQS < CAL_FREQS[0]] = np.nan
+        constant_bandpass[FREQS > CAL_FREQS[-1]] = np.nan
         for n in range(len(ANTS)):
             for m in range(len(POLS)):
                 correction_sensor = calc_bandpass_correction(
                     product_sensor, (m, n), FREQS, CAL_FREQS)
-                assert_array_equal(correction_sensor[n],
-                                   np.ones(N_CHANS, dtype='complex64'))
+                assert_array_equal(correction_sensor[n], constant_bandpass)
                 assert_array_equal(correction_sensor[12 + n],
                                    bandpass_gains(m, n))
 
