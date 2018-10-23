@@ -32,15 +32,16 @@ from .spectral_window import SpectralWindow
 logger = logging.getLogger(__name__)
 
 
-def complex_interp(x, xi, yi):
+def complex_interp(x, xi, yi, left=None, right=None):
     """Piecewise linear interpolation of magnitude and phase of complex values.
 
     Given discrete data points (`xi`, `yi`), this returns a 1-D piecewise
     linear interpolation `y` evaluated at the `x` coordinates, similar to
     `numpy.interp(x, xi, yi)`. While :func:`numpy.interp` interpolates the real
     and imaginary parts of `yi` separately, this function interpolates
-    magnitude and phase separately instead. This is useful when the phase of
-    `yi` changes more rapidly than its magnitude, as in electronic gains.
+    magnitude and (unwrapped) phase separately instead. This is useful when the
+    phase of `yi` changes more rapidly than its magnitude, as in electronic
+    gains.
 
     Parameters
     ----------
@@ -50,25 +51,31 @@ def complex_interp(x, xi, yi):
         The x-coordinates of the data points, must be sorted in ascending order
     yi : 1-D sequence of complex, length *N*
         The y-coordinates of the data points, same length as `xi`
+    left : complex, optional
+        Value to return for `x < xi[0]`, default is `yi[0]`
+    right : complex, optional
+        Value to return for `x > xi[-1]`, default is `yi[-1]`
 
     Returns
     -------
     y : array of complex, length *M*
         The evaluated y-coordinates, same length as `x` and same dtype as `yi`
-
-    Notes
-    -----
-    The phase interpolation is done by the usual real-imaginary interpolation
-    of a normalised version of the complex values followed by renormalisation.
-    This is not perfect because the angular velocity changes over the
-    interpolated region (slower at the ends and faster in the middle), but it
-    avoids the loss of amplitude that occurs without any normalisation.
     """
-    magi = np.abs(yi)
-    phasei = yi / magi
-    mag = np.interp(x, xi, magi)
-    phase = np.interp(x, xi, phasei)
-    y = phase / np.abs(phase) * mag
+    # Extract magnitude and unwrapped phase
+    mag_i = np.abs(yi)
+    phase_i = np.unwrap(np.angle(yi))
+    # Prepare left and right interpolation extensions
+    mag_left = phase_left = mag_right = phase_right = None
+    if left is not None:
+        mag_left = np.abs(left)
+        phase_left = np.unwrap([phase_i[0], np.angle(left)])[1]
+    if right is not None:
+        mag_right = np.abs(right)
+        phase_right = np.unwrap([phase_i[-1], np.angle(right)])[1]
+    # Interpolate magnitude and phase separately, and reassemble
+    mag = np.interp(x, xi, mag_i, left=mag_left, right=mag_right)
+    phase = np.interp(x, xi, phase_i, left=phase_left, right=phase_right)
+    y = mag * np.exp(1j * phase)
     return y.astype(yi.dtype)
 
 
