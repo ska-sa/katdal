@@ -191,8 +191,8 @@ class TestComplexInterp(object):
     def test_left_right(self):
         # Extend yi[0] and yi[-1] at edges
         y = complex_interp(sorted(self.x), self.xi, self.yi)
-        assert_equal(y[0], self.yi[0])
-        assert_equal(y[-1], self.yi[-1])
+        assert_allclose(y[0], self.yi[0], rtol=1e-14)
+        assert_allclose(y[-1], self.yi[-1], rtol=1e-14)
         # Explicit edge values
         y = complex_interp(sorted(self.x), self.xi, self.yi, left=0, right=1j)
         assert_allclose(y[0], 0, rtol=1e-14)
