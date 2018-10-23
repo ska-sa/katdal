@@ -153,23 +153,49 @@ class TestComplexInterp(object):
     """Test the :func:`~katdal.applycal.complex_interp` function."""
     def setup(self):
         self.xi = np.arange(1., 10.)
-        self.yi = np.exp(2j * np.pi * self.xi / 10.)
+        self.yi_unit = np.exp(2j * np.pi * self.xi / 10.)
         rs = np.random.RandomState(1234)
         self.x = 10 * rs.rand(100)
+        self.yi = 10 * rs.rand(len(self.yi_unit)) * self.yi_unit
+
+    def test_basic(self):
+        y = complex_interp(self.x, self.xi, self.yi)
+        mag_y = np.interp(self.x, self.xi, np.abs(self.yi))
+        assert_allclose(np.abs(y), mag_y, rtol=1e-14)
+        phase_y = np.interp(self.x, self.xi, np.unwrap(np.angle(self.yi)))
+        assert_allclose(np.mod(np.angle(y), 2 * np.pi),
+                        np.mod(phase_y, 2 * np.pi), rtol=1e-14)
 
     def test_exact_values(self):
         y = complex_interp(self.xi, self.xi, self.yi)
-        assert_array_equal(y, self.yi)
+        assert_allclose(y, self.yi, rtol=1e-14)
+
+    def test_correct_wrap(self):
+        xi = np.arange(2)
+        yi = np.array([-1+1j, -2-2j])
+        x = 0.5
+        y = -0.5 * (np.sqrt(2) + np.sqrt(8))   # np.interp has y = -1.5-0.5j
+        assert_allclose(complex_interp(x, xi, yi), y, rtol=1e-14)
 
     def test_phase_only_interpolation(self):
-        y = complex_interp(self.x, self.xi, self.yi)
+        y = complex_interp(self.x, self.xi, self.yi_unit)
         assert_allclose(np.abs(y), 1.0, rtol=1e-14)
 
     def test_complex64_interpolation(self):
-        yi = self.yi.astype(np.complex64)
+        yi = self.yi_unit.astype(np.complex64)
         y = complex_interp(self.x, self.xi, yi)
         assert_equal(y.dtype, yi.dtype)
         assert_allclose(np.abs(y), 1.0, rtol=1e-7)
+
+    def test_left_right(self):
+        # Extend yi[0] and yi[-1] at edges
+        y = complex_interp(sorted(self.x), self.xi, self.yi)
+        assert_equal(y[0], self.yi[0])
+        assert_equal(y[-1], self.yi[-1])
+        # Explicit edge values
+        y = complex_interp(sorted(self.x), self.xi, self.yi, left=0, right=1j)
+        assert_allclose(y[0], 0, rtol=1e-14)
+        assert_allclose(y[-1], 1j, rtol=1e-14)
 
 
 class TestCorrectionPerInput(object):
