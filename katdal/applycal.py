@@ -75,7 +75,10 @@ def complex_interp(x, xi, yi, left=None, right=None):
     # Interpolate magnitude and phase separately, and reassemble
     mag = np.interp(x, xi, mag_i, left=mag_left, right=mag_right)
     phase = np.interp(x, xi, phase_i, left=phase_left, right=phase_right)
-    y = mag * np.exp(1j * phase)
+    y = np.empty_like(phase, dtype=np.complex128)
+    np.cos(phase, out=y.real)
+    np.sin(phase, out=y.imag)
+    y *= mag
     return y.astype(yi.dtype)
 
 
