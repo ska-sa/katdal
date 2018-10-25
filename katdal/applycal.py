@@ -29,6 +29,8 @@ from .categorical import CategoricalData, ComparableArrayWrapper
 from .spectral_window import SpectralWindow
 
 
+INVALID_GAIN = np.complex64(np.nan + 1j * np.nan)
+
 logger = logging.getLogger(__name__)
 
 
@@ -147,9 +149,9 @@ def calc_bandpass_correction(sensor, index, data_freqs, cal_freqs):
         if valid.any():
             # Don't extrapolate to edges of band where gain typically drops off
             bp = complex_interp(data_freqs, cal_freqs[valid], bp[valid],
-                                left=np.nan, right=np.nan)
+                                left=INVALID_GAIN, right=INVALID_GAIN)
         else:
-            bp = np.full(len(data_freqs), np.nan + 1j * np.nan, dtype=bp.dtype)
+            bp = np.full(len(data_freqs), INVALID_GAIN)
         corrections.append(ComparableArrayWrapper(np.reciprocal(bp)))
     return CategoricalData(corrections, sensor.events)
 
@@ -171,8 +173,7 @@ def calc_gain_correction(sensor, index):
     gains = np.array([sensor[n][index] for n in events])
     valid = np.isfinite(gains)
     if not valid.any():
-        return CategoricalData([np.complex64(np.nan + 1j * np.nan)],
-                               [0, len(dumps)])
+        return CategoricalData([INVALID_GAIN], [0, len(dumps)])
     smooth_gains = complex_interp(dumps, events[valid], gains[valid])
     return np.reciprocal(smooth_gains)
 

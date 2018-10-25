@@ -31,7 +31,7 @@ from katdal.applycal import (complex_interp, calc_correction_per_corrprod,
                              get_cal_product, calc_delay_correction,
                              calc_bandpass_correction, calc_gain_correction,
                              add_applycal_sensors, add_applycal_transform,
-                             apply_vis_correction)
+                             apply_vis_correction, INVALID_GAIN)
 
 
 POLS = ['v', 'h']
@@ -82,9 +82,9 @@ def create_bandpass(pol, ant):
     bp = (CAL_N_CHANS * ant + np.arange(CAL_N_CHANS) +
           1j * (1 + pol) * np.ones(CAL_N_CHANS))
     if ant == BAD_BANDPASS_ANT:
-        bp[:] = np.nan
+        bp[:] = INVALID_GAIN
     else:
-        bp[BAD_CHANNELS] = np.nan
+        bp[BAD_CHANNELS] = INVALID_GAIN
     return bp.astype(np.complex64)
 
 
@@ -94,9 +94,9 @@ def create_gain(pol, ant):
     gains = np.ones_like(events, dtype=np.complex64)
     gains *= (-1) ** pol * (1 + ant) * np.exp(2j * np.pi * events / 100.)
     if ant == BAD_GAIN_ANT:
-        gains[:] = np.nan
+        gains[:] = INVALID_GAIN
     bad_events = [GAIN_EVENTS.index(dump) for dump in BAD_DUMPS]
-    gains[bad_events] = np.nan
+    gains[bad_events] = INVALID_GAIN
     return gains
 
 
@@ -146,9 +146,9 @@ def bandpass_corrections(pol, ant):
     valid = np.isfinite(bp)
     if valid.any():
         bp = complex_interp(FREQS, CAL_FREQS[valid], bp[valid],
-                            left=np.nan, right=np.nan)
+                            left=INVALID_GAIN, right=INVALID_GAIN)
     else:
-        bp = np.full(N_CHANS, np.nan + 1j * np.nan, dtype=bp.dtype)
+        bp = np.full(N_CHANS, INVALID_GAIN)
     return np.reciprocal(bp)
 
 
@@ -161,7 +161,7 @@ def gain_corrections(pol, ant):
     if valid.any():
         gains = complex_interp(dumps, events[valid], gains[valid])
     else:
-        gains = np.full(N_DUMPS, np.nan + 1j * np.nan, dtype=gains.dtype)
+        gains = np.full(N_DUMPS, INVALID_GAIN)
     return np.reciprocal(gains)
 
 
@@ -265,8 +265,8 @@ class TestCorrectionPerInput(object):
     def test_calc_bandpass_correction(self):
         product_sensor = get_cal_product(self.cache, ATTRS, 'B')
         constant_bandpass = np.ones(N_CHANS, dtype='complex64')
-        constant_bandpass[FREQS < CAL_FREQS[0]] = np.nan
-        constant_bandpass[FREQS > CAL_FREQS[-1]] = np.nan
+        constant_bandpass[FREQS < CAL_FREQS[0]] = INVALID_GAIN
+        constant_bandpass[FREQS > CAL_FREQS[-1]] = INVALID_GAIN
         for n in range(len(ANTS)):
             for m in range(len(POLS)):
                 sensor = calc_bandpass_correction(product_sensor, (m, n),
