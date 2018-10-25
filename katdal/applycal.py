@@ -154,6 +154,29 @@ def calc_bandpass_correction(sensor, index, data_freqs, cal_freqs):
     return CategoricalData(corrections, sensor.events)
 
 
+def calc_gain_correction(sensor, index):
+    """Calculate correction sensor from gain calibration solution sensor.
+
+    Given the gain calibration solution `sensor`, this extracts the time
+    series of gains for the input specified by `index` (in the form (pol, ant))
+    and interpolates them over time to get the corresponding complex correction
+    terms.
+
+    Invalid solutions (NaNs) are replaced by linear interpolations over time
+    (separately for magnitude and phase), as long as some dumps have valid
+    solutions.
+    """
+    dumps = np.arange(sensor.events[-1])
+    events = sensor.events[:-1]
+    gains = np.array([sensor[n][index] for n in events])
+    valid = np.isfinite(gains)
+    if not valid.any():
+        return CategoricalData([np.complex64(np.nan + 1j * np.nan)],
+                               [0, len(dumps)])
+    smooth_gains = complex_interp(dumps, events[valid], gains[valid])
+    return np.reciprocal(smooth_gains)
+
+
 def add_applycal_sensors(cache, attrs, data_freqs):
     """Add virtual sensors that store calibration corrections, to sensor cache.
 
@@ -196,6 +219,8 @@ def add_applycal_sensors(cache, attrs, data_freqs):
         elif product == 'B':
             correction_sensor = calc_bandpass_correction(product_sensor, index,
                                                          data_freqs, cal_freqs)
+        elif product == 'G':
+            correction_sensor = calc_gain_correction(product_sensor, index)
         else:
             raise KeyError("Unknown calibration product '{}'".format(product))
         cache[name] = correction_sensor
