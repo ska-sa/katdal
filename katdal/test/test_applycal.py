@@ -113,15 +113,15 @@ def create_sensor_cache():
                        dump_period=1.)
 
 
-def delay_gains(pol, ant):
-    """Figure out gain correction for delay given `pol` and `ant` indices."""
+def delay_corrections(pol, ant):
+    """Figure out N_CHANS delay corrections given `pol` and `ant` indices."""
     # Zero out missing delays (indicated by NaN)
     delay = np.nan_to_num(create_delay(pol, ant))
     return np.exp(2j * np.pi * delay * FREQS).astype('complex64')
 
 
-def bandpass_gains(pol, ant):
-    """Figure out gain correction for delay given `pol` and `ant` indices."""
+def bandpass_corrections(pol, ant):
+    """Figure out N_CHANS bandpass corrections given `pol`, `ant` indices."""
     bp = create_bandpass(pol, ant)
     valid = np.isfinite(bp)
     if valid.any():
@@ -137,16 +137,17 @@ def gains_per_corrprod(dumps, channels, corrprods=()):
     input_map = {ant + pol: (pol_idx, ant_idx)
                  for (pol_idx, pol) in enumerate(POLS)
                  for (ant_idx, ant) in enumerate(ANTS)}
-    gains_per_input = np.ones((len(INPUTS), N_CHANS), dtype='complex64')
+    gains_per_input = np.ones((len(dumps), N_CHANS, len(INPUTS)),
+                              dtype='complex64')
     if 'K' in CAL_PRODUCTS:
-        gains_per_input *= np.array([delay_gains(*input_map[inp])
-                                     for inp in INPUTS])
+        gains_per_input *= np.array([delay_corrections(*input_map[inp])
+                                     for inp in INPUTS]).T
     if 'B' in CAL_PRODUCTS:
-        gains_per_input *= np.array([bandpass_gains(*input_map[inp])
-                                     for inp in INPUTS])
-    gains_per_input = gains_per_input[:, channels]
-    gain1 = gains_per_input[INDEX1[corrprods]].T
-    gain2 = gains_per_input[INDEX2[corrprods]].T
+        gains_per_input *= np.array([bandpass_corrections(*input_map[inp])
+                                     for inp in INPUTS]).T
+    gains_per_input = gains_per_input[:, channels, :]
+    gain1 = gains_per_input[:, :, INDEX1[corrprods]]
+    gain2 = gains_per_input[:, :, INDEX2[corrprods]]
     return gain1 * gain2.conj()
 
 
@@ -225,7 +226,7 @@ class TestCorrectionPerInput(object):
                 assert_array_equal(correction_sensor[n],
                                    np.ones(N_CHANS, dtype='complex64'))
                 assert_array_equal(correction_sensor[10 + n],
-                                   delay_gains(m, n))
+                                   delay_corrections(m, n))
 
     def test_calc_bandpass_correction(self):
         product_sensor = get_cal_product(self.cache, ATTRS, 'B')
@@ -238,7 +239,7 @@ class TestCorrectionPerInput(object):
                     product_sensor, (m, n), FREQS, CAL_FREQS)
                 assert_array_equal(correction_sensor[n], constant_bandpass)
                 assert_array_equal(correction_sensor[12 + n],
-                                   bandpass_gains(m, n))
+                                   bandpass_corrections(m, n))
 
 
 class TestVirtualCorrectionSensors(object):
@@ -259,14 +260,14 @@ class TestVirtualCorrectionSensors(object):
             for m, pol in enumerate(POLS):
                 sensor_name = 'Calibration/{}{}_correction_K'.format(ant, pol)
                 sensor = self.cache.get(sensor_name)
-                assert_array_equal(sensor[10 + n], delay_gains(m, n))
+                assert_array_equal(sensor[10 + n], delay_corrections(m, n))
 
     def test_bandpass_sensors(self):
         for n, ant in enumerate(ANTS):
             for m, pol in enumerate(POLS):
                 sensor_name = 'Calibration/{}{}_correction_B'.format(ant, pol)
                 sensor = self.cache.get(sensor_name)
-                assert_array_equal(sensor[12 + n], bandpass_gains(m, n))
+                assert_array_equal(sensor[12 + n], bandpass_corrections(m, n))
 
     def test_unknown_inputs_and_products(self):
         known_input = 'Calibration/{}{}'.format(ANTS[0], POLS[0])
@@ -289,7 +290,7 @@ class TestCorrectionPerCorrprod(object):
         channels = list(range(22, 38))
         gains = calc_correction_per_corrprod(dump, channels, self.cache,
                                              INPUTS, INDEX1, INDEX2,
-                                             CAL_PRODUCTS)
+                                             CAL_PRODUCTS)[np.newaxis]
         expected_gains = gains_per_corrprod([dump], channels)
         assert_array_equal(gains, expected_gains)
 
@@ -323,7 +324,7 @@ class TestApplyCal(object):
         add_applycal_transform(indexer, self.cache, self.corrprods,
                                CAL_PRODUCTS, apply_vis_correction)
         # Apply stage 2 selection on top of stage 1
-        stage2 = np.s_[5, 2:5, :]
+        stage2 = np.s_[5:7, 2:5, :]
         stage1_indices = tuple(k.nonzero()[0] for k in self.stage1)
         final_indices = tuple(i[s] for s, i in zip(stage2, stage1_indices))
         gains = gains_per_corrprod(*final_indices)
