@@ -283,6 +283,19 @@ def apply_vis_correction(out, correction):
     out *= correction
 
 
+def apply_weights_correction(out, correction):
+    """Clean up and apply `correction` in-place to weight data in `out`."""
+    correction2 = correction.real ** 2 + correction.imag ** 2
+    correction2[np.isnan(correction2)] = np.inf
+    correction2[correction2 == 0] = np.inf
+    out /= correction2
+
+
+def apply_flags_correction(out, correction):
+    """Update flag data in `out` to True wherever `correction` is invalid."""
+    out[np.isnan(correction)] = True
+
+
 def add_applycal_transform(indexer, cache, corrprods, cal_products,
                            apply_correction):
     """Add transform to indexer that applies calibration corrections.

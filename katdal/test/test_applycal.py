@@ -31,7 +31,8 @@ from katdal.applycal import (complex_interp, calc_correction_per_corrprod,
                              get_cal_product, calc_delay_correction,
                              calc_bandpass_correction, calc_gain_correction,
                              add_applycal_sensors, add_applycal_transform,
-                             apply_vis_correction, INVALID_GAIN)
+                             apply_vis_correction, apply_weights_correction,
+                             apply_flags_correction, INVALID_GAIN)
 
 
 POLS = ['v', 'h']
@@ -393,3 +394,22 @@ class TestApplyCal(object):
         corrections[np.isnan(corrections)] = 1.0
         expected_vis *= corrections
         assert_array_equal(calibrated_vis, expected_vis)
+
+    def test_applycal_weights(self):
+        weights = np.random.rand(N_DUMPS, N_CHANS,
+                                 N_CORRPRODS).astype('float32')
+        calibrated_weights, expected_weights, corrections = self._applycal(
+             weights, apply_weights_correction)
+        # Zero the weights where the gains are non-finite
+        corrections2 = corrections.real ** 2 + corrections.imag ** 2
+        corrections2[np.isnan(corrections2)] = np.inf
+        corrections2[corrections2 == 0] = np.inf
+        expected_weights /= corrections2
+        assert_array_equal(calibrated_weights, expected_weights)
+
+    def test_applycal_flags(self):
+        flags = np.random.rand(N_DUMPS, N_CHANS, N_CORRPRODS) > 0.5
+        calibrated_flags, expected_flags, corrections = self._applycal(
+             flags, apply_flags_correction)
+        expected_flags[np.isnan(corrections)] = True
+        assert_array_equal(calibrated_flags, expected_flags)
