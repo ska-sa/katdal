@@ -32,7 +32,9 @@ from .spectral_window import SpectralWindow
 from .sensordata import SensorCache
 from .categorical import CategoricalData
 from .lazy_indexer import DaskLazyIndexer
-from .applycal import add_applycal_sensors
+from .applycal import (add_applycal_sensors, add_applycal_transform,
+                       apply_vis_correction, apply_weights_correction,
+                       apply_flags_correction)
 
 
 logger = logging.getLogger(__name__)
@@ -101,11 +103,15 @@ class VisibilityDataV4(DataSet):
         (default is first antenna in use)
     time_offset : float, optional
         Offset to add to all correlator timestamps, in seconds
+    applycal : string, optional
+        Comma-separated calibration products to apply to vis/weights/flags
+        (default is no calibration)
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
 
     """
-    def __init__(self, source, ref_ant='', time_offset=0.0, **kwargs):
+    def __init__(self, source, ref_ant='', time_offset=0.0, applycal='',
+                 **kwargs):
         DataSet.__init__(self, source.name, ref_ant, time_offset)
         attrs = source.metadata.attrs
 
@@ -294,6 +300,7 @@ class VisibilityDataV4(DataSet):
 
         freqs = self.spectral_windows[0].channel_freqs
         add_applycal_sensors(self.sensor, attrs, freqs)
+        self._applycal = applycal
 
         # Apply default selection and initialise all members that depend
         # on selection in the process
@@ -369,6 +376,14 @@ class VisibilityDataV4(DataSet):
                 # Cache dask graphs for the data fields
                 self._vis = DaskLazyIndexer(self.source.data.vis, stage1)
                 self._weights = DaskLazyIndexer(self.source.data.weights, stage1)
+                if self._applycal:
+                    products = self._applycal.split(',')
+                    add_applycal_transform(self._vis, self.sensor,
+                                           self.corr_products, products,
+                                           apply_vis_correction)
+                    add_applycal_transform(self._weights, self.sensor,
+                                           self.corr_products, products,
+                                           apply_weights_correction)
             flag_transforms = []
             if ~self._flags_select != 0:
                 # Copy so that the lambda isn't affected by future changes
@@ -376,6 +391,11 @@ class VisibilityDataV4(DataSet):
                 flag_transforms.append(lambda flags: da.bitwise_and(select, flags))
             flag_transforms.append(lambda flags: flags.view(np.bool_))
             self._flags = DaskLazyIndexer(self.source.data.flags, stage1, flag_transforms)
+            if self._applycal:
+                products = self._applycal.split(',')
+                add_applycal_transform(self._flags, self.sensor,
+                                       self.corr_products, products,
+                                       apply_flags_correction)
 
     @property
     def timestamps(self):
