@@ -64,7 +64,7 @@ BAD_CHANNELS[50] = True
 BANDPASS_PARTS = 4
 GAIN_EVENTS = list(range(0, N_DUMPS, 10))
 BAD_GAIN_ANT = 3
-BAD_DUMPS = [20, 40]
+BAD_GAIN_DUMPS = [20, 40]
 CAL_PRODUCTS = ['K', 'B', 'G']
 
 ATTRS = {'cal_antlist': ANTS, 'cal_pol_ordering': POLS,
@@ -95,7 +95,7 @@ def create_gain(pol, ant):
     gains *= (-1) ** pol * (1 + ant) * np.exp(2j * np.pi * events / 100.)
     if ant == BAD_GAIN_ANT:
         gains[:] = INVALID_GAIN
-    bad_events = [GAIN_EVENTS.index(dump) for dump in BAD_DUMPS]
+    bad_events = [GAIN_EVENTS.index(dump) for dump in BAD_GAIN_DUMPS]
     gains[bad_events] = INVALID_GAIN
     return gains
 
@@ -165,7 +165,7 @@ def gain_corrections(pol, ant):
     return np.reciprocal(gains)
 
 
-def gains_per_corrprod(dumps, channels, corrprods=()):
+def corrections_per_corrprod(dumps, channels, corrprods=()):
     """Predict corrprod correction for a time-frequency-baseline selection."""
     input_map = {ant + pol: (pol_idx, ant_idx)
                  for (pol_idx, pol) in enumerate(POLS)
@@ -335,11 +335,11 @@ class TestCorrectionPerCorrprod(object):
     def test_correction_per_corrprod(self):
         dump = 15
         channels = list(range(22, 38))
-        gains = calc_correction_per_corrprod(dump, channels, self.cache,
-                                             INPUTS, INDEX1, INDEX2,
-                                             CAL_PRODUCTS)[np.newaxis]
-        expected_gains = gains_per_corrprod([dump], channels)
-        assert_array_equal(gains, expected_gains)
+        corrections = calc_correction_per_corrprod(dump, channels, self.cache,
+                                                   INPUTS, INDEX1, INDEX2,
+                                                   CAL_PRODUCTS)[np.newaxis]
+        expected_corrections = corrections_per_corrprod([dump], channels)
+        assert_array_equal(corrections, expected_corrections)
 
 
 class TestApplyCal(object):
@@ -358,30 +358,38 @@ class TestApplyCal(object):
                 corrprod_keep[INDEX1 == n] = False
                 corrprod_keep[INDEX2 == n] = False
         self.stage1 = (time_keep, freq_keep, corrprod_keep)
+        # Apply stage 2 selection on top of stage 1
+        self.stage2 = np.s_[5:7, 2:5, :]
         # List of selected correlation products
         self.corrprods = [cp for n, cp in enumerate(CORRPRODS)
                           if corrprod_keep[n]]
+
+    def _applycal(self, array, apply_correction):
+        """Calibrate `array` with `apply_correction` and return all factors."""
+        array_dask = da.from_array(array, chunks=(10, 4, 6))
+        indexer = DaskLazyIndexer(array_dask, self.stage1)
+        add_applycal_transform(indexer, self.cache, self.corrprods,
+                               CAL_PRODUCTS, apply_correction)
+        calibrated_array = indexer[self.stage2]
+        stage1_indices = tuple(k.nonzero()[0] for k in self.stage1)
+        final_indices = tuple(i[s] for s, i in zip(self.stage2,
+                                                   stage1_indices))
+        # Quick & dirty oindex of array (yet another way doing axes in reverse)
+        selected_array = array
+        dims = reversed(range(array.ndim))
+        for dim, indices in zip(dims, reversed(final_indices)):
+            selected_array = np.take(selected_array, indices, axis=dim)
+        # Determine the corrections that would apply to selection
+        corrections = corrections_per_corrprod(*final_indices)
+        return calibrated_array, selected_array, corrections
 
     def test_applycal_vis(self):
         vis_real = np.random.randn(N_DUMPS, N_CHANS, N_CORRPRODS)
         vis_imag = np.random.randn(N_DUMPS, N_CHANS, N_CORRPRODS)
         vis = np.asarray(vis_real + 1j * vis_imag, dtype='complex64')
-        vis_dask = da.from_array(vis, chunks=(10, 4, 6))
-        indexer = DaskLazyIndexer(vis_dask, self.stage1)
-        add_applycal_transform(indexer, self.cache, self.corrprods,
-                               CAL_PRODUCTS, apply_vis_correction)
-        # Apply stage 2 selection on top of stage 1
-        stage2 = np.s_[5:7, 2:5, :]
-        stage1_indices = tuple(k.nonzero()[0] for k in self.stage1)
-        final_indices = tuple(i[s] for s, i in zip(stage2, stage1_indices))
-        gains = gains_per_corrprod(*final_indices)
+        calibrated_vis, expected_vis, corrections = self._applycal(
+            vis, apply_vis_correction)
         # Leave visibilities alone where gains are NaN
-        gains[np.isnan(gains)] = 1.0
-        # Quick and dirty oindex of vis (yet another way doing axes in reverse)
-        selected_vis = vis
-        dims = reversed(range(vis.ndim))
-        for dim, indices in zip(dims, reversed(final_indices)):
-            selected_vis = np.take(selected_vis, indices, axis=dim)
-        expected_vis = selected_vis * gains
-        calibrated_vis = indexer[stage2]
+        corrections[np.isnan(corrections)] = 1.0
+        expected_vis *= corrections
         assert_array_equal(calibrated_vis, expected_vis)

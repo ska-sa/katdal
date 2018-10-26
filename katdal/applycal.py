@@ -29,7 +29,7 @@ from .categorical import CategoricalData, ComparableArrayWrapper
 from .spectral_window import SpectralWindow
 
 
-INVALID_GAIN = np.complex64(np.nan + 1j * np.nan)
+INVALID_GAIN = np.complex64(complex(np.nan, np.nan))
 
 logger = logging.getLogger(__name__)
 
