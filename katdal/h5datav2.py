@@ -16,10 +16,8 @@
 
 """Data accessor class for HDF5 files produced by KAT-7 correlator."""
 from __future__ import print_function, division, absolute_import
+from builtins import zip, range
 
-from builtins import zip
-from builtins import range
-from past.builtins import basestring
 import logging
 
 import numpy as np
@@ -28,7 +26,7 @@ import katpoint
 
 from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray,
                       DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
-                      _robust_target)
+                      _robust_target, _selection_to_list)
 from .spectral_window import SpectralWindow
 from .sensordata import RecordSensorData, SensorCache, to_str
 from .categorical import CategoricalData, sensor_to_categorical
@@ -472,8 +470,7 @@ class H5DataV2(DataSet):
     def _weights_keep(self, names):
         known_weights = [row[0] for row in getattr(self, '_weights_description', [])]
         # Ensure a sequence of weight names
-        names = known_weights if names == 'all' else \
-            names.split(',') if isinstance(names, basestring) else names
+        names = _selection_to_list(names, all=known_weights)
         # Create index list for desired weights
         selection = []
         for name in names:
@@ -504,12 +501,7 @@ class H5DataV2(DataSet):
             return
         known_flags = [row[0] for row in self._flags_description]
         # Ensure `names` is a sequence of valid flag names (or an empty list)
-        if names == 'all':
-            names = known_flags
-        elif names == '':
-            names == []
-        elif isinstance(names, basestring):
-            names = names.split(',')
+        names = _selection_to_list(names, all=known_flags)
         # Create boolean list for desired flags
         selection = np.zeros(8, dtype=np.uint8)
         assert len(known_flags) == len(selection), \

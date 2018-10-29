@@ -16,10 +16,9 @@
 
 """Base class for accessing a visibility data set."""
 from __future__ import print_function, division, absolute_import
-
-from builtins import zip
+from builtins import zip, object
 from past.builtins import basestring
-from builtins import object
+
 import time
 import logging
 import numbers
@@ -119,6 +118,34 @@ def _robust_target(description):
     except ValueError:
         logger.warning("Invalid target description '%s' - replaced with dummy target" % (description,))
         return katpoint.Target('Nothing, special')
+
+
+def _selection_to_list(names, **groups):
+    """Normalise string of comma-separated names or sequence of names / objects.
+
+    Parameters
+    ----------
+    names : string / object or sequence of strings / objects
+        A string of comma-separated names or a sequence of names / objects
+    groups : dict, optional
+        Each extra keyword is the name of a predefined list of names / objects
+
+    Returns
+    -------
+    list : list of strings / objects
+        List of names / objects
+    """
+    if isinstance(names, basestring):
+        if not names:
+            return []
+        elif names in groups:
+            return list(groups[names])
+        else:
+            return [name.strip() for name in names.split(',')]
+    elif is_iterable(names):
+        return list(names)
+    else:
+        return [names]
 
 
 DEFAULT_SENSOR_PROPS = {
@@ -672,7 +699,7 @@ class DataSet(object):
                 self._time_keep &= (self.sensor.timestamps[:] >= start_time)
                 self._time_keep &= (self.sensor.timestamps[:] <= end_time)
             elif k in ('scans', 'compscans'):
-                scans = v if is_iterable(v) else [l.strip() for l in v.split(',')] if isinstance(v, basestring) else [v]
+                scans = _selection_to_list(v)
                 scan_keep = np.zeros(len(self._time_keep), dtype=np.bool)
                 scan_sensor = self.sensor.get('Observation/scan_state' if k == 'scans' else 'Observation/label')
                 scan_index_sensor = self.sensor.get('Observation/%s_index' % (k[:-1],))
@@ -735,16 +762,16 @@ class DataSet(object):
                         cp_keep[v] = True
                         self._corrprod_keep &= cp_keep
             elif k == 'ants':
-                ants = [a.strip() for a in v.split(',')] if isinstance(v, basestring) else v if is_iterable(v) else [v]
+                ants = _selection_to_list(v)
                 ant_names = [(ant.name if isinstance(ant, katpoint.Antenna) else ant) for ant in ants]
                 self._corrprod_keep &= [(inpA[:-1] in ant_names and inpB[:-1] in ant_names)
                                         for inpA, inpB in self.subarrays[self.subarray].corr_products]
             elif k == 'inputs':
-                inps = [i.strip() for i in v.split(',')] if isinstance(v, basestring) else v if is_iterable(v) else [v]
+                inps = _selection_to_list(v)
                 self._corrprod_keep &= [(inpA in inps and inpB in inps)
                                         for inpA, inpB in self.subarrays[self.subarray].corr_products]
             elif k == 'pol':
-                pols = [i.strip() for i in v.split(',')] if isinstance(v, basestring) else v if is_iterable(v) else [v]
+                pols = _selection_to_list(v)
                 # Lower case and strip out empty strings
                 pols = [i.lower() for i in pols if i]
 

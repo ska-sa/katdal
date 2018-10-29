@@ -16,12 +16,10 @@
 
 """Data accessor class for HDF5 files produced by RTS correlator."""
 from __future__ import print_function, division, absolute_import
-
 from future import standard_library
-standard_library.install_aliases()
-from builtins import zip
-from builtins import range
-from past.builtins import basestring
+standard_library.install_aliases()    # noqa: E402
+from builtins import zip, range
+
 import logging
 from collections import Counter
 
@@ -32,7 +30,7 @@ import katsdptelstate
 
 from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray,
                       DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
-                      _robust_target)
+                      _robust_target, _selection_to_list)
 from .spectral_window import SpectralWindow
 from .sensordata import (SensorCache, RecordSensorData,
                          H5TelstateSensorData, telstate_decode, to_str)
@@ -885,8 +883,7 @@ class H5DataV3(DataSet):
     def _weights_keep(self, names):
         known_weights = [row[0] for row in getattr(self, '_weights_description', [])]
         # Ensure a sequence of weight names
-        names = known_weights if names == 'all' else \
-            names.split(',') if isinstance(names, basestring) else names
+        names = _selection_to_list(names, all=known_weights)
         # Create index list for desired weights
         selection = []
         for name in names:
@@ -917,12 +914,7 @@ class H5DataV3(DataSet):
             return
         known_flags = [row[0] for row in self._flags_description]
         # Ensure `names` is a sequence of valid flag names (or an empty list)
-        if names == 'all':
-            names = known_flags
-        elif names == '':
-            names == []
-        elif isinstance(names, basestring):
-            names = names.split(',')
+        names = _selection_to_list(names, all=known_flags)
         # Create boolean list for desired flags
         selection = np.zeros(8, dtype=np.uint8)
         assert len(known_flags) == len(selection), \

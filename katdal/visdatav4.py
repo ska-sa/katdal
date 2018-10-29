@@ -16,18 +16,17 @@
 
 """Data accessor class for data and metadata from various sources in v4 format."""
 from __future__ import print_function, division, absolute_import
+from builtins import zip, range
 
-from builtins import zip
-from builtins import range
-from past.builtins import basestring
 import logging
 
 import numpy as np
 import katpoint
 import dask.array as da
 
-from .dataset import (DataSet, BrokenFile, Subarray, _robust_target,
-                      DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS)
+from .dataset import (DataSet, BrokenFile, Subarray, DEFAULT_SENSOR_PROPS,
+                      DEFAULT_VIRTUAL_SENSORS, _robust_target,
+                      _selection_to_list)
 from .spectral_window import SpectralWindow
 from .sensordata import SensorCache
 from .categorical import CategoricalData
@@ -303,9 +302,7 @@ class VisibilityDataV4(DataSet):
 
         freqs = self.spectral_windows[0].channel_freqs
         add_applycal_sensors(self.sensor, attrs, freqs)
-        if isinstance(applycal, basestring):
-            applycal = applycal.split(',')
-        self._applycal = applycal
+        self._applycal = _selection_to_list(applycal)
 
         # Apply default selection and initialise all members that depend
         # on selection in the process
@@ -322,12 +319,7 @@ class VisibilityDataV4(DataSet):
     @_flags_keep.setter
     def _flags_keep(self, names):
         # Ensure `names` is a sequence of valid flag names (or an empty list)
-        if names == 'all':
-            names = FLAG_NAMES
-        elif names == '':
-            names == []
-        elif isinstance(names, basestring):
-            names = names.split(',')
+        names = _selection_to_list(names, all=FLAG_NAMES)
         # Create boolean list for desired flags
         selection = np.zeros(8, dtype=np.uint8)
         assert len(FLAG_NAMES) == len(selection), \
