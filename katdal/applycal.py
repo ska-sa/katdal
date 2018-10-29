@@ -29,7 +29,10 @@ from .categorical import CategoricalData, ComparableArrayWrapper
 from .spectral_window import SpectralWindow
 
 
+# A constant indicating invalid / absent gain (typically due to flagged data)
 INVALID_GAIN = np.complex64(complex(np.nan, np.nan))
+# All the calibration products katdal knows about
+CAL_PRODUCTS = ('K', 'B', 'G')
 
 logger = logging.getLogger(__name__)
 

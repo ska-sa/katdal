@@ -33,7 +33,7 @@ from .categorical import CategoricalData
 from .lazy_indexer import DaskLazyIndexer
 from .applycal import (add_applycal_sensors, add_applycal_transform,
                        apply_vis_correction, apply_weights_correction,
-                       apply_flags_correction)
+                       apply_flags_correction, CAL_PRODUCTS)
 
 
 logger = logging.getLogger(__name__)
@@ -105,9 +105,10 @@ class VisibilityDataV4(DataSet):
     applycal : string or sequence of strings, optional
         List of names of calibration products to apply to vis/weights/flags,
         as a sequence or string of comma-separated names. An empty string or
-        sequence means no calibration will be applied (the default for now).
-        *NB* In future the default will probably change to the opposite case:
-        apply all calibrations to get an L1 product by default.
+        sequence means no calibration will be applied (the default for now),
+        while the keyword 'all' means all available products will be applied.
+        *NB* In future the default will probably change to 'all'.
+        *NB* This is still very much an experimental feature...
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
 
@@ -302,7 +303,7 @@ class VisibilityDataV4(DataSet):
 
         freqs = self.spectral_windows[0].channel_freqs
         add_applycal_sensors(self.sensor, attrs, freqs)
-        self._applycal = _selection_to_list(applycal)
+        self._applycal = _selection_to_list(applycal, all=CAL_PRODUCTS)
 
         # Apply default selection and initialise all members that depend
         # on selection in the process
