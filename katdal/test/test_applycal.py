@@ -70,8 +70,7 @@ CAL_PRODUCTS = ['K', 'B', 'G']
 
 ATTRS = {'cal_antlist': ANTS, 'cal_pol_ordering': POLS,
          'cal_center_freq': CAL_CENTRE_FREQ, 'cal_bandwidth': CAL_BANDWIDTH,
-         'cal_n_chans': CAL_N_CHANS, 'cal_product_B_parts': BANDPASS_PARTS,
-         'cal_product_G_parts': 1}
+         'cal_n_chans': CAL_N_CHANS, 'cal_product_B_parts': BANDPASS_PARTS}
 
 
 def create_delay(pol, ant):
@@ -114,7 +113,7 @@ def create_product(func):
     return np.moveaxis(values, 0, -1).reshape(rest + pol_ant)
 
 
-def create_sensor_cache():
+def create_sensor_cache(bandpass_parts=BANDPASS_PARTS):
     """Create a SensorCache for testing applycal sensors."""
     cache = {}
     # Add delay product (single)
@@ -123,13 +122,13 @@ def create_sensor_cache():
                                              events=[0, 10, N_DUMPS])
     # Add bandpass product (multi-part)
     bandpasses = create_product(create_bandpass)
-    for part, bp in enumerate(np.split(bandpasses, BANDPASS_PARTS)):
+    for part, bp in enumerate(np.split(bandpasses, bandpass_parts)):
         cache['cal_product_B' + str(part)] = CategoricalData(
             [np.ones_like(bp), bp], events=[0, 12, N_DUMPS])
     # Add gain product (single multi-part as a corner case)
     gains = create_product(create_gain)
     gains = [ComparableArrayWrapper(g) for g in gains]
-    cache['cal_product_G0'] = CategoricalData(gains, GAIN_EVENTS + [N_DUMPS])
+    cache['cal_product_G'] = CategoricalData(gains, GAIN_EVENTS + [N_DUMPS])
     # Construct sensor cache
     return SensorCache(cache, timestamps=np.arange(N_DUMPS, dtype=float),
                        dump_period=1.)
@@ -238,8 +237,8 @@ class TestComplexInterp(object):
         assert_allclose(y[-1], 1j, rtol=1e-14)
 
 
-class TestCorrectionPerInput(object):
-    """Test the :func:`~katdal.applycal.calc_*_correction` functions."""
+class TestGetCalProduct(object):
+    """Test the :func:`~katdal.applycal.get_cal_product` function."""
     def setup(self):
         self.cache = create_sensor_cache()
 
@@ -256,9 +255,24 @@ class TestCorrectionPerInput(object):
         assert_array_equal(product_sensor[12], product)
 
     def test_get_cal_product_single_multipart(self):
+        cache = create_sensor_cache(bandpass_parts=1)
+        attrs = ATTRS.copy()
+        attrs['cal_product_B_parts'] = 1
+        product_sensor = get_cal_product(cache, attrs, 'B')
+        product = create_product(create_bandpass)
+        assert_array_equal(product_sensor[0], np.ones_like(product))
+        assert_array_equal(product_sensor[12], product)
+
+    def test_get_cal_product_gain(self):
         product_sensor = get_cal_product(self.cache, ATTRS, 'G')
         product = create_product(create_gain)
         assert_array_equal(product_sensor[GAIN_EVENTS], product)
+
+
+class TestCorrectionPerInput(object):
+    """Test the :func:`~katdal.applycal.calc_*_correction` functions."""
+    def setup(self):
+        self.cache = create_sensor_cache()
 
     def test_calc_delay_correction(self):
         product_sensor = get_cal_product(self.cache, ATTRS, 'K')
