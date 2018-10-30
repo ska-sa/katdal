@@ -247,9 +247,13 @@ class TestCalProductAccess(object):
         assert_equal(has_cal_product(self.cache, ATTRS, 'B'), True)
         assert_equal(has_cal_product(self.cache, ATTRS, 'G'), True)
         assert_equal(has_cal_product(self.cache, ATTRS, 'haha'), False)
-        # Remove one part of multi-part cal product
-        self.cache.pop('cal_product_B0')
-        assert_equal(has_cal_product(self.cache, ATTRS, 'B'), False)
+        # Remove parts of multi-part cal product one by one
+        cache = create_sensor_cache()
+        for n in range(BANDPASS_PARTS):
+            assert_equal(has_cal_product(cache, ATTRS, 'B'), True)
+            del cache['cal_product_B' + str(n)]
+        # All parts of multi-part cal product gone
+        assert_equal(has_cal_product(cache, ATTRS, 'B'), False)
 
     def test_get_cal_product_basic(self):
         product_sensor = get_cal_product(self.cache, ATTRS, 'K')
@@ -271,6 +275,22 @@ class TestCalProductAccess(object):
         product = create_product(create_bandpass)
         assert_array_equal(product_sensor[0], np.ones_like(product))
         assert_array_equal(product_sensor[12], product)
+
+    def test_get_cal_product_missing_parts(self):
+        cache = create_sensor_cache()
+        product = create_product(create_bandpass)
+        n_chans_per_part = CAL_N_CHANS // BANDPASS_PARTS
+        # Remove parts of multi-part cal product one by one
+        for n in range(BANDPASS_PARTS - 1):
+            del cache['cal_product_B' + str(n)]
+            product_sensor = get_cal_product(cache, ATTRS, 'B')
+            part = slice(n * n_chans_per_part, (n + 1) * n_chans_per_part)
+            product[part] = INVALID_GAIN
+            assert_array_equal(product_sensor[12], product)
+        # All parts gone triggers a KeyError
+        del cache['cal_product_B' + str(BANDPASS_PARTS - 1)]
+        with assert_raises(KeyError):
+            get_cal_product(cache, ATTRS, 'B')
 
     def test_get_cal_product_gain(self):
         product_sensor = get_cal_product(self.cache, ATTRS, 'G')

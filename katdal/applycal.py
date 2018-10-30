@@ -97,7 +97,7 @@ def has_cal_product(cache, attrs, product):
     except KeyError:
         return key in cache
     else:
-        return all(key + str(part) in cache for part in range(parts))
+        return any(key + str(part) in cache for part in range(parts))
 
 
 def get_cal_product(cache, attrs, product):
@@ -114,21 +114,40 @@ def _get_cal_product(cache, attrs, product):
     """Extract calibration solution `product` from `cache` as a sensor."""
     key = 'cal_product_' + product
     try:
-        parts = int(attrs[key + '_parts'])
+        n_parts = int(attrs[key + '_parts'])
     except KeyError:
         return cache.get(key)
-    # Stitch together multi-part cal product
-    events = None
-    values = []
-    for part in range(parts):
-        sensor_part = cache.get(key + str(part))
-        if part == 0:
-            events = sensor_part.events
-        elif not np.array_equal(sensor_part.events, events):
-            raise ValueError("Cal product '{}' part {} does not align in time "
-                             "with the rest".format(product, part))
-        values.append([sensor_part[n] for n in events[:-1]])
-    values = np.concatenate(values, axis=1)
+    # Handle multi-part cal product (as produced by "split cal")
+    # First collect all the parts as sensors (and mark missing ones as None)
+    parts = []
+    valid_part = None
+    for n in range(n_parts):
+        try:
+            valid_part = cache.get(key + str(n))
+        except KeyError:
+            parts.append(None)
+        else:
+            parts.append(valid_part)
+    if valid_part is None:
+        raise KeyError("No cal product '{}' parts found (expected {})"
+                       .format(product, n_parts))
+    # Convert each part to its sensor values (filling missing ones with NaNs)
+    events = valid_part.events
+    invalid_part = None
+    for n in range(n_parts):
+        if parts[n] is None:
+            if invalid_part is None:
+                # This assumes that each part has the same array shape
+                invalid_part = [np.full_like(value, INVALID_GAIN)
+                                for segment, value in valid_part.segments()]
+            parts[n] = invalid_part
+        else:
+            if not np.array_equal(parts[n].events, events):
+                raise ValueError("Cal product '{}' part {} does not align in "
+                                 "time with the rest".format(product, n))
+            parts[n] = [value for segment, value in parts[n].segments()]
+    # Stitch all the value arrays together and form a new combined sensor
+    values = np.concatenate(parts, axis=1)
     values = [ComparableArrayWrapper(v) for v in values]
     return CategoricalData(values, events)
 
@@ -144,7 +163,7 @@ def calc_delay_correction(sensor, index, data_freqs):
     Invalid delays (NaNs) are replaced by zeros, since bandpass calibration
     still has a shot at fixing any residual delay.
     """
-    delays = [np.nan_to_num(sensor[n][index]) for n in sensor.events[:-1]]
+    delays = [np.nan_to_num(value[index]) for segm, value in sensor.segments()]
     # Delays returned by cal pipeline are already corrections (no minus needed)
     corrections = [np.exp(2j * np.pi * d * data_freqs).astype('complex64')
                    for d in delays]
@@ -165,8 +184,8 @@ def calc_bandpass_correction(sensor, index, data_freqs, cal_freqs):
     have valid solutions.
     """
     corrections = []
-    for n in sensor.events[:-1]:
-        bp = sensor[n][(slice(None),) + index]
+    for segment, value in sensor.segments():
+        bp = value[(slice(None),) + index]
         valid = np.isfinite(bp)
         if valid.any():
             # Don't extrapolate to edges of band where gain typically drops off
@@ -192,7 +211,7 @@ def calc_gain_correction(sensor, index):
     """
     dumps = np.arange(sensor.events[-1])
     events = sensor.events[:-1]
-    gains = np.array([sensor[n][index] for n in events])
+    gains = np.array([value[index] for segment, value in sensor.segments()])
     valid = np.isfinite(gains)
     if not valid.any():
         return CategoricalData([INVALID_GAIN], [0, len(dumps)])
