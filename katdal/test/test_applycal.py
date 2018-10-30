@@ -318,10 +318,15 @@ class TestVirtualCorrectionSensors(object):
         self.cache = create_sensor_cache()
         add_applycal_sensors(self.cache, ATTRS, FREQS)
 
-    def test_add_sensors_does_nothing_if_no_ants_or_pols(self):
+    def test_add_sensors_does_nothing_if_no_ants_pols_or_spw(self):
         cache = create_sensor_cache()
         n_virtuals_before = len(cache.virtual)
         add_applycal_sensors(cache, {}, [])
+        n_virtuals_after = len(cache.virtual)
+        assert_equal(n_virtuals_after, n_virtuals_before)
+        attrs = ATTRS.copy()
+        del attrs['cal_center_freq']
+        add_applycal_sensors(self.cache, attrs, FREQS)
         n_virtuals_after = len(cache.virtual)
         assert_equal(n_virtuals_after, n_virtuals_before)
 
