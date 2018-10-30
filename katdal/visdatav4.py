@@ -33,7 +33,7 @@ from .categorical import CategoricalData
 from .lazy_indexer import DaskLazyIndexer
 from .applycal import (add_applycal_sensors, add_applycal_transform,
                        apply_vis_correction, apply_weights_correction,
-                       apply_flags_correction, get_cal_product, CAL_PRODUCTS)
+                       apply_flags_correction, has_cal_product, CAL_PRODUCTS)
 
 
 logger = logging.getLogger(__name__)
@@ -303,14 +303,8 @@ class VisibilityDataV4(DataSet):
 
         freqs = self.spectral_windows[0].channel_freqs
         add_applycal_sensors(self.sensor, attrs, freqs)
-        available_products = []
-        for product in CAL_PRODUCTS:
-            try:
-                get_cal_product(self.sensor, attrs, product)
-            except KeyError:
-                pass
-            else:
-                available_products.append(product)
+        available_products = [product for product in CAL_PRODUCTS
+                              if has_cal_product(self.sensor, attrs, product)]
         self._applycal = _selection_to_list(applycal, all=available_products)
 
         # Apply default selection and initialise all members that depend

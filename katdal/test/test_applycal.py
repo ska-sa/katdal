@@ -28,11 +28,11 @@ from katdal.sensordata import SensorCache
 from katdal.categorical import ComparableArrayWrapper, CategoricalData
 from katdal.lazy_indexer import DaskLazyIndexer
 from katdal.applycal import (complex_interp, calc_correction_per_corrprod,
-                             get_cal_product, calc_delay_correction,
-                             calc_bandpass_correction, calc_gain_correction,
-                             add_applycal_sensors, add_applycal_transform,
-                             apply_vis_correction, apply_weights_correction,
-                             apply_flags_correction, INVALID_GAIN)
+                             has_cal_product, get_cal_product, INVALID_GAIN,
+                             calc_delay_correction, calc_bandpass_correction,
+                             calc_gain_correction, apply_vis_correction,
+                             apply_weights_correction, apply_flags_correction,
+                             add_applycal_sensors, add_applycal_transform)
 
 
 POLS = ['v', 'h']
@@ -237,10 +237,19 @@ class TestComplexInterp(object):
         assert_allclose(y[-1], 1j, rtol=1e-14)
 
 
-class TestGetCalProduct(object):
-    """Test the :func:`~katdal.applycal.get_cal_product` function."""
+class TestCalProductAccess(object):
+    """Test the :func:`~katdal.applycal.*_cal_product` functions."""
     def setup(self):
         self.cache = create_sensor_cache()
+
+    def test_has_cal_product(self):
+        assert_equal(has_cal_product(self.cache, ATTRS, 'K'), True)
+        assert_equal(has_cal_product(self.cache, ATTRS, 'B'), True)
+        assert_equal(has_cal_product(self.cache, ATTRS, 'G'), True)
+        assert_equal(has_cal_product(self.cache, ATTRS, 'haha'), False)
+        # Remove one part of multi-part cal product
+        self.cache.pop('cal_product_B0')
+        assert_equal(has_cal_product(self.cache, ATTRS, 'B'), False)
 
     def test_get_cal_product_basic(self):
         product_sensor = get_cal_product(self.cache, ATTRS, 'K')

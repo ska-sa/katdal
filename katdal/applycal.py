@@ -87,6 +87,17 @@ def complex_interp(x, xi, yi, left=None, right=None):
     return y.astype(yi.dtype)
 
 
+def has_cal_product(cache, attrs, product):
+    """Check if calibration solution `product` is available in `cache`."""
+    key = 'cal_product_' + product
+    try:
+        parts = int(attrs[key + '_parts'])
+    except KeyError:
+        return key in cache
+    else:
+        return all(key + str(part) in cache for part in range(parts))
+
+
 def get_cal_product(cache, attrs, product):
     """Extract calibration solution `product` from `cache` as a sensor.
 
