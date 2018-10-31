@@ -21,7 +21,6 @@ from builtins import range, zip
 from functools import partial
 import copy
 import logging
-import threading
 
 import numpy as np
 import dask.array as da
@@ -36,7 +35,6 @@ INVALID_GAIN = np.complex64(complex(np.nan, np.nan))
 CAL_PRODUCTS = ('K', 'B', 'G')
 
 logger = logging.getLogger(__name__)
-cal_product_lock = threading.Lock()
 
 
 def complex_interp(x, xi, yi, left=None, right=None):
@@ -106,12 +104,6 @@ def get_cal_product(cache, attrs, product):
     This takes care of stitching together multiple parts of the product
     if this is indicated in the `attrs` dict.
     """
-    with cal_product_lock:
-        return _get_cal_product(cache, attrs, product)
-
-
-def _get_cal_product(cache, attrs, product):
-    """Extract calibration solution `product` from `cache` as a sensor."""
     key = 'cal_product_' + product
     try:
         n_parts = int(attrs[key + '_parts'])
