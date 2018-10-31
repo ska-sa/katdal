@@ -28,10 +28,11 @@ from katdal.sensordata import SensorCache
 from katdal.categorical import ComparableArrayWrapper, CategoricalData
 from katdal.lazy_indexer import DaskLazyIndexer
 from katdal.applycal import (complex_interp, calc_correction_per_corrprod,
-                             get_cal_product, calc_delay_correction,
-                             calc_bandpass_correction, calc_gain_correction,
-                             add_applycal_sensors, add_applycal_transform,
-                             apply_vis_correction, INVALID_GAIN)
+                             has_cal_product, get_cal_product, INVALID_GAIN,
+                             calc_delay_correction, calc_bandpass_correction,
+                             calc_gain_correction, apply_vis_correction,
+                             apply_weights_correction, apply_flags_correction,
+                             add_applycal_sensors, add_applycal_transform)
 
 
 POLS = ['v', 'h']
@@ -64,7 +65,7 @@ BAD_CHANNELS[50] = True
 BANDPASS_PARTS = 4
 GAIN_EVENTS = list(range(0, N_DUMPS, 10))
 BAD_GAIN_ANT = 3
-BAD_DUMPS = [20, 40]
+BAD_GAIN_DUMPS = [20, 40]
 CAL_PRODUCTS = ['K', 'B', 'G']
 
 ATTRS = {'cal_antlist': ANTS, 'cal_pol_ordering': POLS,
@@ -95,7 +96,7 @@ def create_gain(pol, ant):
     gains *= (-1) ** pol * (1 + ant) * np.exp(2j * np.pi * events / 100.)
     if ant == BAD_GAIN_ANT:
         gains[:] = INVALID_GAIN
-    bad_events = [GAIN_EVENTS.index(dump) for dump in BAD_DUMPS]
+    bad_events = [GAIN_EVENTS.index(dump) for dump in BAD_GAIN_DUMPS]
     gains[bad_events] = INVALID_GAIN
     return gains
 
@@ -112,19 +113,19 @@ def create_product(func):
     return np.moveaxis(values, 0, -1).reshape(rest + pol_ant)
 
 
-def create_sensor_cache():
+def create_sensor_cache(bandpass_parts=BANDPASS_PARTS):
     """Create a SensorCache for testing applycal sensors."""
     cache = {}
-    # Add delay product
+    # Add delay product (single)
     delays = create_product(create_delay)
     cache['cal_product_K'] = CategoricalData([np.zeros_like(delays), delays],
                                              events=[0, 10, N_DUMPS])
     # Add bandpass product (multi-part)
     bandpasses = create_product(create_bandpass)
-    for part, bp in enumerate(np.split(bandpasses, BANDPASS_PARTS)):
+    for part, bp in enumerate(np.split(bandpasses, bandpass_parts)):
         cache['cal_product_B' + str(part)] = CategoricalData(
             [np.ones_like(bp), bp], events=[0, 12, N_DUMPS])
-    # Add gain product
+    # Add gain product (single multi-part as a corner case)
     gains = create_product(create_gain)
     gains = [ComparableArrayWrapper(g) for g in gains]
     cache['cal_product_G'] = CategoricalData(gains, GAIN_EVENTS + [N_DUMPS])
@@ -165,7 +166,7 @@ def gain_corrections(pol, ant):
     return np.reciprocal(gains)
 
 
-def gains_per_corrprod(dumps, channels, corrprods=()):
+def corrections_per_corrprod(dumps, channels, corrprods=()):
     """Predict corrprod correction for a time-frequency-baseline selection."""
     input_map = {ant + pol: (pol_idx, ant_idx)
                  for (pol_idx, pol) in enumerate(POLS)
@@ -236,10 +237,23 @@ class TestComplexInterp(object):
         assert_allclose(y[-1], 1j, rtol=1e-14)
 
 
-class TestCorrectionPerInput(object):
-    """Test the :func:`~katdal.applycal.calc_*_correction` functions."""
+class TestCalProductAccess(object):
+    """Test the :func:`~katdal.applycal.*_cal_product` functions."""
     def setup(self):
         self.cache = create_sensor_cache()
+
+    def test_has_cal_product(self):
+        assert_equal(has_cal_product(self.cache, ATTRS, 'K'), True)
+        assert_equal(has_cal_product(self.cache, ATTRS, 'B'), True)
+        assert_equal(has_cal_product(self.cache, ATTRS, 'G'), True)
+        assert_equal(has_cal_product(self.cache, ATTRS, 'haha'), False)
+        # Remove parts of multi-part cal product one by one
+        cache = create_sensor_cache()
+        for n in range(BANDPASS_PARTS):
+            assert_equal(has_cal_product(cache, ATTRS, 'B'), True)
+            del cache['cal_product_B' + str(n)]
+        # All parts of multi-part cal product gone
+        assert_equal(has_cal_product(cache, ATTRS, 'B'), False)
 
     def test_get_cal_product_basic(self):
         product_sensor = get_cal_product(self.cache, ATTRS, 'K')
@@ -252,6 +266,42 @@ class TestCorrectionPerInput(object):
         product = create_product(create_bandpass)
         assert_array_equal(product_sensor[0], np.ones_like(product))
         assert_array_equal(product_sensor[12], product)
+
+    def test_get_cal_product_single_multipart(self):
+        cache = create_sensor_cache(bandpass_parts=1)
+        attrs = ATTRS.copy()
+        attrs['cal_product_B_parts'] = 1
+        product_sensor = get_cal_product(cache, attrs, 'B')
+        product = create_product(create_bandpass)
+        assert_array_equal(product_sensor[0], np.ones_like(product))
+        assert_array_equal(product_sensor[12], product)
+
+    def test_get_cal_product_missing_parts(self):
+        cache = create_sensor_cache()
+        product = create_product(create_bandpass)
+        n_chans_per_part = CAL_N_CHANS // BANDPASS_PARTS
+        # Remove parts of multi-part cal product one by one
+        for n in range(BANDPASS_PARTS - 1):
+            del cache['cal_product_B' + str(n)]
+            product_sensor = get_cal_product(cache, ATTRS, 'B')
+            part = slice(n * n_chans_per_part, (n + 1) * n_chans_per_part)
+            product[part] = INVALID_GAIN
+            assert_array_equal(product_sensor[12], product)
+        # All parts gone triggers a KeyError
+        del cache['cal_product_B' + str(BANDPASS_PARTS - 1)]
+        with assert_raises(KeyError):
+            get_cal_product(cache, ATTRS, 'B')
+
+    def test_get_cal_product_gain(self):
+        product_sensor = get_cal_product(self.cache, ATTRS, 'G')
+        product = create_product(create_gain)
+        assert_array_equal(product_sensor[GAIN_EVENTS], product)
+
+
+class TestCorrectionPerInput(object):
+    """Test the :func:`~katdal.applycal.calc_*_correction` functions."""
+    def setup(self):
+        self.cache = create_sensor_cache()
 
     def test_calc_delay_correction(self):
         product_sensor = get_cal_product(self.cache, ATTRS, 'K')
@@ -288,10 +338,15 @@ class TestVirtualCorrectionSensors(object):
         self.cache = create_sensor_cache()
         add_applycal_sensors(self.cache, ATTRS, FREQS)
 
-    def test_add_sensors_does_nothing_if_no_ants_or_pols(self):
+    def test_add_sensors_does_nothing_if_no_ants_pols_or_spw(self):
         cache = create_sensor_cache()
         n_virtuals_before = len(cache.virtual)
         add_applycal_sensors(cache, {}, [])
+        n_virtuals_after = len(cache.virtual)
+        assert_equal(n_virtuals_after, n_virtuals_before)
+        attrs = ATTRS.copy()
+        del attrs['cal_center_freq']
+        add_applycal_sensors(self.cache, attrs, FREQS)
         n_virtuals_after = len(cache.virtual)
         assert_equal(n_virtuals_after, n_virtuals_before)
 
@@ -335,11 +390,11 @@ class TestCorrectionPerCorrprod(object):
     def test_correction_per_corrprod(self):
         dump = 15
         channels = list(range(22, 38))
-        gains = calc_correction_per_corrprod(dump, channels, self.cache,
-                                             INPUTS, INDEX1, INDEX2,
-                                             CAL_PRODUCTS)[np.newaxis]
-        expected_gains = gains_per_corrprod([dump], channels)
-        assert_array_equal(gains, expected_gains)
+        corrections = calc_correction_per_corrprod(dump, channels, self.cache,
+                                                   INPUTS, INDEX1, INDEX2,
+                                                   CAL_PRODUCTS)[np.newaxis]
+        expected_corrections = corrections_per_corrprod([dump], channels)
+        assert_array_equal(corrections, expected_corrections)
 
 
 class TestApplyCal(object):
@@ -358,30 +413,57 @@ class TestApplyCal(object):
                 corrprod_keep[INDEX1 == n] = False
                 corrprod_keep[INDEX2 == n] = False
         self.stage1 = (time_keep, freq_keep, corrprod_keep)
+        # Apply stage 2 selection on top of stage 1
+        self.stage2 = np.s_[5:7, 2:5, :]
         # List of selected correlation products
         self.corrprods = [cp for n, cp in enumerate(CORRPRODS)
                           if corrprod_keep[n]]
+
+    def _applycal(self, array, apply_correction):
+        """Calibrate `array` with `apply_correction` and return all factors."""
+        array_dask = da.from_array(array, chunks=(10, 4, 6))
+        indexer = DaskLazyIndexer(array_dask, self.stage1)
+        add_applycal_transform(indexer, self.cache, self.corrprods,
+                               CAL_PRODUCTS, apply_correction)
+        calibrated_array = indexer[self.stage2]
+        stage1_indices = tuple(k.nonzero()[0] for k in self.stage1)
+        final_indices = tuple(i[s] for s, i in zip(self.stage2,
+                                                   stage1_indices))
+        # Quick & dirty oindex of array (yet another way doing axes in reverse)
+        selected_array = array
+        dims = reversed(range(array.ndim))
+        for dim, indices in zip(dims, reversed(final_indices)):
+            selected_array = np.take(selected_array, indices, axis=dim)
+        # Determine the corrections that would apply to selection
+        corrections = corrections_per_corrprod(*final_indices)
+        return calibrated_array, selected_array, corrections
 
     def test_applycal_vis(self):
         vis_real = np.random.randn(N_DUMPS, N_CHANS, N_CORRPRODS)
         vis_imag = np.random.randn(N_DUMPS, N_CHANS, N_CORRPRODS)
         vis = np.asarray(vis_real + 1j * vis_imag, dtype='complex64')
-        vis_dask = da.from_array(vis, chunks=(10, 4, 6))
-        indexer = DaskLazyIndexer(vis_dask, self.stage1)
-        add_applycal_transform(indexer, self.cache, self.corrprods,
-                               CAL_PRODUCTS, apply_vis_correction)
-        # Apply stage 2 selection on top of stage 1
-        stage2 = np.s_[5:7, 2:5, :]
-        stage1_indices = tuple(k.nonzero()[0] for k in self.stage1)
-        final_indices = tuple(i[s] for s, i in zip(stage2, stage1_indices))
-        gains = gains_per_corrprod(*final_indices)
+        calibrated_vis, expected_vis, corrections = self._applycal(
+            vis, apply_vis_correction)
         # Leave visibilities alone where gains are NaN
-        gains[np.isnan(gains)] = 1.0
-        # Quick and dirty oindex of vis (yet another way doing axes in reverse)
-        selected_vis = vis
-        dims = reversed(range(vis.ndim))
-        for dim, indices in zip(dims, reversed(final_indices)):
-            selected_vis = np.take(selected_vis, indices, axis=dim)
-        expected_vis = selected_vis * gains
-        calibrated_vis = indexer[stage2]
+        corrections[np.isnan(corrections)] = 1.0
+        expected_vis *= corrections
         assert_array_equal(calibrated_vis, expected_vis)
+
+    def test_applycal_weights(self):
+        weights = np.random.rand(N_DUMPS, N_CHANS,
+                                 N_CORRPRODS).astype('float32')
+        calibrated_weights, expected_weights, corrections = self._applycal(
+             weights, apply_weights_correction)
+        # Zero the weights where the gains are non-finite
+        corrections2 = corrections.real ** 2 + corrections.imag ** 2
+        corrections2[np.isnan(corrections2)] = np.inf
+        corrections2[corrections2 == 0] = np.inf
+        expected_weights /= corrections2
+        assert_array_equal(calibrated_weights, expected_weights)
+
+    def test_applycal_flags(self):
+        flags = np.random.rand(N_DUMPS, N_CHANS, N_CORRPRODS) > 0.5
+        calibrated_flags, expected_flags, corrections = self._applycal(
+             flags, apply_flags_correction)
+        expected_flags[np.isnan(corrections)] = True
+        assert_array_equal(calibrated_flags, expected_flags)
