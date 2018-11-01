@@ -1,4 +1,4 @@
-botocore==1.10.78
+botocore
 certifi
 chardet
 dask
@@ -6,7 +6,7 @@ defusedxml
 docutils
 enum34
 funcsigs
-jmespath==0.9.3
+jmespath
 fakeredis
 future
 h5py
@@ -14,6 +14,7 @@ idna
 ipaddress
 katversion
 llvmlite
+msgpack
 netifaces
 numba
 numpy
