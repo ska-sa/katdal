@@ -98,8 +98,11 @@ class VisibilityDataV4(DataSet):
     source : :class:`DataSource` object
         Correlator data (visibilities, flags and weights) and metadata
     ref_ant : string, optional
-        Name of reference antenna, used to partition data set into scans
-        (default is first antenna in use)
+        Name of reference antenna, used to partition data set into scans,
+        to determine the targets and as antenna for the data set catalogue
+        (no relation to the *calibration* reference antenna...). The default
+        is to use the observation activity sensor for scan partitioning,
+        the CBF target and the array reference position as catalogue antenna.
     time_offset : float, optional
         Offset to add to all correlator timestamps, in seconds
     applycal : string or sequence of strings, optional
@@ -188,7 +191,6 @@ class VisibilityDataV4(DataSet):
         obs_ants = self.obs_params.get('ants')
         # Otherwise fall back to the list of antennas common to CAM and SDP / CBF
         obs_ants = obs_ants.split(',') if obs_ants else sorted(cam_ants & sdp_ants)
-        self.ref_ant = obs_ants[0] if not ref_ant else ref_ant
 
         self.subarrays = subs = [Subarray(ants, corrprods)]
         self.sensor['Observation/subarray'] = CategoricalData(subs, all_dumps)
@@ -236,9 +238,9 @@ class VisibilityDataV4(DataSet):
 
         # ------ Extract scans / compound scans / targets ------
 
-        # Use the activity sensor of reference antenna to partition the data
-        # set into scans (and to set their states)
-        scan = self.sensor.get(self.ref_ant + '_activity')
+        # Use the relevant activity sensor to partition the data set into scans
+        ref_activity = self.ref_ant or 'obs'
+        scan = self.sensor.get(ref_activity + '_activity')
         # If the antenna starts slewing on the second dump, incorporate the
         # first dump into the slew too. This scenario typically occurs when the
         # first target is only set after the first dump is received.
@@ -277,24 +279,42 @@ class VisibilityDataV4(DataSet):
         self.sensor['Observation/label'] = label
         self.sensor['Observation/compscan_index'] = CategoricalData(list(range(len(label))),
                                                                     label.events)
-        # Use the target sensor of reference antenna to set target for each scan
-        target = self.sensor.get(self.ref_ant + '_target')
-        # Remove initial blank target (typically because antenna starts stopped)
-        if len(target) > 1 and target[0] == 'Nothing, special':
-            target.events, target.indices = target.events[1:], target.indices[1:]
-            target.events[0] = 0
+        # Use the relevant target sensor to set target for each scan
+        ref_target = self.ref_ant or 'cbf'
+        target = self.sensor.get(ref_target + '_target')
         # Move target events onto the nearest scan start
         # ASSUMPTION: Number of targets <= number of scans
         # (i.e. only a single target allowed per scan)
         target.align(scan.events)
+        # Remove initial target if antennas start in mode STOP
+        # (typically left over from previous capture block)
+        for segment, scan_state in scan.segments():
+            # Keep going until first non-STOP scan or a new target is set
+            if scan_state == 'stop' and target[segment.start] is target[0]:
+                continue
+            # Only remove initial target event if we move to a different target
+            if target[segment.start] is not target[0]:
+                target.events = target.events[1:]
+                target.indices = target.indices[1:]
+                target.events[0] = 0
+                target.align(target.events)
+            break
         self.sensor['Observation/target'] = target
         self.sensor['Observation/target_index'] = CategoricalData(target.indices,
                                                                   target.events)
-        # Set up catalogue containing all targets in file, with reference
-        # antenna as default antenna
+        # Set up catalogue containing all targets in file
         self.catalogue.add(target.unique_values)
-        ref_sensor = 'Antennas/%s/antenna' % (self.ref_ant,)
-        self.catalogue.antenna = self.sensor.get(ref_sensor)[0]
+        if self.ref_ant in cam_ants:
+            # If provided, use reference antenna as default antenna
+            cat_ant = [ant for ant in ants if ant.name == self.ref_ant][0]
+        else:
+            # Extract array reference as an antenna object for the catalogue
+            cat_ant = katpoint.Antenna(ants[0].description)
+            cat_ant.name = 'array'
+            cat_ant.delay_model.set(None)
+            cat_ant.pointing_model.set(None)
+            cat_ant = katpoint.Antenna(cat_ant.description)
+        self.catalogue.antenna = cat_ant
         # Ensure that each target flux model spans all frequencies
         # in data set if possible
         self._fix_flux_freq_range()
