@@ -337,8 +337,9 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
     filenames = [filename] if isinstance(filename, basestring) else filename
     datasets = []
     for f in filenames:
-        # V4 RDB file with optional URL-style query string
-        if urllib.parse.urlsplit(f).path.endswith('.rdb'):
+        # V4 RDB file or live telstate with optional URL-style query string
+        parsed = urllib.parse.urlsplit(f)
+        if parsed.path.endswith('.rdb') or parsed.scheme != '':
             dataset = VisibilityDataV4(open_data_source(f, **kwargs),
                                        ref_ant, time_offset, **kwargs)
         else:
