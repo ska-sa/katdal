@@ -191,6 +191,9 @@ class VisibilityDataV4(DataSet):
         obs_ants = self.obs_params.get('ants')
         # Otherwise fall back to the list of antennas common to CAM and SDP / CBF
         obs_ants = obs_ants.split(',') if obs_ants else sorted(cam_ants & sdp_ants)
+        if self.ref_ant and self.ref_ant not in cam_ants:
+            raise KeyError("Unknown ref_ant '{}', should be one of {}"
+                           .format(self.ref_ant, cam_ants))
 
         self.subarrays = subs = [Subarray(ants, corrprods)]
         self.sensor['Observation/subarray'] = CategoricalData(subs, all_dumps)
@@ -286,6 +289,9 @@ class VisibilityDataV4(DataSet):
         # ASSUMPTION: Number of targets <= number of scans
         # (i.e. only a single target allowed per scan)
         target.align(scan.events)
+        # Remove repeats introduced by scan alignment (e.g. when sequence of
+        # targets [A, B, A] becomes [A, A] if B and second A are in same scan)
+        target.remove_repeats()
         # Remove initial target if antennas start in mode STOP
         # (typically left over from previous capture block)
         for segment, scan_state in scan.segments():
@@ -294,9 +300,11 @@ class VisibilityDataV4(DataSet):
                 continue
             # Only remove initial target event if we move to a different target
             if target[segment.start] is not target[0]:
+                # Only lose 1 event because target sensor doesn't allow repeats
                 target.events = target.events[1:]
                 target.indices = target.indices[1:]
                 target.events[0] = 0
+                # Remove initial target from target.unique_values if not used
                 target.align(target.events)
             break
         self.sensor['Observation/target'] = target
@@ -304,16 +312,18 @@ class VisibilityDataV4(DataSet):
                                                                   target.events)
         # Set up catalogue containing all targets in file
         self.catalogue.add(target.unique_values)
-        if self.ref_ant in cam_ants:
+        if self.ref_ant:
             # If provided, use reference antenna as default antenna
-            cat_ant = [ant for ant in ants if ant.name == self.ref_ant][0]
+            cat_ant = {ant.name: ant for ant in ants}[self.ref_ant]
         else:
             # Extract array reference as an antenna object for the catalogue
-            cat_ant = katpoint.Antenna(ants[0].description)
+            cat_ant = katpoint.Antenna(ants[0])
+            # Modify a copy of the first antenna in-place (don't trash ants[0])
             cat_ant.name = 'array'
             cat_ant.delay_model.set(None)
             cat_ant.pointing_model.set(None)
-            cat_ant = katpoint.Antenna(cat_ant.description)
+            # Reconstitute the Antenna object to ensure internal consistency
+            cat_ant = katpoint.Antenna(cat_ant)
         self.catalogue.antenna = cat_ant
         # Ensure that each target flux model spans all frequencies
         # in data set if possible
