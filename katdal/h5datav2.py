@@ -62,6 +62,7 @@ def _calc_azel(cache, name, ant):
     cache[name] = sensor_data = katpoint.deg2rad(cache.get(real_sensor))
     return sensor_data
 
+
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel, 'Antennas/{ant}/el': _calc_azel})
 
@@ -243,8 +244,8 @@ class H5DataV2(DataSet):
         self._flags = markup_group['flags'] if 'flags' in markup_group else \
             dummy_dataset('dummy_flags', shape=self._vis.shape[:-1], dtype=np.uint8, value=0)
         # Obtain flag descriptions from file or recreate default flag description table
-        self._flags_description = to_str(markup_group['flags_description'][:]) if 'flags_description' in markup_group else \
-            np.array(list(zip(FLAG_NAMES, FLAG_DESCRIPTIONS)))
+        self._flags_description = to_str(markup_group['flags_description'][:]) \
+            if 'flags_description' in markup_group else np.array(list(zip(FLAG_NAMES, FLAG_DESCRIPTIONS)))
         self._flags_select = np.array([0], dtype=np.uint8)
         self._flags_keep = 'all'
 
@@ -254,8 +255,8 @@ class H5DataV2(DataSet):
         self._weights = markup_group['weights'] if 'weights' in markup_group else \
             dummy_dataset('dummy_weights', shape=self._vis.shape[:-1], dtype=np.float32, value=1.0)
         # Obtain weight descriptions from file or recreate default weight description table
-        self._weights_description = to_str(markup_group['weights_description'][:]) if 'weights_description' in markup_group else \
-            np.array(list(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS)))
+        self._weights_description = to_str(markup_group['weights_description'][:]) \
+            if 'weights_description' in markup_group else np.array(list(zip(WEIGHT_NAMES, WEIGHT_DESCRIPTIONS)))
         self._weights_select = []
         self._weights_keep = 'all'
 

@@ -1015,11 +1015,13 @@ class H5DataV3(DataSet):
         """
         if self.spectral_windows[self.spw].sideband == 1:
             # Discard the 4th / last dimension as this is subsumed in complex view
-            convert = lambda vis, keep: vis.view(np.complex64)[..., 0]
+            def convert(vis, keep):
+                return vis.view(np.complex64)[..., 0]
         else:
             # Lower side-band has the conjugate visibilities, and this isn't
             # corrected in the correlator.
-            convert = lambda vis, keep: vis.view(np.complex64)[..., 0].conjugate()
+            def convert(vis, keep):
+                return vis.view(np.complex64)[..., 0].conjugate()
         extract = LazyTransform('extract_vis',
                                 convert,
                                 lambda shape: shape[:-1], np.complex64)

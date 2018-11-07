@@ -254,6 +254,7 @@ class _NoConfigFilter(_logging.Filter):
     def filter(self, record):
         return 1 if not _logging.root.handlers else 0
 
+
 _no_config_handler = _logging.StreamHandler()
 _no_config_handler.setFormatter(_logging.Formatter(_logging.BASIC_FORMAT))
 _no_config_handler.addFilter(_NoConfigFilter())

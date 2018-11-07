@@ -231,7 +231,7 @@ class VisibilityDataV4(DataSet):
             centre_freq = 0.0
         product = attrs.get('sub_product', '')
         sideband = 1
-        band_map = dict(l='L', s='S', u='UHF', x='X')
+        band_map = dict(l='L', s='S', u='UHF', x='X')   # noqa: E741
         spw_params = (centre_freq, channel_width, num_chans, product, sideband,
                       band_map[band])
         # We only expect a single spectral window within a single v4 data set

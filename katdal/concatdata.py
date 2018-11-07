@@ -126,7 +126,10 @@ class ConcatenatedLazyIndexer(LazyIndexer):
         shape_tails = [len(np.atleast_1d(np.arange(dim_len)[dim_keep]))
                        for dim_keep, dim_len in zip(keep[1:], self._initial_shape[1:])]
         indexer_starts = np.cumsum([0] + [len(indexer) for indexer in self.indexers[:-1]])
-        find_indexer = lambda index: indexer_starts.searchsorted(index, side='right') - 1
+
+        def find_indexer(index):
+            return indexer_starts.searchsorted(index, side='right') - 1
+
         # Interpret selection on first dimension, along which data will be concatenated
         if np.isscalar(keep_head):
             # If selection is a scalar, pass directly to appropriate indexer (after removing offset)

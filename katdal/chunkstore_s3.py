@@ -22,7 +22,7 @@ code to provide HTTP authentication.
 from __future__ import print_function, division, absolute_import
 
 from future import standard_library
-standard_library.install_aliases()
+standard_library.install_aliases()  # noqa: E402
 import future.utils
 from builtins import object
 from future.utils import raise_, bytes_to_native_str

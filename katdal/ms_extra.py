@@ -39,7 +39,7 @@ try:
     import casac
     tb = casac.homefinder.find_home_by_name('tableHome').create()
     casacore_binding = 'casapy'
-except:
+except Exception:
     try:
         # Otherwise fall back to pyrap
         from pyrap import tables
@@ -59,7 +59,7 @@ except:
                               "but the current version is %s. "
                               "Note that python-casacore %s "
                               "requires at least casacore 2.3.0."
-                                      % (req_ver, pyc_ver, req_ver))
+                              % (req_ver, pyc_ver, req_ver))
 
 
 def std_scalar(comment, valueType='integer', option=0, **kwargs):
@@ -93,15 +93,17 @@ def define_hypercolumn(desc):
                                           dict(HCdatanames=[k], HCndim=v['ndim'] + 1))
                                          for k, v in desc.items() if v['dataManagerType'] == 'TiledShapeStMan'])
 
+
 # Map Measurement Set string types to numpy types
 MS_TO_NP_TYPE_MAP = {
-    'INT' : np.int32,
-    'FLOAT' : np.float32,
-    'DOUBLE' : np.float64,
-    'BOOLEAN' : np.bool,
-    'COMPLEX' : np.complex64,
-    'DCOMPLEX' : np.complex128
+    'INT': np.int32,
+    'FLOAT': np.float32,
+    'DOUBLE': np.float64,
+    'BOOLEAN': np.bool,
+    'COMPLEX': np.complex64,
+    'DCOMPLEX': np.complex128
 }
+
 
 def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
     """
@@ -125,20 +127,19 @@ def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
 
     if not casacore_binding == 'pyrap':
         raise ValueError("kat_ms_desc_and_dminfo requires the "
-                        "casacore binding to operate")
+                         "casacore binding to operate")
 
     # Columns that will be modified.
     # We want to keep things like their
     # keywords, dims and shapes
-    modify_columns = { "WEIGHT", "SIGMA", "FLAG", "FLAG_CATEGORY",
-                                    "UVW", "ANTENNA1", "ANTENNA2" }
+    modify_columns = {"WEIGHT", "SIGMA", "FLAG", "FLAG_CATEGORY",
+                      "UVW", "ANTENNA1", "ANTENNA2"}
 
     # Get the required table descriptor for an MS
     table_desc = tables.required_ms_desc("MAIN")
 
     # Take columns we wish to modify
-    extra_table_desc = { c: d for c, d in table_desc.items()
-                                        if c in modify_columns }
+    extra_table_desc = {c: d for c, d in table_desc.items() if c in modify_columns}
 
     # Used to set the SPEC for each Data Manager Group
     dmgroup_spec = {}
@@ -168,102 +169,88 @@ def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
         while np.product(rev_shape + [2*ntilerows])*nbytes < tile_mem_limit:
             ntilerows *= 2
 
-        return { "DEFAULTTILESHAPE" : np.int32(rev_shape + [ntilerows]) }
+        return {"DEFAULTTILESHAPE": np.int32(rev_shape + [ntilerows])}
 
     # Update existing columns with shape and data manager information
     dm_group = 'UVW'
     shape = [3]
-    extra_table_desc["UVW"].update(options=0,
-        shape=shape, ndim=len(shape),
-        dataManagerGroup=dm_group,
-        dataManagerType='TiledColumnStMan')
+    extra_table_desc["UVW"].update(options=0, shape=shape, ndim=len(shape),
+                                   dataManagerGroup=dm_group,
+                                   dataManagerType='TiledColumnStMan')
     dmgroup_spec[dm_group] = dmspec(extra_table_desc["UVW"])
 
     dm_group = 'Weight'
     shape = [ncorr]
-    extra_table_desc["WEIGHT"].update(options=4,
-        shape=shape, ndim=len(shape),
-        dataManagerGroup=dm_group,
-        dataManagerType='TiledColumnStMan')
+    extra_table_desc["WEIGHT"].update(options=4, shape=shape, ndim=len(shape),
+                                      dataManagerGroup=dm_group,
+                                      dataManagerType='TiledColumnStMan')
     dmgroup_spec[dm_group] = dmspec(extra_table_desc["WEIGHT"])
 
     dm_group = 'Sigma'
     shape = [ncorr]
-    extra_table_desc["SIGMA"].update(options=4,
-        shape=shape, ndim=len(shape),
-        dataManagerGroup=dm_group,
-        dataManagerType='TiledColumnStMan')
+    extra_table_desc["SIGMA"].update(options=4, shape=shape, ndim=len(shape),
+                                     dataManagerGroup=dm_group,
+                                     dataManagerType='TiledColumnStMan')
     dmgroup_spec[dm_group] = dmspec(extra_table_desc["SIGMA"])
 
-
     dm_group = 'Flag'
-    shape=[nchan, ncorr]
-    extra_table_desc["FLAG"].update(options=4,
-        shape=shape, ndim=len(shape),
-        dataManagerGroup=dm_group,
-        dataManagerType='TiledColumnStMan')
+    shape = [nchan, ncorr]
+    extra_table_desc["FLAG"].update(options=4, shape=shape, ndim=len(shape),
+                                    dataManagerGroup=dm_group,
+                                    dataManagerType='TiledColumnStMan')
     dmgroup_spec[dm_group] = dmspec(extra_table_desc["FLAG"])
-
 
     dm_group = 'FlagCategory'
     shape = [1, nchan, ncorr]
-    extra_table_desc["FLAG_CATEGORY"].update(options=4,
-        keywords={},
-        shape=shape, ndim=len(shape),
-        dataManagerGroup=dm_group,
-        dataManagerType='TiledColumnStMan')
+    extra_table_desc["FLAG_CATEGORY"].update(options=4, keywords={},
+                                             shape=shape, ndim=len(shape),
+                                             dataManagerGroup=dm_group,
+                                             dataManagerType='TiledColumnStMan')
     dmgroup_spec[dm_group] = dmspec(extra_table_desc["FLAG_CATEGORY"])
-
 
     # Create new columns for integration into the MS
     additional_columns = []
 
     dm_group = 'Data'
     shape = [nchan, ncorr]
-    desc = tables.tablecreatearraycoldesc("DATA", 0+0j,
-            comment="The Visibility DATA Column",
-            options=4, valuetype='complex',
-            keywords={ "UNIT": "Jy" },
-            shape=shape, ndim=len(shape),
-            datamanagergroup=dm_group,
-            datamanagertype='TiledColumnStMan')
+    desc = tables.tablecreatearraycoldesc(
+        "DATA", 0+0j, comment="The Visibility DATA Column",
+        options=4, valuetype='complex', keywords={"UNIT": "Jy"},
+        shape=shape, ndim=len(shape), datamanagergroup=dm_group,
+        datamanagertype='TiledColumnStMan')
     dmgroup_spec[dm_group] = dmspec(desc["desc"])
     additional_columns.append(desc)
 
     dm_group = 'ImagingWeight'
     shape = [nchan]
-    desc = tables.tablecreatearraycoldesc("IMAGING_WEIGHT", 0,
-            comment="Weight set by imaging task (e.g. uniform weighting)",
-            options=4, valuetype='float',
-            shape=shape, ndim=len(shape),
-            datamanagergroup=dm_group,
-            datamanagertype='TiledColumnStMan')
+    desc = tables.tablecreatearraycoldesc(
+        "IMAGING_WEIGHT", 0,
+        comment="Weight set by imaging task (e.g. uniform weighting)",
+        options=4, valuetype='float', shape=shape, ndim=len(shape),
+        datamanagergroup=dm_group, datamanagertype='TiledColumnStMan')
     dmgroup_spec[dm_group] = dmspec(desc["desc"])
     additional_columns.append(desc)
 
     # Add MODEL_DATA and CORRECTED_DATA if requested
-    if model_data == True:
+    if model_data:
         dm_group = 'ModelData'
-        shape=[nchan, ncorr]
-        desc = tables.tablecreatearraycoldesc("MODEL_DATA", 0+0j,
-                comment="The Visibility MODEL_DATA Column",
-                options=4, valuetype='complex',
-                keywords={ "UNIT": "Jy" },
-                shape=shape, ndim=len(shape),
-                datamanagergroup=dm_group,
-                datamanagertype='TiledColumnStMan')
+        shape = [nchan, ncorr]
+        desc = tables.tablecreatearraycoldesc(
+            "MODEL_DATA", 0+0j, comment="The Visibility MODEL_DATA Column",
+            options=4, valuetype='complex', keywords={"UNIT": "Jy"},
+            shape=shape, ndim=len(shape), datamanagergroup=dm_group,
+            datamanagertype='TiledColumnStMan')
         dmgroup_spec[dm_group] = dmspec(desc["desc"])
         additional_columns.append(desc)
 
         dm_group = 'CorrectedData'
-        shape=[nchan, ncorr]
-        desc = tables.tablecreatearraycoldesc("CORRECTED_DATA", 0+0j,
-                comment="The Visibility CORRECTED_DATA Column",
-                options=4, valuetype='complex',
-                keywords={ "UNIT": "Jy" },
-                shape=shape, ndim=len(shape),
-                datamanagergroup=dm_group,
-                datamanagertype='TiledColumnStMan')
+        shape = [nchan, ncorr]
+        desc = tables.tablecreatearraycoldesc(
+            "CORRECTED_DATA", 0+0j,
+            comment="The Visibility CORRECTED_DATA Column",
+            options=4, valuetype='complex', keywords={"UNIT": "Jy"},
+            shape=shape, ndim=len(shape), datamanagergroup=dm_group,
+            datamanagertype='TiledColumnStMan')
         dmgroup_spec[dm_group] = dmspec(desc["desc"])
         additional_columns.append(desc)
 
@@ -279,6 +266,7 @@ def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
     dminfo = tables.makedminfo(table_desc, dmgroup_spec)
 
     return extra_table_desc, dminfo
+
 
 caltable_desc = {}
 caltable_desc['TIME'] = std_scalar('Timestamp of solution', 'double', option=5)
@@ -327,11 +315,11 @@ elif casacore_binding == 'pyrap':
 else:
     def open_table(filename, readonly=False):
         raise NotImplementedError("Cannot open MS '%s', as neither "
-                                    "casapy nor pyrap were found" % (filename,))
+                                  "casapy nor pyrap were found" % (filename,))
 
     def create_ms(filename, table_desc=None, dm_info=None):
         raise NotImplementedError("Cannot create MS '%s', as neither "
-                                    "casapy nor pyrap were found" % (filename,))
+                                  "casapy nor pyrap were found" % (filename,))
 
 
 # -------- Routines that create MS data structures in dictionaries -----------
@@ -765,12 +753,12 @@ def populate_source_dict(phase_centers, time_origins, center_frequencies, field_
     if field_names is None:
         field_names = ['Source%d' % (field,) for field in range(num_fields)]
     source_dict = {}
-    source_dict['SOURCE_ID'] = np.arange(num_fields,dtype=np.int32)
+    source_dict['SOURCE_ID'] = np.arange(num_fields, dtype=np.int32)
     source_dict['PROPER_MOTION'] = np.zeros((num_fields, 2), dtype=np.float32)
     source_dict['DIRECTION'] = phase_centers
-    source_dict['CALIBRATION_GROUP'] = np.ones(num_fields,dtype=np.int32) * -1 # Grouping for calibration purpose
+    source_dict['CALIBRATION_GROUP'] = np.ones(num_fields, dtype=np.int32) * -1  # Grouping for calibration purpose
     source_dict['NAME'] = np.atleast_1d(field_names)
-    source_dict['NUM_LINES'] = np.ones(num_fields,dtype=np.int32) # Number of spectral lines
+    source_dict['NUM_LINES'] = np.ones(num_fields, dtype=np.int32)  # Number of spectral lines
     source_dict['TIME'] = np.atleast_1d(np.asarray(time_origins, dtype=np.float64))
     source_dict['REST_FREQUENCY'] = np.tile(np.array([center_frequencies[num_channels // 2]],
                                                      dtype=np.float64), (num_fields, 1))
@@ -820,7 +808,7 @@ def populate_field_dict(phase_centers, time_origins, field_names=None):
     # Direction of REFERENCE center (e.g. RA, DEC) as polynomial in time (double, 2-dim)
     field_dict['REFERENCE_DIR'] = phase_centers
     # Source id (integer), or a value of -1 indicates there is no corresponding source defined
-    field_dict['SOURCE_ID'] = np.arange(num_fields,dtype=np.int32) # the same as source id
+    field_dict['SOURCE_ID'] = np.arange(num_fields, dtype=np.int32)  # the same as source id
     # Time origin for direction and rate (double)
     field_dict['TIME'] = np.atleast_1d(np.asarray(time_origins, dtype=np.float64))
     return field_dict
