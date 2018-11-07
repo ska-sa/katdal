@@ -157,7 +157,7 @@ class ChunkStore(object):
       some treat names as URLs while others treat them as filenames. A safe
       choice for name components should be the valid characters for S3 buckets:
 
-      VALID_BUCKET = re.compile(r'^[a-zA-Z0-9.\-_]{1,255}$')
+      VALID_BUCKET = re.compile(r'^[a-z0-9][a-z0-9.\-]{2,62}$')
 
     Parameters
     ----------
