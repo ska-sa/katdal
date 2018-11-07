@@ -16,14 +16,12 @@
 
 """Container that stores cached (interpolated) and uncached (raw) sensor data."""
 from __future__ import print_function, division, absolute_import
-
 from future import standard_library
 standard_library.install_aliases()  # noqa: E402
 import future.utils
-from builtins import zip
-from builtins import range
-from builtins import object
+from builtins import zip, range, object
 from past.builtins import unicode
+
 import logging
 import re
 import threading

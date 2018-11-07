@@ -16,11 +16,10 @@
 
 """Various sources of correlator data and metadata."""
 from __future__ import print_function, division, absolute_import
-
 from future import standard_library
 standard_library.install_aliases()  # noqa: 402
-from builtins import zip
-from builtins import object
+from builtins import zip, object
+
 import urllib.parse
 import os
 import logging

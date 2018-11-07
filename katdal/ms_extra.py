@@ -24,8 +24,8 @@ This can use either casapy (the default) or pyrap to create the MS.
 # 25 March 2008
 #
 from __future__ import print_function, division, absolute_import
-
 from builtins import range
+
 import sys
 import os
 import os.path

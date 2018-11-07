@@ -27,9 +27,9 @@ an older version is detected, the test will be skipped.
 .. _race condition: https://github.com/minio/minio/issues/6324
 """
 from __future__ import print_function, division, absolute_import
-
 from future import standard_library
 standard_library.install_aliases()     # noqa: E402
+
 import tempfile
 import shutil
 # Using subprocess32 is important (on 2.7) because it closes non-stdio file

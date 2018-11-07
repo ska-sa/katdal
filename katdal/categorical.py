@@ -16,10 +16,8 @@
 
 """Container for categorical (i.e. non-numerical) sensor data and related tools."""
 from __future__ import print_function, division, absolute_import
+from builtins import zip, range, object
 
-from builtins import zip
-from builtins import range
-from builtins import object
 import collections
 
 import numpy as np

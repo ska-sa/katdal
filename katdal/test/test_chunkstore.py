@@ -16,8 +16,8 @@
 
 """Tests for :py:mod:`katdal.chunkstore`."""
 from __future__ import print_function, division, absolute_import
-
 from builtins import object
+
 import numpy as np
 from numpy.testing import assert_array_equal
 from nose.tools import (assert_raises, assert_equal, assert_true, assert_false,

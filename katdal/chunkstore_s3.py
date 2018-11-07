@@ -20,12 +20,12 @@ It does not support S3 authentication/signatures, relying instead on external
 code to provide HTTP authentication.
 """
 from __future__ import print_function, division, absolute_import
-
 from future import standard_library
 standard_library.install_aliases()  # noqa: E402
-import future.utils
 from builtins import object
+import future.utils
 from future.utils import raise_, bytes_to_native_str
+
 import contextlib
 import io
 import threading
