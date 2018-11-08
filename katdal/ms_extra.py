@@ -39,7 +39,7 @@ try:
     import casac
     tb = casac.homefinder.find_home_by_name('tableHome').create()
     casacore_binding = 'casapy'
-except Exception:
+except ImportError:
     try:
         # Otherwise fall back to python-casacore aka pyrap
         from casacore import tables
