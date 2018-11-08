@@ -816,7 +816,8 @@ class SensorCache(dict):
                                    (name, sensor_data['value'][0]))
                 # If this is the first time any sensor is accessed, obtain all data timestamps via indexer
                 self.timestamps = self.timestamps[:] if not isinstance(self.timestamps, np.ndarray) else self.timestamps
-                # Determine if sensor produces categorical or numerical data (float data are non-categorical by default)
+                # Determine if sensor produces categorical or numerical data
+                # (float data are non-categorical, by default)
                 categ = props.get('categorical', not np.issubdtype(sensor_data.dtype, np.floating))
                 props['categorical'] = categ
                 if categ:
@@ -826,7 +827,8 @@ class SensorCache(dict):
                     # Interpolate numerical data onto data timestamps (fallback option is linear interpolation)
                     props['interp_degree'] = interp_degree = props.get('interp_degree', 1)
                     sensor_timestamps = sensor_data['timestamp']
-                    # Warn if sensor data will be extrapolated to start or end of data set with potentially bogus result
+                    # Warn if sensor data will be extrapolated to start or end
+                    # of data set with potentially bogus results
                     if interp_degree > 0 and len(sensor_timestamps) > 1:
                         if sensor_timestamps[0] > self.timestamps[0]:
                             logger.warning(("First data point for sensor '%s' only arrives %g seconds into data set" %

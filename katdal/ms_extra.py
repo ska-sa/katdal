@@ -41,8 +41,8 @@ try:
     casacore_binding = 'casapy'
 except Exception:
     try:
-        # Otherwise fall back to pyrap
-        from pyrap import tables
+        # Otherwise fall back to python-casacore aka pyrap
+        from casacore import tables
         casacore_binding = 'pyrap'
     except ImportError:
         casacore_binding = ''
