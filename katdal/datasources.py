@@ -191,9 +191,15 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
         Correlation products. If given, the weights for baseline (inp1, inp2)
         will be divided by the square root of the product of the corresponding
         autocorrelations vis[inp1,inp1] and vis[inp2,inp2].
+
+    Attributes
+    ----------
+    vis_prefix : string
+        Prefix of correlator_data / visibility array, viz. its S3 bucket name
     """
     def __init__(self, store, chunk_info, corrprods):
         self.store = store
+        self.vis_prefix = chunk_info['correlator_data']['prefix']
         darray = {}
         has_arrays = []
         for array, info in chunk_info.items():
@@ -204,7 +210,6 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
             has_arrays.append((store.has_array(array_name, info['chunks'], info['dtype']),
                                info['chunks']))
         vis = darray['correlator_data']
-        base_name = chunk_info['correlator_data']['prefix']
         flags_raw_name = store.join(chunk_info['flags']['prefix'], 'flags_raw')
         # Combine original flags with data_lost indicating where values were lost from
         # other arrays.
@@ -235,7 +240,7 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
                                         auto_indices=auto_indices, index1=index1, index2=index2)
             weights *= power_scale
 
-        VisFlagsWeights.__init__(self, vis, flags, weights, base_name)
+        VisFlagsWeights.__init__(self, vis, flags, weights, self.vis_prefix)
 
 
 class DataSource(object):
