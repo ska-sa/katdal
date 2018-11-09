@@ -219,7 +219,6 @@ a back door installed at `d.file` in the case of a single-file data set.
 
 """
 from __future__ import print_function, division, absolute_import
-
 from future import standard_library
 standard_library.install_aliases()  # noqa: E402
 from past.builtins import basestring
@@ -253,6 +252,7 @@ class _NoConfigFilter(_logging.Filter):
 
     def filter(self, record):
         return 1 if not _logging.root.handlers else 0
+
 
 _no_config_handler = _logging.StreamHandler()
 _no_config_handler.setFormatter(_logging.Formatter(_logging.BASIC_FORMAT))

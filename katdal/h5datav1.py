@@ -16,9 +16,8 @@
 
 """Data accessor class for HDF5 files produced by Fringe Finder correlator."""
 from __future__ import print_function, division, absolute_import
+from builtins import zip, range
 
-from builtins import zip
-from builtins import range
 import logging
 import re
 
@@ -46,6 +45,7 @@ def _labels_to_state(scan_label, compscan_label):
         return 'track'
     return 'track' if compscan_label == 'track' else 'scan'
 
+
 SENSOR_PROPS = dict(DEFAULT_SENSOR_PROPS)
 
 SENSOR_ALIASES = {
@@ -59,6 +59,7 @@ def _calc_azel(cache, name, ant):
     real_sensor = 'Antennas/%s/%s' % (ant, 'pos_actual_scan_azim' if name.endswith('az') else 'pos_actual_scan_elev')
     cache[name] = sensor_data = katpoint.deg2rad(cache.get(real_sensor))
     return sensor_data
+
 
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel, 'Antennas/{ant}/el': _calc_azel})

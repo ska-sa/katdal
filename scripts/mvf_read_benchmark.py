@@ -8,7 +8,6 @@ import time
 
 import katdal
 from katdal.lazy_indexer import DaskLazyIndexer
-import dask.array as da
 import numpy as np
 
 

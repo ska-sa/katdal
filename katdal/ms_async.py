@@ -25,8 +25,8 @@ might be suited to other use cases. It is put into a separate module as a
 workaround for https://bugs.python.org/issue9914.
 """
 from __future__ import print_function, division, absolute_import
-
 from builtins import object
+
 from collections import namedtuple
 import contextlib
 import multiprocessing

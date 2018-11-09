@@ -784,7 +784,7 @@ class DataSet(object):
                     for polAB in pols:
                         polAB = polAB * 2 if polAB in ('h', 'v') else polAB
                         keep |= [(inpA[-1] == polAB[0] and inpB[-1] == polAB[1])
-                                               for inpA, inpB in self.subarrays[self.subarray].corr_products]
+                                 for inpA, inpB in self.subarrays[self.subarray].corr_products]
 
                     # and into final corrprod selection
                     self._corrprod_keep &= keep

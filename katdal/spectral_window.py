@@ -15,7 +15,6 @@
 ################################################################################
 
 from __future__ import print_function, division, absolute_import
-
 from builtins import object
 
 import threading

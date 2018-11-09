@@ -22,11 +22,10 @@
 from __future__ import print_function, division, absolute_import
 
 from future import standard_library
-standard_library.install_aliases()
+standard_library.install_aliases()    # noqa: E402
 from builtins import zip
 from builtins import range
 from collections import namedtuple
-import itertools
 import os
 import tarfile
 import optparse
@@ -37,7 +36,6 @@ import queue
 
 import numpy as np
 import dask
-import dask.array as da
 import numba
 
 import katpoint
@@ -178,7 +176,7 @@ def main():
     (options, args) = parser.parse_args()
 
     # Loading is I/O-bound, so give more threads than CPUs
-    dask.set_options(pool=multiprocessing.pool.ThreadPool(4 * multiprocessing.cpu_count()))
+    dask.config.set(pool=multiprocessing.pool.ThreadPool(4 * multiprocessing.cpu_count()))
 
     if len(args) < 1:
         parser.print_help()

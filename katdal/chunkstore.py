@@ -17,11 +17,8 @@
 """Base class for accessing a store of chunks (i.e. N-dimensional arrays)."""
 
 from __future__ import print_function, division, absolute_import
+from builtins import next, zip, range, object
 
-from builtins import next
-from builtins import zip
-from builtins import range
-from builtins import object
 import contextlib
 import functools
 import uuid
@@ -134,7 +131,7 @@ def _scalar_to_chunk(func):
 
 
 class ChunkStore(object):
-    """Base class for accessing a store of chunks (i.e. N-dimensional arrays).
+    r"""Base class for accessing a store of chunks (i.e. N-dimensional arrays).
 
     A *chunk* is a simple (i.e. unit-stride) slice of an N-dimensional array
     known as its *parent array*. The array is identified by a string name,
@@ -158,9 +155,10 @@ class ChunkStore(object):
     - It is discouraged to have an array name that is a prefix of another name
     - Each chunk store has its own restrictions on valid characters in names:
       some treat names as URLs while others treat them as filenames. A safe
-      choice for name components should be the valid characters for S3 buckets:
+      choice for name components should be the valid characters for S3 buckets
+      (also including underscores for non-bucket components):
 
-      VALID_BUCKET = re.compile(r'^[a-zA-Z0-9.\-_]{1,255}$')
+      VALID_BUCKET = re.compile(r'^[a-z0-9][a-z0-9.\-]{2,62}$')
 
     Parameters
     ----------
