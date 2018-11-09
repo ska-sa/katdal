@@ -614,4 +614,4 @@ def open_data_source(url, **kwargs):
             raise DataSourceNotFound(
                 '{} (add a URL scheme if {!r} is not meant to be a file)'
                 .format(err, url_parts.path))
-        raise err
+        raise
