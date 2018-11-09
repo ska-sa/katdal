@@ -157,7 +157,7 @@ class TestChunkStoreVisFlagsWeights(object):
                 os.remove(os.path.join(store.path, chunk_name) + '.npy')
         vfw = ChunkStoreVisFlagsWeights(store, chunk_info, None)
         assert_equal(vfw.store, store)
-        assert_equal(vfw.prefix, prefix)
+        assert_equal(vfw.vis_prefix, prefix)
         # Check that (only) missing chunks have been replaced by zeros
         vis = data['correlator_data']
         for culled_slice in missing_chunks['correlator_data']:

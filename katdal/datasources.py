@@ -194,12 +194,12 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
 
     Attributes
     ----------
-    prefix : string
-        Prefix of correlator_data / visibility array (i.e. the S3 bucket name)
+    vis_prefix : string
+        Prefix of correlator_data / visibility array, viz. its S3 bucket name
     """
     def __init__(self, store, chunk_info, corrprods):
         self.store = store
-        self.prefix = chunk_info['correlator_data']['prefix']
+        self.vis_prefix = chunk_info['correlator_data']['prefix']
         darray = {}
         has_arrays = []
         for array, info in chunk_info.items():
@@ -240,7 +240,7 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
                                         auto_indices=auto_indices, index1=index1, index2=index2)
             weights *= power_scale
 
-        VisFlagsWeights.__init__(self, vis, flags, weights, self.prefix)
+        VisFlagsWeights.__init__(self, vis, flags, weights, self.vis_prefix)
 
 
 class DataSource(object):
