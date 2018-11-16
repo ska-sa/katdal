@@ -42,3 +42,13 @@ class TestNpyFileChunkStore(ChunkStoreTestBase):
 
     def test_store_unavailable(self):
         assert_raises(StoreUnavailable, NpyFileChunkStore, 'hahahahahaha')
+
+
+class TestNpyFileChunkStoreDirectWrite(TestNpyFileChunkStore):
+    """Test NPY file functionality with O_DIRECT writes."""
+
+    @classmethod
+    def setup_class(cls):
+        """Create temp dir to store NPY files and build ChunkStore on that."""
+        cls.tempdir = tempfile.mkdtemp()
+        cls.store = NpyFileChunkStore(cls.tempdir, direct_write=True)

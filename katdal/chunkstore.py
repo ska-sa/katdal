@@ -22,6 +22,7 @@ from builtins import next, zip, range, object
 import contextlib
 import functools
 import uuid
+import io
 
 import numpy as np
 import dask
@@ -128,6 +129,28 @@ def _scalar_to_chunk(func):
         return np.full(singleton_shape, value)
 
     return func_returning_chunk
+
+
+def npy_header_and_body(chunk):
+    """Prepare a chunk for low-level writing.
+
+    Returns the `.npy` header and a view of the chunk corresponding to that
+    header. The two should be concatenated (as buffer objects) to form a
+    valid `.npy` file.
+
+    This is useful for high-performance code, as it allows a chunk to be
+    encoded as a .npy file more efficiently than saving to a
+    :class:`io.BytesIO`.
+    """
+    # Note: don't use ascontiguousarray as it turns 0D into 1D.
+    # See https://github.com/numpy/numpy/issues/5300
+    chunk = np.asarray(chunk, order='C')
+    fp = io.BytesIO()
+    # TODO: have a fallback to version 2.0 if the header is too big for 1.0
+    header_fields = np.lib.format.header_data_from_array_1_0(chunk)
+    np.lib.format.write_array_header_1_0(fp, header_fields)
+    header = fp.getvalue()
+    return header, chunk
 
 
 class ChunkStore(object):
