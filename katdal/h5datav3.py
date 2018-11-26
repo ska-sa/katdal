@@ -608,7 +608,7 @@ class H5DataV3(DataSet):
             # needs to stay binary
             value = self.file['TelescopeState'].attrs[key]
             return telstate_decode(value, no_decode)
-        except katsdptelstate.DecodeError:
+        except (KeyError, katsdptelstate.DecodeError):
             # In some cases the value is placed in a sensor instead. Return
             # the most recent value.
             try:
