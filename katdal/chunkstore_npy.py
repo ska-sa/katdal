@@ -77,6 +77,8 @@ class NpyFileChunkStore(ChunkStore):
     ------
     :exc:`chunkstore.StoreUnavailable`
         If path does not exist / is not readable
+    :exc:`chunkstore.StoreUnavailable`
+        If `direct_write` was requested but is not available
     """
 
     def __init__(self, path, direct_write=False):
@@ -86,6 +88,8 @@ class NpyFileChunkStore(ChunkStore):
             raise StoreUnavailable('Directory {!r} does not exist'.format(path))
         self.path = path
         self.direct_write = direct_write
+        if direct_write and not hasattr(os, 'O_DIRECT'):
+            raise StoreUnavailable('direct_write requested but not supported on this OS')
 
     def get_chunk(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get_chunk`."""

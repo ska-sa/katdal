@@ -20,6 +20,7 @@ from __future__ import print_function, division, absolute_import
 import tempfile
 import shutil
 
+from nose import SkipTest
 from nose.tools import assert_raises
 
 from katdal.chunkstore_npy import NpyFileChunkStore
@@ -51,4 +52,9 @@ class TestNpyFileChunkStoreDirectWrite(TestNpyFileChunkStore):
     def setup_class(cls):
         """Create temp dir to store NPY files and build ChunkStore on that."""
         cls.tempdir = tempfile.mkdtemp()
-        cls.store = NpyFileChunkStore(cls.tempdir, direct_write=True)
+        try:
+            cls.store = NpyFileChunkStore(cls.tempdir, direct_write=True)
+        except StoreUnavailable as e:
+            if 'not supported' in str(e):
+                raise SkipTest(str(e))
+            raise
