@@ -19,10 +19,33 @@ from __future__ import print_function, division, absolute_import
 
 import os
 import errno
+import mmap
+import contextlib
 
 import numpy as np
 
-from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk
+from .chunkstore import (ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk,
+                         npy_header_and_body)
+
+
+def _write_chunk(filename, chunk, direct_write):
+    if not direct_write:
+        return np.save(filename, chunk, allow_pickle=False)
+    header, chunk = npy_header_and_body(chunk)
+    size = len(header) + chunk.nbytes
+    gran = mmap.ALLOCATIONGRANULARITY
+    aligned_size = (size + gran - 1) // gran * gran
+    with contextlib.closing(mmap.mmap(-1, aligned_size)) as aligned:
+        aligned.write(header)
+        aligned.write(chunk)
+        aligned.seek(0)
+        fd = os.open(filename, os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_DIRECT, 0o666)
+        try:
+            os.write(fd, aligned)
+            # We had to round the size up to a page, now correct back to exact size
+            os.ftruncate(fd, size)
+        finally:
+            os.close(fd)
 
 
 class NpyFileChunkStore(ChunkStore):
@@ -45,19 +68,28 @@ class NpyFileChunkStore(ChunkStore):
     ----------
     path : string
         Top-level directory that contains NPY files of chunk store
+    direct_write : bool
+        If true, use ``O_DIRECT`` when writing the file. This bypasses the
+        OS page cache, which can be useful to avoid filling it up with
+        files that won't be read again.
 
     Raises
     ------
     :exc:`chunkstore.StoreUnavailable`
         If path does not exist / is not readable
+    :exc:`chunkstore.StoreUnavailable`
+        If `direct_write` was requested but is not available
     """
 
-    def __init__(self, path):
+    def __init__(self, path, direct_write=False):
         super(NpyFileChunkStore, self).__init__({IOError: ChunkNotFound,
                                                  ValueError: ChunkNotFound})
         if not os.path.isdir(path):
             raise StoreUnavailable('Directory {!r} does not exist'.format(path))
         self.path = path
+        self.direct_write = direct_write
+        if direct_write and not hasattr(os, 'O_DIRECT'):
+            raise StoreUnavailable('direct_write requested but not supported on this OS')
 
     def get_chunk(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get_chunk`."""
@@ -90,7 +122,7 @@ class NpyFileChunkStore(ChunkStore):
         with self._standard_errors(chunk_name):
             # Rename the file when done writing to make put_chunk() atomic
             temp_filename = base_filename + '.writing.npy'
-            np.save(temp_filename, chunk, allow_pickle=False)
+            _write_chunk(temp_filename, chunk, self.direct_write)
             os.rename(temp_filename, base_filename + '.npy')
 
     def has_chunk(self, array_name, slices, dtype):

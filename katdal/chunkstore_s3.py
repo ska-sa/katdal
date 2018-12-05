@@ -52,7 +52,8 @@ try:
 except ImportError:
     botocore = None
 
-from .chunkstore import ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk
+from .chunkstore import (ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk,
+                         npy_header_and_body)
 from .sensordata import to_str
 
 
@@ -359,21 +360,11 @@ class S3ChunkStore(ChunkStore):
             with self._request(None, 'PUT', policy_url, data=json.dumps(policy)):
                 pass
 
-    @classmethod
-    def _numpy_header(cls, chunk):
-        fp = io.BytesIO()
-        header_fields = np.lib.format.header_data_from_array_1_0(chunk)
-        np.lib.format.write_array_header_1_0(fp, header_fields)
-        return fp.getvalue()
-
     def put_chunk(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put_chunk`."""
         chunk_name, _ = self.chunk_metadata(array_name, slices, chunk=chunk)
         url = self._chunk_url(chunk_name)
-        # Note: don't use ascontiguousarray as it turns 0D into 1D.
-        # See https://github.com/numpy/numpy/issues/5300
-        chunk = np.asarray(chunk, order='C')
-        npy_header = self._numpy_header(chunk)
+        npy_header, chunk = npy_header_and_body(chunk)
         # Compute the MD5 sum to protect the object against corruption in
         # transmission.
         md5_gen = hashlib.md5(npy_header)
