@@ -524,14 +524,15 @@ class TelstateDataSource(DataSource):
         Visibility timestamps, overriding (or fixing) the ones found in telstate
     source_name : string, optional
         Name of telstate source (used for metadata name)
-
+    upgrade_flags : bool, optional
+        Look for associated flag streams and use them if True (default)
     Raises
     ------
     KeyError
         If telstate lacks critical keys
     """
     def __init__(self, telstate, chunk_store=None, timestamps=None,
-                 source_name='telstate', l1_flags=True):
+                 source_name='telstate', upgrade_flags=True):
         self.telstate = TelstateToStr(telstate)
         # Collect sensors
         sensors = {}
@@ -557,7 +558,7 @@ class TelstateDataSource(DataSource):
             else:
                 corrprods = None
             chunk_info = _ensure_prefix_is_set(chunk_info, telstate)
-            if l1_flags:
+            if upgrade_flags:
                 chunk_info = _upgrade_flags(chunk_info, telstate)
             data = ChunkStoreVisFlagsWeights(chunk_store, chunk_info, corrprods)
         # Metadata and timestamps with or without data
