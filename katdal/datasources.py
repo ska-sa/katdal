@@ -526,6 +526,7 @@ class TelstateDataSource(DataSource):
         Name of telstate source (used for metadata name)
     upgrade_flags : bool, optional
         Look for associated flag streams and use them if True (default)
+
     Raises
     ------
     KeyError
@@ -565,7 +566,7 @@ class TelstateDataSource(DataSource):
         DataSource.__init__(self, metadata, timestamps, data)
 
     @classmethod
-    def from_url(cls, url, chunk_store='auto', **kwargs):
+    def from_url(cls, url, chunk_store='auto', upgrade_flags=True, **kwargs):
         """Construct TelstateDataSource from URL (RDB file / REDIS server).
 
         Parameters
@@ -575,6 +576,8 @@ class TelstateDataSource(DataSource):
         chunk_store : :class:`katdal.ChunkStore` object, optional
             Chunk store for visibility data (obtained automatically by default,
             or set to None for metadata-only dataset)
+        upgrade_flags : bool, optional
+            Look for associated flag streams and use them if True (default)
         kwargs : dict, optional
             Extra keyword arguments passed to telstate view and chunk store init
         """
@@ -602,7 +605,7 @@ class TelstateDataSource(DataSource):
         telstate = view_l0_capture_stream(telstate, **kwargs)
         if chunk_store == 'auto':
             chunk_store = _infer_chunk_store(url_parts, telstate, **kwargs)
-        return cls(telstate, chunk_store, source_name=url_parts.geturl(), **kwargs)
+        return cls(telstate, chunk_store, source_name=url_parts.geturl(), upgrade_flags=upgrade_flags)
 
 
 def open_data_source(url, **kwargs):
