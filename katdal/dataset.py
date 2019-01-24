@@ -795,8 +795,6 @@ class DataSet(object):
             elif k == 'flags':
                 self._flags_keep = v
 
-        # Ensure that updated selections make their way to sensor cache and potentially underlying datasets
-        self._set_keep(self._time_keep, self._freq_keep, self._corrprod_keep, self._weights_keep, self._flags_keep)
         # Update the relevant data members based on selection made
         # These would all be more efficient as properties, but at the expense of extra lines of code...
         self.shape = (self._time_keep.sum(), self._freq_keep.sum(), self._corrprod_keep.sum())
@@ -812,6 +810,10 @@ class DataSet(object):
         self.inputs = sorted(set(np.ravel(self.corr_products)))
         input_ants = set([inp[:-1] for inp in self.inputs])
         self.ants = [ant for ant in self.subarrays[self.subarray].ants if ant.name in input_ants]
+        # Ensure that updated selections make their way to sensor cache, as
+        # well as any underlying datasets and data lazy indexers that need it
+        self._set_keep(self._time_keep, self._freq_keep, self._corrprod_keep,
+                       self._weights_keep, self._flags_keep)
         # Figure out which scans, compscans and targets are included in selection
         self.scan_indices = sorted(set(self.sensor['Observation/scan_index']))
         self.compscan_indices = sorted(set(self.sensor['Observation/compscan_index']))
