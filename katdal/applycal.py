@@ -156,8 +156,8 @@ def calc_delay_correction(sensor, index, data_freqs):
     still has a shot at fixing any residual delay.
     """
     delays = [np.nan_to_num(value[index]) for segm, value in sensor.segments()]
-    # Delays returned by cal pipeline are already corrections (no minus needed)
-    corrections = [np.exp(2j * np.pi * d * data_freqs).astype('complex64')
+    # Delays produced by cal pipeline are raw phase slopes, i.e. exp(2 pi j d f)
+    corrections = [np.exp(-2j * np.pi * d * data_freqs).astype('complex64')
                    for d in delays]
     corrections = [ComparableArrayWrapper(c) for c in corrections]
     return CategoricalData(corrections, sensor.events)

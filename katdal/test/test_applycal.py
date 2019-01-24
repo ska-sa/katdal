@@ -138,7 +138,7 @@ def delay_corrections(pol, ant):
     """Figure out N_CHANS delay corrections given `pol` and `ant` indices."""
     # Zero out missing delays (indicated by NaN)
     delay = np.nan_to_num(create_delay(pol, ant))
-    return np.exp(2j * np.pi * delay * FREQS).astype('complex64')
+    return np.exp(-2j * np.pi * delay * FREQS).astype('complex64')
 
 
 def bandpass_corrections(pol, ant):
