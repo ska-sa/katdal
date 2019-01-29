@@ -26,7 +26,7 @@ import itertools
 
 import numpy as np
 from numpy.testing import assert_array_equal
-from nose.tools import assert_equal
+from nose.tools import assert_equal, assert_raises
 import dask.array as da
 import katsdptelstate
 
@@ -57,10 +57,10 @@ def to_dask_array(x, chunks=None):
 def put_fake_dataset(store, prefix, shape, chunk_overrides=None, array_overrides={}, flags_only=False):
     """Write a fake dataset into the chunk store."""
     if flags_only:
-        data = {'flags': np.full(shape, 2, dtype=np.uint8)}
+        data = {'flags': np.random.RandomState(1).randint(0, 7, shape, dtype=np.uint8)}
     else:
         data = {'correlator_data': ramp(shape, dtype=np.float32) * (1 - 1j),
-                'flags': np.ones(shape, dtype=np.uint8),
+                'flags': np.random.RandomState(2).randint(0, 7, shape, dtype=np.uint8),
                 'weights': ramp(shape, slope=255. / np.prod(shape), dtype=np.uint8),
                 'weights_channel': ramp(shape[:-1], dtype=np.float32)}
     for name in data:
@@ -86,7 +86,6 @@ def _make_fake_stream(telstate, store, cbid, stream, shape, flags_only=False):
     data, chunk_info = put_fake_dataset(store, store_prefix, shape, flags_only=flags_only)
     cs_view = telstate.view(telstate_prefix)
     s_view = telstate.view(stream)
-    view = telstate.view(telstate_prefix)
     cs_view['chunk_info'] = chunk_info
     cs_view['first_timestamp'] = 123.0
     s_view['sync_time'] = 123456789.0
@@ -118,7 +117,7 @@ def _make_fake_stream(telstate, store, cbid, stream, shape, flags_only=False):
     return data, cs_view, s_view
 
 
-def make_fake_datasource(telstate, store, cbid, shape):
+def make_fake_datasource(telstate, store, cbid, l0_shape, l1_flags_shape=None):
     """Create a complete fake data source.
 
     The resulting telstate and chunk store are suitable for constructing
@@ -126,11 +125,14 @@ def make_fake_datasource(telstate, store, cbid, shape):
     it adds about as little as possible to telstate for that, so may need
     to be extended from time to time.
     """
-    l0_data, l0_cs_view, l0_s_view = _make_fake_stream(telstate, store, cbid, 'sdp_l0', shape)
-    l1_data, l1_cs_view, l1_s_view = _make_fake_stream(telstate, store, cbid, 'sdp_l1_flags', shape, flags_only=True)
-    l1_s_view['src_streams'] = ['sdp_l0']
+    if l1_flags_shape is None:
+        l1_flags_shape = l0_shape
+    l0_data, l0_cs_view, l0_s_view = _make_fake_stream(telstate, store, cbid, 'sdp_l0', l0_shape)
+    l1_flags_data, l1_flags_cs_view, l1_flags_s_view = \
+        _make_fake_stream(telstate, store, cbid, 'sdp_l1_flags', l1_flags_shape, flags_only=True)
+    l1_flags_s_view['src_streams'] = ['sdp_l0']
     telstate['sdp_archived_streams'] = ['sdp_l0', 'sdp_l1_flags']
-    return view_l0_capture_stream(telstate, cbid, 'sdp_l0')
+    return view_l0_capture_stream(telstate, cbid, 'sdp_l0') + (l0_data, l1_flags_data)
 
 
 class TestChunkStoreVisFlagsWeights(object):
@@ -256,8 +258,9 @@ class TestTelstateDataSource(object):
     def teardown(self):
         shutil.rmtree(self.tempdir)
 
-    def test_timestamp(self):
-        view, cbid, sn = make_fake_datasource(self.telstate, self.store, self.cbid, (20, 64, 40))
+    def test_timestamps(self):
+        view, cbid, sn, l0_data, l1_flags_data = \
+            make_fake_datasource(self.telstate, self.store, self.cbid, (20, 64, 40))
         data_source = TelstateDataSource(view, cbid, sn, self.store)
         np.testing.assert_array_equal(
             data_source.timestamps,
@@ -265,13 +268,51 @@ class TestTelstateDataSource(object):
 
     def test_upgrade_flags(self):
         shape = (20, 16, 40)
-        view, cbid, sn = make_fake_datasource(self.telstate, self.store, self.cbid, shape)
+        view, cbid, sn, l0_data, l1_flags_data = \
+            make_fake_datasource(self.telstate, self.store, self.cbid, shape)
         data_source = TelstateDataSource(view, cbid, sn, self.store)
-        np.testing.assert_array_equal(
-            data_source.data.flags.compute(),
-            np.full(shape, 2, np.uint8))
+        np.testing.assert_array_equal(data_source.data.vis.compute(), l0_data['correlator_data'])
+        np.testing.assert_array_equal(data_source.data.flags.compute(), l1_flags_data['flags'])
         # Again, now explicitly disabling the upgrade
         data_source = TelstateDataSource(view, cbid, sn, self.store, upgrade_flags=False)
+        np.testing.assert_array_equal(data_source.data.vis.compute(), l0_data['correlator_data'])
+        np.testing.assert_array_equal(data_source.data.flags.compute(), l0_data['flags'])
+
+    def test_upgrade_flags_extend(self):
+        """L1 flags has fewer dumps than L0"""
+        l0_shape = (20, 16, 40)
+        l1_flags_shape = (18, 16, 40)
+        view, cbid, sn, l0_data, l1_flags_data = \
+            make_fake_datasource(self.telstate, self.store, self.cbid, l0_shape, l1_flags_shape)
+        data_source = TelstateDataSource(view, cbid, sn, self.store)
         np.testing.assert_array_equal(
-            data_source.data.flags.compute(),
-            np.ones(shape, np.uint8))
+            data_source.timestamps,
+            np.arange(l0_shape[0], dtype=np.float32) * 2 + 123456912)
+        np.testing.assert_array_equal(data_source.data.vis.compute(), l0_data['correlator_data'])
+        expected_flags = np.zeros(l0_shape, np.uint8)
+        expected_flags[:l1_flags_shape[0]] = l1_flags_data['flags']
+        expected_flags[l1_flags_shape[0]:] = 8    # TODO: introduce constant for data-lost
+        np.testing.assert_array_equal(data_source.data.flags.compute(), expected_flags)
+
+    def test_upgrade_flags_truncate(self):
+        """L1 flags has more dumps than L0"""
+        l0_shape = (18, 16, 40)
+        l1_flags_shape = (20, 16, 40)
+        view, cbid, sn, l0_data, l1_flags_data = \
+            make_fake_datasource(self.telstate, self.store, self.cbid, l0_shape, l1_flags_shape)
+        data_source = TelstateDataSource(view, cbid, sn, self.store)
+        np.testing.assert_array_equal(
+            data_source.timestamps,
+            np.arange(l0_shape[0], dtype=np.float32) * 2 + 123456912)
+        np.testing.assert_array_equal(data_source.data.vis.compute(), l0_data['correlator_data'])
+        expected_flags = l1_flags_data['flags'][:l0_shape[0]]
+        np.testing.assert_array_equal(data_source.data.flags.compute(), expected_flags)
+
+    def test_upgrade_flags_shape_mismatch(self):
+        """L1 flags shape is incompatible with L0"""
+        l0_shape = (18, 16, 40)
+        l1_flags_shape = (20, 8, 40)
+        view, cbid, sn, l0_data, l1_flags_data = \
+            make_fake_datasource(self.telstate, self.store, self.cbid, l0_shape, l1_flags_shape)
+        with assert_raises(ValueError):
+            TelstateDataSource(view, cbid, sn, self.store)
