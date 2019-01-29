@@ -335,6 +335,10 @@ def view_l0_capture_stream(telstate, capture_block_id=None, stream_name=None,
     -------
     telstate : :class:`~katdal.sensordata.TelstateToStr` object
         Telstate with a view that incorporates capture block, stream and combo
+    capture_block_id : string
+        Actual capture block ID used
+    stream_name : string
+        Actual L0 stream name used
 
     Raises
     ------
@@ -367,7 +371,7 @@ def view_l0_capture_stream(telstate, capture_block_id=None, stream_name=None,
                                                  expected_type))
     logger.info('Using capture block %r and stream %r',
                 capture_block_id, stream_name)
-    return telstate
+    return telstate, capture_block_id, stream_name
 
 
 def _shorten_key(telstate, key):
@@ -482,12 +486,10 @@ def _infer_chunk_store(url_parts, telstate, npy_store_path=None,
     return S3ChunkStore.from_url(telstate['s3_endpoint_url'], **kwargs)
 
 
-def _upgrade_flags(chunk_info, telstate):
+def _upgrade_flags(chunk_info, telstate, capture_block_id, stream_name):
     """Look for associated flag streams and override chunk_info to use them."""
     try:
         archived_streams = telstate['sdp_archived_streams']
-        capture_block_id = telstate['capture_block_id']
-        stream_name = telstate['stream_name']
     except KeyError as e:
         logger.debug('No additional flag capture streams found: %s', e)
         return chunk_info
@@ -497,6 +499,7 @@ def _upgrade_flags(chunk_info, telstate):
            stream_name not in telstate_cs['src_streams']:
             continue
         # Look for chunk metadata in appropriate capture_stream telstate view
+        logger.info('Upgrading flags to use %s instead of %s', s, stream_name)
         flags_info = telstate_cs['chunk_info']
         flags_info = _ensure_prefix_is_set(flags_info, telstate_cs)
         chunk_info = _upgrade_chunk_info(chunk_info, flags_info)
@@ -518,6 +521,10 @@ class TelstateDataSource(DataSource):
     ----------
     telstate : :class:`katsdptelstate.TelescopeState` object
         Telescope state with appropriate views
+    capture_block_id : string
+        Capture block ID
+    stream_name : string
+        Name of the L0 stream
     chunk_store : :class:`katdal.ChunkStore` object, optional
         Chunk store for visibility data (the default is no data - metadata only)
     timestamps : array of float, optional
@@ -532,7 +539,8 @@ class TelstateDataSource(DataSource):
     KeyError
         If telstate lacks critical keys
     """
-    def __init__(self, telstate, chunk_store=None, timestamps=None,
+    def __init__(self, telstate, capture_block_id, stream_name,
+                 chunk_store=None, timestamps=None,
                  source_name='telstate', upgrade_flags=True):
         self.telstate = TelstateToStr(telstate)
         # Collect sensors
@@ -560,7 +568,7 @@ class TelstateDataSource(DataSource):
                 corrprods = None
             chunk_info = _ensure_prefix_is_set(chunk_info, telstate)
             if upgrade_flags:
-                chunk_info = _upgrade_flags(chunk_info, telstate)
+                chunk_info = _upgrade_flags(chunk_info, telstate, capture_block_id, stream_name)
             data = ChunkStoreVisFlagsWeights(chunk_store, chunk_info, corrprods)
         # Metadata and timestamps with or without data
         DataSource.__init__(self, metadata, timestamps, data)
@@ -602,10 +610,11 @@ class TelstateDataSource(DataSource):
                 telstate = katsdptelstate.TelescopeState(url_parts.netloc, db)
             except katsdptelstate.ConnectionError as e:
                 raise DataSourceNotFound(str(e))
-        telstate = view_l0_capture_stream(telstate, **kwargs)
+        telstate, capture_block_id, stream_name = view_l0_capture_stream(telstate, **kwargs)
         if chunk_store == 'auto':
             chunk_store = _infer_chunk_store(url_parts, telstate, **kwargs)
-        return cls(telstate, chunk_store, source_name=url_parts.geturl(), upgrade_flags=upgrade_flags)
+        return cls(telstate, capture_block_id, stream_name,
+                   chunk_store, source_name=url_parts.geturl(), upgrade_flags=upgrade_flags)
 
 
 def open_data_source(url, **kwargs):

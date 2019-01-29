@@ -28,10 +28,11 @@ import numpy as np
 from numpy.testing import assert_array_equal
 from nose.tools import assert_equal
 import dask.array as da
+import katsdptelstate
 
 from katdal.chunkstore import generate_chunks
 from katdal.chunkstore_npy import NpyFileChunkStore
-from katdal.datasources import ChunkStoreVisFlagsWeights
+from katdal.datasources import ChunkStoreVisFlagsWeights, TelstateDataSource, view_l0_capture_stream
 
 
 def ramp(shape, offset=1.0, slope=1.0, dtype=np.float_):
@@ -53,12 +54,15 @@ def to_dask_array(x, chunks=None):
     return da.from_array(x, chunks)
 
 
-def put_fake_dataset(store, prefix, shape, chunk_overrides=None, array_overrides={}):
+def put_fake_dataset(store, prefix, shape, chunk_overrides=None, array_overrides={}, flags_only=False):
     """Write a fake dataset into the chunk store."""
-    data = {'correlator_data': ramp(shape, dtype=np.float32) * (1 - 1j),
-            'flags': np.ones(shape, dtype=np.uint8),
-            'weights': ramp(shape, slope=255. / np.prod(shape), dtype=np.uint8),
-            'weights_channel': ramp(shape[:-1], dtype=np.float32)}
+    if flags_only:
+        data = {'flags': np.full(shape, 2, dtype=np.uint8)}
+    else:
+        data = {'correlator_data': ramp(shape, dtype=np.float32) * (1 - 1j),
+                'flags': np.ones(shape, dtype=np.uint8),
+                'weights': ramp(shape, slope=255. / np.prod(shape), dtype=np.uint8),
+                'weights_channel': ramp(shape[:-1], dtype=np.float32)}
     for name in data:
         if name in array_overrides:
             data[name] = array_overrides[name]
@@ -74,6 +78,59 @@ def put_fake_dataset(store, prefix, shape, chunk_overrides=None, array_overrides
             for k, darray in ddata.items()]
     da.compute(*push)
     return data, chunk_info
+
+
+def _make_fake_stream(telstate, store, cbid, stream, shape, flags_only=False):
+    telstate_prefix = telstate.SEPARATOR.join((cbid, stream))
+    store_prefix = telstate_prefix.replace('_', '-')
+    data, chunk_info = put_fake_dataset(store, store_prefix, shape, flags_only=flags_only)
+    cs_view = telstate.view(telstate_prefix)
+    s_view = telstate.view(stream)
+    view = telstate.view(telstate_prefix)
+    cs_view['chunk_info'] = chunk_info
+    cs_view['first_timestamp'] = 123.0
+    s_view['sync_time'] = 123456789.0
+    s_view['int_time'] = 2.0
+    s_view['bandwidth'] = 856e6
+    s_view['center_freq'] = 1284e6
+    s_view['n_chans'] = shape[1]
+    s_view['n_bls'] = shape[2]
+    # This isn't particularly representative - may need refinement depending on
+    # what the test does
+    n_ant = 1
+    while n_ant * (n_ant + 1) * 2 < shape[2]:
+        n_ant += 1
+    if n_ant * (n_ant + 1) * 2 != shape[2]:
+        raise ValueError('n_bls is not consistent with an integer number of antennas')
+    bls_ordering = []
+    for i in range(n_ant):
+        for j in range(i, n_ant):
+            for x in 'hv':
+                for y in 'hv':
+                    bls_ordering.append(('m{:03}{}'.format(i, x),
+                                         'm{:03}{}'.format(j, y)))
+    s_view['bls_ordering'] = np.array(bls_ordering)
+    if not flags_only:
+        s_view['need_weights_power_scale'] = True
+        s_view['stream_type'] = 'sdp.vis'
+    else:
+        s_view['stream_type'] = 'sdp.flags'
+    return data, cs_view, s_view
+
+
+def make_fake_datasource(telstate, store, cbid, shape):
+    """Create a complete fake data source.
+
+    The resulting telstate and chunk store are suitable for constructing
+    a :class:`~.TelstateDataSource`, including upgrading of flags. However,
+    it adds about as little as possible to telstate for that, so may need
+    to be extended from time to time.
+    """
+    l0_data, l0_cs_view, l0_s_view = _make_fake_stream(telstate, store, cbid, 'sdp_l0', shape)
+    l1_data, l1_cs_view, l1_s_view = _make_fake_stream(telstate, store, cbid, 'sdp_l1_flags', shape, flags_only=True)
+    l1_s_view['src_streams'] = ['sdp_l0']
+    telstate['sdp_archived_streams'] = ['sdp_l0', 'sdp_l1_flags']
+    return view_l0_capture_stream(telstate, cbid, 'sdp_l0')
 
 
 class TestChunkStoreVisFlagsWeights(object):
@@ -187,3 +244,34 @@ class TestChunkStoreVisFlagsWeights(object):
                 'weights_channel': (1, 7),
                 'flags': (4, 15, 30)
             })
+
+
+class TestTelstateDataSource(object):
+    def setup(self):
+        self.tempdir = tempfile.mkdtemp()
+        self.store = NpyFileChunkStore(self.tempdir)
+        self.telstate = katsdptelstate.TelescopeState()
+        self.cbid = 'cb'
+
+    def teardown(self):
+        shutil.rmtree(self.tempdir)
+
+    def test_timestamp(self):
+        view, cbid, sn = make_fake_datasource(self.telstate, self.store, self.cbid, (20, 64, 40))
+        data_source = TelstateDataSource(view, cbid, sn, self.store)
+        np.testing.assert_array_equal(
+            data_source.timestamps,
+            np.arange(20, dtype=np.float32) * 2 + 123456912)
+
+    def test_upgrade_flags(self):
+        shape = (20, 16, 40)
+        view, cbid, sn = make_fake_datasource(self.telstate, self.store, self.cbid, shape)
+        data_source = TelstateDataSource(view, cbid, sn, self.store)
+        np.testing.assert_array_equal(
+            data_source.data.flags.compute(),
+            np.full(shape, 2, np.uint8))
+        # Again, now explicitly disabling the upgrade
+        data_source = TelstateDataSource(view, cbid, sn, self.store, upgrade_flags=False)
+        np.testing.assert_array_equal(
+            data_source.data.flags.compute(),
+            np.ones(shape, np.uint8))
