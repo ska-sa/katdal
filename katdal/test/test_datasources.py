@@ -57,10 +57,10 @@ def to_dask_array(x, chunks=None):
 def put_fake_dataset(store, prefix, shape, chunk_overrides=None, array_overrides={}, flags_only=False):
     """Write a fake dataset into the chunk store."""
     if flags_only:
-        data = {'flags': np.random.randint(0, 7, shape, dtype=np.uint8)}
+        data = {'flags': np.random.RandomState(1).randint(0, 7, shape, dtype=np.uint8)}
     else:
         data = {'correlator_data': ramp(shape, dtype=np.float32) * (1 - 1j),
-                'flags': np.random.randint(0, 7, shape, dtype=np.uint8),
+                'flags': np.random.RandomState(2).randint(0, 7, shape, dtype=np.uint8),
                 'weights': ramp(shape, slope=255. / np.prod(shape), dtype=np.uint8),
                 'weights_channel': ramp(shape[:-1], dtype=np.float32)}
     for name in data:
