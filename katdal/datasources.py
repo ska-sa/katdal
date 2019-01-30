@@ -410,31 +410,31 @@ def _upgrade_chunk_info(chunk_info, improved_chunk_info):
     """Replace chunk info items with better ones while preserving number of dumps."""
     for key, improved_info in improved_chunk_info.items():
         original_info = chunk_info.get(key, improved_info)
-        n_original_dumps = original_info['shape'][0]
-        n_improved_dumps = improved_info['shape'][0]
-        if n_improved_dumps != n_original_dumps:
-            logger.debug("Original '%s' array has %d dumps while improved "
-                         "version has %d - forcing it to %d dumps", key,
-                         n_original_dumps, n_improved_dumps, n_original_dumps)
-            chunks = improved_info['chunks']
-            time_chunks = chunks[0]
-            # Extend/truncate improved version to match original number of dumps
-            if n_improved_dumps < n_original_dumps:
-                time_chunks += (n_original_dumps - n_improved_dumps) * (1,)
-            else:
-                for n, total in enumerate(np.cumsum((0,) + time_chunks)):
-                    if total >= n_original_dumps:
-                        time_chunks = time_chunks[:n]
-                        break
-            improved_info['chunks'] = (time_chunks,) + chunks[1:]
-            shape = improved_info['shape']
-            improved_info['shape'] = (sum(time_chunks),) + shape[1:]
-        if improved_info['shape'] != original_info['shape']:
+        if improved_info['shape'][1:] != original_info['shape'][1:]:
             raise ValueError("Original '{}' array has shape {} while improved"
-                             "version has shape {}, even after fixing dumps"
+                             "version has shape {}"
                              .format(key, original_info['shape'],
                                      improved_info['shape']))
         chunk_info[key] = improved_info
+    return chunk_info
+
+
+def _align_chunk_info(chunk_info):
+    """Inject phantom chunks to ensure all arrays have same number of dumps"""
+    max_dumps = max(info['shape'][0] for info in chunk_info.values())
+    fill = False
+    for key, info in chunk_info.items():
+        shape = info['shape']
+        n_dumps = shape[0]
+        if n_dumps < max_dumps:
+            fill = True
+            info['shape'] = (max_dumps,) + shape[1:]
+            # We could just add a single new chunk, but that could cause an
+            # inconveniently large chunk if there is a big difference between
+            # n_dumps and max_dumps.
+            time_chunks = info['chunks'][0] + (max_dumps - n_dumps) * (1,)
+            info['chunks'] = (time_chunks,) + info['chunks'][1:]
+            logger.debug('Adding %d phantom dumps to array %s', max_dumps - n_dumps, key)
     return chunk_info
 
 
@@ -551,25 +551,28 @@ class TelstateDataSource(DataSource):
                 if sensor_name:
                     sensors[sensor_name] = TelstateSensorData(telstate, key)
         metadata = AttrsSensors(telstate, sensors, name=source_name)
-        if timestamps is None:
-            # Synthesise timestamps from the relevant telstate bits
-            t0 = telstate['sync_time'] + telstate['first_timestamp']
-            int_time = telstate['int_time']
+        if chunk_store is not None or timestamps is None:
             chunk_info = telstate['chunk_info']
-            n_dumps = chunk_info['correlator_data']['shape'][0]
-            timestamps = t0 + np.arange(n_dumps) * int_time
+            chunk_info = _ensure_prefix_is_set(chunk_info, telstate)
+            if upgrade_flags:
+                chunk_info = _upgrade_flags(chunk_info, telstate, capture_block_id, stream_name)
+            chunk_info = _align_chunk_info(chunk_info)
+
         if chunk_store is None:
             data = None
         else:
-            chunk_info = telstate['chunk_info']
             if telstate.get('need_weights_power_scale', False):
                 corrprods = telstate['bls_ordering']
             else:
                 corrprods = None
-            chunk_info = _ensure_prefix_is_set(chunk_info, telstate)
-            if upgrade_flags:
-                chunk_info = _upgrade_flags(chunk_info, telstate, capture_block_id, stream_name)
             data = ChunkStoreVisFlagsWeights(chunk_store, chunk_info, corrprods)
+
+        if timestamps is None:
+            # Synthesise timestamps from the relevant telstate bits
+            t0 = telstate['sync_time'] + telstate['first_timestamp']
+            int_time = telstate['int_time']
+            n_dumps = chunk_info['correlator_data']['shape'][0]
+            timestamps = t0 + np.arange(n_dumps) * int_time
         # Metadata and timestamps with or without data
         DataSource.__init__(self, metadata, timestamps, data)
 

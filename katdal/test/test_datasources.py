@@ -278,7 +278,7 @@ class TestTelstateDataSource(object):
         np.testing.assert_array_equal(data_source.data.vis.compute(), l0_data['correlator_data'])
         np.testing.assert_array_equal(data_source.data.flags.compute(), l0_data['flags'])
 
-    def test_upgrade_flags_extend(self):
+    def test_upgrade_flags_extend_l1(self):
         """L1 flags has fewer dumps than L0"""
         l0_shape = (20, 16, 40)
         l1_flags_shape = (18, 16, 40)
@@ -294,7 +294,7 @@ class TestTelstateDataSource(object):
         expected_flags[l1_flags_shape[0]:] = 8    # TODO: introduce constant for data-lost
         np.testing.assert_array_equal(data_source.data.flags.compute(), expected_flags)
 
-    def test_upgrade_flags_truncate(self):
+    def test_upgrade_flags_extend_l0(self):
         """L1 flags has more dumps than L0"""
         l0_shape = (18, 16, 40)
         l1_flags_shape = (20, 16, 40)
@@ -303,9 +303,13 @@ class TestTelstateDataSource(object):
         data_source = TelstateDataSource(view, cbid, sn, self.store)
         np.testing.assert_array_equal(
             data_source.timestamps,
-            np.arange(l0_shape[0], dtype=np.float32) * 2 + 123456912)
-        np.testing.assert_array_equal(data_source.data.vis.compute(), l0_data['correlator_data'])
-        expected_flags = l1_flags_data['flags'][:l0_shape[0]]
+            np.arange(l1_flags_shape[0], dtype=np.float32) * 2 + 123456912)
+        expected_vis = np.zeros(l1_flags_shape, l0_data['correlator_data'].dtype)
+        expected_vis[:18] = l0_data['correlator_data']
+        expected_flags = l1_flags_data['flags'].copy()
+        # The visibilities for this extension are lost, so the flags will mark it as such
+        expected_flags[18:20] |= 8     # TODO: introduce constant for data-lost
+        np.testing.assert_array_equal(data_source.data.vis.compute(), expected_vis)
         np.testing.assert_array_equal(data_source.data.flags.compute(), expected_flags)
 
     def test_upgrade_flags_shape_mismatch(self):
