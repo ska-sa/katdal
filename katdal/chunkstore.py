@@ -27,6 +27,7 @@ import io
 import numpy as np
 import dask
 import dask.array as da
+import dask.sharedict
 import toolz
 
 
