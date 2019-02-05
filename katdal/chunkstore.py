@@ -28,7 +28,6 @@ import numpy as np
 import dask
 import dask.array as da
 import dask.sharedict
-import toolz
 
 
 class ChunkStoreError(Exception):
@@ -52,8 +51,20 @@ def _floor_power_of_two(x):
     return 2 ** int(np.floor(np.log2(x)))
 
 
+def _generate_chunks_axis(length, chunk):
+    """Generate single-axis chunk specification.
+
+    It splits `length` into pieces of length `chunk`, possibly with one
+    smaller chunk left over.
+    """
+    if length % chunk == 0:
+        return (chunk,) * (length // chunk)
+    else:
+        return (chunk,) * (length // chunk) + (length % chunk,)
+
+
 def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
-                    power_of_two=False):
+                    power_of_two=False, max_chunk_sizes=None):
     """Generate dask chunk specification from ndarray parameters.
 
     Parameters
@@ -69,6 +80,9 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
     power_of_two : bool, optional
         True if chunk size should be rounded down to a power of two
         (the last chunk size along each dimension will potentially be smaller)
+    max_chunk_sizes : dict, optional
+        Maximum number of elements on each axis (each key is an axis).
+        Behaviour is undefined if any axes are not also in `dims_in_split`.
 
     Returns
     -------
@@ -77,32 +91,43 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
     """
     if dims_to_split is None:
         dims_to_split = range(len(shape))
-    dataset_size = np.prod(shape) * np.dtype(dtype).itemsize
-    # The ideal number of chunks to achieve requested chunk size (can be float)
-    num_chunks = dataset_size / max_chunk_size
-    # Start with the whole array as a single big chunk
-    chunks = [(s,) for s in shape]
+    if max_chunk_sizes is None:
+        max_chunk_sizes = {}
+
+    chunk_sizes = list(shape)
+    for i in dims_to_split:
+        if i in max_chunk_sizes and max_chunk_sizes[i] < shape[i]:
+            if power_of_two:
+                chunk_sizes[i] = _floor_power_of_two(max_chunk_sizes[i])
+            else:
+                chunk_sizes[i] = max_chunk_sizes[i]
+    cur_elements = int(np.prod(chunk_sizes))
+    # The ideal number of elements per chunk achieve requested chunk size (can be float)
+    max_elements = max_chunk_size / np.dtype(dtype).itemsize
     # Split the array greedily along each dimension, in order of `dims_to_split`
     for dim in dims_to_split:
+        if cur_elements <= max_elements:
+            break      # We have already split enough to meet the budget
         if dim >= len(shape):
             continue
-        if num_chunks > shape[dim] / 2:
-            # Split the dimension into the maximum number of chunks
-            chunk_sizes = (1,) * shape[dim]
+        trg_size_real = chunk_sizes[dim] * max_elements / cur_elements
+        if trg_size_real < 1:
+            trg_size = 1
+        elif power_of_two:
+            trg_size = _floor_power_of_two(trg_size_real)
+            print(dim, trg_size_real, trg_size)
         else:
-            items = np.arange(shape[dim])
-            if power_of_two:
-                # Chunk sizes will be (2^P, 2^P, 2^P, ..., 1 <= M <= 2^P)
-                chunksize_per_dim = _floor_power_of_two(shape[dim] / num_chunks)
-                chunk_indices = toolz.partition_all(chunksize_per_dim, items)
-            else:
-                # Chunk sizes generally will be (N, N, N, ..., N-1, N-1)
-                chunk_indices = np.array_split(items, np.ceil(num_chunks))
-            chunk_sizes = tuple([len(chunk) for chunk in chunk_indices])
-        chunks[dim] = chunk_sizes
-        # Update number of remaining chunks to realise
-        num_chunks /= len(chunk_sizes)
-    return tuple(chunks)
+            # Try to split into a number of equal-as-possible sized pieces
+            pieces = int(np.ceil(shape[dim] / trg_size_real))
+            # Note: np.ceil rather than np.floor here means the max_chunk_size
+            # could be breached. It's done like this for backwards
+            # compatibility.
+            trg_size = int(np.floor(shape[dim] / pieces))
+        cur_elements = cur_elements // chunk_sizes[dim] * trg_size
+        chunk_sizes[dim] = trg_size
+
+    chunks = tuple(_generate_chunks_axis(s, c) for s, c in zip(shape, chunk_sizes))
+    return chunks
 
 
 def _add_offset_to_slices(func, offset):

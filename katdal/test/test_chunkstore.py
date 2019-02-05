@@ -44,7 +44,7 @@ class TestGenerateChunks(object):
         assert_equal(chunks, (10 * (1,), (8192,), (144,)))
         # Uneven chunks in the final split
         chunks = generate_chunks(self.shape, self.dtype, 1e6)
-        assert_equal(chunks, (10 * (1,), 2 * (820,) + 8 * (819,), (144,)))
+        assert_equal(chunks, (10 * (1,), 10 * (819,) + (2,), (144,)))
 
     def test_corner_cases(self):
         # Corner case: don't select any dimensions to split -> one chunk
@@ -74,6 +74,18 @@ class TestGenerateChunks(object):
         chunks = generate_chunks(shape, self.dtype, self.nbytes / 10,
                                  dims_to_split=(1, 0), power_of_two=True)
         assert_equal(chunks, ((10,), 60 * (512,), (144,)))
+
+    def test_max_chunk_sizes(self):
+        chunks = generate_chunks(self.shape, self.dtype, 150000,
+                                 dims_to_split=(0, 1), power_of_two=True,
+                                 max_chunk_sizes={1: 50})
+        assert_equal(chunks, ((4, 4, 2), 256 * (32,), (144,)))
+        # Case where max_chunk_sizes forces chunks to be smaller than
+        # max_chunk_size.
+        chunks = generate_chunks(self.shape, self.dtype, 1e6,
+                                 dims_to_split=(0, 1), power_of_two=True,
+                                 max_chunk_sizes={0: 4, 1: 50})
+        assert_equal(chunks, ((4, 4, 2), 256 * (32,), (144,)))
 
 
 class TestChunkStore(object):
