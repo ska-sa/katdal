@@ -51,18 +51,6 @@ def _floor_power_of_two(x):
     return 2 ** int(np.floor(np.log2(x)))
 
 
-def _generate_chunks_dim(length, chunk):
-    """Generate single-dimension chunk specification.
-
-    It splits `length` into pieces of length `chunk`, possibly with one
-    smaller chunk left over.
-    """
-    if length % chunk == 0:
-        return (chunk,) * (length // chunk)
-    else:
-        return (chunk,) * (length // chunk) + (length % chunk,)
-
-
 def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
                     power_of_two=False, max_dim_elements=None):
     """Generate dask chunk specification from ndarray parameters.
@@ -127,8 +115,7 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
         cur_elements = cur_elements // dim_elements[dim] * trg_size
         dim_elements[dim] = trg_size
 
-    chunks = tuple(_generate_chunks_dim(s, c) for s, c in zip(shape, dim_elements))
-    return chunks
+    return da.core.blockdims_from_blockshape(shape, dim_elements)
 
 
 def _add_offset_to_slices(func, offset):
