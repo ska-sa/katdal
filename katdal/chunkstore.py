@@ -28,7 +28,6 @@ import numpy as np
 import dask
 import dask.array as da
 import dask.sharedict
-import toolz
 
 
 class ChunkStoreError(Exception):
@@ -53,7 +52,7 @@ def _floor_power_of_two(x):
 
 
 def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
-                    power_of_two=False):
+                    power_of_two=False, max_dim_elements=None):
     """Generate dask chunk specification from ndarray parameters.
 
     Parameters
@@ -69,6 +68,9 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
     power_of_two : bool, optional
         True if chunk size should be rounded down to a power of two
         (the last chunk size along each dimension will potentially be smaller)
+    max_dim_elements : dict, optional
+        Maximum number of elements on each dimension (each key is a dimension
+        index). Dimensions that are not in `dims_to_split` are ignored.
 
     Returns
     -------
@@ -77,32 +79,41 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
     """
     if dims_to_split is None:
         dims_to_split = range(len(shape))
-    dataset_size = np.prod(shape) * np.dtype(dtype).itemsize
-    # The ideal number of chunks to achieve requested chunk size (can be float)
-    num_chunks = dataset_size / max_chunk_size
-    # Start with the whole array as a single big chunk
-    chunks = [(s,) for s in shape]
+    if max_dim_elements is None:
+        max_dim_elements = {}
+
+    dim_elements = list(shape)
+    for i in dims_to_split:
+        if i in max_dim_elements and max_dim_elements[i] < shape[i]:
+            if power_of_two:
+                dim_elements[i] = _floor_power_of_two(max_dim_elements[i])
+            else:
+                dim_elements[i] = max_dim_elements[i]
+    # The ideal number of elements per chunk to achieve requested chunk size
+    # (can be float).
+    max_elements = max_chunk_size / np.dtype(dtype).itemsize
     # Split the array greedily along each dimension, in order of `dims_to_split`
     for dim in dims_to_split:
-        if dim >= len(shape):
-            continue
-        if num_chunks > shape[dim] / 2:
-            # Split the dimension into the maximum number of chunks
-            chunk_sizes = (1,) * shape[dim]
+        cur_elements = int(np.prod(dim_elements))
+        if cur_elements <= max_elements:
+            break      # We have already split enough to meet the budget
+        # Compute number of elements per chunk in this dimension to exactly
+        # reach budget.
+        trg_elements_real = dim_elements[dim] * max_elements / cur_elements
+        if trg_elements_real < 1:
+            trg_elements = 1
+        elif power_of_two:
+            trg_elements = _floor_power_of_two(trg_elements_real)
         else:
-            items = np.arange(shape[dim])
-            if power_of_two:
-                # Chunk sizes will be (2^P, 2^P, 2^P, ..., 1 <= M <= 2^P)
-                chunksize_per_dim = _floor_power_of_two(shape[dim] / num_chunks)
-                chunk_indices = toolz.partition_all(chunksize_per_dim, items)
-            else:
-                # Chunk sizes generally will be (N, N, N, ..., N-1, N-1)
-                chunk_indices = np.array_split(items, np.ceil(num_chunks))
-            chunk_sizes = tuple([len(chunk) for chunk in chunk_indices])
-        chunks[dim] = chunk_sizes
-        # Update number of remaining chunks to realise
-        num_chunks /= len(chunk_sizes)
-    return tuple(chunks)
+            # Try to split into a number of equal-as-possible sized pieces
+            pieces = int(np.ceil(shape[dim] / trg_elements_real))
+            # Note: np.ceil rather than np.floor here means the max_chunk_size
+            # could be breached. It's done like this for backwards
+            # compatibility.
+            trg_elements = int(np.floor(shape[dim] / pieces))
+        dim_elements[dim] = trg_elements
+
+    return da.core.blockdims_from_blockshape(shape, dim_elements)
 
 
 def _add_offset_to_slices(func, offset):
