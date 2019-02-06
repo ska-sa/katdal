@@ -89,14 +89,16 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
                 dim_elements[i] = _floor_power_of_two(max_dim_elements[i])
             else:
                 dim_elements[i] = max_dim_elements[i]
-    cur_elements = int(np.prod(dim_elements))
     # The ideal number of elements per chunk to achieve requested chunk size
     # (can be float).
     max_elements = max_chunk_size / np.dtype(dtype).itemsize
     # Split the array greedily along each dimension, in order of `dims_to_split`
     for dim in dims_to_split:
+        cur_elements = int(np.prod(dim_elements))
         if cur_elements <= max_elements:
             break      # We have already split enough to meet the budget
+        # Compute number of elements per chunk in this dimension to exactly
+        # reach budget.
         trg_elements_real = dim_elements[dim] * max_elements / cur_elements
         if trg_elements_real < 1:
             trg_elements = 1
@@ -109,8 +111,6 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
             # could be breached. It's done like this for backwards
             # compatibility.
             trg_elements = int(np.floor(shape[dim] / pieces))
-        # Update cur_elements to still be the product of dim_elements
-        cur_elements = cur_elements // dim_elements[dim] * trg_elements
         dim_elements[dim] = trg_elements
 
     return da.core.blockdims_from_blockshape(shape, dim_elements)
