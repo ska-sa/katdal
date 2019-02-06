@@ -70,8 +70,7 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
         (the last chunk size along each dimension will potentially be smaller)
     max_dim_elements : dict, optional
         Maximum number of elements on each dimension (each key is a dimension
-        index). Behaviour is undefined if any dimensions are not also in
-        `dims_in_split`.
+        index). Dimensions that are not in `dims_to_split` are ignored.
 
     Returns
     -------
@@ -98,22 +97,21 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
     for dim in dims_to_split:
         if cur_elements <= max_elements:
             break      # We have already split enough to meet the budget
-        if dim >= len(shape):
-            continue
-        trg_size_real = dim_elements[dim] * max_elements / cur_elements
-        if trg_size_real < 1:
-            trg_size = 1
+        trg_elements_real = dim_elements[dim] * max_elements / cur_elements
+        if trg_elements_real < 1:
+            trg_elements = 1
         elif power_of_two:
-            trg_size = _floor_power_of_two(trg_size_real)
+            trg_elements = _floor_power_of_two(trg_elements_real)
         else:
             # Try to split into a number of equal-as-possible sized pieces
-            pieces = int(np.ceil(shape[dim] / trg_size_real))
+            pieces = int(np.ceil(shape[dim] / trg_elements_real))
             # Note: np.ceil rather than np.floor here means the max_chunk_size
             # could be breached. It's done like this for backwards
             # compatibility.
-            trg_size = int(np.floor(shape[dim] / pieces))
-        cur_elements = cur_elements // dim_elements[dim] * trg_size
-        dim_elements[dim] = trg_size
+            trg_elements = int(np.floor(shape[dim] / pieces))
+        # Update cur_elements to still be the product of dim_elements
+        cur_elements = cur_elements // dim_elements[dim] * trg_elements
+        dim_elements[dim] = trg_elements
 
     return da.core.blockdims_from_blockshape(shape, dim_elements)
 
