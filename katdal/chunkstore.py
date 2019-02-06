@@ -51,8 +51,8 @@ def _floor_power_of_two(x):
     return 2 ** int(np.floor(np.log2(x)))
 
 
-def _generate_chunks_axis(length, chunk):
-    """Generate single-axis chunk specification.
+def _generate_chunks_dim(length, chunk):
+    """Generate single-dimension chunk specification.
 
     It splits `length` into pieces of length `chunk`, possibly with one
     smaller chunk left over.
@@ -64,7 +64,7 @@ def _generate_chunks_axis(length, chunk):
 
 
 def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
-                    power_of_two=False, max_chunk_sizes=None):
+                    power_of_two=False, max_dim_elements=None):
     """Generate dask chunk specification from ndarray parameters.
 
     Parameters
@@ -80,9 +80,10 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
     power_of_two : bool, optional
         True if chunk size should be rounded down to a power of two
         (the last chunk size along each dimension will potentially be smaller)
-    max_chunk_sizes : dict, optional
-        Maximum number of elements on each axis (each key is an axis).
-        Behaviour is undefined if any axes are not also in `dims_in_split`.
+    max_dim_elements : dict, optional
+        Maximum number of elements on each dimension (each key is a dimension
+        index). Behaviour is undefined if any dimensions are not also in
+        `dims_in_split`.
 
     Returns
     -------
@@ -91,18 +92,19 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
     """
     if dims_to_split is None:
         dims_to_split = range(len(shape))
-    if max_chunk_sizes is None:
-        max_chunk_sizes = {}
+    if max_dim_elements is None:
+        max_dim_elements = {}
 
-    chunk_sizes = list(shape)
+    dim_elements = list(shape)
     for i in dims_to_split:
-        if i in max_chunk_sizes and max_chunk_sizes[i] < shape[i]:
+        if i in max_dim_elements and max_dim_elements[i] < shape[i]:
             if power_of_two:
-                chunk_sizes[i] = _floor_power_of_two(max_chunk_sizes[i])
+                dim_elements[i] = _floor_power_of_two(max_dim_elements[i])
             else:
-                chunk_sizes[i] = max_chunk_sizes[i]
-    cur_elements = int(np.prod(chunk_sizes))
-    # The ideal number of elements per chunk achieve requested chunk size (can be float)
+                dim_elements[i] = max_dim_elements[i]
+    cur_elements = int(np.prod(dim_elements))
+    # The ideal number of elements per chunk to achieve requested chunk size
+    # (can be float).
     max_elements = max_chunk_size / np.dtype(dtype).itemsize
     # Split the array greedily along each dimension, in order of `dims_to_split`
     for dim in dims_to_split:
@@ -110,12 +112,11 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
             break      # We have already split enough to meet the budget
         if dim >= len(shape):
             continue
-        trg_size_real = chunk_sizes[dim] * max_elements / cur_elements
+        trg_size_real = dim_elements[dim] * max_elements / cur_elements
         if trg_size_real < 1:
             trg_size = 1
         elif power_of_two:
             trg_size = _floor_power_of_two(trg_size_real)
-            print(dim, trg_size_real, trg_size)
         else:
             # Try to split into a number of equal-as-possible sized pieces
             pieces = int(np.ceil(shape[dim] / trg_size_real))
@@ -123,10 +124,10 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
             # could be breached. It's done like this for backwards
             # compatibility.
             trg_size = int(np.floor(shape[dim] / pieces))
-        cur_elements = cur_elements // chunk_sizes[dim] * trg_size
-        chunk_sizes[dim] = trg_size
+        cur_elements = cur_elements // dim_elements[dim] * trg_size
+        dim_elements[dim] = trg_size
 
-    chunks = tuple(_generate_chunks_axis(s, c) for s, c in zip(shape, chunk_sizes))
+    chunks = tuple(_generate_chunks_dim(s, c) for s, c in zip(shape, dim_elements))
     return chunks
 
 

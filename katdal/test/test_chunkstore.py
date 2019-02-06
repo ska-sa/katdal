@@ -75,16 +75,16 @@ class TestGenerateChunks(object):
                                  dims_to_split=(1, 0), power_of_two=True)
         assert_equal(chunks, ((10,), 60 * (512,), (144,)))
 
-    def test_max_chunk_sizes(self):
+    def test_max_dim_elements(self):
         chunks = generate_chunks(self.shape, self.dtype, 150000,
                                  dims_to_split=(0, 1), power_of_two=True,
-                                 max_chunk_sizes={1: 50})
+                                 max_dim_elements={1: 50})
         assert_equal(chunks, ((4, 4, 2), 256 * (32,), (144,)))
-        # Case where max_chunk_sizes forces chunks to be smaller than
+        # Case where max_dim_elements forces chunks to be smaller than
         # max_chunk_size.
         chunks = generate_chunks(self.shape, self.dtype, 1e6,
                                  dims_to_split=(0, 1), power_of_two=True,
-                                 max_chunk_sizes={0: 4, 1: 50})
+                                 max_dim_elements={0: 4, 1: 50})
         assert_equal(chunks, ((4, 4, 2), 256 * (32,), (144,)))
 
 
