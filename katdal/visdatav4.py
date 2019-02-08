@@ -68,6 +68,14 @@ def _calc_azel(cache, name, ant):
     return sensor_data
 
 
+def _add_sensor_alias(cache, new_name, old_name):
+    """Add an optional alias for single sensor in sensor cache."""
+    try:
+        cache[new_name] = cache.get(old_name, extract=False)
+    except KeyError:
+        pass
+
+
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel,
                         'Antennas/{ant}/el': _calc_azel})
@@ -191,17 +199,35 @@ class VisibilityDataV4(DataSet):
         obs_ants = self.obs_params.get('ants')
         # Otherwise fall back to the list of antennas common to CAM and SDP / CBF
         obs_ants = obs_ants.split(',') if obs_ants else sorted(cam_ants & sdp_ants)
-        if self.ref_ant and self.ref_ant not in cam_ants:
-            raise KeyError("Unknown ref_ant '{}', should be one of {}"
-                           .format(self.ref_ant, cam_ants))
+        self.ref_ant = 'array' if not ref_ant else ref_ant
+        valid_ref_ants = cam_ants | {'array'}
+        if self.ref_ant not in valid_ref_ants:
+            raise KeyError("Unknown ref_ant '%s', should be one of %s"
+                           % (self.ref_ant, valid_ref_ants))
 
         self.subarrays = subs = [Subarray(ants, corrprods)]
         self.sensor['Observation/subarray'] = CategoricalData(subs, all_dumps)
         self.sensor['Observation/subarray_index'] = CategoricalData([0], all_dumps)
-        # Store antenna objects in sensor cache too, for use in virtual sensors
+        # Store antenna objects in sensor cache too, for use in virtual
+        # sensors, and make aliases for old-style target + activity sensors
         for ant in ants:
-            sensor_name = 'Antennas/%s/antenna' % (ant.name,)
-            self.sensor[sensor_name] = CategoricalData([ant], all_dumps)
+            prefix = 'Antennas/%s/' % (ant.name,)
+            self.sensor[prefix + 'antenna'] = CategoricalData([ant], all_dumps)
+            _add_sensor_alias(self.sensor, prefix + 'activity', ant.name + '_activity')
+            _add_sensor_alias(self.sensor, prefix + 'target', ant.name + '_target')
+        # Extract array reference antenna from first antenna
+        array_ant = katpoint.Antenna(ants[0])
+        # Modify a copy of the first antenna in-place (don't trash ants[0])
+        array_ant.name = 'array'
+        array_ant.delay_model.set(None)
+        array_ant.pointing_model.set(None)
+        # Reconstitute the Antenna object to ensure internal consistency
+        array_ant = katpoint.Antenna(array_ant)
+        # Cobble together "array" antenna sensors from various sources
+        self.sensor['Antennas/array/antenna'] = CategoricalData(
+            [array_ant], all_dumps)
+        _add_sensor_alias(self.sensor, 'Antennas/array/activity', 'obs_activity')
+        _add_sensor_alias(self.sensor, 'Antennas/array/target', 'cbf_target')
 
         # ------ Extract spectral windows / frequencies ------
 
@@ -241,9 +267,8 @@ class VisibilityDataV4(DataSet):
 
         # ------ Extract scans / compound scans / targets ------
 
-        # Use the relevant activity sensor to partition the data set into scans
-        ref_activity = self.ref_ant or 'obs'
-        scan = self.sensor.get(ref_activity + '_activity')
+        # Use activity sensor of reference antenna to partition the data set into scans
+        scan = self.sensor.get('Antennas/%s/activity' % (self.ref_ant,))
         # If the antenna starts slewing on the second dump, incorporate the
         # first dump into the slew too. This scenario typically occurs when the
         # first target is only set after the first dump is received.
@@ -282,9 +307,8 @@ class VisibilityDataV4(DataSet):
         self.sensor['Observation/label'] = label
         self.sensor['Observation/compscan_index'] = CategoricalData(list(range(len(label))),
                                                                     label.events)
-        # Use the relevant target sensor to set target for each scan
-        ref_target = self.ref_ant or 'cbf'
-        target = self.sensor.get(ref_target + '_target')
+        # Use target sensor of reference antenna to set the target for each scan
+        target = self.sensor.get('Antennas/%s/target' % (self.ref_ant,))
         # Move target events onto the nearest scan start
         # ASSUMPTION: Number of targets <= number of scans
         # (i.e. only a single target allowed per scan)
@@ -310,21 +334,9 @@ class VisibilityDataV4(DataSet):
         self.sensor['Observation/target'] = target
         self.sensor['Observation/target_index'] = CategoricalData(target.indices,
                                                                   target.events)
-        # Set up catalogue containing all targets in file
+        # Set up catalogue containing all targets in file, with reference antenna as default antenna
         self.catalogue.add(target.unique_values)
-        if self.ref_ant:
-            # If provided, use reference antenna as default antenna
-            cat_ant = {ant.name: ant for ant in ants}[self.ref_ant]
-        else:
-            # Extract array reference as an antenna object for the catalogue
-            cat_ant = katpoint.Antenna(ants[0])
-            # Modify a copy of the first antenna in-place (don't trash ants[0])
-            cat_ant.name = 'array'
-            cat_ant.delay_model.set(None)
-            cat_ant.pointing_model.set(None)
-            # Reconstitute the Antenna object to ensure internal consistency
-            cat_ant = katpoint.Antenna(cat_ant)
-        self.catalogue.antenna = cat_ant
+        self.catalogue.antenna = self.sensor['Antennas/%s/antenna' % (self.ref_ant,)][0]
         # Ensure that each target flux model spans all frequencies
         # in data set if possible
         self._fix_flux_freq_range()
