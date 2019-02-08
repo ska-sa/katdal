@@ -215,14 +215,9 @@ class VisibilityDataV4(DataSet):
             self.sensor[prefix + 'antenna'] = CategoricalData([ant], all_dumps)
             _add_sensor_alias(self.sensor, prefix + 'activity', ant.name + '_activity')
             _add_sensor_alias(self.sensor, prefix + 'target', ant.name + '_target')
-        # Extract array reference antenna from first antenna
-        array_ant = katpoint.Antenna(ants[0])
-        # Modify a copy of the first antenna in-place (don't trash ants[0])
-        array_ant.name = 'array'
-        array_ant.delay_model.set(None)
-        array_ant.pointing_model.set(None)
-        # Reconstitute the Antenna object to ensure internal consistency
-        array_ant = katpoint.Antenna(array_ant)
+        # Extract array reference from first antenna (first 5 fields of description)
+        array_ant_fields = ['array'] + ants[0].description.split(',')[1:5]
+        array_ant = katpoint.Antenna(','.join(array_ant_fields))
         # Cobble together "array" antenna sensors from various sources
         self.sensor['Antennas/array/antenna'] = CategoricalData(
             [array_ant], all_dumps)
