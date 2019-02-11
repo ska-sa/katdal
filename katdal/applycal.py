@@ -325,23 +325,35 @@ def calc_correction_per_corrprod(dump, channels, cache, inputs,
     return g_per_cp
 
 
+@numba.jit(nopython=True, nogil=True)
 def apply_vis_correction(out, correction):
     """Clean up and apply `correction` in-place to visibility data in `out`."""
-    correction[np.isnan(correction)] = np.complex64(1)
-    out *= correction
+    for i in range(out.shape[0]):
+        for j in range(out.shape[1]):
+            c = correction[i, j]
+            if not np.isnan(c):
+                out[i, j] *= c
 
 
+@numba.jit(nopython=True, nogil=True)
 def apply_weights_correction(out, correction):
     """Clean up and apply `correction` in-place to weight data in `out`."""
-    correction2 = correction.real ** 2 + correction.imag ** 2
-    correction2[np.isnan(correction2)] = np.inf
-    correction2[correction2 == 0] = np.inf
-    out /= correction2
+    for i in range(out.shape[0]):
+        for j in range(out.shape[1]):
+            cc = correction[i, j]
+            c = cc.real**2 + cc.imag**2
+            if c > 0:   # Will be false if c is NaN
+                out[i, j] /= c
+            else:
+                out[i, j] = 0
 
 
+@numba.jit(nopython=True, nogil=True)
 def apply_flags_correction(out, correction):
     """Update flag data in `out` to True wherever `correction` is invalid."""
-    out[np.isnan(correction)] = True
+    for i in range(out.shape[0]):
+        for j in range(out.shape[1]):
+            out[i, j] |= np.isnan(correction[i, j])
 
 
 def add_applycal_transform(indexer, cache, corrprods, cal_products,
