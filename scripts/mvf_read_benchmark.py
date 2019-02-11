@@ -5,7 +5,6 @@ from builtins import range
 import argparse
 import logging
 import time
-import dask
 
 import katdal
 from katdal.lazy_indexer import DaskLazyIndexer
