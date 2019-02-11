@@ -26,6 +26,7 @@ import logging
 from collections import defaultdict
 
 import katsdptelstate
+import katsdptelstate.memory
 import numpy as np
 import dask.array as da
 from dask.array.rechunk import intersect_chunks
@@ -602,7 +603,7 @@ class TelstateDataSource(DataSource):
         db = int(kwargs.pop('db', '0'))
         if url_parts.scheme == 'file':
             # RDB dump file
-            telstate = katsdptelstate.TelescopeState()
+            telstate = katsdptelstate.TelescopeState(katsdptelstate.memory.MemoryBackend())
             try:
                 telstate.load_from_file(url_parts.path)
             except OSError as err:
