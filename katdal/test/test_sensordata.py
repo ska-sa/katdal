@@ -1,7 +1,7 @@
 # -*- coding: utf-8
 
 ################################################################################
-# Copyright (c) 2018, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2018-2019, National Research Foundation (Square Kilometre Array)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
