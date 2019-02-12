@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 ################################################################################
-# Copyright (c) 2011-2018, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2011-2019, National Research Foundation (Square Kilometre Array)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -23,7 +23,7 @@ import os.path
 from setuptools import setup, find_packages
 
 
-here = os.path.abspath(os.path.dirname(__file__))
+here = os.path.dirname(__file__)
 readme = open(os.path.join(here, 'README.rst')).read()
 news = open(os.path.join(here, 'NEWS.rst')).read()
 long_description = readme + '\n\n' + news
@@ -58,8 +58,8 @@ setup(name='katdal',
       python_requires='>=2.7,!=3.0,!=3.1,!=3.2',
       setup_requires=['katversion'],
       use_katversion=True,
-      install_requires=['numpy', 'katpoint', 'h5py>=2.3',
-                        'katsdptelstate[rdb]', 'dask[array] >= 0.18.2', 'numba',
+      install_requires=['numpy', 'katpoint', 'h5py >= 2.3', 'numba',
+                        'katsdptelstate[rdb] >= 0.7', 'dask[array] >= 0.18.2',
                         'requests >= 2.18.0', 'defusedxml', 'future'],
       extras_require={
           'ms': ['python-casacore >= 2.2.1'],
