@@ -21,9 +21,14 @@ from builtins import range, zip
 from functools import partial
 import copy
 import logging
+import itertools
+import operator
 
 import numpy as np
 import dask.array as da
+import dask.base
+import dask.utils
+import toolz
 import numba
 
 from .categorical import CategoricalData, ComparableArrayWrapper
@@ -36,6 +41,104 @@ INVALID_GAIN = np.complex64(complex(np.nan, np.nan))
 CAL_PRODUCTS = ('K', 'B', 'G')
 
 logger = logging.getLogger(__name__)
+
+
+def _call_from_block_function(func, shape, num_chunks, chunk_location, array_location, func_kwargs):
+    block_info = {
+        'shape': shape,
+        'num-chunks': num_chunks,
+        'chunk-location': chunk_location,
+        'array-location': array_location
+    }
+    return func(block_info, **func_kwargs)
+
+
+# This has been submitted to dask as https://github.com/dask/dask/pull/4476.
+# If it gets merged it can be used rather than copied here.
+def from_block_function(func, shape, chunks='auto', dtype=None, name=None, **kwargs):
+    """
+    Create an array from a function that builds individual blocks.
+
+    For each block, the function is passed a dictionary with information about
+    the block to construct, and should return a numpy array.
+
+    >>> block_info      # doctest: +SKIP
+    {'shape': (12, 20),
+     'num-chunks': (3, 4),
+     'chunk-location': (2, 1),
+     'array-location': [(8, 12), (5, 10)]
+    }
+
+    The values in the dictionary are respectively the shape of the full
+    array, the number of chunks in the full array in each dimension, the
+    position of this block in chunks, and the position in the array
+    (for example, the slice corresponding to ``8:12, 5:10``).
+
+    Parameters
+    ----------
+    func : callable
+        Function to produce every block in the array
+    shape : Tuple[int]
+        Shape of the resulting array.
+    chunks : tuple, optional
+        Chunk shape of resulting blocks. If not provided, a chunking scheme
+        is chosen automatically.
+    dtype : np.dtype, optional
+        The ``dtype`` of the output array. It is recommended to provide this.
+        If not provided, will be inferred by applying the function to a small
+        set of fake data.
+    name : str, optional
+        The key name to use for the output array. If not provided,
+        will be determined from `func`.
+    **kwargs :
+        Other keyword arguments to pass to function. Values must be constants
+        (not dask.arrays)
+
+    Examples
+    --------
+    This is a simplified version of :func:`eye` which only handles square
+    arrays with the ones on the main diagonal.
+
+    >>> def eye_chunk(block_info):
+            location = block_info['array-location']
+            r0, r1 = location[0]
+            c0, c1 = location[1]
+            if r0 == c0:
+                return np.eye(r1 - r0, c1 - c0)
+            else:
+                return np.zeros((r1 - r0, c1 - c0))
+    >>> from_block_function(eye_chunk, (4, 4), chunks=2, dtype=float).compute()
+    dask.array<eye_chunk, shape=(4, 4), dtype=float64, chunksize=(2, 2)>
+    >>> _.compute()
+    array([[1., 0., 0., 0.],
+           [0., 1., 0., 0.],
+           [0., 0., 1., 0.],
+           [0., 0., 0., 1.]])
+    """
+
+    name = '%s-%s' % (name or dask.utils.funcname(func),
+                      dask.base.tokenize(func, shape, dtype, chunks))
+
+    if dtype is None:
+        dummy_block_info = {
+            'shape': shape,
+            'num-chunks': shape,
+            'chunk-location': (0,) * len(shape),
+            'array-location': [(0, 1)] * len(shape)
+        }
+        dtype = da.apply_infer_dtype(func, [dummy_block_info], {}, 'from_block_function')
+
+    chunks = da.core.normalize_chunks(chunks, shape, dtype=dtype)
+    shape = [sum(bd) for bd in chunks]
+
+    keys = list(itertools.product([name], *[range(len(bd)) for bd in chunks]))
+    aggdims = [list(toolz.accumulate(operator.add, (0,) + bd)) for bd in chunks]
+    locdims = [list(zip(a[:-1], a[1:])) for a in aggdims]
+    locations = list(itertools.product(*locdims))
+    num_chunks = [len(bd) for bd in chunks]
+    dsk = {key: (_call_from_block_function, func, shape, num_chunks, key[1:], location, kwargs)
+           for key, location in zip(keys, locations)}
+    return da.Array(dsk, name, chunks, dtype=dtype)
 
 
 def complex_interp(x, xi, yi, left=None, right=None):
@@ -292,7 +395,7 @@ def calc_correction_per_corrprod(dump, channels, cache, inputs,
         Sensor cache, used to look up individual correction sensors
     inputs : sequence of string
         Correlator input labels
-    input1_index, input2_index : list of int, length n_corrprods
+    input1_index, input2_index : array of int, length n_corrprods
         Indices into `inputs` of first and second items of correlation product
     cal_products : sequence of string
         Calibration products that will contribute to corrections
@@ -315,9 +418,6 @@ def calc_correction_per_corrprod(dump, channels, cache, inputs,
             if np.shape(g_product) != ():
                 g_product = g_product[channels]
             g_per_input[n] *= g_product
-    # Ensure these are arrays for the benefit of numba
-    input1_index = np.asarray(input1_index)
-    input2_index = np.asarray(input2_index)
     # Transpose to (channel, input) order, and ensure C ordering
     g_per_input = np.ascontiguousarray(g_per_input.T)
     g_per_cp = np.empty((len(channels), len(input1_index)), np.complex64)
@@ -326,34 +426,68 @@ def calc_correction_per_corrprod(dump, channels, cache, inputs,
 
 
 @numba.jit(nopython=True, nogil=True)
-def apply_vis_correction(out, correction):
-    """Clean up and apply `correction` in-place to visibility data in `out`."""
+def apply_vis_correction(data, correction):
+    """Clean up and apply `correction` visibility data in `data`."""
+    out = np.empty_like(data)
     for i in range(out.shape[0]):
         for j in range(out.shape[1]):
-            c = correction[i, j]
-            if not np.isnan(c):
-                out[i, j] *= c
+            for k in range(out.shape[2]):
+                c = correction[i, j, k]
+                if not np.isnan(c):
+                    out[i, j, k] = data[i, j, k] * c
+                else:
+                    out[i, j, k] = data[i, j, k]
+    return out
 
 
 @numba.jit(nopython=True, nogil=True)
-def apply_weights_correction(out, correction):
-    """Clean up and apply `correction` in-place to weight data in `out`."""
+def apply_weights_correction(data, correction):
+    """Clean up and apply `correction` to weight data in `data`."""
+    out = np.empty_like(data)
     for i in range(out.shape[0]):
         for j in range(out.shape[1]):
-            cc = correction[i, j]
-            c = cc.real**2 + cc.imag**2
-            if c > 0:   # Will be false if c is NaN
-                out[i, j] /= c
-            else:
-                out[i, j] = 0
+            for k in range(out.shape[2]):
+                cc = correction[i, j, k]
+                c = cc.real**2 + cc.imag**2
+                if c > 0:   # Will be false if c is NaN
+                    out[i, j, k] = data[i, j, k] / c
+                else:
+                    out[i, j, k] = 0
+    return out
 
 
 @numba.jit(nopython=True, nogil=True)
-def apply_flags_correction(out, correction):
-    """Update flag data in `out` to True wherever `correction` is invalid."""
+def apply_flags_correction(data, correction):
+    """Update flag data to True wherever `correction` is invalid."""
+    out = np.copy(data)
     for i in range(out.shape[0]):
         for j in range(out.shape[1]):
-            out[i, j] |= np.isnan(correction[i, j])
+            for k in range(out.shape[2]):
+                out[i, j, k] |= np.isnan(correction[i, j, k])
+    return out
+
+
+def _correction_block(block_info, stage1_indices, cache, inputs,
+                      input1_index, input2_index, cal_products):
+    slices = tuple(slice(*l) for l in block_info['array-location'])
+    block_shape = tuple(s.stop - s.start for s in slices)
+    dumps, chans, _ = tuple(i[s] for i, s in zip(stage1_indices, slices))
+    correction = np.empty(block_shape, np.complex64)
+    # TODO: make calc_correction_per_corrprod multi-dump aware
+    for n, dump in enumerate(dumps):
+        correction[n] = calc_correction_per_corrprod(
+            dump, chans, cache, inputs,
+            input1_index[slices[2]], input2_index[slices[2]], cal_products)
+    return correction
+
+
+def _correction(chunks, stage1_indices, cache, inputs,
+                input1_index, input2_index, cal_products):
+    shape = tuple(sum(bd) for bd in chunks)
+    return from_block_function(
+        _correction_block, shape=shape, chunks=chunks, dtype=np.complex64, name='correction',
+        stage1_indices=stage1_indices, cache=cache, inputs=inputs,
+        input1_index=input1_index, input2_index=input2_index, cal_products=cal_products)
 
 
 def add_applycal_transform(indexer, cache, corrprods, cal_products,
@@ -385,25 +519,16 @@ def add_applycal_transform(indexer, cache, corrprods, cal_products,
     stage1_indices = tuple(k.nonzero()[0] for k in indexer.keep)
     # Turn corrprods into a list of input labels and two lists of indices
     inputs = sorted(set(np.ravel(corrprods)))
-    input1_index = [inputs.index(cp[0]) for cp in corrprods]
-    input2_index = [inputs.index(cp[1]) for cp in corrprods]
+    input1_index = np.array([inputs.index(cp[0]) for cp in corrprods])
+    input2_index = np.array([inputs.index(cp[1]) for cp in corrprods])
     # Prevent cal_products from changing underneath us if caller changes theirs
     cal_products = copy.deepcopy(cal_products)
 
-    def calibrate_chunk(chunk, block_info):
-        """Apply all specified calibration corrections to chunk."""
-        corrected_chunk = chunk.copy()
-        # Tuple of slices that cuts out `chunk` from full array
-        slices = tuple(slice(*l) for l in block_info[0]['array-location'])
-        dumps, chans, _ = tuple(i[s] for i, s in zip(stage1_indices, slices))
-        index1 = input1_index[slices[2]]
-        index2 = input2_index[slices[2]]
-        ccpc_args = (chans, cache, inputs, index1, index2, cal_products)
-        for n, dump in enumerate(dumps):
-            correction = calc_correction_per_corrprod(dump, *ccpc_args)
-            apply_correction(corrected_chunk[n], correction)
-        return corrected_chunk
+    def transform(data):
+        correction = _correction(data.chunks, stage1_indices, cache, inputs,
+                                 input1_index, input2_index, cal_products)
+        return da.blockwise(apply_correction, 'ijk', data, 'ijk', correction, 'ijk',
+                            dtype=data.dtype)
 
-    transform = partial(da.map_blocks, calibrate_chunk, dtype=indexer.dtype)
     transform.__name__ = 'applycal[{}]'.format(','.join(cal_products))
     indexer.add_transform(transform)
