@@ -3,12 +3,12 @@ History
 
 0.12 (2019-02-12)
 -----------------
-* Make L1 product by applying calibration corrections aka applycal (#194 - #198)
+* Optionally make L1 product by applying calibration corrections (#194 - #198)
 * Let default reference antenna in v4 datasets be "array" antenna (#202, #220)
-* Use katsdptelstate v0.7 features: msgpack, memory backend (#196, #201, #212)
+* Use katsdptelstate v0.7: generic encodings, memory backend (#196, #201, #212)
 * Prepare for multi-dump chunks (#213, #214, #216, #217, #219)
 * Allow L1 flags to be ignored (#209, #210)
-* Fix usage of deprecated dask features (#204, #215)
+* Deal with deprecated dask features (#204, #215)
 * Remove RADOS chunk store (it's all via S3 from here on)
 
 0.11 (2018-10-15)
