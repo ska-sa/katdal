@@ -18,7 +18,7 @@
 
 from __future__ import print_function, division, absolute_import
 
-import os.path
+import os
 
 from setuptools import setup, find_packages
 
@@ -58,8 +58,8 @@ setup(name='katdal',
       python_requires='>=2.7,!=3.0,!=3.1,!=3.2',
       setup_requires=['katversion'],
       use_katversion=True,
-      install_requires=['numpy', 'katpoint', 'h5py>=2.3',
-                        'katsdptelstate[rdb]', 'dask[array] >= 0.18.2', 'numba',
+      install_requires=['numpy', 'katpoint', 'h5py >= 2.3', 'numba',
+                        'katsdptelstate[rdb] >= 0.7', 'dask[array] >= 0.18.2',
                         'requests >= 2.18.0', 'defusedxml', 'future'],
       extras_require={
           'ms': ['python-casacore >= 2.2.1'],
