@@ -18,8 +18,6 @@
 from __future__ import print_function, division, absolute_import
 from builtins import range, zip
 
-from functools import partial
-import copy
 import logging
 import itertools
 import operator
@@ -100,14 +98,14 @@ def from_block_function(func, shape, chunks='auto', dtype=None, name=None, **kwa
     arrays with the ones on the main diagonal.
 
     >>> def eye_chunk(block_info):
-            location = block_info['array-location']
-            r0, r1 = location[0]
-            c0, c1 = location[1]
-            if r0 == c0:
-                return np.eye(r1 - r0, c1 - c0)
-            else:
-                return np.zeros((r1 - r0, c1 - c0))
-    >>> from_block_function(eye_chunk, (4, 4), chunks=2, dtype=float).compute()
+    ...     location = block_info['array-location']
+    ...     r0, r1 = location[0]
+    ...     c0, c1 = location[1]
+    ...     if r0 == c0:
+    ...         return np.eye(r1 - r0, c1 - c0)
+    ...     else:
+    ...         return np.zeros((r1 - r0, c1 - c0))
+    >>> from_block_function(eye_chunk, (4, 4), chunks=2, dtype=float)
     dask.array<eye_chunk, shape=(4, 4), dtype=float64, chunksize=(2, 2)>
     >>> _.compute()
     array([[1., 0., 0., 0.],
@@ -389,7 +387,7 @@ def calc_correction_per_corrprod(dump, channels, cache, inputs,
     ----------
     dump : int
         Dump index (applicable to full data set, i.e. absolute)
-    channels : list of int, length n_chans
+    channels : slice
         Channel indices (applicable to full data set, i.e. absolute)
     cache : :class:`katdal.sensordata.SensorCache` object
         Sensor cache, used to look up individual correction sensors
@@ -410,7 +408,8 @@ def calc_correction_per_corrprod(dump, channels, cache, inputs,
     KeyError
         If input and/or cal product has no associated correction
     """
-    g_per_input = np.ones((len(inputs), len(channels)), dtype='complex64')
+    n_channels = channels.stop - channels.start
+    g_per_input = np.ones((len(inputs), n_channels), dtype='complex64')
     for product in cal_products:
         for n, inp in enumerate(inputs):
             sensor_name = 'Calibration/{}_correction_{}'.format(inp, product)
@@ -420,7 +419,7 @@ def calc_correction_per_corrprod(dump, channels, cache, inputs,
             g_per_input[n] *= g_product
     # Transpose to (channel, input) order, and ensure C ordering
     g_per_input = np.ascontiguousarray(g_per_input.T)
-    g_per_cp = np.empty((len(channels), len(input1_index)), np.complex64)
+    g_per_cp = np.empty((n_channels, len(input1_index)), np.complex64)
     _correction_inputs_to_corrprods(g_per_cp, g_per_input, input1_index, input2_index)
     return g_per_cp
 
@@ -463,72 +462,30 @@ def apply_flags_correction(data, correction):
     for i in range(out.shape[0]):
         for j in range(out.shape[1]):
             for k in range(out.shape[2]):
-                out[i, j, k] |= np.isnan(correction[i, j, k])
+                if np.isnan(correction[i, j, k]):
+                    out[i, j, k] |= 128      # TODO: give this flag a name
     return out
 
 
-def _correction_block(block_info, stage1_indices, cache, inputs,
+def _correction_block(block_info, cache, inputs,
                       input1_index, input2_index, cal_products):
     slices = tuple(slice(*l) for l in block_info['array-location'])
     block_shape = tuple(s.stop - s.start for s in slices)
-    dumps, chans, _ = tuple(i[s] for i, s in zip(stage1_indices, slices))
     correction = np.empty(block_shape, np.complex64)
     # TODO: make calc_correction_per_corrprod multi-dump aware
-    for n, dump in enumerate(dumps):
+    for n, dump in enumerate(range(slices[0].start, slices[0].stop)):
         correction[n] = calc_correction_per_corrprod(
-            dump, chans, cache, inputs,
-            input1_index[slices[2]], input2_index[slices[2]], cal_products)
+            dump, slices[1], cache, inputs,
+            input1_index, input2_index, cal_products)
     return correction
 
 
-def _correction(chunks, stage1_indices, cache, inputs,
-                input1_index, input2_index, cal_products):
+def calc_correction(chunks, cache, corrprods, cal_products):
     shape = tuple(sum(bd) for bd in chunks)
-    return from_block_function(
-        _correction_block, shape=shape, chunks=chunks, dtype=np.complex64, name='correction',
-        stage1_indices=stage1_indices, cache=cache, inputs=inputs,
-        input1_index=input1_index, input2_index=input2_index, cal_products=cal_products)
-
-
-def add_applycal_transform(indexer, cache, corrprods, cal_products,
-                           apply_correction):
-    """Add transform to indexer that applies calibration corrections.
-
-    This adds a transform to the indexer which wraps the underlying data
-    (visibilities, weights or flags). The transform will apply all calibration
-    corrections specified in `cal_products` to each dask chunk individually.
-    The actual application method is also user-specified, which allows most
-    of the machinery to be reused between visibilities, weights and flags.
-    The time and frequency selections are salvaged from `indexer` but the
-    selected `corrprods` still needs to be passed in as a parameter to identify
-    the relevant inputs in order to access correction sensors.
-
-    Parameters
-    ----------
-    indexer : :class:`katdal.lazy_indexer.DaskLazyIndexer` object
-        Indexer with underlying dask array that will be transformed
-    cache : :class:`katdal.sensordata.SensorCache` object
-        Sensor cache, used to look up individual correction sensors
-    corrprods : sequence of (string, string)
-        Selected correlation products as pairs of correlator input labels
-    cal_products : sequence of string
-        Calibration products that will contribute to corrections
-    apply_correction : function, signature ``out = f(out, correction)``
-        Function that will actually apply correction to data from indexer
-    """
-    stage1_indices = tuple(k.nonzero()[0] for k in indexer.keep)
-    # Turn corrprods into a list of input labels and two lists of indices
     inputs = sorted(set(np.ravel(corrprods)))
     input1_index = np.array([inputs.index(cp[0]) for cp in corrprods])
     input2_index = np.array([inputs.index(cp[1]) for cp in corrprods])
-    # Prevent cal_products from changing underneath us if caller changes theirs
-    cal_products = copy.deepcopy(cal_products)
-
-    def transform(data):
-        correction = _correction(data.chunks, stage1_indices, cache, inputs,
-                                 input1_index, input2_index, cal_products)
-        return da.blockwise(apply_correction, 'ijk', data, 'ijk', correction, 'ijk',
-                            dtype=data.dtype)
-
-    transform.__name__ = 'applycal[{}]'.format(','.join(cal_products))
-    indexer.add_transform(transform)
+    return from_block_function(
+        _correction_block, shape=shape, chunks=chunks, dtype=np.complex64, name='correction',
+        cache=cache, inputs=inputs,
+        input1_index=input1_index, input2_index=input2_index, cal_products=cal_products)
