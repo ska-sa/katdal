@@ -23,7 +23,7 @@ import os
 from setuptools import setup, find_packages
 
 
-here = os.path.abspath(os.path.dirname(__file__))
+here = os.path.dirname(__file__)
 readme = open(os.path.join(here, 'README.rst')).read()
 news = open(os.path.join(here, 'NEWS.rst')).read()
 long_description = readme + '\n\n' + news
