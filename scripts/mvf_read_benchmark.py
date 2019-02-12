@@ -17,11 +17,15 @@ parser.add_argument('--time', type=int, default=10, help='Number of times to rea
 parser.add_argument('--channels', type=int, help='Number of channels to read')
 parser.add_argument('--dumps', type=int, help='Number of times to read')
 parser.add_argument('--joint', action='store_true', help='Load vis, weights, flags together')
+parser.add_argument('--applycal', help='Calibration solutions to apply')
 args = parser.parse_args()
 
 logging.basicConfig(level='INFO', format='%(asctime)s [%(levelname)s] %(message)s')
 logging.info('Starting')
-f = katdal.open(args.filename)
+kwargs = {}
+if args.applycal is not None:
+    kwargs['applycal'] = args.applycal
+f = katdal.open(args.filename, **kwargs)
 logging.info('File loaded, shape %s', f.shape)
 if args.channels:
     f.select(channels=np.s_[:args.channels])

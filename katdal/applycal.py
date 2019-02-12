@@ -24,6 +24,7 @@ import logging
 
 import numpy as np
 import dask.array as da
+import numba
 
 from .categorical import CategoricalData, ComparableArrayWrapper
 from .spectral_window import SpectralWindow
@@ -264,6 +265,14 @@ def add_applycal_sensors(cache, attrs, data_freqs):
     cache.virtual[correction_sensor_template] = calc_correction_per_input
 
 
+@numba.jit(nopython=True, nogil=True)
+def _correction_inputs_to_corrprods(g_per_cp, g_per_input, input1_index, input2_index):
+    for i in range(g_per_cp.shape[0]):
+        for j in range(g_per_cp.shape[1]):
+            g_per_cp[i, j] = (g_per_input[i, input1_index[j]]
+                              * np.conj(g_per_input[i, input2_index[j]]))
+
+
 def calc_correction_per_corrprod(dump, channels, cache, inputs,
                                  input1_index, input2_index, cal_products):
     """Gain correction per channel per correlation product for a given dump.
@@ -306,27 +315,45 @@ def calc_correction_per_corrprod(dump, channels, cache, inputs,
             if np.shape(g_product) != ():
                 g_product = g_product[channels]
             g_per_input[n] *= g_product
-    g_per_cp = g_per_input[input1_index] * g_per_input[input2_index].conj()
-    return g_per_cp.T
+    # Ensure these are arrays for the benefit of numba
+    input1_index = np.asarray(input1_index)
+    input2_index = np.asarray(input2_index)
+    # Transpose to (channel, input) order, and ensure C ordering
+    g_per_input = np.ascontiguousarray(g_per_input.T)
+    g_per_cp = np.empty((len(channels), len(input1_index)), np.complex64)
+    _correction_inputs_to_corrprods(g_per_cp, g_per_input, input1_index, input2_index)
+    return g_per_cp
 
 
+@numba.jit(nopython=True, nogil=True)
 def apply_vis_correction(out, correction):
     """Clean up and apply `correction` in-place to visibility data in `out`."""
-    correction[np.isnan(correction)] = np.complex64(1)
-    out *= correction
+    for i in range(out.shape[0]):
+        for j in range(out.shape[1]):
+            c = correction[i, j]
+            if not np.isnan(c):
+                out[i, j] *= c
 
 
+@numba.jit(nopython=True, nogil=True)
 def apply_weights_correction(out, correction):
     """Clean up and apply `correction` in-place to weight data in `out`."""
-    correction2 = correction.real ** 2 + correction.imag ** 2
-    correction2[np.isnan(correction2)] = np.inf
-    correction2[correction2 == 0] = np.inf
-    out /= correction2
+    for i in range(out.shape[0]):
+        for j in range(out.shape[1]):
+            cc = correction[i, j]
+            c = cc.real**2 + cc.imag**2
+            if c > 0:   # Will be false if c is NaN
+                out[i, j] /= c
+            else:
+                out[i, j] = 0
 
 
+@numba.jit(nopython=True, nogil=True)
 def apply_flags_correction(out, correction):
     """Update flag data in `out` to True wherever `correction` is invalid."""
-    out[np.isnan(correction)] = True
+    for i in range(out.shape[0]):
+        for j in range(out.shape[1]):
+            out[i, j] |= np.isnan(correction[i, j])
 
 
 def add_applycal_transform(indexer, cache, corrprods, cal_products,
