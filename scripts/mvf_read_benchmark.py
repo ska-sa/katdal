@@ -6,9 +6,11 @@ import argparse
 import logging
 import time
 
+import dask
+import numpy as np
+
 import katdal
 from katdal.lazy_indexer import DaskLazyIndexer
-import numpy as np
 
 
 parser = argparse.ArgumentParser()
@@ -18,9 +20,12 @@ parser.add_argument('--channels', type=int, help='Number of channels to read')
 parser.add_argument('--dumps', type=int, help='Number of times to read')
 parser.add_argument('--joint', action='store_true', help='Load vis, weights, flags together')
 parser.add_argument('--applycal', help='Calibration solutions to apply')
+parser.add_argument('--workers', type=int, help='Number of dask workers')
 args = parser.parse_args()
 
 logging.basicConfig(level='INFO', format='%(asctime)s [%(levelname)s] %(message)s')
+if args.workers is not None:
+    dask.config.set(num_workers=args.workers)
 logging.info('Starting')
 kwargs = {}
 if args.applycal is not None:
@@ -31,6 +36,9 @@ if args.channels:
     f.select(channels=np.s_[:args.channels])
 if args.dumps:
     f.select(dumps=np.s_[:args.dumps])
+# Trigger creation of the dask graphs, population of sensor cache for applycal etc
+_ = (f.vis[0, 0, 0], f.weights[0, 0, 0], f.flags[0, 0, 0])
+logging.info('Selection complete')
 start = time.time()
 for st in range(0, f.shape[0], args.time):
     et = st + args.time
