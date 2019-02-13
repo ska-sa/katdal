@@ -149,7 +149,7 @@ def weight_power_scale(block, auto_indices, index1, index2, out=None, tmp=None):
         (or any two dimensions then baseline). It must contain all the
         baselines of a stream.
     auto_indices, index1, index2 : np.ndarray
-        Arrays returned by :func:`corrprod_to_autocrr`
+        Arrays returned by :func:`corrprod_to_autocorr`
     out : np.ndarray, optional
         If specified, the output array, with same shape as `block` and dtype ``np.float32``
     tmp : np.ndarray, optional
