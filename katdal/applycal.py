@@ -377,6 +377,9 @@ def _correction_inputs_to_corrprods(g_per_cp, g_per_input, input1_index, input2_
 class CorrectionParams(object):
     """Data needed to compute corrections in :func:`calc_correction_per_corrprod`.
 
+    Once constructed, the data in this class must not be modified, as it will
+    be baked into dask graphs.
+
     Parameters
     ----------
     products : dict
@@ -492,7 +495,24 @@ def _correction_block(block_info, params):
 
 
 def calc_correction(chunks, cache, corrprods, cal_products):
+    """Create a dask array containing applycal corrections.
+
+    Parameters
+    ----------
+    chunks : tuple of tuple of int
+        Chunking scheme of the resulting array, in normalized form (see
+        :func:`dask.array.core.normalize_chunks`).
+    cache : :class:`katdal.sensordata.SensorCache` object
+        Sensor cache, used to look up individual correction sensors
+    corrprods : sequence of (string, string)
+        Selected correlation products as pairs of correlator input labels
+    cal_products : sequence of string
+        Calibration products that will contribute to corrections
+    """
     shape = tuple(sum(bd) for bd in chunks)
+    if len(chunks[2]) > 1:
+        logger.warning('ignoring chunking on baseline axis')
+        chunks = (chunks[0], chunks[1], (shape[2],))
     inputs = sorted(set(np.ravel(corrprods)))
     input1_index = np.array([inputs.index(cp[0]) for cp in corrprods])
     input2_index = np.array([inputs.index(cp[1]) for cp in corrprods])

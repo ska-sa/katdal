@@ -26,13 +26,12 @@ import dask.array as da
 from katdal.spectral_window import SpectralWindow
 from katdal.sensordata import SensorCache
 from katdal.categorical import ComparableArrayWrapper, CategoricalData
-from katdal.lazy_indexer import DaskLazyIndexer
-from katdal.applycal import (complex_interp, calc_correction_per_corrprod,
+from katdal.applycal import (complex_interp,
                              has_cal_product, get_cal_product, INVALID_GAIN,
                              calc_delay_correction, calc_bandpass_correction,
                              calc_gain_correction, apply_vis_correction,
                              apply_weights_correction, apply_flags_correction,
-                             add_applycal_sensors, add_applycal_transform)
+                             add_applycal_sensors, calc_correction)
 
 
 POLS = ['v', 'h']
@@ -381,89 +380,59 @@ class TestVirtualCorrectionSensors(object):
             self.cache.get(known_input + '_correction_K_unknown')
 
 
-class TestCorrectionPerCorrprod(object):
-    """Test :func:`~katdal.applycal.calc_correction_per_corrprod` function."""
+class TestCalcCorrection(object):
+    """Test :func:`~katdal.applycal.calc_correction` function."""
     def setup(self):
         self.cache = create_sensor_cache()
         add_applycal_sensors(self.cache, ATTRS, FREQS)
 
-    def test_correction_per_corrprod(self):
+    def test_calc_correction(self):
         dump = 15
-        channels = list(range(22, 38))
-        corrections = calc_correction_per_corrprod(dump, channels, self.cache,
-                                                   INPUTS, INDEX1, INDEX2,
-                                                   CAL_PRODUCTS)[np.newaxis]
+        channels = np.s_[22:38]
+        shape = (N_DUMPS, N_CHANS, N_CORRPRODS)
+        chunks = da.core.normalize_chunks((10, 5, -1), shape)
+        corrections = calc_correction(chunks, self.cache, CORRPRODS, CAL_PRODUCTS)
+        corrections = corrections[dump:dump+1, channels].compute()
         expected_corrections = corrections_per_corrprod([dump], channels)
         assert_array_equal(corrections, expected_corrections)
 
 
 class TestApplyCal(object):
-    """Test :func:`~katdal.applycal.add_applycal_transform` function."""
+    """Test :func:`~katdal.applycal.apply_vis_correction` and friends"""
     def setup(self):
         self.cache = create_sensor_cache()
         add_applycal_sensors(self.cache, ATTRS, FREQS)
-        time_keep = np.full(N_DUMPS, False, dtype=np.bool_)
-        time_keep[10:20] = True
-        freq_keep = np.full(N_CHANS, False, dtype=np.bool_)
-        freq_keep[22:38] = True
-        corrprod_keep = np.full(N_CORRPRODS, True, dtype=np.bool_)
-        # Throw out one antenna
-        for n, inp in enumerate(INPUTS):
-            if inp.startswith(ANTS[SKIP_ANT]):
-                corrprod_keep[INDEX1 == n] = False
-                corrprod_keep[INDEX2 == n] = False
-        self.stage1 = (time_keep, freq_keep, corrprod_keep)
-        # Apply stage 2 selection on top of stage 1
-        self.stage2 = np.s_[5:7, 2:5, :]
-        # List of selected correlation products
-        self.corrprods = [cp for n, cp in enumerate(CORRPRODS)
-                          if corrprod_keep[n]]
 
     def _applycal(self, array, apply_correction):
         """Calibrate `array` with `apply_correction` and return all factors."""
         array_dask = da.from_array(array, chunks=(10, 4, 6))
-        indexer = DaskLazyIndexer(array_dask, self.stage1)
-        add_applycal_transform(indexer, self.cache, self.corrprods,
-                               CAL_PRODUCTS, apply_correction)
-        calibrated_array = indexer[self.stage2]
-        stage1_indices = tuple(k.nonzero()[0] for k in self.stage1)
-        final_indices = tuple(i[s] for s, i in zip(self.stage2,
-                                                   stage1_indices))
-        # Quick & dirty oindex of array (yet another way doing axes in reverse)
-        selected_array = array
-        dims = reversed(range(array.ndim))
-        for dim, indices in zip(dims, reversed(final_indices)):
-            selected_array = np.take(selected_array, indices, axis=dim)
-        # Determine the corrections that would apply to selection
-        corrections = corrections_per_corrprod(*final_indices)
-        return calibrated_array, selected_array, corrections
+        correction = calc_correction(array_dask.chunks, self.cache, CORRPRODS, CAL_PRODUCTS)
+        corrected = da.core.elemwise(apply_correction, array_dask, correction, dtype=array_dask.dtype)
+        return corrected.compute(), correction.compute()
 
     def test_applycal_vis(self):
         vis_real = np.random.randn(N_DUMPS, N_CHANS, N_CORRPRODS)
         vis_imag = np.random.randn(N_DUMPS, N_CHANS, N_CORRPRODS)
         vis = np.asarray(vis_real + 1j * vis_imag, dtype='complex64')
-        calibrated_vis, expected_vis, corrections = self._applycal(
-            vis, apply_vis_correction)
+        calibrated_vis, corrections = self._applycal(vis, apply_vis_correction)
         # Leave visibilities alone where gains are NaN
         corrections[np.isnan(corrections)] = 1.0
-        expected_vis *= corrections
-        assert_array_equal(calibrated_vis, expected_vis)
+        vis *= corrections
+        assert_array_equal(calibrated_vis, vis)
 
     def test_applycal_weights(self):
         weights = np.random.rand(N_DUMPS, N_CHANS,
                                  N_CORRPRODS).astype('float32')
-        calibrated_weights, expected_weights, corrections = self._applycal(
-             weights, apply_weights_correction)
-        # Zero the weights where the gains are non-finite
+        calibrated_weights, corrections = self._applycal(weights, apply_weights_correction)
+        # Zero the weights where the gains are NaN or zero
         corrections2 = corrections.real ** 2 + corrections.imag ** 2
         corrections2[np.isnan(corrections2)] = np.inf
         corrections2[corrections2 == 0] = np.inf
-        expected_weights /= corrections2
-        assert_array_equal(calibrated_weights, expected_weights)
+        weights /= corrections2
+        assert_array_equal(calibrated_weights, weights)
 
     def test_applycal_flags(self):
-        flags = np.random.rand(N_DUMPS, N_CHANS, N_CORRPRODS) > 0.5
-        calibrated_flags, expected_flags, corrections = self._applycal(
-             flags, apply_flags_correction)
-        expected_flags[np.isnan(corrections)] = True
-        assert_array_equal(calibrated_flags, expected_flags)
+        flags = np.random.randint(0, 128, (N_DUMPS, N_CHANS, N_CORRPRODS), np.uint8)
+        calibrated_flags, corrections = self._applycal(flags, apply_flags_correction)
+        flags |= np.where(np.isnan(corrections), np.uint8(128), np.uint8(0))
+        assert_array_equal(calibrated_flags, flags)
