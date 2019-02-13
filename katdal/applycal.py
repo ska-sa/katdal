@@ -392,7 +392,7 @@ class CorrectionParams(object):
         self.inputs = inputs
         self.input1_index = input1_index
         self.input2_index = input2_index
-        self.products = {}
+        self.products = products
 
 
 def calc_correction_per_corrprod(dump, channels, params):
