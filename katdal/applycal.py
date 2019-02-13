@@ -374,8 +374,28 @@ def _correction_inputs_to_corrprods(g_per_cp, g_per_input, input1_index, input2_
                               * np.conj(g_per_input[i, input2_index[j]]))
 
 
-def calc_correction_per_corrprod(dump, channels, cache, inputs,
-                                 input1_index, input2_index, cal_products):
+class CorrectionParams(object):
+    """Data needed to compute corrections in :func:`calc_correction_per_corrprod`.
+
+    Parameters
+    ----------
+    products : dict
+        A dictionary (indexed by cal product name) of lists (indexed
+        by input) of sequences (indexed by dump) of numpy arrays, with
+        corrections to apply.
+    inputs : list of str
+        Names of inputs, in the same order as the input axis of products
+    input1_index, input2_index : ndarray
+        Indices into `inputs` of first and second items of correlation product
+    """
+    def __init__(self, inputs, input1_index, input2_index, products):
+        self.inputs = inputs
+        self.input1_index = input1_index
+        self.input2_index = input2_index
+        self.products = {}
+
+
+def calc_correction_per_corrprod(dump, channels, params):
     """Gain correction per channel per correlation product for a given dump.
 
     This calculates an array of complex gain correction terms of shape
@@ -389,14 +409,8 @@ def calc_correction_per_corrprod(dump, channels, cache, inputs,
         Dump index (applicable to full data set, i.e. absolute)
     channels : slice
         Channel indices (applicable to full data set, i.e. absolute)
-    cache : :class:`katdal.sensordata.SensorCache` object
-        Sensor cache, used to look up individual correction sensors
-    inputs : sequence of string
-        Correlator input labels
-    input1_index, input2_index : array of int, length n_corrprods
-        Indices into `inputs` of first and second items of correlation product
-    cal_products : sequence of string
-        Calibration products that will contribute to corrections
+    params : :class:`CorrectionParams`
+        Data for obtaining corrections to merge
 
     Returns
     -------
@@ -409,18 +423,18 @@ def calc_correction_per_corrprod(dump, channels, cache, inputs,
         If input and/or cal product has no associated correction
     """
     n_channels = channels.stop - channels.start
-    g_per_input = np.ones((len(inputs), n_channels), dtype='complex64')
-    for product in cal_products:
-        for n, inp in enumerate(inputs):
-            sensor_name = 'Calibration/{}_correction_{}'.format(inp, product)
-            g_product = cache.get(sensor_name)[dump]
+    g_per_input = np.ones((len(params.inputs), n_channels), dtype='complex64')
+    for product in params.products.values():
+        for n in range(len(params.inputs)):
+            sensor = product[n]
+            g_product = sensor[dump]
             if np.shape(g_product) != ():
                 g_product = g_product[channels]
             g_per_input[n] *= g_product
     # Transpose to (channel, input) order, and ensure C ordering
     g_per_input = np.ascontiguousarray(g_per_input.T)
-    g_per_cp = np.empty((n_channels, len(input1_index)), np.complex64)
-    _correction_inputs_to_corrprods(g_per_cp, g_per_input, input1_index, input2_index)
+    g_per_cp = np.empty((n_channels, len(params.input1_index)), np.complex64)
+    _correction_inputs_to_corrprods(g_per_cp, g_per_input, params.input1_index, params.input2_index)
     return g_per_cp
 
 
@@ -467,16 +481,13 @@ def apply_flags_correction(data, correction):
     return out
 
 
-def _correction_block(block_info, cache, inputs,
-                      input1_index, input2_index, cal_products):
+def _correction_block(block_info, params):
     slices = tuple(slice(*l) for l in block_info['array-location'])
     block_shape = tuple(s.stop - s.start for s in slices)
     correction = np.empty(block_shape, np.complex64)
     # TODO: make calc_correction_per_corrprod multi-dump aware
     for n, dump in enumerate(range(slices[0].start, slices[0].stop)):
-        correction[n] = calc_correction_per_corrprod(
-            dump, slices[1], cache, inputs,
-            input1_index, input2_index, cal_products)
+        correction[n] = calc_correction_per_corrprod(dump, slices[1], params)
     return correction
 
 
@@ -485,7 +496,24 @@ def calc_correction(chunks, cache, corrprods, cal_products):
     inputs = sorted(set(np.ravel(corrprods)))
     input1_index = np.array([inputs.index(cp[0]) for cp in corrprods])
     input2_index = np.array([inputs.index(cp[1]) for cp in corrprods])
+    products = {}
+    for product in cal_products:
+        products[product] = []
+        for i, inp in enumerate(inputs):
+            sensor_name = 'Calibration/{}_correction_{}'.format(inp, product)
+            sensor = cache.get(sensor_name)
+            # Indexing CategoricalData by dump is relatively slow (tens of
+            # microseconds), so expand it into a plain-old Python list.
+            if isinstance(sensor, CategoricalData):
+                data = [None] * sensor.events[-1]
+                for s, v in sensor.segments():
+                    for j in range(s.start, s.stop):
+                        data[j] = v
+            else:
+                data = sensor
+            products[product].append(data)
+    params = CorrectionParams(inputs, input1_index, input2_index, products)
+
     return from_block_function(
         _correction_block, shape=shape, chunks=chunks, dtype=np.complex64, name='correction',
-        cache=cache, inputs=inputs,
-        input1_index=input1_index, input2_index=input2_index, cal_products=cal_products)
+        params=params)
