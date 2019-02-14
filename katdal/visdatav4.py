@@ -35,6 +35,7 @@ from .lazy_indexer import DaskLazyIndexer
 from .applycal import (add_applycal_sensors, calc_correction,
                        apply_vis_correction, apply_weights_correction,
                        apply_flags_correction, has_cal_product, CAL_PRODUCTS)
+from .flags import FLAG_NAMES, FLAG_DESCRIPTIONS
 
 
 logger = logging.getLogger(__name__)
@@ -80,17 +81,6 @@ def _add_sensor_alias(cache, new_name, old_name):
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel,
                         'Antennas/{ant}/el': _calc_azel})
-
-FLAG_NAMES = ('reserved0', 'static', 'cam', 'data_lost',
-              'ingest_rfi', 'predicted_rfi', 'cal_rfi', 'postproc')
-FLAG_DESCRIPTIONS = ('reserved - bit 0',
-                     'predefined static flag list',
-                     'flag based on live CAM information',
-                     'no data was received',
-                     'RFI detected in ingest',
-                     'RFI predicted from space based pollutants',
-                     'RFI detected in calibration',
-                     'some correction/postprocessing step could not be applied')
 
 # -----------------------------------------------------------------------------
 # -- CLASS :  VisibilityDataV4

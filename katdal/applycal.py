@@ -31,6 +31,7 @@ import numba
 
 from .categorical import CategoricalData, ComparableArrayWrapper
 from .spectral_window import SpectralWindow
+from .flags import POSTPROC
 
 
 # A constant indicating invalid / absent gain (typically due to flagged data)
@@ -482,7 +483,7 @@ def apply_flags_correction(data, correction):
         for j in range(out.shape[1]):
             for k in range(out.shape[2]):
                 if np.isnan(correction[i, j, k]):
-                    out[i, j, k] |= 128      # TODO: give this flag a name
+                    out[i, j, k] |= POSTPROC
     return out
 
 

@@ -32,6 +32,7 @@ from katdal.applycal import (complex_interp,
                              calc_gain_correction, apply_vis_correction,
                              apply_weights_correction, apply_flags_correction,
                              add_applycal_sensors, calc_correction)
+from katdal.flags import POSTPROC
 
 
 POLS = ['v', 'h']
@@ -434,5 +435,5 @@ class TestApplyCal(object):
     def test_applycal_flags(self):
         flags = np.random.randint(0, 128, (N_DUMPS, N_CHANS, N_CORRPRODS), np.uint8)
         calibrated_flags, corrections = self._applycal(flags, apply_flags_correction)
-        flags |= np.where(np.isnan(corrections), np.uint8(128), np.uint8(0))
+        flags |= np.where(np.isnan(corrections), np.uint8(POSTPROC), np.uint8(0))
         assert_array_equal(calibrated_flags, flags)

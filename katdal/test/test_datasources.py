@@ -33,9 +33,7 @@ import katsdptelstate
 from katdal.chunkstore import generate_chunks
 from katdal.chunkstore_npy import NpyFileChunkStore
 from katdal.datasources import ChunkStoreVisFlagsWeights, TelstateDataSource, view_l0_capture_stream
-
-
-DATA_LOST = 8    # TODO: introduce katdal.flags module for these
+from katdal.flags import DATA_LOST
 
 
 def ramp(shape, offset=1.0, slope=1.0, dtype=np.float_):

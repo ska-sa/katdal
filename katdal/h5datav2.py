@@ -31,6 +31,7 @@ from .spectral_window import SpectralWindow
 from .sensordata import RecordSensorData, SensorCache, to_str
 from .categorical import CategoricalData, sensor_to_categorical
 from .lazy_indexer import LazyIndexer, LazyTransform
+from .flags import FLAG_NAMES, FLAG_DESCRIPTIONS
 
 logger = logging.getLogger(__name__)
 
@@ -66,13 +67,6 @@ def _calc_azel(cache, name, ant):
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel, 'Antennas/{ant}/el': _calc_azel})
 
-FLAG_NAMES = ('reserved0', 'static', 'cam', 'reserved3', 'detected_rfi',
-              'predicted_rfi', 'reserved6', 'reserved7')
-FLAG_DESCRIPTIONS = ('reserved - bit 0', 'predefined static flag list',
-                     'flag based on live CAM information',
-                     'reserved - bit 3', 'RFI detected in the online system',
-                     'RFI predicted from space based pollutants',
-                     'reserved - bit 6', 'reserved - bit 7')
 WEIGHT_NAMES = ('precision',)
 WEIGHT_DESCRIPTIONS = ('visibility precision (inverse variance, i.e. 1 / sigma^2)',)
 

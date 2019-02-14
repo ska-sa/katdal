@@ -235,15 +235,7 @@ from .h5datav1 import H5DataV1
 from .h5datav2 import H5DataV2
 from .h5datav3 import H5DataV3
 from .visdatav4 import VisibilityDataV4
-
-
-# Clean up top-level namespace a bit
-_dataset, _concatdata, _sensordata = dataset, concatdata, sensordata
-_h5datav1, _h5datav2, _h5datav3 = h5datav1, h5datav2, h5datav3
-_categorical, _lazy_indexer = categorical, lazy_indexer
-_spectral_window, _visdatav4 = spectral_window, visdatav4
-del dataset, concatdata, sensordata, h5datav1, h5datav2, h5datav3
-del categorical, lazy_indexer, spectral_window, visdatav4
+from .flags import FLAG_NAMES, FLAG_DESCRIPTIONS
 
 
 # Setup library logger and add a print-like handler used when no logging is configured

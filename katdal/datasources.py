@@ -35,6 +35,7 @@ import numba
 from .sensordata import TelstateSensorData, TelstateToStr
 from .chunkstore_s3 import S3ChunkStore
 from .chunkstore_npy import NpyFileChunkStore
+from .flags import DATA_LOST
 
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,7 @@ def _apply_data_lost(orig_flags, lost, block_id):
         return orig_flags    # Common case - no data lost
     flags = orig_flags.copy()
     for idx in mark:
-        flags[idx] |= 8
+        flags[idx] |= DATA_LOST
     return flags
 
 
