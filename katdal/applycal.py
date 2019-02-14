@@ -46,13 +46,14 @@ def _call_from_block_function(func, shape, num_chunks, chunk_location, array_loc
         'shape': shape,
         'num-chunks': num_chunks,
         'chunk-location': chunk_location,
-        'array-location': array_location
+        'array-location': list(array_location)
     }
     return func(block_info, **func_kwargs)
 
 
 # This has been submitted to dask as https://github.com/dask/dask/pull/4476.
-# If it gets merged it can be used rather than copied here.
+# If it gets merged it can be used rather than copied here. There are also
+# unit tests there.
 def from_block_function(func, shape, chunks='auto', dtype=None, name=None, **kwargs):
     """
     Create an array from a function that builds individual blocks.
@@ -124,16 +125,17 @@ def from_block_function(func, shape, chunks='auto', dtype=None, name=None, **kwa
             'chunk-location': (0,) * len(shape),
             'array-location': [(0, 1)] * len(shape)
         }
-        dtype = da.apply_infer_dtype(func, [dummy_block_info], {}, 'from_block_function')
+        dtype = da.apply_infer_dtype(func, [dummy_block_info], kwargs, 'from_block_function')
 
     chunks = da.core.normalize_chunks(chunks, shape, dtype=dtype)
-    shape = [sum(bd) for bd in chunks]
+    # Allow for shape=None when chunks are already in normalized form
+    shape = tuple(sum(bd) for bd in chunks)
 
     keys = list(itertools.product([name], *[range(len(bd)) for bd in chunks]))
     aggdims = [list(toolz.accumulate(operator.add, (0,) + bd)) for bd in chunks]
     locdims = [list(zip(a[:-1], a[1:])) for a in aggdims]
     locations = list(itertools.product(*locdims))
-    num_chunks = [len(bd) for bd in chunks]
+    num_chunks = tuple(len(bd) for bd in chunks)
     dsk = {key: (_call_from_block_function, func, shape, num_chunks, key[1:], location, kwargs)
            for key, location in zip(keys, locations)}
     return da.Array(dsk, name, chunks, dtype=dtype)
