@@ -148,19 +148,33 @@ def main():
                 raise RuntimeError('Directory {!r} already exists'.format(path))
             store = get_chunk_store(args.source, sts, array_name)
             arrays[(stream_name, array_name)] = Array(stream_name, array_name, store, array_info)
-        # Apply DATA_LOST bits to the flags arrays. This is a less efficient approach than
-        # datasources.py, but much simpler.
+
+    # Apply DATA_LOST bits to the flags arrays. This is a less efficient approach than
+    # datasources.py, but much simpler.
+    for stream_name in streams:
         flags_array = arrays.get((stream_name, 'flags'))
         if flags_array:
-            for array_name in chunk_info:
-                lost_flags = arrays[(stream_name, array_name)].lost_flags
-                lost_flags = lost_flags.rechunk(flags_array.data.chunks[:lost_flags.ndim])
-                # weights_channel doesn't have a baseline axis
-                while lost_flags.ndim < flags_array.data.ndim:
-                    lost_flags = lost_flags[..., np.newaxis]
-                lost_flags = da.broadcast_to(lost_flags, flags_array.data.shape,
-                                             chunks=flags_array.data.chunks)
-                flags_array.data |= lost_flags
+            sources = [stream_name]
+            sts = view_capture_stream(telstate, cbid, stream_name)
+            sources += sts['src_streams']
+            for src_stream in sources:
+                if src_stream not in streams:
+                    continue
+                src_ts = view_capture_stream(telstate, cbid, src_stream)
+                for array_name in src_ts['chunk_info']:
+                    if array_name == 'flags' and src_stream != stream_name:
+                        # Upgraded flags completely replace the source stream's
+                        # flags, rather than augmenting them. Thus, data lost in
+                        # the source stream has no effect.
+                        continue
+                    lost_flags = arrays[(src_stream, array_name)].lost_flags
+                    lost_flags = lost_flags.rechunk(flags_array.data.chunks[:lost_flags.ndim])
+                    # weights_channel doesn't have a baseline axis
+                    while lost_flags.ndim < flags_array.data.ndim:
+                        lost_flags = lost_flags[..., np.newaxis]
+                    lost_flags = da.broadcast_to(lost_flags, flags_array.data.shape,
+                                                 chunks=flags_array.data.chunks)
+                    flags_array.data |= lost_flags
 
     # Apply the rechunking specs
     for spec in args.spec:
