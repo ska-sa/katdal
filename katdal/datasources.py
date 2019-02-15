@@ -601,6 +601,8 @@ class TelstateDataSource(DataSource):
             timestamps = t0 + np.arange(n_dumps) * int_time
         # Metadata and timestamps with or without data
         DataSource.__init__(self, metadata, timestamps, data)
+        self.capture_block_id = capture_block_id
+        self.stream_name = stream_name
 
     @classmethod
     def from_url(cls, url, chunk_store='auto', upgrade_flags=True, **kwargs):
