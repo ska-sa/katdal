@@ -103,6 +103,34 @@ def _apply_data_lost(orig_flags, lost, block_id):
     return flags
 
 
+def _narrow(array):
+    """Reduce an integer array to the narrowest type that can hold it.
+
+    It is specialised for unsigned types. It will not alter the dtype
+    if the array contains negative values.
+
+    If the type is not changed, a view is returned rather than a copy.
+    """
+    if array.dtype.kind not in ['u', 'i']:
+        raise ValueError('Array is not integral')
+    if not array.size:
+        dtype = np.uint8
+    else:
+        low = np.min(array)
+        high = np.max(array)
+        if low < 0:
+            dtype = array.dtype
+        elif high <= 0xFF:
+            dtype = np.uint8
+        elif high <= 0xFFFF:
+            dtype = np.uint16
+        elif high <= 0xFFFFFFFF:
+            dtype = np.uint32
+        else:
+            dtype = array.dtype
+    return array.astype(dtype, copy=False)
+
+
 def corrprod_to_autocorr(corrprods):
     """Find the autocorrelation indices of correlation products.
 
@@ -133,42 +161,36 @@ def corrprod_to_autocorr(corrprods):
             auto_indices.append(i)
     index1 = [auto_lookup[a] for (a, b) in corrprods]
     index2 = [auto_lookup[b] for (a, b) in corrprods]
-    return np.array(auto_indices), np.array(index1), np.array(index2)
+    return _narrow(np.array(auto_indices)), _narrow(np.array(index1)), _narrow(np.array(index2))
 
 
 @numba.jit(nopython=True, nogil=True)
-def weight_power_scale(block, auto_indices, index1, index2, out=None, tmp=None):
-    """Compute weight scale from visibility data.
+def weight_power_scale(vis, weights, auto_indices, index1, index2, out=None):
+    """Compute scaled weights from visibility data.
 
-    This function is designed to be usable with
-    :func:`dask.array.map_blocks`.
+    This function is designed to be usable with :func:`dask.array.blockwise`.
 
     Parameters
     ----------
-    block : np.ndarray
+    vis : np.ndarray
         Chunk of visibility data, with dimensions time, frequency, baseline
         (or any two dimensions then baseline). It must contain all the
         baselines of a stream.
+    weights : np.ndarray
+        Chunk of weight data, with the same shape as `vis`.
     auto_indices, index1, index2 : np.ndarray
         Arrays returned by :func:`corrprod_to_autocorr`
     out : np.ndarray, optional
-        If specified, the output array, with same shape as `block` and dtype ``np.float32``
-    tmp : np.ndarray, optional
-        If specified, an array to use as internal scratch space (useful to
-        reuse the space across multiple calls). It must have the same shape
-        as `auto_indices` and dtype ``np.float32``.
+        If specified, the output array, with same shape as `vis` and dtype ``np.float32``
     """
-    auto_scale = np.empty(len(auto_indices), np.float32) if tmp is None else tmp
-    power_scale = np.empty(block.shape, np.float32) if out is None else out
+    auto_scale = np.empty(len(auto_indices), np.float32)
+    out = np.empty(vis.shape, np.float32) if out is None else out
     bad_weight = np.float32(2.0**-32)
-    for i in range(block.shape[0]):
-        for j in range(block.shape[1]):
+    for i in range(vis.shape[0]):
+        for j in range(vis.shape[1]):
             for k in range(len(auto_indices)):
-                # Have to force to an array here, because standard Python
-                # division raises ZeroDivisionError on divide by zero but we
-                # want to get IEEE semantics (Inf/NaN).
-                auto_scale[k] = 1 / np.array(block[i, j, auto_indices[k]].real)
-            for k in range(block.shape[2]):
+                auto_scale[k] = np.reciprocal(vis[i, j, auto_indices[k]].real)
+            for k in range(vis.shape[2]):
                 p = auto_scale[index1[k]] * auto_scale[index2[k]]
                 # If either or both of the autocorrelations has zero power then
                 # there is likely something wrong with the system. Set the
@@ -176,8 +198,8 @@ def weight_power_scale(block, auto_indices, index1, index2, out=None, tmp=None):
                 # can cause divide-by-zero problems downstream).
                 if not np.isfinite(p):
                     p = bad_weight
-                power_scale[i, j, k] = p
-    return power_scale
+                out[i, j, k] = p * weights[i, j, k]
+    return out
 
 
 class ChunkStoreVisFlagsWeights(VisFlagsWeights):
@@ -237,10 +259,12 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
             # Ensure that we have only a single chunk on the baseline axis.
             if len(vis.chunks[2]) > 1:
                 vis = vis.rechunk({2: vis.shape[2]})
+            if len(weights.chunks[2]) > 1:
+                weights = weights.rechunk({2: weights.shape[2]})
             auto_indices, index1, index2 = corrprod_to_autocorr(corrprods)
-            power_scale = da.map_blocks(weight_power_scale, vis, dtype=np.float32,
-                                        auto_indices=auto_indices, index1=index1, index2=index2)
-            weights *= power_scale
+            weights = da.atop(weight_power_scale, 'ijk', vis, 'ijk', weights, 'ijk',
+                              dtype=np.float32,
+                              auto_indices=auto_indices, index1=index1, index2=index2)
 
         VisFlagsWeights.__init__(self, vis, flags, weights, self.vis_prefix)
 
