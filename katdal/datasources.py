@@ -262,9 +262,9 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
             if len(weights.chunks[2]) > 1:
                 weights = weights.rechunk({2: weights.shape[2]})
             auto_indices, index1, index2 = corrprod_to_autocorr(corrprods)
-            weights = da.atop(weight_power_scale, 'ijk', vis, 'ijk', weights, 'ijk',
-                              dtype=np.float32,
-                              auto_indices=auto_indices, index1=index1, index2=index2)
+            weights = da.blockwise(weight_power_scale, 'ijk', vis, 'ijk', weights, 'ijk',
+                                   dtype=np.float32,
+                                   auto_indices=auto_indices, index1=index1, index2=index2)
 
         VisFlagsWeights.__init__(self, vis, flags, weights, self.vis_prefix)
 
