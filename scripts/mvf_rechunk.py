@@ -190,8 +190,12 @@ def main():
         full_name = dest_store.join(array.chunk_info['prefix'], array.array_name)
         dest_store.create_array(full_name)
         stores.append(dest_store.put_dask_array(full_name, array.data))
-    stores = da.compute(stores)
-    # TODO: check for exceptions
+    stores = da.compute(*stores)
+    # put_dask_array returns an array with an exception object per chunk
+    for result_set in stores:
+        for result in result_set.flat:
+            if result is not None:
+                raise result
 
     # Fix up chunk_info for new chunking
     for stream_name in streams:
