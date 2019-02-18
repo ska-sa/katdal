@@ -94,6 +94,8 @@ def parse_args():
                         help='Number of dask workers I/O [%(default)s]')
     parser.add_argument('--streams', type=comma_list, metavar='STREAM,STREAM',
                         help='Streams to copy [all]')
+    parser.add_argument('--s3-endpoint-url', help='URL where rechunked data will be uploaded')
+    parser.add_argument('--new-prefix', help='Replacement for capture block ID in output bucket names')
     parser.add_argument('source', help='Input .rdb file')
     parser.add_argument('dest', help='Output directory')
     parser.add_argument('spec', nargs='*', default=[], type=RechunkSpec,
@@ -139,11 +141,16 @@ def main():
         except KeyError as exc:
             raise RuntimeError('Could not get chunk info for {!r}: {}'.format(stream_name, exc))
         for array_name, array_info in chunk_info.items():
+            if args.new_prefix is not None:
+                array_info['prefix'] = args.new_prefix + '-' + stream_name.replace('_', '-')
             prefix = array_info['prefix']
             path = os.path.join(args.dest, prefix)
             if os.path.exists(path):
                 raise RuntimeError('Directory {!r} already exists'.format(path))
             store = get_chunk_store(args.source, sts, array_name)
+            # Older files have dtype as an object that can't be encoded in msgpack
+            dtype = np.dtype(array_info['dtype'])
+            array_info['dtype'] = np.lib.format.dtype_to_descr(dtype)
             arrays[(stream_name, array_name)] = Array(stream_name, array_name, store, array_info)
 
     # Apply DATA_LOST bits to the flags arrays. This is a less efficient approach than
@@ -187,6 +194,7 @@ def main():
         full_name = dest_store.join(array.chunk_info['prefix'], array.array_name)
         dest_store.create_array(full_name)
         stores.append(dest_store.put_dask_array(full_name, array.data))
+        array.chunk_info['chunks'] = array.data.chunks
     stores = da.compute(*stores)
     # put_dask_array returns an array with an exception object per chunk
     for result_set in stores:
@@ -198,19 +206,18 @@ def main():
     for stream_name in streams:
         sts = view_capture_stream(telstate, cbid, stream_name)
         chunk_info = sts['chunk_info']
-        for array_name, array_info in chunk_info.items():
-            # s3_endpoint_url is for the old version of the data
-            array_info.pop('s3_endpoint_url', None)
-            # Older files have dtype as an object that can't be encoded in msgpack
-            dtype = np.dtype(array_info['dtype'])
-            array_info['dtype'] = np.lib.format.dtype_to_descr(dtype)
-            array_info['chunks'] = arrays[(stream_name, array_name)].data.chunks
+        for array_name in chunk_info.keys():
+            chunk_info[array_name] = arrays[(stream_name, array_name)].chunk_info
         sts.wrapped.delete('chunk_info')
         sts.wrapped['chunk_info'] = chunk_info
+        # s3_endpoint_url is for the old version of the data
+        sts.wrapped.delete('s3_endpoint_url')
+        if args.s3_endpoint_url is not None:
+            sts.wrapped['s3_endpoint_url'] = args.s3_endpoint_url
 
     # Write updated RDB file
     url_parts = urllib.parse.urlparse(args.source, scheme='file')
-    dest_file = os.path.join(args.dest, cbid, os.path.basename(url_parts.path))
+    dest_file = os.path.join(args.dest, args.new_prefix or cbid, os.path.basename(url_parts.path))
     os.makedirs(os.path.dirname(dest_file), exist_ok=True)
     writer = RDBWriter(client=telstate.backend)
     writer.save(dest_file)
