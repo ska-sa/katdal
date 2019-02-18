@@ -96,7 +96,7 @@ def parse_args():
                         help='Streams to copy [all]')
     parser.add_argument('source', help='Input .rdb file')
     parser.add_argument('dest', help='Output directory')
-    parser.add_argument('spec', action='append', default=[], type=RechunkSpec,
+    parser.add_argument('spec', nargs='*', default=[], type=RechunkSpec,
                         metavar='STREAM/ARRAY:TIME,FREQ', help='New chunk specification')
     args = parser.parse_args()
     return args
