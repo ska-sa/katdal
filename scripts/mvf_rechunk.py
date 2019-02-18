@@ -7,7 +7,6 @@ from future import standard_library
 standard_library.install_aliases()  # noqa: 402
 from builtins import object
 
-from collections import defaultdict
 import sys
 import os
 import re
@@ -15,13 +14,11 @@ import argparse
 import multiprocessing
 import urllib.parse
 
-import katsdptelstate
 from katsdptelstate.rdb_writer import RDBWriter
 import numpy as np
 import dask
 import dask.array as da
 
-import katdal
 from katdal.chunkstore import ChunkStoreError
 from katdal.chunkstore_s3 import S3ChunkStore
 from katdal.chunkstore_npy import NpyFileChunkStore
@@ -32,7 +29,7 @@ from katdal.applycal import from_block_function    # TODO: get from dask once av
 
 class RechunkSpec(object):
     def __init__(self, arg):
-        match = re.match('^([A-Za-z0-9_]+)/([A-Za-z0-9_]+):(\d+),(\d+)', arg)
+        match = re.match(r'^([A-Za-z0-9_]+)/([A-Za-z0-9_]+):(\d+),(\d+)', arg)
         if not match:
             raise ValueError('Could not parse {!r}'.format(arg))
         self.stream = match.group(1)
@@ -90,7 +87,7 @@ def comma_list(value):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        'Rechunk a single capture block. For each array within each stream, '
+        description='Rechunk a single capture block. For each array within each stream, '
         'a new chunking scheme may be specified. A chunking scheme is '
         'specified as the number of dumps and channels per chunk.')
     parser.add_argument('--workers', type=int, default=8*multiprocessing.cpu_count(),
@@ -115,8 +112,8 @@ def get_streams(telstate, streams):
     else:
         for stream in streams:
             if stream not in archived_streams:
-                parser.error('Stream {!r} is not known (should be one of {})'
-                             .format(stream, ', '.join(archived_streams)))
+                raise RuntimeError('Stream {!r} is not known (should be one of {})'
+                                   .format(stream, ', '.join(archived_streams)))
 
     return streams
 
@@ -140,7 +137,7 @@ def main():
         try:
             chunk_info = sts['chunk_info']
         except KeyError as exc:
-            raise RuntimeError('Could not get chunk info for {!r}: {}'.format(stream, exc))
+            raise RuntimeError('Could not get chunk info for {!r}: {}'.format(stream_name, exc))
         for array_name, array_info in chunk_info.items():
             prefix = array_info['prefix']
             path = os.path.join(args.dest, prefix)
