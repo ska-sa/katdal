@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2018, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2018-2019, National Research Foundation (Square Kilometre Array)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -72,7 +72,8 @@ def put_fake_dataset(store, prefix, shape, chunk_overrides=None, array_overrides
         chunk_overrides = {}
     ddata = {k: to_dask_array(array, chunk_overrides.get(k)) for k, array in data.items()}
     chunk_info = {k: {'prefix': prefix, 'chunks': darray.chunks,
-                      'dtype': darray.dtype, 'shape': darray.shape}
+                      'dtype': np.lib.format.dtype_to_descr(darray.dtype),
+                      'shape': darray.shape}
                   for k, darray in ddata.items()}
     for k, darray in ddata.items():
         store.create_array(store.join(prefix, k))
