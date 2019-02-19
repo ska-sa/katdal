@@ -235,7 +235,6 @@ from .h5datav1 import H5DataV1
 from .h5datav2 import H5DataV2
 from .h5datav3 import H5DataV3
 from .visdatav4 import VisibilityDataV4
-from .flags import FLAG_NAMES, FLAG_DESCRIPTIONS
 
 
 # Setup library logger and add a print-like handler used when no logging is configured

@@ -439,14 +439,14 @@ def calc_correction_per_corrprod(dump, channels, params):
             g_per_input[n] *= g_product
     # Transpose to (channel, input) order, and ensure C ordering
     g_per_input = np.ascontiguousarray(g_per_input.T)
-    g_per_cp = np.empty((n_channels, len(params.input1_index)), np.complex64)
+    g_per_cp = np.empty((n_channels, len(params.input1_index)), dtype='complex64')
     _correction_inputs_to_corrprods(g_per_cp, g_per_input, params.input1_index, params.input2_index)
     return g_per_cp
 
 
 @numba.jit(nopython=True, nogil=True)
 def apply_vis_correction(data, correction):
-    """Clean up and apply `correction` visibility data in `data`."""
+    """Clean up and apply `correction` to visibility data in `data`."""
     out = np.empty_like(data)
     for i in range(out.shape[0]):
         for j in range(out.shape[1]):
@@ -477,7 +477,7 @@ def apply_weights_correction(data, correction):
 
 @numba.jit(nopython=True, nogil=True)
 def apply_flags_correction(data, correction):
-    """Update flag data to True wherever `correction` is invalid."""
+    """Set POSTPROC flag wherever `correction` is invalid."""
     out = np.copy(data)
     for i in range(out.shape[0]):
         for j in range(out.shape[1]):
@@ -536,7 +536,7 @@ def calc_correction(chunks, cache, corrprods, cal_products):
                 data = sensor
             products[product].append(data)
     params = CorrectionParams(inputs, input1_index, input2_index, products)
-
+    name = 'corrections[{}]'.format(','.join(cal_products))
     return from_block_function(
-        _correction_block, shape=shape, chunks=chunks, dtype=np.complex64, name='correction',
+        _correction_block, shape=shape, chunks=chunks, dtype=np.complex64, name=name,
         params=params)

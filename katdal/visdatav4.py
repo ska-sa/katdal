@@ -35,7 +35,7 @@ from .lazy_indexer import DaskLazyIndexer
 from .applycal import (add_applycal_sensors, calc_correction,
                        apply_vis_correction, apply_weights_correction,
                        apply_flags_correction, has_cal_product, CAL_PRODUCTS)
-from .flags import FLAG_NAMES, FLAG_DESCRIPTIONS
+from .flags import NAMES as FLAG_NAMES, DESCRIPTIONS as FLAG_DESCRIPTIONS
 
 
 logger = logging.getLogger(__name__)
@@ -335,12 +335,12 @@ class VisibilityDataV4(DataSet):
                               if has_cal_product(self.sensor, attrs, product)]
         self._applycal = _selection_to_list(applycal, all=available_products)
         if not self.source.data or not self._applycal:
-            self.correction = None
+            self._corrections = None
             self._corrected = self.source.data
         else:
-            self._correction = calc_correction(self.source.data.vis.chunks, self.sensor,
-                                               self.subarrays[self.subarray].corr_products,
-                                               self._applycal)
+            self._corrections = calc_correction(self.source.data.vis.chunks, self.sensor,
+                                                self.subarrays[self.subarray].corr_products,
+                                                self._applycal)
             corrected_vis = self._make_corrected(apply_vis_correction, self.source.data.vis)
             corrected_flags = self._make_corrected(apply_flags_correction, self.source.data.flags)
             corrected_weights = self._make_corrected(apply_weights_correction, self.source.data.weights)
@@ -352,7 +352,7 @@ class VisibilityDataV4(DataSet):
         self.select(spw=0, subarray=0, ants=obs_ants)
 
     def _make_corrected(self, apply_correction, data):
-        return da.core.elemwise(apply_correction, data, self._correction, dtype=data.dtype)
+        return da.core.elemwise(apply_correction, data, self._corrections, dtype=data.dtype)
 
     @property
     def _flags_keep(self):
@@ -425,7 +425,7 @@ class VisibilityDataV4(DataSet):
                 select = self._flags_select.copy()
                 flag_transforms.append(lambda flags: da.bitwise_and(select, flags))
             flag_transforms.append(lambda flags: flags.view(np.bool_))
-            self._flags = DaskLazyIndexer(self.source.data.flags, stage1, flag_transforms)
+            self._flags = DaskLazyIndexer(self._corrected_flags, stage1, flag_transforms)
 
     @property
     def timestamps(self):

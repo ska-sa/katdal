@@ -16,16 +16,16 @@
 
 """Definitions of flag bits"""
 
-FLAG_NAMES = ('reserved0', 'static', 'cam', 'data_lost',
-              'ingest_rfi', 'predicted_rfi', 'cal_rfi', 'postproc')
-FLAG_DESCRIPTIONS = ('reserved - bit 0',
-                     'predefined static flag list',
-                     'flag based on live CAM information',
-                     'no data was received',
-                     'RFI detected in ingest',
-                     'RFI predicted from space based pollutants',
-                     'RFI detected in calibration',
-                     'some correction/postprocessing step could not be applied')
+NAMES = ('reserved0', 'static', 'cam', 'data_lost',
+         'ingest_rfi', 'predicted_rfi', 'cal_rfi', 'postproc')
+DESCRIPTIONS = ('reserved - bit 0',
+                'predefined static flag list',
+                'flag based on live CAM information',
+                'no data was received',
+                'RFI detected in ingest',
+                'RFI predicted from space based pollutants',
+                'RFI detected in calibration',
+                'some correction/postprocessing step could not be applied')
 
 STATIC_BIT = 1
 CAM_BIT = 2

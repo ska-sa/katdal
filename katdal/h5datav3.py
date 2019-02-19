@@ -36,7 +36,7 @@ from .sensordata import (SensorCache, RecordSensorData,
                          H5TelstateSensorData, telstate_decode, to_str)
 from .categorical import CategoricalData
 from .lazy_indexer import LazyIndexer, LazyTransform
-from .flags import FLAG_NAMES, FLAG_DESCRIPTIONS
+from .flags import NAMES as FLAG_NAMES, DESCRIPTIONS as FLAG_DESCRIPTIONS
 
 logger = logging.getLogger(__name__)
 

@@ -31,7 +31,7 @@ from .spectral_window import SpectralWindow
 from .sensordata import RecordSensorData, SensorCache, to_str
 from .categorical import CategoricalData, sensor_to_categorical
 from .lazy_indexer import LazyIndexer, LazyTransform
-from .flags import FLAG_NAMES, FLAG_DESCRIPTIONS
+from .flags import NAMES as FLAG_NAMES, DESCRIPTIONS as FLAG_DESCRIPTIONS
 
 logger = logging.getLogger(__name__)
 
