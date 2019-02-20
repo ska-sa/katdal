@@ -344,8 +344,13 @@ class VisibilityDataV4(DataSet):
             corrected_vis = self._make_corrected(apply_vis_correction, self.source.data.vis)
             corrected_flags = self._make_corrected(apply_flags_correction, self.source.data.flags)
             corrected_weights = self._make_corrected(apply_weights_correction, self.source.data.weights)
+            name = self.source.data.name
+            if 'l0' in name:
+                name = name.replace('l0', 'l1')
+            else:
+                name = name + ' (corrected)'
             self._corrected = VisFlagsWeights(corrected_vis, corrected_flags, corrected_weights,
-                                              name='corrected')
+                                              name=name)
 
         # Apply default selection and initialise all members that depend
         # on selection in the process
@@ -425,7 +430,7 @@ class VisibilityDataV4(DataSet):
                 select = self._flags_select.copy()
                 flag_transforms.append(lambda flags: da.bitwise_and(select, flags))
             flag_transforms.append(lambda flags: flags.view(np.bool_))
-            self._flags = DaskLazyIndexer(self._corrected_flags, stage1, flag_transforms)
+            self._flags = DaskLazyIndexer(self._corrected.flags, stage1, flag_transforms)
 
     @property
     def timestamps(self):
