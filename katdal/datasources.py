@@ -35,6 +35,7 @@ import numba
 from .sensordata import TelstateSensorData, TelstateToStr
 from .chunkstore_s3 import S3ChunkStore
 from .chunkstore_npy import NpyFileChunkStore
+from .flags import DATA_LOST
 
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,7 @@ def _apply_data_lost(orig_flags, lost, block_id):
         return orig_flags    # Common case - no data lost
     flags = orig_flags.copy()
     for idx in mark:
-        flags[idx] |= 8
+        flags[idx] |= DATA_LOST
     return flags
 
 
@@ -149,7 +150,7 @@ def weight_power_scale(block, auto_indices, index1, index2, out=None, tmp=None):
         (or any two dimensions then baseline). It must contain all the
         baselines of a stream.
     auto_indices, index1, index2 : np.ndarray
-        Arrays returned by :func:`corrprod_to_autocrr`
+        Arrays returned by :func:`corrprod_to_autocorr`
     out : np.ndarray, optional
         If specified, the output array, with same shape as `block` and dtype ``np.float32``
     tmp : np.ndarray, optional
