@@ -22,7 +22,7 @@ import dask.array as da
 from katdal.chunkstore import ChunkStoreError
 from katdal.chunkstore_s3 import S3ChunkStore
 from katdal.chunkstore_npy import NpyFileChunkStore
-from katdal.datasources import TelstateDataSource, view_capture_stream
+from katdal.datasources import TelstateDataSource, view_capture_stream, infer_chunk_store
 from katdal.flags import DATA_LOST
 from katdal.applycal import from_block_function    # TODO: get from dask once available there
 
@@ -66,19 +66,13 @@ class Array(object):
 
 
 def get_chunk_store(source, telstate, array):
-    """A modified version of katdal.datasources._infer_chunk_store"""
+    """A wrapper around katdal.datasources.infer_chunk_store.
+
+    It has a simpler interface, taking an URL rather than url_parts and kwargs.
+    """
     url_parts = urllib.parse.urlparse(source, scheme='file')
-    if url_parts.scheme == 'file':
-        # Look for adjacent data directory (presumably containing NPY files)
-        rdb_path = os.path.abspath(url_parts.path)
-        store_path = os.path.dirname(os.path.dirname(rdb_path))
-        chunk_info = telstate['chunk_info']
-        vis_prefix = chunk_info[array]['prefix']
-        data_path = os.path.join(store_path, vis_prefix)
-        if os.path.isdir(data_path):
-            return NpyFileChunkStore(store_path)
     kwargs = dict(urllib.parse.parse_qsl(url_parts.query))
-    return S3ChunkStore.from_url(telstate['s3_endpoint_url'], **kwargs)
+    return infer_chunk_store(url_parts, telstate, array=array, **kwargs)
 
 
 def comma_list(value):

@@ -464,8 +464,8 @@ def _align_chunk_info(chunk_info):
     return chunk_info
 
 
-def _infer_chunk_store(url_parts, telstate, npy_store_path=None,
-                       s3_endpoint_url=None, **kwargs):
+def infer_chunk_store(url_parts, telstate, npy_store_path=None,
+                      s3_endpoint_url=None, array='correlator_data', **kwargs):
     """Construct chunk store automatically from dataset URL and telstate.
 
     Parameters
@@ -478,6 +478,8 @@ def _infer_chunk_store(url_parts, telstate, npy_store_path=None,
         Top-level directory of NpyFileChunkStore (overrides the default)
     s3_endpoint_url : string, optional
         Endpoint of S3 service, e.g. 'http://127.0.0.1:9000' (overrides default)
+    array : string, optional
+        Array within the bucket from which to determine the prefix
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other methods and ignored
 
@@ -505,7 +507,7 @@ def _infer_chunk_store(url_parts, telstate, npy_store_path=None,
         store_path = os.path.dirname(os.path.dirname(rdb_path))
         chunk_info = telstate['chunk_info']
         chunk_info = _ensure_prefix_is_set(chunk_info, telstate)
-        vis_prefix = chunk_info['correlator_data']['prefix']
+        vis_prefix = chunk_info[array]['prefix']
         data_path = os.path.join(store_path, vis_prefix)
         if os.path.isdir(data_path):
             return NpyFileChunkStore(store_path)
@@ -643,7 +645,7 @@ class TelstateDataSource(DataSource):
                 raise DataSourceNotFound(str(e))
         telstate, capture_block_id, stream_name = view_l0_capture_stream(telstate, **kwargs)
         if chunk_store == 'auto':
-            chunk_store = _infer_chunk_store(url_parts, telstate, **kwargs)
+            chunk_store = infer_chunk_store(url_parts, telstate, **kwargs)
         return cls(telstate, capture_block_id, stream_name,
                    chunk_store, source_name=url_parts.geturl(), upgrade_flags=upgrade_flags)
 
