@@ -345,8 +345,9 @@ class VisibilityDataV4(DataSet):
             corrected_flags = self._make_corrected(apply_flags_correction, self.source.data.flags)
             corrected_weights = self._make_corrected(apply_weights_correction, self.source.data.weights)
             name = self.source.data.name
-            if 'l0' in name:
-                name = name.replace('l0', 'l1')
+            # Acknowledge that the applycal step is making the L1 product
+            if 'sdp_l0' in name:
+                name = name.replace('sdp_l0', 'sdp_l1')
             else:
                 name = name + ' (corrected)'
             self._corrected = VisFlagsWeights(corrected_vis, corrected_flags, corrected_weights,
