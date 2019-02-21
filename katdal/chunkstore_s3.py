@@ -365,6 +365,10 @@ class S3ChunkStore(ChunkStore):
             if hasattr(data, '_fp'):
                 data = data._fp
             chunk = read_array(data)
+            # This shouldn't actually read any data, but will make requests
+            # aware that we've consumed all the data and hence it can
+            # reuse the connection.
+            response.content
         if chunk.shape != shape or chunk.dtype != dtype:
             raise BadChunk('Chunk {!r}: dtype {} and/or shape {} in store '
                            'differs from expected dtype {} and shape {}'
