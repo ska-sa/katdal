@@ -72,6 +72,36 @@ _BUCKET_POLICY = {
 }
 
 
+def read_array(fp):
+    """Read a numpy array in npy format from a file descriptor.
+
+    This is the same concept as :func:`numpy.lib.format.read_array`, but
+    optimised for the case of reading from :class:`http.client.HTTPResponse`.
+    Using the numpy function reads pieces out then copies them into the
+    array, while this implementation uses `readinto`.
+
+    It does not allow pickled dtypes.
+    """
+    version = np.lib.format.read_magic(fp)
+    if version == (1, 0):
+        shape, fortran_order, dtype = np.lib.format.read_array_header_1_0(fp)
+    elif version == (2, 0):
+        shape, fortran_order, dtype = np.lib.format.read_array_header_2_0(fp)
+    else:
+        raise ValueError('Unsupported .npy version {}'.format(version))
+    if dtype.hasobject:
+        raise ValueError('Object arrays are not supported')
+    count = int(np.product(shape))
+    data = np.ndarray(count, dtype=dtype)
+    fp.readinto(data)
+    if fortran_order:
+        data.shape = shape[::-1]
+        data = data.transpose()
+    else:
+        data.shape = shape
+    return data
+
+
 class _TimeoutHTTPAdapter(_HTTPAdapter):
     """Allow an HTTPAdapter to have a default timeout"""
     def __init__(self, *args, **kwargs):
@@ -331,7 +361,10 @@ class S3ChunkStore(ChunkStore):
         url = self._chunk_url(chunk_name)
         with self._request(chunk_name, 'GET', url, stream=True) as response:
             data = response.raw
-            chunk = np.lib.format.read_array(data, allow_pickle=False)
+            # Workaround for https://github.com/urllib3/urllib3/issues/1540
+            if hasattr(data, '_fp'):
+                data = data._fp
+            chunk = read_array(data)
         if chunk.shape != shape or chunk.dtype != dtype:
             raise BadChunk('Chunk {!r}: dtype {} and/or shape {} in store '
                            'differs from expected dtype {} and shape {}'
