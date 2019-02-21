@@ -284,6 +284,10 @@ class TelstateToStr(object):
         else:
             self._telstate = telstate
 
+    @property
+    def wrapped(self):
+        return self._telstate
+
     def view(self, name, add_separator=True, exclusive=False):
         return TelstateToStr(self._telstate.view(name, add_separator, exclusive))
 
