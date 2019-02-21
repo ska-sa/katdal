@@ -93,7 +93,10 @@ def read_array(fp):
         raise ValueError('Object arrays are not supported')
     count = int(np.product(shape))
     data = np.ndarray(count, dtype=dtype)
-    fp.readinto(data)
+    # For HTTPResponse it works to just pass in `data` directly, but the
+    # wrapping is added for the benefit of any other implementation that
+    # isn't expecting a numpy array
+    fp.readinto(memoryview(data.view(np.uint8)))
     if fortran_order:
         data.shape = shape[::-1]
         data = data.transpose()
@@ -362,9 +365,12 @@ class S3ChunkStore(ChunkStore):
         with self._request(chunk_name, 'GET', url, stream=True) as response:
             data = response.raw
             # Workaround for https://github.com/urllib3/urllib3/issues/1540
-            if hasattr(data, '_fp'):
-                data = data._fp
-            chunk = read_array(data)
+            # On Python 2, http.client.HTTPResponse doesn't implement
+            # readinto.
+            if hasattr(data, '_fp') and hasattr(data._fp, 'readinto'):
+                chunk = read_array(data._fp)
+            else:
+                chunk = read_array(data)
             # This shouldn't actually read any data, but will make requests
             # aware that we've consumed all the data and hence it can
             # reuse the connection.
