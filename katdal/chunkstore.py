@@ -27,7 +27,7 @@ import io
 import numpy as np
 import dask
 import dask.array as da
-import dask.sharedict
+import dask.highlevelgraph
 
 
 class ChunkStoreError(Exception):
@@ -494,8 +494,6 @@ class ChunkStore(object):
             Dask array of objects indicating success of transfer of each chunk
             (None indicates success, otherwise there is an exception object)
         """
-        dask_graph = dask.sharedict.ShareDict()
-        dask_graph.update(array.dask)
         # Give better names to these two very similar variables
         in_name = array.name
         out_name = array_name
@@ -508,7 +506,7 @@ class ChunkStore(object):
         graph = da.core.getem(array_name, array.chunks, put, out_name=out_name)
         # Set chunk parameter of put_chunk() to corresponding key in input array
         graph = {k: v + ((in_name,) + k[1:],) for k, v in graph.items()}
-        dask_graph.update(graph)
+        dask_graph = dask.highlevelgraph.HighLevelGraph.from_collections(out_name, graph, [array])
         # The success array has one element per chunk in the input array
         out_chunks = tuple(len(c) * (1,) for c in array.chunks)
         return da.Array(dask_graph, out_name, out_chunks, np.object)
