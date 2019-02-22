@@ -366,8 +366,12 @@ class S3ChunkStore(ChunkStore):
             data = response.raw
             # Workaround for https://github.com/urllib3/urllib3/issues/1540
             # On Python 2, http.client.HTTPResponse doesn't implement
-            # readinto.
-            if hasattr(data, '_fp') and hasattr(data._fp, 'readinto'):
+            # readinto. We also can't use the workaround if the content is
+            # encoded (e.g. gzip compressed) because that's decoded in
+            # urllib3, not httplib.
+            if ('Content-encoding' not in response.headers
+                    and hasattr(data, '_fp')
+                    and hasattr(data._fp, 'readinto')):
                 chunk = read_array(data._fp)
             else:
                 chunk = read_array(data)
