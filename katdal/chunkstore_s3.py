@@ -362,7 +362,10 @@ class S3ChunkStore(ChunkStore):
         dtype = np.dtype(dtype)
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         url = self._chunk_url(chunk_name)
-        with self._request(chunk_name, 'GET', url, stream=True) as response:
+        # Our hacky optimisation to speed up response reading doesn't
+        # work with non-identity encodings.
+        headers = {'Accept-Encoding': 'identity'}
+        with self._request(chunk_name, 'GET', url, headers=headers, stream=True) as response:
             data = response.raw
             # Workaround for https://github.com/urllib3/urllib3/issues/1540
             # On Python 2, http.client.HTTPResponse doesn't implement
