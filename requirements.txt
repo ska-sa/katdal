@@ -26,7 +26,7 @@ redis
 requests
 singledispatch
 six
-subprocess32==3.5.2     # katsdpdockerbase version refuses to install on Python 3
+subprocess32
 toolz
 urllib3
 
