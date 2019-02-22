@@ -202,6 +202,42 @@ class _Pool(object):
         self.put(item)
 
 
+class _CacheSettingsSession(requests.Session):
+    """Session that caches the result of proxy lookup.
+
+    Normally requests spends a lot of time per request just to figure out what
+    proxy server to use if any. For our usage, all URLs will be going to the
+    same host and hence should always have the same proxy config, so we look
+    it up once on the root URL for the chunk store and save the result.
+
+    This has some limitations:
+    - Proxy settings can't be changed.
+    - Session settings (e.g. certificate-related) must not be changed after the
+      first request.
+    - All requests should be to the same host.
+    - It is not thread-safe.
+    """
+
+    def __init__(self, url):
+        super(_CacheSettingsSession, self).__init__()
+        self._cached_settings = super(_CacheSettingsSession, self).merge_environment_settings(
+            url, {}, True, None, None)
+
+    def merge_environment_settings(self, url, proxies, stream, verify, cert):
+        # Only cache for a specific combination of input settings (the
+        # combination used by get_chunk), rather than trying to cache all
+        # variants.
+        if (proxies, stream, verify, cert) == ({}, True, None, None):
+            if self._cached_settings is None:
+                self._cached_settings = \
+                    super(_CacheSettingsSession, self).merge_environment_settings(
+                        url, proxies, stream, verify, cert)
+            return self._cached_settings
+        else:
+            return super(_CacheSettingsSession, self).merge_environment_settings(
+                url, proxies, stream, verify, cert)
+
+
 class S3ChunkStore(ChunkStore):
     """A store of chunks (i.e. N-dimensional arrays) based on the Amazon S3 API.
 
@@ -276,7 +312,7 @@ class S3ChunkStore(ChunkStore):
             auth = None
 
         def session_factory():
-            session = requests.Session()
+            session = _CacheSettingsSession(url)
             session.auth = auth
             adapter = _TimeoutHTTPAdapter(max_retries=2, timeout=timeout)
             session.mount(url, adapter)
