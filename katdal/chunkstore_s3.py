@@ -72,6 +72,39 @@ _BUCKET_POLICY = {
 }
 
 
+def read_array(fp):
+    """Read a numpy array in npy format from a file descriptor.
+
+    This is the same concept as :func:`numpy.lib.format.read_array`, but
+    optimised for the case of reading from :class:`http.client.HTTPResponse`.
+    Using the numpy function reads pieces out then copies them into the
+    array, while this implementation uses `readinto`.
+
+    It does not allow pickled dtypes.
+    """
+    version = np.lib.format.read_magic(fp)
+    if version == (1, 0):
+        shape, fortran_order, dtype = np.lib.format.read_array_header_1_0(fp)
+    elif version == (2, 0):
+        shape, fortran_order, dtype = np.lib.format.read_array_header_2_0(fp)
+    else:
+        raise ValueError('Unsupported .npy version {}'.format(version))
+    if dtype.hasobject:
+        raise ValueError('Object arrays are not supported')
+    count = int(np.product(shape))
+    data = np.ndarray(count, dtype=dtype)
+    # For HTTPResponse it works to just pass in `data` directly, but the
+    # wrapping is added for the benefit of any other implementation that
+    # isn't expecting a numpy array
+    fp.readinto(memoryview(data.view(np.uint8)))
+    if fortran_order:
+        data.shape = shape[::-1]
+        data = data.transpose()
+    else:
+        data.shape = shape
+    return data
+
+
 class _TimeoutHTTPAdapter(_HTTPAdapter):
     """Allow an HTTPAdapter to have a default timeout"""
     def __init__(self, *args, **kwargs):
@@ -169,6 +202,42 @@ class _Pool(object):
         self.put(item)
 
 
+class _CacheSettingsSession(requests.Session):
+    """Session that caches the result of proxy lookup.
+
+    Normally requests spends a lot of time per request just to figure out what
+    proxy server to use if any. For our usage, all URLs will be going to the
+    same host and hence should always have the same proxy config, so we look
+    it up once on the root URL for the chunk store and save the result.
+
+    This has some limitations:
+    - Proxy settings can't be changed.
+    - Session settings (e.g. certificate-related) must not be changed after the
+      first request.
+    - All requests should be to the same host.
+    - It is not thread-safe.
+    """
+
+    def __init__(self, url):
+        super(_CacheSettingsSession, self).__init__()
+        self._cached_settings = super(_CacheSettingsSession, self).merge_environment_settings(
+            url, {}, True, None, None)
+
+    def merge_environment_settings(self, url, proxies, stream, verify, cert):
+        # Only cache for a specific combination of input settings (the
+        # combination used by get_chunk), rather than trying to cache all
+        # variants.
+        if (proxies, stream, verify, cert) == ({}, True, None, None):
+            if self._cached_settings is None:
+                self._cached_settings = \
+                    super(_CacheSettingsSession, self).merge_environment_settings(
+                        url, proxies, stream, verify, cert)
+            return self._cached_settings
+        else:
+            return super(_CacheSettingsSession, self).merge_environment_settings(
+                url, proxies, stream, verify, cert)
+
+
 class S3ChunkStore(ChunkStore):
     """A store of chunks (i.e. N-dimensional arrays) based on the Amazon S3 API.
 
@@ -243,7 +312,7 @@ class S3ChunkStore(ChunkStore):
             auth = None
 
         def session_factory():
-            session = requests.Session()
+            session = _CacheSettingsSession(url)
             session.auth = auth
             adapter = _TimeoutHTTPAdapter(max_retries=2, timeout=timeout)
             session.mount(url, adapter)
@@ -329,9 +398,26 @@ class S3ChunkStore(ChunkStore):
         dtype = np.dtype(dtype)
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         url = self._chunk_url(chunk_name)
-        with self._request(chunk_name, 'GET', url, stream=True) as response:
+        # Our hacky optimisation to speed up response reading doesn't
+        # work with non-identity encodings.
+        headers = {'Accept-Encoding': 'identity'}
+        with self._request(chunk_name, 'GET', url, headers=headers, stream=True) as response:
             data = response.raw
-            chunk = np.lib.format.read_array(data, allow_pickle=False)
+            # Workaround for https://github.com/urllib3/urllib3/issues/1540
+            # On Python 2, http.client.HTTPResponse doesn't implement
+            # readinto. We also can't use the workaround if the content is
+            # encoded (e.g. gzip compressed) because that's decoded in
+            # urllib3, not httplib.
+            if ('Content-encoding' not in response.headers
+                    and hasattr(data, '_fp')
+                    and hasattr(data._fp, 'readinto')):
+                chunk = read_array(data._fp)
+            else:
+                chunk = read_array(data)
+            # This shouldn't actually read any data, but will make requests
+            # aware that we've consumed all the data and hence it can
+            # reuse the connection.
+            response.content
         if chunk.shape != shape or chunk.dtype != dtype:
             raise BadChunk('Chunk {!r}: dtype {} and/or shape {} in store '
                            'differs from expected dtype {} and shape {}'

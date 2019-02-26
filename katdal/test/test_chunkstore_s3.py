@@ -43,14 +43,15 @@ import socket
 import http.server
 import urllib.parse
 import contextlib
+import io
 
 import numpy as np
 from nose import SkipTest
-from nose.tools import assert_raises, timed
+from nose.tools import assert_raises, assert_equal, timed
 import mock
 import requests
 
-from katdal.chunkstore_s3 import S3ChunkStore, _AWSAuth
+from katdal.chunkstore_s3 import S3ChunkStore, _AWSAuth, read_array
 from katdal.chunkstore import StoreUnavailable
 from katdal.test.test_chunkstore import ChunkStoreTestBase
 
@@ -76,6 +77,45 @@ def get_free_port(host):
         sock.bind((host, 0))
         port = sock.getsockname()[1]
         yield port
+
+
+class TestReadArray(object):
+    def _test(self, array):
+        fp = io.BytesIO()
+        np.save(fp, array)
+        fp.seek(0)
+        out = read_array(fp)
+        np.testing.assert_equal(array, out)
+        # Check that Fortran order was preserved
+        assert_equal(array.strides, out.strides)
+
+    def testSimple(self):
+        self._test(np.arange(20))
+
+    def testMultiDim(self):
+        self._test(np.arange(20).reshape(4, 5, 1))
+
+    def testFortran(self):
+        self._test(np.arange(20).reshape(4, 5, 1).T)
+
+    def testV2(self):
+        # Make dtype that needs more than 64K to store, forcing .npy version 2.0
+        dtype = np.dtype([('a' * 70000, np.float32), ('b', np.float32)])
+        self._test(np.zeros(100, dtype))
+
+    def testBadVersion(self):
+        data = b'\x93NUMPY\x03\x04'     # Version 3.4
+        with assert_raises(ValueError):
+            fp = io.BytesIO(data)
+            read_array(fp)
+
+    def testPickled(self):
+        array = np.array([str, object])
+        fp = io.BytesIO()
+        np.save(fp, array)
+        fp.seek(0)
+        with assert_raises(ValueError):
+            read_array(fp)
 
 
 class TestS3ChunkStore(ChunkStoreTestBase):
