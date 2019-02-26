@@ -556,8 +556,10 @@ def populate_feed_dict(num_feeds, num_receptors_per_feed=2):
     feed_dict['POL_RESPONSE'] = np.dstack([np.eye(2, dtype=np.complex64) for n in range(num_feeds)]).transpose()
     # Position of feed relative to feed reference position (double, 1-dim, shape=(3,))
     feed_dict['POSITION'] = np.zeros((num_feeds, 3), np.float64)
-    # The reference angle for polarisation (double, 1-dim)
-    feed_dict['RECEPTOR_ANGLE'] = np.zeros((num_feeds, num_receptors_per_feed), dtype=np.float64)
+    # The reference angle for polarisation (double, 1-dim). A parallactic angle of
+    # 0 means that V is aligned to x (celestial North), but we are mapping H to x
+    # so we have to correct with a -90 degree rotation.
+    feed_dict['RECEPTOR_ANGLE'] = np.full((num_feeds, num_receptors_per_feed), -np.pi / 2, dtype=np.float64)
     # ID for this spectral window setup (integer)
     feed_dict['SPECTRAL_WINDOW_ID'] = - np.ones(num_feeds, dtype=np.int32)
     # Midpoint of time for which this set of parameters is accurate (double)
