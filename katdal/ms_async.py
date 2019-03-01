@@ -21,7 +21,7 @@ pass visibility data to a separate process that actually writes to the
 measurement set.
 
 This is largely an implementation detail of the mvftoms.py script, and might
-might be suited to other use cases. It is put into a separate module as a
+not be suited to other use cases. It is put into a separate module as a
 workaround for https://bugs.python.org/issue9914.
 """
 from __future__ import print_function, division, absolute_import
@@ -176,7 +176,7 @@ def ms_writer_process(
                     # Populate dictionary for write to MS
                     main_dict = ms_extra.populate_main_dict(
                         uvw_coordinates, vis_data,
-                        flag_data, out_mjd, a1, a2,
+                        flag_data, weight_data, out_mjd, a1, a2,
                         item.dump_time_width, big_field_id, big_state_id,
                         big_scan_itr, model_data, corrected_data)
 
