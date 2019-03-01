@@ -221,6 +221,15 @@ def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
     dmgroup_spec[dm_group] = dmspec(desc["desc"])
     additional_columns.append(desc)
 
+    dm_group = 'WeightSpectrum'
+    shape = [nchan, ncorr]
+    desc = tables.tablecreatearraycoldesc(
+        "WEIGHT_SPECTRUM", 1.0, comment="Per-channel weights",
+        options=4, valuetype='float', shape=shape, ndim=len(shape),
+        datamanagergroup=dm_group, datamanagertype='TiledColumnStMan')
+    dmgroup_spec[dm_group] = dmspec(desc["desc"])
+    additional_columns.append(desc)
+
     dm_group = 'ImagingWeight'
     shape = [nchan]
     desc = tables.tablecreatearraycoldesc(
@@ -324,7 +333,7 @@ else:
 
 # -------- Routines that create MS data structures in dictionaries -----------
 
-def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna1_index,
+def populate_main_dict(uvw_coordinates, vis_data, flag_data, weight_data, timestamps, antenna1_index,
                        antenna2_index, integrate_length, field_id=0, state_id=1,
                        scan_number=0, model_data=None, corrected_data=None):
     """Construct a dictionary containing the columns of the MAIN table.
@@ -340,6 +349,7 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
     vis_data : array of complex, shape (num_vis_samples, num_channels, num_pols)
         Array containing complex visibility data in Janskys
     flag_data : array of boolean, shape same as vis_data
+    weight_data : array of float, shape same as vis_data
     timestamps : array of float, shape (num_vis_samples,)
         Array of timestamps as Modified Julian Dates in seconds
         (may contain duplicate times for multiple baselines)
@@ -402,6 +412,8 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
     main_dict['FLAG_CATEGORY'] = flag_data.reshape((num_vis_samples, 1, num_channels, num_pols))
     # Row flag - flag all data in this row if True (boolean)
     main_dict['FLAG_ROW'] = np.zeros(num_vis_samples, dtype=np.uint8)
+    # The visibility weights
+    main_dict['WEIGHT_SPECTRUM'] = weight_data
     # Weight set by imaging task (e.g. uniform weighting) (float, 1-dim)
     # main_dict['IMAGING_WEIGHT'] = np.ones((num_vis_samples, 1), dtype=np.float32)
     # The sampling interval (double)
@@ -425,7 +437,8 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, timestamps, antenna
     main_dict['TIME_CENTROID'] = timestamps
     # Vector with uvw coordinates (in metres) (double, 1-dim, shape=(3,))
     main_dict['UVW'] = np.asarray(uvw_coordinates)
-    # Weight for each polarisation spectrum (float, 1-dim)
+    # Weight for each polarisation spectrum (float, 1-dim). This is just
+    # just filled with 1's, because the real weights are in WEIGHT_SPECTRUM.
     main_dict['WEIGHT'] = np.ones((num_vis_samples, num_pols), dtype=np.float32)
     return main_dict
 
