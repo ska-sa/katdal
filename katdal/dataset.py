@@ -782,7 +782,7 @@ class DataSet(object):
 
                     # or separate polarisation selections together
                     for polAB in pols:
-                        polAB = polAB * 2 if polAB in ('h', 'v') else polAB
+                        polAB = polAB * 2 if polAB in ('h', 'v', 'l', 'r') else polAB
                         keep |= [(inpA[-1] == polAB[0] and inpB[-1] == polAB[1])
                                  for inpA, inpB in self.subarrays[self.subarray].corr_products]
 

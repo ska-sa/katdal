@@ -233,6 +233,7 @@ from .lazy_indexer import LazyTransform, dask_getitem
 from .concatdata import ConcatenatedDataSet
 from .h5datav1 import H5DataV1
 from .h5datav2 import H5DataV2
+from .h5datav2_5 import H5DataV2_5
 from .h5datav3 import H5DataV3
 from .visdatav4 import VisibilityDataV4
 
@@ -266,7 +267,7 @@ else:
 # -- Top-level functions passed on to the appropriate format handler
 # -----------------------------------------------------------------------------
 
-formats = [H5DataV3, H5DataV2, H5DataV1]
+formats = [H5DataV3, H5DataV2_5, H5DataV2, H5DataV1]
 
 
 def _file_action(action, filename, *args, **kwargs):
