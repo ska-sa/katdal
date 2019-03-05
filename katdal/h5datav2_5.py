@@ -139,7 +139,7 @@ class H5DataV2_5(DataSet):
     file : :class:`h5py.File` object
         Underlying HDF5 file, exposed via :mod:`h5py` interface
     """
-    def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r', ekeepdims=False, **kwargs):
+    def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r', keepdims=False, **kwargs):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file
@@ -192,14 +192,8 @@ class H5DataV2_5(DataSet):
                            "expected %.3f dumps based on dump period and start/end times, got %d instead") %
                            (filename, expected_dumps, num_dumps))
 
-        if not irregular:
-            # Estimate timestamps by assuming they are uniformly spaced (much quicker than loading them from file).
-            # This is useful for the purpose of segmenting data set, where accurate timestamps are not that crucial.
-            # The real timestamps are still loaded when the user explicitly asks for them.
-            data_timestamps = self._timestamps[0] + self.dump_period * np.arange(num_dumps)
-        else:
-            # Load the real timestamps instead (could take several seconds on a large data set)
-            data_timestamps = self._timestamps[:num_dumps]
+        # Load the real timestamps instead (could take several seconds on a large data set)
+        data_timestamps = self._timestamps[:num_dumps]
         # Move timestamps from start of each dump to the middle of the dump
         data_timestamps += 0.5 * self.dump_period + self.time_offset
 
@@ -365,9 +359,7 @@ class H5DataV2_5(DataSet):
 
         # Avoid storing reference to self in transform closure below, as this hinders garbage collection
         dump_period, time_offset = self.dump_period, self.time_offset
-        # Restore original (slow) timestamps so that subsequent sensors (e.g. pointing) will have accurate values
-        extract_time = LazyTransform('extract_time', lambda t, keep: t + 0.5 * dump_period + time_offset)
-        self.sensor.timestamps = LazyIndexer(self._timestamps, keep=slice(num_dumps), transforms=[extract_time])
+
         # Apply default selection and initialise all members that depend on selection in the process
         self.select(spw=0, subarray=0, ants=script_ants)
 
