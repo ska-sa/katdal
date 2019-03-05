@@ -23,12 +23,9 @@ SENSOR_PROPS.update({
     '*activity': {'greedy_values': ('slew', 'stop'), 'initial_value': 'slew',
                   'transform': lambda act: SIMPLIFY_STATE.get(act, 'stop')},
     '*target': {'initial_value': '', 'transform': _robust_target},
-    # These float sensors are actually categorical by nature as they represent user settings
+    # These sensors are actually categorical by nature as they represent user settings
     'RFE/center-frequency-hz': {'categorical': True},
-    'RFE/rfe7.lo1.frequency': {'categorical': True},
     '*attenuation': {'categorical': True},
-    '*attenuator.horizontal': {'categorical': True},
-    '*attenuator.vertical': {'categorical': True},
     'RFE/rfe.band.select.LCP': {'categorical': True},
     'RFE/rfe.band.select.RCP': {'categorical': True},
     'RFE/rfe.lo-intermediate.5GHz.frequency': {'categorical': True},
