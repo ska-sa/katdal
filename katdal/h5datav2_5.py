@@ -419,7 +419,7 @@ class H5DataV2_5(DataSet):
 
         """
         f, version = H5DataV2_5._open(filename)
-        # Use the delay-tracking centre as the one and only target
+        # Use the pointing centre as the one and only target
         # Try two different sensors for the DBE target
         target_list = f['MetaData/Sensors/Antennas/ant1/target']
         all_target_strings = [target_data[1] for target_data in target_list]
