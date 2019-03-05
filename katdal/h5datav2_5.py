@@ -129,10 +129,6 @@ class H5DataV2_5(DataSet):
         Offset to add to all timestamps, in seconds
     mode : string, optional
         HDF5 file opening mode (e.g. 'r+' to open file in write mode)
-    quicklook : {False, True}
-        True if synthesised timestamps should be used to partition data set even
-        if real timestamps are irregular, thereby avoiding the slow loading of
-        real timestamps at the cost of slightly inaccurate label borders
     keepdims : {False, True}, optional
         Force vis / weights / flags to be 3-dimensional, regardless of selection
     kwargs : dict, optional
@@ -143,7 +139,7 @@ class H5DataV2_5(DataSet):
     file : :class:`h5py.File` object
         Underlying HDF5 file, exposed via :mod:`h5py` interface
     """
-    def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r', quicklook=False, keepdims=False, **kwargs):
+    def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r', ekeepdims=False, **kwargs):
         DataSet.__init__(self, filename, ref_ant, time_offset)
 
         # Load file
@@ -195,10 +191,8 @@ class H5DataV2_5(DataSet):
             logger.warning(("Irregular timestamps detected in file '%s': "
                            "expected %.3f dumps based on dump period and start/end times, got %d instead") %
                            (filename, expected_dumps, num_dumps))
-            if quicklook:
-                logger.warning("Quicklook option selected - partitioning data based on synthesised timestamps instead")
 
-        if not irregular or quicklook:
+        if not irregular:
             # Estimate timestamps by assuming they are uniformly spaced (much quicker than loading them from file).
             # This is useful for the purpose of segmenting data set, where accurate timestamps are not that crucial.
             # The real timestamps are still loaded when the user explicitly asks for them.
@@ -415,8 +409,8 @@ class H5DataV2_5(DataSet):
                                  config_group["Antennas/ant1"].attrs["altitude"],
                                  config_group["Antennas/ant1"].attrs["diameter"],
                                  None,
-                                 make_pmodel_string(config_group["Antennas/ant1"]['pointing-model-params']),
-                                 config_group["Antennas/ant1"].attrs["beamwidth"]) ]
+                                 " ".join(str(parm) for parm in config_group["Antennas/ant1"]['pointing-model-params']),
+                                 config_group["Antennas/ant1"].attrs["beamwidth"])]
 
     @staticmethod
     def _get_targets(filename):
