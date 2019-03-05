@@ -552,15 +552,15 @@ class H5DataV2_5(DataSet):
 
     @property
     def u(self):
-        raise NotImplementedError("File is AVN Single-dish format, uv-plane is not applicable.")
+        return np.zeros(self.shape[0])
 
     @property
     def v(self):
-        raise NotImplementedError("File is AVN Single-dish format, uv-plane is not applicable.")
+        return np.zeros(self.shape[0])
 
     @property
     def w(self):
-        raise NotImplementedError("File is AVN Single-dish format, uv-plane is not applicable.")
+        return np.zeros(self.shape[0])
 
     @property
     def temperature(self):
