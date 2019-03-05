@@ -357,9 +357,6 @@ class H5DataV2_5(DataSet):
         # Ensure that each target flux model spans all frequencies in data set if possible
         self._fix_flux_freq_range()
 
-        # Avoid storing reference to self in transform closure below, as this hinders garbage collection
-        dump_period, time_offset = self.dump_period, self.time_offset
-
         # Apply default selection and initialise all members that depend on selection in the process
         self.select(spw=0, subarray=0, ants=script_ants)
 
