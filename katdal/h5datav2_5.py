@@ -277,6 +277,7 @@ class H5DataV2_5(DataSet):
         LO_6p7GHz = self.sensor["RFE/rfe.lo-intermediate.6_7GHz.frequency"]
         LO_final = self.sensor["RFE/rfe.lo-final.frequency"]
 
+        # The 600MHz here is fixed according to AVN receiver architecture at present time.
         centre_freq_5GHz = LO_5GHz + LO_final - 600e6;
         centre_freq_6p7GHz = LO_6p7GHz + LO_final - 600e6;
 
@@ -291,7 +292,7 @@ class H5DataV2_5(DataSet):
 
         # If we aren't in wideband mode, then we need to do some additional tweaking:
         if (fine_size != 0):
-            centre_freq -= 200e6  # Because we're going to count from the bottom of the band.
+            centre_freq -= 0.25*sampling_frequency  # Because we're going to count from the bottom of the band.
             coarse_channel_bandwidth = 400E6 / (coarse_size / 2)
             narrowband_channel_select = self.sensor["DBE/dbe.nb-chan"]
             centre_freq += narrowband_channel_select * coarse_channel_bandwidth
