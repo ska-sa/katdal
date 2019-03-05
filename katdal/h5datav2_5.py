@@ -49,10 +49,6 @@ def _calc_azel(cache, name, ant="ant1"):
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel, 'Antennas/{ant}/el': _calc_azel})
 
-FLAG_NAMES = ('reserved0', 'static', 'cam', 'reserved3', 'detected_rfi', 'predicted_rfi', 'reserved6', 'reserved7')
-FLAG_DESCRIPTIONS = ('reserved - bit 0', 'predefined static flag list', 'flag based on live CAM information',
-                     'reserved - bit 3', 'RFI detected in the online system', 'RFI predicted from space based pollutants',
-                     'reserved - bit 6', 'reserved - bit 7')
 
 #--------------------------------------------------------------------------------------------------
 #--- Utility functions
@@ -233,14 +229,6 @@ class H5DataV2_5(DataSet):
         self.start_time = katpoint.Timestamp(data_timestamps[0] - 0.5 * self.dump_period)
         self.end_time = katpoint.Timestamp(data_timestamps[-1] + 0.5 * self.dump_period)
         self._keepdims = keepdims
-
-        # ------ Extract flags ------
-        # Check if flag group is present, else use dummy flag data
-        self._flags = markup_group['flags'] if 'flags' in markup_group else \
-            dummy_dataset('dummy_flags', shape=self._vis.shape[:-1], dtype=np.uint8, value=0)
-        # Obtain flag descriptions from file or recreate default flag description table
-        self._flags_description = markup_group['flags_description'] if 'flags_description' in markup_group else \
-            np.array(zip(FLAG_NAMES, FLAG_DESCRIPTIONS))
 
         # ------ Extract sensors ------
         # Populate sensor cache with all HDF5 datasets below sensor group that fit the description of a sensor
