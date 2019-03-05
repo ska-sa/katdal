@@ -54,20 +54,6 @@ VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel, 'Antennas/{ant}/el': _c
 #--- Utility functions
 #--------------------------------------------------------------------------------------------------
 
-
-def make_pmodel_string(param_list):
-    """Take the h5 dataset that stores the AVN pointing model and convert it to a
-       string in the format that katpoint expects.
-    """
-    if not isinstance(param_list, h5py.Dataset):
-        raise ValueError("Error! param_list isn't an HDF5 dataset.")
-    model_string = ""
-    for param in param_list:
-        model_string += str(param) + " "
-    model_string = model_string[:-1]  # To take off the space on the end.
-    return model_string
-
-
 def get_single_value(group, name):
     """Return single value from attribute or dataset with given name in group.
 
@@ -274,7 +260,7 @@ class H5DataV2_5(DataSet):
             altitude = config_group["Antennas"][antenna].attrs['altitude']
             diameter = config_group["Antennas"][antenna].attrs['diameter']
             delay_model = None
-            pointing_model = make_pmodel_string(config_group["Antennas"][antenna]['pointing-model-params'])
+            pointing_model = " ".join(str(param) for param in config_group["Antennas"][antenna]['pointing-model-params'])
             beamwidth = config_group["Antennas"][antenna].attrs['beamwidth']
 
             ants.append(katpoint.Antenna(name, latitude, longitude, altitude, diameter, delay_model, pointing_model, beamwidth))
