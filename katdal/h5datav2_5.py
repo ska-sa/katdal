@@ -253,11 +253,6 @@ class H5DataV2_5(DataSet):
 
             ants.append(katpoint.Antenna(name, latitude, longitude, altitude, diameter, delay_model, pointing_model, beamwidth))
 
-        # Temporarily casting this to string. I edited a file by hand to change the name and it seems to now read the
-        # attr as a np.ndarray
-        #ants = [katpoint.Antenna(str(config_group['Antennas'][name].attrs['description']))
-        #        for name in config_group['Antennas']]
-
         self.subarrays = [Subarray(ants, corrprods)]
         self.sensor['Observation/subarray'] = CategoricalData(self.subarrays, [0, len(data_timestamps)])
         self.sensor['Observation/subarray_index'] = CategoricalData([0], [0, len(data_timestamps)])
@@ -305,7 +300,6 @@ class H5DataV2_5(DataSet):
 
         # Our RF into the ROACH will always be spectrally inverted, but since we're sampling
         # in the 2nd Nyquist zone, it'll be inverting again.
-        # So I think our "sideband" value should be 1.
         sideband = 1
 
         self.spectral_windows = [SpectralWindow(spw_centre, channel_width, num_chans, mode)
@@ -553,14 +547,26 @@ class H5DataV2_5(DataSet):
 
     @property
     def u(self):
+        """U coordinate for each correlation product in metres.
+
+        In the single-dish case this returns an array of zeros.
+        """
         return np.zeros(self.shape[0])
 
     @property
     def v(self):
+        """V coordinate for each correlation product in metres.
+
+        In the single-dish case this returns an array of zeros.
+        """
         return np.zeros(self.shape[0])
 
     @property
     def w(self):
+        """W coordinate for each correlation product in metres.
+
+        In the single-dish case this returns an array of zeros.
+        """
         return np.zeros(self.shape[0])
 
     @property
