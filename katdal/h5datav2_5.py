@@ -230,8 +230,8 @@ class H5DataV2_5(DataSet):
                              (len(corrprods), self._vis.shape[2]))
         # Get the corrprod labels into the format that KatDAL wants, the v2.5 files only give ll and rr.
         # This will change it into  "ant1lant1l,ant1rant1r" which katdal expects.
-        corrprods = [('ant1' + corrprods[0][0], 'ant1' + corrprods[0][1]),
-                     ('ant1' + corrprods[1][0], 'ant1' + corrprods[1][1])]
+        corrprods = [(self.ref_ant + corrprods[0][0], self.ref_ant + corrprods[0][1]),
+                     (self.ref_ant + corrprods[1][0], self.ref_ant + corrprods[1][1])]
 
         stokes_prods = get_single_value(config_group["DBE"], "stokes_ordering").split(',')
         if len(stokes_prods) != self._stokes.shape[2]:
@@ -387,14 +387,16 @@ class H5DataV2_5(DataSet):
         config_group = f['MetaData/Configuration']
 
         # Only one antenna in an AVN file.
-        return [katpoint.Antenna(config_group["Antennas/ant1"].attrs["name"],
-                                 config_group["Antennas/ant1"].attrs["latitude"],
-                                 config_group["Antennas/ant1"].attrs["longitude"],
-                                 config_group["Antennas/ant1"].attrs["altitude"],
-                                 config_group["Antennas/ant1"].attrs["diameter"],
+        antenna_name = str(config_group["Antennas"].keys()[0])
+
+        return [katpoint.Antenna(config_group["Antennas/{}".format(antenna_name)].attrs["name"],
+                                 config_group["Antennas/{}".format(antenna_name)].attrs["latitude"],
+                                 config_group["Antennas/{}".format(antenna_name)].attrs["longitude"],
+                                 config_group["Antennas/{}".format(antenna_name)].attrs["altitude"],
+                                 config_group["Antennas/{}".format(antenna_name)].attrs["diameter"],
                                  None,
-                                 " ".join(str(parm) for parm in config_group["Antennas/ant1"]['pointing-model-params']),
-                                 config_group["Antennas/ant1"].attrs["beamwidth"])]
+                                 " ".join(str(parm) for parm in config_group["Antennas/{}".format(antenna_name)]['pointing-model-params']),
+                                 config_group["Antennas/{}".format(antenna_name)].attrs["beamwidth"])]
 
     @staticmethod
     def _get_targets(filename):
@@ -416,7 +418,8 @@ class H5DataV2_5(DataSet):
         f, version = H5DataV2_5._open(filename)
         # Use the pointing centre as the one and only target
         # Try two different sensors for the DBE target
-        target_list = f['MetaData/Sensors/Antennas/ant1/target']
+        antenna_name = str(f["MetaData/Configuration/Antennas"].keys()[0])
+        target_list = f['MetaData/Sensors/Antennas/{}/target'.format(antenna_name)]
         all_target_strings = [target_data[1] for target_data in target_list]
         return katpoint.Catalogue(np.unique(all_target_strings))
 
