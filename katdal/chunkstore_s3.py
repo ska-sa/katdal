@@ -386,7 +386,7 @@ class S3ChunkStore(ChunkStore):
         return urllib.parse.urljoin(self._url, to_str(urllib.parse.quote(chunk_name + '.npy')))
 
     @contextlib.contextmanager
-    def _request(self, chunk_name, method, url, *args, **kwargs):
+    def request(self, chunk_name, method, url, *args, **kwargs):
         """Run a request on a session from the pool, raising HTTP errors"""
         with self._standard_errors(chunk_name), self._session_pool() as session:
             with session.request(method, url, *args, **kwargs) as response:
@@ -401,7 +401,7 @@ class S3ChunkStore(ChunkStore):
         # Our hacky optimisation to speed up response reading doesn't
         # work with non-identity encodings.
         headers = {'Accept-Encoding': 'identity'}
-        with self._request(chunk_name, 'GET', url, headers=headers, stream=True) as response:
+        with self.request(chunk_name, 'GET', url, headers=headers, stream=True) as response:
             data = response.raw
             # Workaround for https://github.com/urllib3/urllib3/issues/1540
             # On Python 2, http.client.HTTPResponse doesn't implement
@@ -443,7 +443,7 @@ class S3ChunkStore(ChunkStore):
                 'arn:aws:s3:::{}/*'.format(bucket),
                 'arn:aws:s3:::{}'.format(bucket)
             ]
-            with self._request(None, 'PUT', policy_url, data=json.dumps(policy)):
+            with self.request(None, 'PUT', policy_url, data=json.dumps(policy)):
                 pass
 
     def put_chunk(self, array_name, slices, chunk):
@@ -462,7 +462,7 @@ class S3ChunkStore(ChunkStore):
             data = npy_header + chunk.tobytes()
         else:
             data = _Multipart([npy_header, memoryview(chunk)])
-        with self._request(chunk_name, 'PUT', url, headers=headers, data=data):
+        with self.request(chunk_name, 'PUT', url, headers=headers, data=data):
             pass
 
     def has_chunk(self, array_name, slices, dtype):
@@ -471,7 +471,7 @@ class S3ChunkStore(ChunkStore):
         chunk_name, _ = self.chunk_metadata(array_name, slices, dtype=dtype)
         url = self._chunk_url(chunk_name)
         try:
-            with self._request(chunk_name, 'HEAD', url):
+            with self.request(chunk_name, 'HEAD', url):
                 pass
         except ChunkNotFound:
             return False
@@ -493,7 +493,7 @@ class S3ChunkStore(ChunkStore):
         keys = []
         more = True
         while more:
-            with self._request(None, 'GET', url, params=params) as response:
+            with self.request(None, 'GET', url, params=params) as response:
                 root = defusedxml.cElementTree.fromstring(response.content)
             keys.extend(child.text for child in root.iter(NS + 'Key'))
             truncated = root.find(NS + 'IsTruncated')
@@ -515,7 +515,7 @@ class S3ChunkStore(ChunkStore):
         self.create_array(array_name)
         obj_name = self.join(array_name, 'complete')
         url = urllib.parse.urljoin(self._url, obj_name)
-        with self._request(obj_name, 'PUT', url, data=b''):
+        with self.request(obj_name, 'PUT', url, data=b''):
             pass
 
     def is_complete(self, array_name):
@@ -523,7 +523,7 @@ class S3ChunkStore(ChunkStore):
         obj_name = self.join(array_name, 'complete')
         url = urllib.parse.urljoin(self._url, obj_name)
         try:
-            with self._request(obj_name, 'GET', url):
+            with self.request(obj_name, 'GET', url):
                 pass
         except ChunkNotFound:
             return False

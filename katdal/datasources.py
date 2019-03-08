@@ -22,6 +22,7 @@ from builtins import zip, object
 
 import urllib.parse
 import os
+import io
 import logging
 from collections import defaultdict
 
@@ -632,7 +633,7 @@ class TelstateDataSource(DataSource):
         db = int(kwargs.pop('db', '0'))
         if url_parts.scheme == 'file':
             # RDB dump file
-            telstate = katsdptelstate.TelescopeState(katsdptelstate.memory.MemoryBackend())
+            telstate = katsdptelstate.TelescopeState()
             try:
                 telstate.load_from_file(url_parts.path)
             except OSError as err:
@@ -643,6 +644,16 @@ class TelstateDataSource(DataSource):
                 telstate = katsdptelstate.TelescopeState(url_parts.netloc, db)
             except katsdptelstate.ConnectionError as e:
                 raise DataSourceNotFound(str(e))
+        elif url_parts.scheme in {'http', 'https'}:
+            # Open endpoint as an S3 object store (with auth info in kwargs)
+            endpoint = urllib.parse.urlunparse(url_parts[:2] + 4 * ('',))
+            rdb_store = S3ChunkStore.from_url(endpoint, **kwargs)
+            rdb_path = urllib.parse.urlunparse(url_parts[:3] + 3 * ('',))
+            telstate = katsdptelstate.TelescopeState()
+            with rdb_store.request('RDB', 'GET', rdb_path) as response:
+                telstate.load_from_file(io.BytesIO(response.content))
+            if chunk_store == 'auto' and not kwargs.get('s3_endpoint_url'):
+                chunk_store = rdb_store
         telstate, capture_block_id, stream_name = view_l0_capture_stream(telstate, **kwargs)
         if chunk_store == 'auto':
             chunk_store = infer_chunk_store(url_parts, telstate, **kwargs)
