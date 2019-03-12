@@ -646,8 +646,9 @@ class TelstateDataSource(DataSource):
             except katsdptelstate.ConnectionError as e:
                 raise DataSourceNotFound(str(e))
         elif u.scheme in {'http', 'https'}:
-            # Treat endpoint as an S3 object store (with auth info in kwargs)
-            store_url = (u.scheme, u.netloc, '', '', '', '')
+            # Treat URL prefix as an S3 object store (with auth info in kwargs)
+            store_path = os.path.dirname(os.path.dirname(u.path))
+            store_url = (u.scheme, u.netloc, store_path, '', '', '')
             store_url = urllib.parse.urlunparse(store_url)
             # Strip off parameters, query strings and fragments to get basic URL
             rdb_url = (u.scheme, u.netloc, u.path, '', '', '')
