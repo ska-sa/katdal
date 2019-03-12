@@ -633,7 +633,7 @@ class TelstateDataSource(DataSource):
         db = int(kwargs.pop('db', '0'))
         if url_parts.scheme == 'file':
             # RDB dump file
-            telstate = katsdptelstate.TelescopeState()
+            telstate = katsdptelstate.TelescopeState(katsdptelstate.memory.MemoryBackend())
             try:
                 telstate.load_from_file(url_parts.path)
             except OSError as err:
@@ -649,7 +649,7 @@ class TelstateDataSource(DataSource):
             endpoint = urllib.parse.urlunparse(url_parts[:2] + 4 * ('',))
             rdb_store = S3ChunkStore.from_url(endpoint, **kwargs)
             rdb_path = urllib.parse.urlunparse(url_parts[:3] + 3 * ('',))
-            telstate = katsdptelstate.TelescopeState()
+            telstate = katsdptelstate.TelescopeState(katsdptelstate.memory.MemoryBackend())
             with rdb_store.request('RDB', 'GET', rdb_path) as response:
                 telstate.load_from_file(io.BytesIO(response.content))
             if chunk_store == 'auto' and not kwargs.get('s3_endpoint_url'):
