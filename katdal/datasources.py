@@ -450,12 +450,10 @@ def _upgrade_chunk_info(chunk_info, improved_chunk_info):
 def _align_chunk_info(chunk_info):
     """Inject phantom chunks to ensure all arrays have same number of dumps"""
     max_dumps = max(info['shape'][0] for info in chunk_info.values())
-    fill = False
     for key, info in chunk_info.items():
         shape = info['shape']
         n_dumps = shape[0]
         if n_dumps < max_dumps:
-            fill = True
             info['shape'] = (max_dumps,) + shape[1:]
             # We could just add a single new chunk, but that could cause an
             # inconveniently large chunk if there is a big difference between
