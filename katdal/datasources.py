@@ -36,14 +36,14 @@ import numba
 from .sensordata import TelstateSensorData, TelstateToStr
 from .chunkstore_s3 import S3ChunkStore
 from .chunkstore_npy import NpyFileChunkStore
-from .chunkstore import StoreUnavailable, ChunkNotFound
+from .chunkstore import ChunkStoreError
 from .flags import DATA_LOST
 
 
 logger = logging.getLogger(__name__)
 
 
-class DataSourceNotFound(OSError):
+class DataSourceNotFound(Exception):
     """File associated with DataSource not found or server not responding."""
 
 
@@ -656,10 +656,8 @@ class TelstateDataSource(DataSource):
                 rdb_store = S3ChunkStore.from_url(store_url, **kwargs)
                 with rdb_store.request('', 'GET', rdb_url) as response:
                     telstate.load_from_file(io.BytesIO(response.content))
-            except (StoreUnavailable, ChunkNotFound) as e:
+            except ChunkStoreError as e:
                 raise DataSourceNotFound(str(e))
-            if chunk_store == 'auto' and not kwargs.get('s3_endpoint_url'):
-                chunk_store = rdb_store
         telstate, capture_block_id, stream_name = view_l0_capture_stream(telstate, **kwargs)
         if chunk_store == 'auto':
             chunk_store = infer_chunk_store(url_parts, telstate, **kwargs)
