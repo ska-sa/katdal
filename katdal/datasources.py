@@ -21,7 +21,8 @@ standard_library.install_aliases()  # noqa: 402
 from builtins import zip, object
 
 import urllib.parse
-import os
+import os.path
+import io
 import logging
 from collections import defaultdict
 
@@ -35,6 +36,7 @@ import numba
 from .sensordata import TelstateSensorData, TelstateToStr
 from .chunkstore_s3 import S3ChunkStore
 from .chunkstore_npy import NpyFileChunkStore
+from .chunkstore import ChunkStoreError
 from .flags import DATA_LOST
 
 
@@ -448,12 +450,10 @@ def _upgrade_chunk_info(chunk_info, improved_chunk_info):
 def _align_chunk_info(chunk_info):
     """Inject phantom chunks to ensure all arrays have same number of dumps"""
     max_dumps = max(info['shape'][0] for info in chunk_info.values())
-    fill = False
     for key, info in chunk_info.items():
         shape = info['shape']
         n_dumps = shape[0]
         if n_dumps < max_dumps:
-            fill = True
             info['shape'] = (max_dumps,) + shape[1:]
             # We could just add a single new chunk, but that could cause an
             # inconveniently large chunk if there is a big difference between
@@ -635,19 +635,32 @@ class TelstateDataSource(DataSource):
             telstate = katsdptelstate.TelescopeState(katsdptelstate.memory.MemoryBackend())
             try:
                 telstate.load_from_file(url_parts.path)
-            except OSError as err:
-                raise DataSourceNotFound(str(err))
+            except OSError as e:
+                raise DataSourceNotFound(str(e))
         elif url_parts.scheme == 'redis':
             # Redis server
             try:
                 telstate = katsdptelstate.TelescopeState(url_parts.netloc, db)
             except katsdptelstate.ConnectionError as e:
                 raise DataSourceNotFound(str(e))
+        elif url_parts.scheme in {'http', 'https'}:
+            # Treat URL prefix as an S3 object store (with auth info in kwargs)
+            store_url = urllib.parse.urljoin(url, '..')
+            # Strip off parameters, query strings and fragments to get basic URL
+            rdb_url = urllib.parse.urlunparse(
+                (url_parts.scheme, url_parts.netloc, url_parts.path, '', '', ''))
+            telstate = katsdptelstate.TelescopeState(katsdptelstate.memory.MemoryBackend())
+            try:
+                rdb_store = S3ChunkStore.from_url(store_url, **kwargs)
+                with rdb_store.request('', 'GET', rdb_url) as response:
+                    telstate.load_from_file(io.BytesIO(response.content))
+            except ChunkStoreError as e:
+                raise DataSourceNotFound(str(e))
         telstate, capture_block_id, stream_name = view_l0_capture_stream(telstate, **kwargs)
         if chunk_store == 'auto':
             chunk_store = infer_chunk_store(url_parts, telstate, **kwargs)
-        return cls(telstate, capture_block_id, stream_name,
-                   chunk_store, source_name=url_parts.geturl(), upgrade_flags=upgrade_flags)
+        return cls(telstate, capture_block_id, stream_name, chunk_store,
+                   source_name=url_parts.geturl(), upgrade_flags=upgrade_flags)
 
 
 def open_data_source(url, **kwargs):
