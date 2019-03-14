@@ -21,7 +21,7 @@ standard_library.install_aliases()  # noqa: 402
 from builtins import zip, object
 
 import urllib.parse
-import os
+import os.path
 import io
 import logging
 from collections import defaultdict
@@ -645,12 +645,10 @@ class TelstateDataSource(DataSource):
                 raise DataSourceNotFound(str(e))
         elif url_parts.scheme in {'http', 'https'}:
             # Treat URL prefix as an S3 object store (with auth info in kwargs)
-            store_path = os.path.dirname(os.path.dirname(url_parts.path))
-            store_url = (url_parts.scheme, url_parts.netloc, store_path, '', '', '')
-            store_url = urllib.parse.urlunparse(store_url)
+            store_url = urllib.parse.urljoin(url, '..')
             # Strip off parameters, query strings and fragments to get basic URL
-            rdb_url = (url_parts.scheme, url_parts.netloc, url_parts.path, '', '', '')
-            rdb_url = urllib.parse.urlunparse(rdb_url)
+            rdb_url = urllib.parse.urlunparse(
+                (url_parts.scheme, url_parts.netloc, url_parts.path, '', '', ''))
             telstate = katsdptelstate.TelescopeState(katsdptelstate.memory.MemoryBackend())
             try:
                 rdb_store = S3ChunkStore.from_url(store_url, **kwargs)
