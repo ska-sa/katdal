@@ -18,7 +18,7 @@
 from __future__ import print_function, division, absolute_import
 from future import standard_library
 standard_library.install_aliases()  # noqa: E402
-import future.utils
+from future.utils import raise_from, PY3
 from builtins import zip, range, object
 from past.builtins import unicode
 
@@ -29,6 +29,7 @@ import threading
 import numpy as np
 import katpoint
 import katsdptelstate
+import requests
 
 from .categorical import (ComparableArrayWrapper, infer_dtype,
                           sensor_to_categorical)
@@ -174,7 +175,7 @@ def to_str(value):
     exception that numpy structured types with string or object fields won't
     be handled.
     """
-    if future.utils.PY3:
+    if PY3:
         if isinstance(value, np.ndarray) and value.dtype.kind == 'S':
             return np.char.decode(value, 'utf-8', 'surrogateescape')
         elif isinstance(value, bytes):
@@ -403,7 +404,6 @@ class TelstateSensorData(SensorData):
         else:
             raise ValueError("Sensor %r data has no key '%s'" % (self.name, key))
 
-
 # -------------------------------------------------------------------------------------------------
 # -- Utility functions
 # -------------------------------------------------------------------------------------------------
@@ -460,6 +460,73 @@ def _safe_linear_interp(xi, yi, x):
     # Do zeroth-order interpolation beyond the range of xi
     end_weight = np.clip(end_weight, 0.0, 1.0)
     return (1.0 - end_weight) * yi[start] + end_weight * yi[end]
+
+
+_KATCP_DECODER = {'integer': int, 'float': float, 'boolean': lambda x: x == '1',
+                  'lru': str, 'timestamp': float, 'discrete': str,
+                  'address': str, 'string': str}
+
+
+def get_sensor_from_katstore(store, name, start_time, end_time):
+    """Get raw sensor data from katstore (CAM's central sensor database).
+
+    Parameters
+    ----------
+    store : string
+        Hostname / endpoint of katstore webserver speaking katstore REST API
+    name : string
+        Sensor name (the escaped version with underscores)
+    start_time, end_time : float
+        Time range for sensor records as UTC seconds since Unix epoch
+
+    Returns
+    -------
+    data : :class:`RecordSensorData` object
+        Retrieved sensor data with 'timestamp', 'value' and 'status' fields
+
+    Raises
+    ------
+    ConnectionError
+        If this cannot connect to the katstore server
+    ValueError
+        If connection succeeded but interaction with REST API failed
+    KeyError
+        If the sensor was not found in the store or it has no data
+    """
+    # First check existence of sensor and get its KATCP type
+    url = "http://{}/katstore/sensors".format(store)
+    try:
+        result = requests.get(url, params={'sensors': name})
+    except requests.exceptions.ConnectionError as exc:
+        raise_from(ConnectionError("Could not connect to sensor store '%s'" %
+                                   (store,)), exc)
+    try:
+        sensor_info = {rec[0]: rec[2] for rec in result.json()}
+    except ValueError as exc:
+        raise_from(ValueError("Could not retrieve sensor info from '%s' (%d: %s)" %
+                              (url, result.status_code, result.reason)), exc)
+    if name not in sensor_info:
+        raise KeyError("Sensor store has no sensor named '%s'" % (name,))
+    decode = _KATCP_DECODER[sensor_info[name]['type']]
+    # Now get the historical data for the sensor in the given time range
+    url = "http://{}/katstore/samples".format(store)
+    params = {'sensor': name, 'start': start_time, 'end': end_time,
+              'time_type': 's', 'limit': 1000000}
+    try:
+        result = requests.get(url, params)
+    except requests.exceptions.ConnectionError as exc:
+        raise_from(ConnectionError("Could not connect to sensor store '%s'" %
+                                   (store,)), exc)
+    try:
+        samples = [(rec[1], decode(rec[3]), rec[5])
+                   for rec in result.json() if rec[4] == name]
+    except ValueError as exc:
+        raise_from(ValueError("Could not retrieve samples from '%s' (%d: %s)" %
+                              (url, result.status_code, result.reason)), exc)
+    if not samples:
+        raise KeyError("Sensor store has no data for sensor '%s'" % (name,))
+    samples = np.rec.fromrecords(samples, names='timestamp,value,status')
+    return RecordSensorData(samples, name)
 
 
 def dummy_sensor_data(name, value=None, dtype=np.float64, timestamp=0.0):
@@ -650,7 +717,8 @@ class SensorCache(dict):
 
     """
 
-    def __init__(self, cache, timestamps, dump_period, keep=slice(None), props=None, virtual={}, aliases={}):
+    def __init__(self, cache, timestamps, dump_period, keep=slice(None),
+                 props=None, virtual={}, aliases={}, store=None):
         # Initialise cache via dict constructor
         super(SensorCache, self).__init__(cache)
         self.timestamps = timestamps
@@ -662,6 +730,7 @@ class SensorCache(dict):
         # Add sensor aliases
         for alias, original in aliases.items():
             self.add_aliases(alias, original)
+        self.store = store
         # This needs to be an RLock because instantiating a virtual sensor
         # may require further sensor lookups (hopefully without a loop, which
         # would really cause problems).
@@ -799,7 +868,15 @@ class SensorCache(dict):
                         sensor_data = create_sensor(self, name, **match.groupdict())
                         break
                 else:
-                    raise KeyError("Unknown sensor '%s' (does not match actual name or virtual template)" % (name,))
+                    if self.store:
+                        # Katstore samples typically at least every 10 seconds
+                        start_time = self.timestamps[0] - self.dump_period - 10
+                        end_time = self.timestamps[-1] + self.dump_period + 10
+                        sensor_data = get_sensor_from_katstore(
+                            self.store, name, start_time, end_time)
+                    else:
+                        raise KeyError("Unknown sensor '%s' (does not match actual name or "
+                                       "virtual template and no sensor store provided)" % (name,))
             # If this is the first time this sensor is accessed, extract its data and store it in cache, if enabled
             if isinstance(sensor_data, SensorData) and extract:
                 # Look up properties associated with this specific sensor

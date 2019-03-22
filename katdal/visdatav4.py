@@ -116,7 +116,7 @@ class VisibilityDataV4(DataSet):
 
     """
     def __init__(self, source, ref_ant='', time_offset=0.0, applycal='',
-                 **kwargs):
+                 sensor_store=None, **kwargs):
         DataSet.__init__(self, source.name, ref_ant, time_offset)
         attrs = source.metadata.attrs
 
@@ -140,7 +140,8 @@ class VisibilityDataV4(DataSet):
         # Assemble sensor cache
         self.sensor = SensorCache(source.metadata.sensors, source.timestamps,
                                   self.dump_period, self._time_keep,
-                                  SENSOR_PROPS, VIRTUAL_SENSORS, SENSOR_ALIASES)
+                                  SENSOR_PROPS, VIRTUAL_SENSORS, SENSOR_ALIASES,
+                                  sensor_store)
 
         # ------ Extract flags ------
 
