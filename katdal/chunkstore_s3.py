@@ -57,6 +57,16 @@ from .chunkstore import (ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk,
 from .sensordata import to_str
 
 
+# Lifecycle policies unfortunately use XML encoding rather than JSON
+# Following path of least resistance we simply .format() this string
+# with the number of days for the expiry (and produced a sanitised
+# ID at the same time.
+_BASE_LIFECYCLE_POLICY = """<?xml version="1.0" encoding="UTF-8"?>
+<LifecycleConfiguration><Rule>
+<ID>katdal_expiry_{0}_days</ID><Prefix></Prefix><Status>Enabled</Status>
+<Expiration><Days>{0}</Days></Expiration>
+</Rule></LifecycleConfiguration>"""
+
 _BUCKET_POLICY = {
     "Version": "2012-10-17",
     "Id": "KatdalPolicy",
@@ -267,6 +277,10 @@ class S3ChunkStore(ChunkStore):
     public_read : bool
         If set to true, new buckets will be created with a policy that allows
         everyone (including unauthenticated users) to read the data.
+    expiry_days : int
+        If set to a value greater than 0 will set a future expiry time in days
+        for any new buckets created.
+
 
     Raises
     ------
@@ -274,7 +288,7 @@ class S3ChunkStore(ChunkStore):
         If requests is not installed (it's an optional dependency otherwise)
     """
 
-    def __init__(self, session_factory, url, public_read=False):
+    def __init__(self, session_factory, url, public_read=False, expiry_days=0):
         try:
             # Quick smoke test to see if the S3 server is available, by listing
             # buckets. Depending on the server in use, this may return a 403
@@ -294,9 +308,10 @@ class S3ChunkStore(ChunkStore):
         self._session_pool = _Pool(session_factory)
         self._url = to_str(url)
         self.public_read = public_read
+        self.expiry_days = int(expiry_days)
 
     @classmethod
-    def _from_url(cls, url, timeout, token, credentials, public_read):
+    def _from_url(cls, url, timeout, token, credentials, public_read, expiry_days):
         """Construct S3 chunk store from endpoint URL (see :meth:`from_url`)."""
         if token is not None:
             parsed = urllib.parse.urlparse(url)
@@ -318,11 +333,12 @@ class S3ChunkStore(ChunkStore):
             session.mount(url, adapter)
             return session
 
-        return cls(session_factory, url, public_read)
+        return cls(session_factory, url, public_read, expiry_days)
 
     @classmethod
     def from_url(cls, url, timeout=300, extra_timeout=10,
-                 token=None, credentials=None, public_read=False, **kwargs):
+                 token=None, credentials=None, public_read=False,
+                 expiry_days=0, **kwargs):
         """Construct S3 chunk store from endpoint URL.
 
         Parameters
@@ -341,6 +357,9 @@ class S3ChunkStore(ChunkStore):
         public_read : bool
             If set to true, new buckets will be created with a policy that allows
             everyone (including unauthenticated users) to read the data.
+        expiry_days : int
+            If set to a value greater than 0 will set a future expiry time in days
+            for any new buckets created.
         kwargs : dict
             Extra keyword arguments (unused)
 
@@ -356,15 +375,15 @@ class S3ChunkStore(ChunkStore):
         # (avoiding extra dependency on Python 2, revisit when Python 3 only)
         q = queue.Queue()
 
-        def _from_url(url, timeout, token, credentials, public_read):
+        def _from_url(url, timeout, token, credentials, public_read, expiry_days):
             """Construct chunk store and return it (or exception) via queue."""
             try:
-                q.put(cls._from_url(url, timeout, token, credentials, public_read))
+                q.put(cls._from_url(url, timeout, token, credentials, public_read, expiry_days))
             except BaseException:
                 q.put(sys.exc_info())
 
         thread = threading.Thread(target=_from_url,
-                                  args=(url, timeout, token, credentials, public_read))
+                                  args=(url, timeout, token, credentials, public_read, expiry_days))
         thread.daemon = True
         thread.start()
         if timeout is not None:
@@ -444,6 +463,15 @@ class S3ChunkStore(ChunkStore):
                 'arn:aws:s3:::{}'.format(bucket)
             ]
             with self.request(None, 'PUT', policy_url, data=json.dumps(policy)):
+                pass
+
+        if self.expiry_days > 0:
+            lifecycle_url = urllib.parse.urljoin(url, '?lifecycle')
+            lifecycle = copy.deepcopy(_BASE_LIFECYCLE_POLICY)
+            xml_payload = lifecycle.format(self.expiry_days)
+            b64_md5 = base64.encodestring(hashlib.md5(xml_payload.encode('utf-8')).digest()).decode('utf-8')[:-1]
+            lifecycle_headers = {'Content-Type':'text/xml', 'Content-MD5': b64_md5}
+            with self.request(None, 'PUT', lifecycle_url, data=xml_payload, headers=lifecycle_headers):
                 pass
 
     def put_chunk(self, array_name, slices, chunk):
