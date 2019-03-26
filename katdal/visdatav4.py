@@ -111,6 +111,8 @@ class VisibilityDataV4(DataSet):
         while the keyword 'all' means all available products will be applied.
         *NB* In future the default will probably change to 'all'.
         *NB* This is still very much an experimental feature...
+    sensor_store : string, optional
+        Hostname / endpoint of katstore webserver to access additional sensors
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
 

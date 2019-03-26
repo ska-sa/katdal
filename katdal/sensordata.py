@@ -462,9 +462,8 @@ def _safe_linear_interp(xi, yi, x):
     return (1.0 - end_weight) * yi[start] + end_weight * yi[end]
 
 
-_KATCP_DECODER = {'integer': int, 'float': float, 'boolean': lambda x: x == '1',
-                  'lru': str, 'timestamp': float, 'discrete': str,
-                  'address': str, 'string': str}
+_KATCP_DECODER = {'integer': int, 'float': float, 'timestamp': float,
+                  'boolean': lambda x: x == '1'}   # other types map to str
 
 
 def get_sensor_from_katstore(store, name, start_time, end_time):
@@ -475,7 +474,7 @@ def get_sensor_from_katstore(store, name, start_time, end_time):
     store : string
         Hostname / endpoint of katstore webserver speaking katstore REST API
     name : string
-        Sensor name (the escaped version with underscores)
+        Sensor name (the normalised / escaped version with underscores)
     start_time, end_time : float
         Time range for sensor records as UTC seconds since Unix epoch
 
@@ -488,45 +487,52 @@ def get_sensor_from_katstore(store, name, start_time, end_time):
     ------
     ConnectionError
         If this cannot connect to the katstore server
-    ValueError
+    RuntimeError
         If connection succeeded but interaction with REST API failed
     KeyError
-        If the sensor was not found in the store or it has no data
+        If the sensor was not found in the store or it has no data in time range
     """
-    # First check existence of sensor and get its KATCP type
-    url = "http://{}/katstore/sensors".format(store)
-    try:
-        result = requests.get(url, params={'sensors': name})
-    except requests.exceptions.ConnectionError as exc:
-        raise_from(ConnectionError("Could not connect to sensor store '%s'" %
-                                   (store,)), exc)
-    try:
-        sensor_info = {rec[0]: rec[2] for rec in result.json()}
-    except ValueError as exc:
-        raise_from(ValueError("Could not retrieve sensor info from '%s' (%d: %s)" %
-                              (url, result.status_code, result.reason)), exc)
-    if name not in sensor_info:
-        raise KeyError("Sensor store has no sensor named '%s'" % (name,))
-    decode = _KATCP_DECODER[sensor_info[name]['type']]
-    # Now get the historical data for the sensor in the given time range
-    url = "http://{}/katstore/samples".format(store)
-    params = {'sensor': name, 'start': start_time, 'end': end_time,
-              'time_type': 's', 'limit': 1000000}
-    try:
-        result = requests.get(url, params)
-    except requests.exceptions.ConnectionError as exc:
-        raise_from(ConnectionError("Could not connect to sensor store '%s'" %
-                                   (store,)), exc)
-    try:
-        samples = [(rec[1], decode(rec[3]), rec[5])
-                   for rec in result.json() if rec[4] == name]
-    except ValueError as exc:
-        raise_from(ValueError("Could not retrieve samples from '%s' (%d: %s)" %
-                              (url, result.status_code, result.reason)), exc)
-    if not samples:
-        raise KeyError("Sensor store has no data for sensor '%s'" % (name,))
-    samples = np.rec.fromrecords(samples, names='timestamp,value,status')
-    return RecordSensorData(samples, name)
+    with requests.Session() as session:
+        # First check existence of sensor and get its KATCP type
+        url = "http://%s/katstore/sensors" % (store,)
+        try:
+            response = session.get(url, params={'sensors': name})
+        except requests.exceptions.ConnectionError as exc:
+            err = ConnectionError("Could not connect to sensor store '%s'" % (store,))
+            raise_from(err, exc)
+        with response:
+            try:
+                sensor_info = {rec[0]: rec[2] for rec in response.json()}
+            except (ValueError, IndexError, TypeError, KeyError) as exc:
+                err = RuntimeError("Could not retrieve sensor info from '%s' (%d: %s)" %
+                                   (url, response.status_code, response.reason))
+                raise_from(err, exc)
+        try:
+            decode = _KATCP_DECODER.get(sensor_info[name]['type'], str)
+        except (KeyError, IndexError):
+            raise KeyError("Sensor store has no sensor named '%s'" % (name,))
+
+        # Now get the historical data for the sensor in the given time range
+        url = "http://%s/katstore/samples" % (store,)
+        params = {'sensor': name, 'start': start_time, 'end': end_time,
+                  'time_type': 's', 'limit': 1000000}
+        try:
+            response = session.get(url, params=params)
+        except requests.exceptions.ConnectionError as exc:
+            err = ConnectionError("Could not connect to sensor store '%s'" % (store,))
+            raise_from(err, exc)
+        with response:
+            try:
+                samples = [(rec[1], decode(rec[3]), rec[5])
+                           for rec in response.json() if rec[4] == name]
+            except (ValueError, IndexError, TypeError, KeyError) as exc:
+                err = RuntimeError("Could not retrieve samples from '%s' (%d: %s)" %
+                                   (url, response.status_code, response.reason))
+                raise_from(err, exc)
+        if not samples:
+            raise KeyError("Sensor store has no data for sensor '%s'" % (name,))
+        samples = np.rec.fromrecords(samples, names='timestamp,value,status')
+        return RecordSensorData(samples, name)
 
 
 def dummy_sensor_data(name, value=None, dtype=np.float64, timestamp=0.0):
@@ -714,7 +720,8 @@ class SensorCache(dict):
         Alternate names for sensors, as a dictionary mapping each alias to the
         original sensor name suffix. This will create additional sensors with
         the aliased names and the data of the original sensors.
-
+    store : string, optional
+        Hostname / endpoint of katstore webserver to access additional sensors
     """
 
     def __init__(self, cache, timestamps, dump_period, keep=slice(None),
