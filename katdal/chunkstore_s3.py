@@ -63,7 +63,7 @@ from .sensordata import to_str
 # ID at the same time).
 _BASE_LIFECYCLE_POLICY = """<?xml version="1.0" encoding="UTF-8"?>
 <LifecycleConfiguration><Rule>
-<ID>katdal_expiry_{0}_days</ID><Prefix></Prefix><Status>Enabled</Status>
+<ID>katdal_expiry_{0}_days</ID><Filter></Filter><Status>Enabled</Status>
 <Expiration><Days>{0}</Days></Expiration>
 </Rule></LifecycleConfiguration>"""
 
