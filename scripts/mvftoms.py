@@ -661,7 +661,7 @@ def main():
                 # first get solution antenna ordering
                 #   newer files have the cal antlist as a sensor
                 if 'cal_antlist' in first_dataset.file['TelescopeState'].keys():
-                    a0 = first_dataset.file['TelescopeState']['cal_antlist'].value
+                    a0 = first_dataset.file['TelescopeState/cal_antlist'][()]
                     antlist = telstate_decode(a0[0][1])
                 #   older files have the cal antlist as an attribute
                 elif 'cal_antlist' in first_dataset.file['TelescopeState'].attrs.keys():
@@ -681,7 +681,7 @@ def main():
                         print(' - creating {0} solution table: {1}\n'.format(sol, caltable_name))
 
                         # get solution values from the file
-                        solutions = first_dataset.file['TelescopeState'][sol_name].value
+                        solutions = first_dataset.file['TelescopeState'][sol_name][()]
                         soltimes, solvals = [], []
                         for t, s in solutions:
                             soltimes.append(t)

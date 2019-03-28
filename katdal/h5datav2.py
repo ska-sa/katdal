@@ -189,7 +189,7 @@ class H5DataV2(DataSet):
         self.description = self.obs_params.get('description', '')
         self.experiment_id = self.obs_params.get('experiment_id', '')
         # Get script log from History group
-        self.obs_script_log = f['History/script_log'].value['log'].tolist()
+        self.obs_script_log = f['History/script_log']['log'].tolist()
 
         # ------ Extract timestamps ------
 
