@@ -656,6 +656,9 @@ class TelstateDataSource(DataSource):
                     telstate.load_from_file(io.BytesIO(response.content))
             except ChunkStoreError as e:
                 raise DataSourceNotFound(str(e))
+        else:
+            raise DataSourceNotFound("Unknown URL scheme '{}' - telstate expects "
+                                     "file, redis, or http(s)".format(url_parts.scheme))
         telstate, capture_block_id, stream_name = view_l0_capture_stream(telstate, **kwargs)
         if chunk_store == 'auto':
             chunk_store = infer_chunk_store(url_parts, telstate, **kwargs)
