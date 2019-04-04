@@ -122,15 +122,39 @@ class VisibilityDataV4(DataSet):
 
         # ------ Extract timestamps ------
 
+        def _before(date):
+            return source.timestamps[0] < katpoint.Timestamp(date).secs
+
         self.source = source
         self.file = {}
         self.version = '4.0'
         self.dump_period = attrs['int_time']
+        # The CBF dump period is not in the lite RDB version
+        self.cbf_dump_period = attrs.get(
+            'i0_baseline_correlation_products_int_time', None)
         num_dumps = len(source.timestamps)
         source.timestamps += self.time_offset
-        if source.timestamps[0] < 1e9:
+        if _before('2000-01-01'):
             logger.warning("Data set has invalid first correlator timestamp "
                            "(%f)", source.timestamps[0])
+        # Workaround for one-CBF-dump offset (SR-1625), reflecting these updates:
+        # - CMC2 aka cbf_dev_N 4k fixed since at least 2019-02-11
+        # - CMC2 aka cbf_dev_N 1k fixed since at least 2019-03-03
+        # - CMC1 aka cbf_N fixed since 2019-03-15
+        cmc2 = 'cbf_dev' in attrs['sub_pool_resources']
+        cbf4k = 'c856M4k' in attrs['sub_product']
+        if (_before('2019-02-11')
+            or _before('2019-03-03') and not (cmc2 and cbf4k)
+                or _before('2019-03-15') and not cmc2):
+            if self.cbf_dump_period is not None:
+                source.timestamps -= self.cbf_dump_period
+                # Record workaround in time_offset to make it easy to verify
+                self.time_offset -= self.cbf_dump_period
+                logger.info('Corrected timestamps by 1 CBF dump '
+                            '(see JIRA ticket SR-1625 for more info)')
+            else:
+                logger.warning('Could not correct timestamps as CBF int time is unknown')
+                logger.warning('Consider using full RDB or explicit time_offset')
         half_dump = 0.5 * self.dump_period
         self.start_time = katpoint.Timestamp(source.timestamps[0] - half_dump)
         self.end_time = katpoint.Timestamp(source.timestamps[-1] + half_dump)
