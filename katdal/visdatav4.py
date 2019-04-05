@@ -150,11 +150,11 @@ class VisibilityDataV4(DataSet):
                 source.timestamps -= self.cbf_dump_period
                 # Record workaround in time_offset to make it easy to verify
                 self.time_offset -= self.cbf_dump_period
-                logger.info('Corrected timestamps by 1 CBF dump '
+                logger.info('Corrected data timestamps backwards by 1 CBF dump '
                             '(see JIRA ticket SR-1625 for more info)')
             else:
-                logger.warning('Could not correct timestamps as CBF int time is unknown')
-                logger.warning('Consider using full RDB or explicit time_offset')
+                logger.warning('Could not correct timestamps as CBF int time is unknown:'
+                               ' consider using full RDB or explicit time_offset')
         half_dump = 0.5 * self.dump_period
         self.start_time = katpoint.Timestamp(source.timestamps[0] - half_dump)
         self.end_time = katpoint.Timestamp(source.timestamps[-1] + half_dump)
