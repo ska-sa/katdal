@@ -18,7 +18,7 @@
 from __future__ import print_function, division, absolute_import
 from future import standard_library
 standard_library.install_aliases()  # noqa: E402
-from future.utils import raise_from, PY3
+from future.utils import raise_from, PY3, isidentifier
 from builtins import zip, range, object
 from past.builtins import unicode
 
@@ -492,11 +492,14 @@ def get_sensor_from_katstore(store, name, start_time, end_time):
     KeyError
         If the sensor was not found in the store or it has no data in time range
     """
+    # The sensor name won't be in sensor store if it contains invalid characters
+    if not isidentifier(name):
+        raise KeyError("Sensor name '%s' is not valid Python identifier" % (name,))
     with requests.Session() as session:
         # First check existence of sensor and get its KATCP type
         url = "http://%s/katstore/sensors" % (store,)
         try:
-            response = session.get(url, params={'sensors': name})
+            response = session.get(url, params={'sensors': '^%s$' % (name,)})
         except requests.exceptions.ConnectionError as exc:
             err = ConnectionError("Could not connect to sensor store '%s'" % (store,))
             raise_from(err, exc)
