@@ -505,8 +505,10 @@ def get_sensor_from_katstore(store, name, start_time, end_time):
             raise_from(err, exc)
         with response:
             try:
+                response.raise_for_status()
                 sensor_info = {rec[0]: rec[2] for rec in response.json()}
-            except (ValueError, IndexError, TypeError, KeyError) as exc:
+            except (ValueError, IndexError, TypeError, KeyError,
+                    requests.exceptions.RequestException) as exc:
                 err = RuntimeError("Could not retrieve sensor info from '%s' (%d: %s)" %
                                    (url, response.status_code, response.reason))
                 raise_from(err, exc)
@@ -526,9 +528,11 @@ def get_sensor_from_katstore(store, name, start_time, end_time):
             raise_from(err, exc)
         with response:
             try:
+                response.raise_for_status()
                 samples = [(rec[1], decode(rec[3]), rec[5])
                            for rec in response.json() if rec[4] == name]
-            except (ValueError, IndexError, TypeError, KeyError) as exc:
+            except (ValueError, IndexError, TypeError, KeyError,
+                    requests.exceptions.RequestException) as exc:
                 err = RuntimeError("Could not retrieve samples from '%s' (%d: %s)" %
                                    (url, response.status_code, response.reason))
                 raise_from(err, exc)
