@@ -44,6 +44,7 @@ import http.server
 import urllib.parse
 import contextlib
 import io
+import warnings
 
 import numpy as np
 from nose import SkipTest
@@ -101,7 +102,10 @@ class TestReadArray(object):
     def testV2(self):
         # Make dtype that needs more than 64K to store, forcing .npy version 2.0
         dtype = np.dtype([('a' * 70000, np.float32), ('b', np.float32)])
-        self._test(np.zeros(100, dtype))
+        with warnings.catch_warnings():
+            # Suppress warning that V2 files can only be read by numpy >= 1.9
+            warnings.simplefilter('ignore', category=UserWarning)
+            self._test(np.zeros(100, dtype))
 
     def testBadVersion(self):
         data = b'\x93NUMPY\x03\x04'     # Version 3.4
