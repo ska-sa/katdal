@@ -37,6 +37,9 @@ class ChunkStoreError(Exception):
 class StoreUnavailable(OSError, ChunkStoreError):
     """Could not access underlying storage medium (offline, auth failed, etc)."""
 
+class NotSupported(ChunkStoreError):
+    """The underlying store does not support the requested operation
+    (e.g. minio doesn't support lifecycle policies on buckets)"""
 
 class ChunkNotFound(KeyError, ChunkStoreError):
     """The store was accessible but a chunk with the given name was not found."""

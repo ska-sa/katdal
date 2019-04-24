@@ -1,0 +1,38 @@
+<xs:schema attributeFormDefault="unqualified" elementFormDefault="qualified" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="LifecycleConfiguration">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="Rule" maxOccurs="unbounded">
+          <xs:complexType>
+            <xs:sequence>
+              <xs:element type="xs:string" name="ID"/>
+              <xs:element name="Filter">
+                <xs:complexType>
+                  <xs:sequence>
+                    <xs:element type="xs:string" name="Prefix" minOccurs="0"/>
+                  </xs:sequence>
+                </xs:complexType>
+              </xs:element>
+              <xs:element type="xs:string" name="Status"/>
+              <xs:element name="Transition" minOccurs="0">
+                <xs:complexType>
+                  <xs:sequence>
+                    <xs:element type="xs:short" name="Days"/>
+                    <xs:element type="xs:string" name="StorageClass"/>
+                  </xs:sequence>
+                </xs:complexType>
+              </xs:element>
+              <xs:element name="Expiration">
+                <xs:complexType>
+                  <xs:sequence>
+                    <xs:element type="xs:short" name="Days"/>
+                  </xs:sequence>
+                </xs:complexType>
+              </xs:element>
+            </xs:sequence>
+          </xs:complexType>
+        </xs:element>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

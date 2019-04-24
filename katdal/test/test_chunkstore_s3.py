@@ -51,11 +51,17 @@ from nose import SkipTest
 from nose.tools import assert_raises, assert_equal, timed
 import mock
 import requests
+import lxml
 
 from katdal.chunkstore_s3 import S3ChunkStore, _AWSAuth, read_array
-from katdal.chunkstore import StoreUnavailable
+from katdal.chunkstore import StoreUnavailable, NotSupported
 from katdal.test.test_chunkstore import ChunkStoreTestBase
 
+# No expiration rule included
+_INVALID_LIFECYCLE_POLICY = """<?xml version="1.0" encoding="UTF-8"?>
+<LifecycleConfiguration><Rule>
+<ID>katdal_expiry_{0}_days</ID><Filter></Filter><Status>Enabled</Status>
+</Rule></LifecycleConfiguration>"""
 
 def gethostbyname_slow(host):
     """Mock DNS lookup that is meant to be slow."""
@@ -230,6 +236,19 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         store.put_chunk('public', slices, x)
         y = reader.get_chunk('public', slices, x.dtype)
         np.testing.assert_array_equal(x, y)
+
+    def test_bucket_expiry(self):
+        # NOTE: Minimum bucket expiry time is 1 day so real world testing is impractical.
+        # First we check the default policy is at least valid, even though minio
+        # doesn't actually support setting it.
+        test_store = self.from_url(self.url, expiry_days=1)
+        assert_raises(NotSupported, test_store.create_array, 'test-expiry')
+
+    @mock.patch('katdal.chunkstore_s3._BASE_LIFECYCLE_POLICY', _INVALID_LIFECYCLE_POLICY)
+    def test_bucket_expiry_invalid(self):
+        # now test with an invalid policy
+        test_store = self.from_url(self.url, expiry_days=1)
+        assert_raises(lxml.etree.DocumentInvalid, test_store.create_array, 'test-expiry')
 
     @timed(0.1 + 0.05)
     def test_store_unavailable_invalid_url(self):

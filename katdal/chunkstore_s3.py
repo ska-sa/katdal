@@ -24,7 +24,7 @@ from future import standard_library
 standard_library.install_aliases()  # noqa: E402
 from builtins import object
 import future.utils
-from future.utils import raise_, bytes_to_native_str
+from future.utils import raise_, bytes_to_native_str, raise_from
 
 import contextlib
 import io
@@ -53,8 +53,10 @@ except ImportError:
     botocore = None
 
 from .chunkstore import (ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk,
-                         npy_header_and_body)
+                         NotSupported, npy_header_and_body)
 from .sensordata import to_str
+
+from . import schemas
 
 
 # Lifecycle policies unfortunately use XML encoding rather than JSON
@@ -180,6 +182,8 @@ def _raise_for_status(response):
     except requests.HTTPError as error:
         if response.status_code == 404:
             raise ChunkNotFound(str(error))
+        elif response.status_code == 501:
+            raise_from(NotSupported(str(error)), error)
         else:
             raise StoreUnavailable(str(error))
 
@@ -467,6 +471,7 @@ class S3ChunkStore(ChunkStore):
 
         if self.expiry_days > 0:
             xml_payload = _BASE_LIFECYCLE_POLICY.format(self.expiry_days)
+            schemas.MINIMAL_LIFECYCLE_POLICY.validate(xml_payload)
             b64_md5 = base64.b64encode(hashlib.md5(xml_payload.encode('utf-8')).digest()).decode('utf-8')
             lifecycle_headers = {'Content-Type': 'text/xml', 'Content-MD5': b64_md5}
             with self.request(None, 'PUT', url, params='lifecycle', data=xml_payload, headers=lifecycle_headers):
