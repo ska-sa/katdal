@@ -63,6 +63,7 @@ _INVALID_LIFECYCLE_POLICY = """<?xml version="1.0" encoding="UTF-8"?>
 <ID>katdal_expiry_{0}_days</ID><Filter></Filter><Status>Enabled</Status>
 </Rule></LifecycleConfiguration>"""
 
+
 def gethostbyname_slow(host):
     """Mock DNS lookup that is meant to be slow."""
     time.sleep(30)
@@ -245,10 +246,16 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         assert_raises(NotSupported, test_store.create_array, 'test-expiry')
 
     @mock.patch('katdal.chunkstore_s3._BASE_LIFECYCLE_POLICY', _INVALID_LIFECYCLE_POLICY)
-    def test_bucket_expiry_invalid(self):
-        # now test with an invalid policy
+    def test_bucket_expiry_invalid_schema(self):
+        # Now test with an invalid policy
         test_store = self.from_url(self.url, expiry_days=1)
         assert_raises(lxml.etree.DocumentInvalid, test_store.create_array, 'test-expiry')
+
+    @mock.patch('katdal.chunkstore_s3._BASE_LIFECYCLE_POLICY', "<XML?>")
+    def test_bucket_expiry_not_xml(self):
+        # Code path coverage to test a policy that is not even valid XML
+        test_store = self.from_url(self.url, expiry_days=1)
+        assert_raises(ValueError, test_store.create_array, 'test-expiry')
 
     @timed(0.1 + 0.05)
     def test_store_unavailable_invalid_url(self):
