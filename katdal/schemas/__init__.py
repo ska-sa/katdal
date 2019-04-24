@@ -1,8 +1,15 @@
 """Makes packaged XSD schemas available as validators."""
 
-from lxml import etree
-
 import pkg_resources
+
+
+has_lxml = False
+
+try:
+    from lxml import etree
+    has_lxml = True
+except ImportError:
+    pass
 
 
 class ValidatorWithLog(object):
@@ -36,7 +43,7 @@ class ValidatorWithLog(object):
 
 
 for name in pkg_resources.resource_listdir(__name__, '.'):
-    if name.endswith('.xsd'):
+    if name.endswith('.xsd') and has_lxml:
         xmlschema_doc = etree.parse(pkg_resources.resource_stream(__name__, name))
         xml_validator = etree.XMLSchema(xmlschema_doc)
         globals()[name[:-4].upper()] = ValidatorWithLog(xml_validator)

@@ -1,5 +1,6 @@
 coverage
 funcsigs
+lxml
 mock
 nose
 pbr
