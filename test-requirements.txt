@@ -1,6 +1,6 @@
 coverage
 funcsigs
-lxml
+lxml==4.3.3
 mock
 nose
 pbr
