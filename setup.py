@@ -35,6 +35,8 @@ setup(name='katdal',
       author='Ludwig Schwardt',
       author_email='ludwig@ska.ac.za',
       packages=find_packages(),
+      package_data={'katdal': ['schemas/*']},
+      include_package_data=True,
       scripts=[
           'scripts/h5list.py',
           'scripts/h5toms.py',
