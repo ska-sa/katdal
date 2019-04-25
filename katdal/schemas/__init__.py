@@ -4,6 +4,7 @@ import pkg_resources
 
 
 has_lxml = False
+validators = {}
 
 try:
     from lxml import etree
@@ -42,8 +43,16 @@ class ValidatorWithLog(object):
         return True
 
 
+def validate(validator_name, string_to_validate):
+    try:
+        return validators[validator_name].validate(string_to_validate)
+    except KeyError:
+        raise KeyError("Specified validator {} doesn't map to an installed"
+                       " schema.".format(validator_name))
+
+
 for name in pkg_resources.resource_listdir(__name__, '.'):
     if name.endswith('.xsd') and has_lxml:
         xmlschema_doc = etree.parse(pkg_resources.resource_stream(__name__, name))
         xml_validator = etree.XMLSchema(xmlschema_doc)
-        globals()[name[:-4].upper()] = ValidatorWithLog(xml_validator)
+        validators[name[:-4].upper()] = ValidatorWithLog(xml_validator)

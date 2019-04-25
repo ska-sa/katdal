@@ -486,7 +486,7 @@ class S3ChunkStore(ChunkStore):
             if self.validate_xml_policies:
                 if not schemas.has_lxml:
                     raise ImportError("XML schema validation requires lxml to be installed.")
-                schemas.MINIMAL_LIFECYCLE_POLICY.validate(xml_payload)
+                schemas.validate('MINIMAL_LIFECYCLE_POLICY', xml_payload)
             b64_md5 = base64.b64encode(hashlib.md5(xml_payload.encode('utf-8')).digest()).decode('utf-8')
             lifecycle_headers = {'Content-Type': 'text/xml', 'Content-MD5': b64_md5}
             with self.request(None, 'PUT', url, params='lifecycle', data=xml_payload, headers=lifecycle_headers):
