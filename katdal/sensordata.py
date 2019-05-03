@@ -296,11 +296,11 @@ class TelstateToStr(object):
         return TelstateToStr(self._telstate.root())
 
     def keys(self, filter='*'):
-        return to_str(self._telstate.keys(filter))
+        return self._telstate.keys(filter)
 
     @property
     def prefixes(self):
-        return to_str(self._telstate.prefixes)
+        return self._telstate.prefixes
 
     def __getattr__(self, key):
         # __getattr__ can be used for item access or to get a property of the

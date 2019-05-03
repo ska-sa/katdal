@@ -20,7 +20,6 @@ import dask
 import dask.array as da
 
 from katdal.chunkstore import ChunkStoreError
-from katdal.chunkstore_s3 import S3ChunkStore
 from katdal.chunkstore_npy import NpyFileChunkStore
 from katdal.datasources import TelstateDataSource, view_capture_stream, infer_chunk_store
 from katdal.flags import DATA_LOST
@@ -214,8 +213,8 @@ def main():
     url_parts = urllib.parse.urlparse(args.source, scheme='file')
     dest_file = os.path.join(args.dest, args.new_prefix or cbid, os.path.basename(url_parts.path))
     os.makedirs(os.path.dirname(dest_file), exist_ok=True)
-    writer = RDBWriter(client=telstate.backend)
-    writer.save(dest_file)
+    with RDBWriter(dest_file) as writer:
+        writer.save(telstate)
 
 
 if __name__ == '__main__':

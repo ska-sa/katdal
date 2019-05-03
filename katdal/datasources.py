@@ -27,7 +27,6 @@ import logging
 from collections import defaultdict
 
 import katsdptelstate
-import katsdptelstate.memory
 import numpy as np
 import dask.array as da
 from dask.array.rechunk import intersect_chunks
@@ -335,7 +334,7 @@ def view_capture_stream(telstate, capture_block_id, stream_name):
         telstate = telstate.view(stream)
     telstate = telstate.view(capture_block_id)
     for stream in streams:
-        capture_stream = telstate.SEPARATOR.join((capture_block_id, stream))
+        capture_stream = telstate.join(capture_block_id, stream)
         telstate = telstate.view(capture_stream)
     return telstate
 
@@ -632,10 +631,10 @@ class TelstateDataSource(DataSource):
         db = int(kwargs.pop('db', '0'))
         if url_parts.scheme == 'file':
             # RDB dump file
-            telstate = katsdptelstate.TelescopeState(katsdptelstate.memory.MemoryBackend())
+            telstate = katsdptelstate.TelescopeState()
             try:
                 telstate.load_from_file(url_parts.path)
-            except OSError as e:
+            except (OSError, katsdptelstate.RdbParseError) as e:
                 raise DataSourceNotFound(str(e))
         elif url_parts.scheme == 'redis':
             # Redis server
@@ -649,7 +648,7 @@ class TelstateDataSource(DataSource):
             # Strip off parameters, query strings and fragments to get basic URL
             rdb_url = urllib.parse.urlunparse(
                 (url_parts.scheme, url_parts.netloc, url_parts.path, '', '', ''))
-            telstate = katsdptelstate.TelescopeState(katsdptelstate.memory.MemoryBackend())
+            telstate = katsdptelstate.TelescopeState()
             try:
                 rdb_store = S3ChunkStore.from_url(store_url, **kwargs)
                 with rdb_store.request('', 'GET', rdb_url) as response:

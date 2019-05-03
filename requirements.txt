@@ -7,7 +7,6 @@ docutils
 enum34
 funcsigs
 jmespath
-fakeredis
 future
 h5py
 idna
