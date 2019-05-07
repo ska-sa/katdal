@@ -308,7 +308,7 @@ class TelstateToStr(object):
 
     def __dir__(self):
         # Include public attributes of _telstate that are reachable via __getattr__
-        basic = super(TelstateToStr, self).__dir__()
+        basic = dir(super(TelstateToStr, self))
         extra = [d for d in dir(self._telstate)
                  if d not in basic and not d.startswith('_')]
         return basic + extra
