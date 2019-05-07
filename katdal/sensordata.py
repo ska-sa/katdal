@@ -295,16 +295,8 @@ class TelstateToStr(object):
     def root(self):
         return TelstateToStr(self._telstate.root())
 
-    def keys(self, filter='*'):
-        return to_str(self._telstate.keys(filter))
-
-    @property
-    def prefixes(self):
-        return to_str(self._telstate.prefixes)
-
     def __getattr__(self, key):
-        # __getattr__ can be used for item access or to get a property of the
-        # class.
+        # __getattr__ can be used for item access or to get attributes of _telstate
         if hasattr(self._telstate.__class__, key):
             return getattr(self._telstate, key)
         else:
@@ -313,6 +305,13 @@ class TelstateToStr(object):
     def __contains__(self, key):
         # Needed because __getattr__ won't pick it up from child
         return key in self._telstate
+
+    def __dir__(self):
+        # Include public attributes of _telstate that are reachable via __getattr__
+        basic = dir(super(TelstateToStr, self))
+        extra = [d for d in dir(self._telstate)
+                 if d not in basic and not d.startswith('_')]
+        return basic + extra
 
     def __getitem__(self, key):
         return to_str(self._telstate[key])

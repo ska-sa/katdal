@@ -85,7 +85,7 @@ def put_fake_dataset(store, prefix, shape, chunk_overrides=None, array_overrides
 
 def _make_fake_stream(telstate, store, cbid, stream, shape,
                       chunk_overrides=None, array_overrides=None, flags_only=False):
-    telstate_prefix = telstate.SEPARATOR.join((cbid, stream))
+    telstate_prefix = telstate.join(cbid, stream)
     store_prefix = telstate_prefix.replace('_', '-')
     data, chunk_info = put_fake_dataset(store, store_prefix, shape,
                                         chunk_overrides=chunk_overrides, array_overrides=array_overrides,
