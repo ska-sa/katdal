@@ -19,7 +19,7 @@ Open any data set through a single function to obtain a data set object:
   import katdal
   d = katdal.open('1234567890.h5')
 
-The `open` function automatically determines the version and storage location
+The ``open`` function automatically determines the version and storage location
 of the data set. The versions roughly map to the various instruments::
 
   - v1 : Fringe Finder (HDF5 file)
@@ -29,9 +29,10 @@ of the data set. The versions roughly map to the various instruments::
 
 Each MVFv4 data set is split into a Redis dump (aka *RDB*) file containing the
 metadata in the form of a *telescope state* database, and a *chunk store*
-containing the visibility data split into many small blocks or chunks. The RDB
-file is the main entry point to the data set and it can be accessed directly
-from the MeerKAT SDP archive if you have the appropriate permissions::
+containing the visibility data split into many small blocks or chunks (typically
+served by a Ceph object store over the network). The RDB file is the main entry
+point to the data set and it can be accessed directly from the MeerKAT SDP
+archive if you have the appropriate permissions:
 
 .. code:: python
 
