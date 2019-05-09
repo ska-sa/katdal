@@ -50,7 +50,7 @@ Inspect the contents of the data set by printing the object:
 
 .. code:: python
 
-  print d
+  print(d)
 
 Here is a typical output::
 
@@ -116,7 +116,7 @@ Let's select a subset of the data set:
 .. code:: python
 
   d.select(scans='track', channels=slice(200, 300), ants='ant4')
-  print d
+  print(d)
 
 This results in the following printout::
 
