@@ -3,7 +3,8 @@ katdal
 
 This package serves as a data access library to interact with the chunk stores
 and HDF5 files produced by the MeerKAT radio telescope and its predecessors
-(KAT-7 and Fringe Finder). It uses memory carefully, allowing data sets to be
+(KAT-7 and Fringe Finder), which are collectively known as *MeerKAT Visibility
+Format (MVF)* data sets. It uses memory carefully, allowing data sets to be
 inspected and partially loaded into memory. Data sets may be concatenated and
 split via a flexible selection mechanism. In addition, it provides a script to
 convert these data sets to CASA MeasurementSets.
@@ -18,13 +19,24 @@ Open any data set through a single function to obtain a data set object:
   import katdal
   d = katdal.open('1234567890.h5')
 
-This automatically determines the version and storage location of the data set.
-The versions roughly map to the various instruments::
+The `open` function automatically determines the version and storage location
+of the data set. The versions roughly map to the various instruments::
 
   - v1 : Fringe Finder (HDF5 file)
   - v2 : KAT-7 (HDF5 file)
   - v3 : MeerKAT (HDF5 file)
-  - v4 : MeerKAT (chunk store based on objects in Ceph)
+  - v4 : MeerKAT (RDB file + chunk store based on objects in Ceph)
+
+Each MVFv4 data set is split into a Redis dump (aka *RDB*) file containing the
+metadata in the form of a *telescope state* database, and a *chunk store*
+containing the visibility data split into many small blocks or chunks. The RDB
+file is the main entry point to the data set and it can be accessed directly
+from the MeerKAT SDP archive if you have the appropriate permissions::
+
+.. code:: python
+
+  # This is just for illustration - the real URL looks a bit different
+  d = katdal.open('https://archive/1234567890/1234567890_sdp_l0.rdb?token=AsD3')
 
 Multiple data sets (even of different versions) may also be concatenated
 together (as long as they have the same dump rate):
@@ -102,7 +114,7 @@ Let's select a subset of the data set:
 
 .. code:: python
 
-  d.select(scans='track', channels=slice(200,300), ants='ant4')
+  d.select(scans='track', channels=slice(200, 300), ants='ant4')
   print d
 
 This results in the following printout::
@@ -176,7 +188,7 @@ frequency dimension by ``d.channel_freqs`` and the correlation product dimension
 by ``d.corr_products``.
 
 Another key concept in the data set object is that of *sensors*. These are named
-time series of arbritrary data that are either loaded from the data set
+time series of arbitrary data that are either loaded from the data set
 (*actual* sensors) or calculated on the fly (*virtual* sensors). Both variants
 are accessed through the *sensor cache* (available as ``d.sensor``) and cached
 there after the first access. The data set object also provides convenient
@@ -215,4 +227,6 @@ be used together to traverse the data set structure:
 
 Finally, all the targets (or fields) in the data set are stored in a catalogue
 available at ``d.catalogue``, and the original HDF5 file is still accessible via
-a back door installed at ``d.file`` in the case of a single-file data set.
+a back door installed at ``d.file`` in the case of a single-file data set (v3
+or older). On a v4 data set, ``d.source`` provides access to the underlying
+telstate for metadata and the chunk store for data.

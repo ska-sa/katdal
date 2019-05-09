@@ -1,6 +1,15 @@
 History
 =======
 
+0.13 (2019-05-09)
+-----------------
+* Load RDB files straight from archive (#233, #241)
+* Retrieve raw sensor data from CAM katstore (#234)
+* Work around one-CBF-dump offset issue (#238)
+* Improved MS output: fixed RECEPTOR_ANGLE (#230), added WEIGHT_SPECTRUM (#231)
+* Various optimisations to applycal (#224), weights (#226), S3 reads (#229)
+* Use katsdptelstate 0.8 and dask 1.1 features (#228, #233, #240)
+
 0.12 (2019-02-12)
 -----------------
 * Optionally make L1 product by applying calibration corrections (#194 - #198)
