@@ -655,6 +655,10 @@ class TelstateDataSource(DataSource):
                     telstate.load_from_file(io.BytesIO(response.content))
             except ChunkStoreError as e:
                 raise DataSourceNotFound(str(e))
+            # If the RDB file is opened via archive URL, use that URL and
+            # corresponding S3 credentials or token to access the chunk store
+            if chunk_store == 'auto' and not kwargs.get('s3_endpoint_url'):
+                chunk_store = rdb_store
         else:
             raise DataSourceNotFound("Unknown URL scheme '{}' - telstate expects "
                                      "file, redis, or http(s)".format(url_parts.scheme))
