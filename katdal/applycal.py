@@ -42,106 +42,6 @@ CAL_PRODUCTS = ('K', 'B', 'G')
 logger = logging.getLogger(__name__)
 
 
-def _call_from_block_function(func, shape, num_chunks, chunk_location, array_location, func_kwargs):
-    block_info = {
-        'shape': shape,
-        'num-chunks': num_chunks,
-        'chunk-location': chunk_location,
-        'array-location': list(array_location)
-    }
-    return func(block_info, **func_kwargs)
-
-
-# This has been submitted to dask as https://github.com/dask/dask/pull/4476.
-# If it gets merged it can be used rather than copied here. There are also
-# unit tests there.
-def from_block_function(func, shape, chunks='auto', dtype=None, name=None, **kwargs):
-    """
-    Create an array from a function that builds individual blocks.
-
-    For each block, the function is passed a dictionary with information about
-    the block to construct, and should return a numpy array.
-
-    >>> block_info      # doctest: +SKIP
-    {'shape': (12, 20),
-     'num-chunks': (3, 4),
-     'chunk-location': (2, 1),
-     'array-location': [(8, 12), (5, 10)]
-    }
-
-    The values in the dictionary are respectively the shape of the full
-    array, the number of chunks in the full array in each dimension, the
-    position of this block in chunks, and the position in the array
-    (for example, the slice corresponding to ``8:12, 5:10``).
-
-    Parameters
-    ----------
-    func : callable
-        Function to produce every block in the array
-    shape : Tuple[int]
-        Shape of the resulting array.
-    chunks : tuple, optional
-        Chunk shape of resulting blocks. If not provided, a chunking scheme
-        is chosen automatically.
-    dtype : np.dtype, optional
-        The ``dtype`` of the output array. It is recommended to provide this.
-        If not provided, will be inferred by applying the function to a small
-        set of fake data.
-    name : str, optional
-        The key name to use for the output array. If not provided,
-        will be determined from `func`.
-    **kwargs :
-        Other keyword arguments to pass to function. Values must be constants
-        (not dask.arrays)
-
-    Examples
-    --------
-    This is a simplified version of :func:`eye` which only handles square
-    arrays with the ones on the main diagonal.
-
-    >>> def eye_chunk(block_info):
-    ...     location = block_info['array-location']
-    ...     r0, r1 = location[0]
-    ...     c0, c1 = location[1]
-    ...     if r0 == c0:
-    ...         return np.eye(r1 - r0, c1 - c0)
-    ...     else:
-    ...         return np.zeros((r1 - r0, c1 - c0))
-    >>> from_block_function(eye_chunk, (4, 4), chunks=2, dtype=float)
-    dask.array<eye_chunk, shape=(4, 4), dtype=float64, chunksize=(2, 2)>
-    >>> _.compute()
-    array([[1., 0., 0., 0.],
-           [0., 1., 0., 0.],
-           [0., 0., 1., 0.],
-           [0., 0., 0., 1.]])
-    """
-
-    name = '%s-%s' % (name or dask.utils.funcname(func),
-                      dask.base.tokenize(func, shape, dtype, chunks))
-
-    if dtype is None:
-        dummy_block_info = {
-            'shape': shape,
-            'num-chunks': shape,
-            'chunk-location': (0,) * len(shape),
-            'array-location': [(0, 1)] * len(shape)
-        }
-        dtype = da.apply_infer_dtype(func, [dummy_block_info], kwargs, 'from_block_function')
-
-    chunks = da.core.normalize_chunks(chunks, shape, dtype=dtype)
-    # Allow for shape=None when chunks are already in normalized form
-    shape = tuple(sum(bd) for bd in chunks)
-
-    keys = list(itertools.product([name], *[range(len(bd)) for bd in chunks]))
-    aggdims = [list(toolz.accumulate(operator.add, (0,) + bd)) for bd in chunks]
-    locdims = [list(zip(a[:-1], a[1:])) for a in aggdims]
-    locations = list(itertools.product(*locdims))
-    num_chunks = tuple(len(bd) for bd in chunks)
-    dsk = {key: (_call_from_block_function, func, shape, num_chunks, key[1:], location, kwargs)
-           for key, location in zip(keys, locations)}
-    return da.Array(dsk, name, chunks, dtype=dtype)
-
-
 def complex_interp(x, xi, yi, left=None, right=None):
     """Piecewise linear interpolation of magnitude and phase of complex values.
 
@@ -448,8 +348,8 @@ def calc_correction_per_corrprod(dump, channels, params):
 
 def _correction_block(block_info, params):
     """Calculate applycal correction for a single time-freq-baseline chunk."""
-    slices = tuple(slice(*l) for l in block_info['array-location'])
-    block_shape = tuple(s.stop - s.start for s in slices)
+    slices = tuple(slice(*l) for l in block_info[None]['array-location'])
+    block_shape = block_info[None]['chunk-shape']
     correction = np.empty(block_shape, np.complex64)
     # TODO: make calc_correction_per_corrprod multi-dump aware
     for n, dump in enumerate(range(slices[0].start, slices[0].stop)):
@@ -497,9 +397,7 @@ def calc_correction(chunks, cache, corrprods, cal_products):
             products[product].append(data)
     params = CorrectionParams(inputs, input1_index, input2_index, products)
     name = 'corrections[{}]'.format(','.join(cal_products))
-    return from_block_function(
-        _correction_block, shape=shape, chunks=chunks, dtype=np.complex64,
-        name=name, params=params)
+    return da.map_blocks(_correction_block, chunks=chunks, dtype=np.complex64, params=params)
 
 
 @numba.jit(nopython=True, nogil=True)
