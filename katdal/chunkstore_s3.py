@@ -53,7 +53,7 @@ except ImportError:
     botocore = None
 
 from .chunkstore import (ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk,
-                         NotSupported, npy_header_and_body)
+                         UnsupportedStoreFeature, npy_header_and_body)
 from .sensordata import to_str
 
 from . import schemas
@@ -183,7 +183,7 @@ def _raise_for_status(response):
         if response.status_code == 404:
             raise ChunkNotFound(str(error))
         elif response.status_code == 501:
-            raise_from(NotSupported(str(error)), error)
+            raise_from(UnsupportedStoreFeature(str(error)), error)
         else:
             raise StoreUnavailable(str(error))
 

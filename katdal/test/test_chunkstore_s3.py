@@ -54,7 +54,7 @@ import mock
 import requests
 
 from katdal.chunkstore_s3 import S3ChunkStore, _AWSAuth, read_array
-from katdal.chunkstore import StoreUnavailable, NotSupported
+from katdal.chunkstore import StoreUnavailable, UnsupportedStoreFeature
 from katdal.test.test_chunkstore import ChunkStoreTestBase
 
 # No expiration rule included
@@ -242,11 +242,11 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         # NOTE: Minimum bucket expiry time is 1 day so real world testing is impractical.
         # We expect not supported since minio doesn't allow lifecycle policies
         test_store = self.from_url(self.url, expiry_days=1)
-        assert_raises(NotSupported, test_store.create_array, 'test-expiry')
+        assert_raises(UnsupportedStoreFeature, test_store.create_array, 'test-expiry')
 
     def test_bucket_expiry_with_validation(self):
         test_store = self.from_url(self.url, expiry_days=1, validate_xml_policies=True)
-        assert_raises(NotSupported, test_store.create_array, 'test-expiry')
+        assert_raises(UnsupportedStoreFeature, test_store.create_array, 'test-expiry')
 
     @mock.patch('katdal.chunkstore_s3._BASE_LIFECYCLE_POLICY', _INVALID_LIFECYCLE_POLICY)
     def test_bucket_expiry_invalid_schema(self):

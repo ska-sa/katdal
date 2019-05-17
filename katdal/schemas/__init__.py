@@ -1,7 +1,7 @@
 """Makes packaged XSD schemas available as validators."""
 
 import pkg_resources
-
+from future.utils import raise_from
 
 has_lxml = False
 validators = {}
@@ -36,7 +36,7 @@ class ValidatorWithLog(object):
         try:
             xml_doc = etree.fromstring(bytes(bytearray(xml_string, encoding='utf-8')))
         except etree.XMLSyntaxError as e:
-            raise ValueError(e)
+            raise_from(ValueError("Supplied string cannot be parsed as XML"), e)
         if not self.validator.validate(xml_doc):
             log = self.validator.error_log
             raise etree.DocumentInvalid(log.last_error)
@@ -47,8 +47,8 @@ def validate(validator_name, string_to_validate):
     try:
         return validators[validator_name].validate(string_to_validate)
     except KeyError:
-        raise KeyError("Specified validator {} doesn't map to an installed"
-                       " schema.".format(validator_name))
+        raise_from(KeyError("Specified validator {} doesn't map to an installed"
+                            " schema.".format(validator_name)), None)
 
 
 for name in pkg_resources.resource_listdir(__name__, '.'):
