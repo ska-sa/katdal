@@ -311,9 +311,10 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
         Offset to add to all timestamps, in seconds
     kwargs : dict, optional
         Extra keyword arguments are passed on to underlying accessor class:
-        mode : string, optional
+
+        mode (string, optional)
             [H5DataV*] File opening mode (e.g. 'r+' to open file in write mode)
-        quicklook : {False, True}
+        quicklook (bool)
             [H5DataV2] True if synthesised timestamps should be used to
             partition data set even if real timestamps are irregular, thereby
             avoiding the slow loading of real timestamps at the cost of
@@ -350,7 +351,7 @@ def get_ants(filename):
 
     Returns
     -------
-    antennas : list of :class:'katpoint.Antenna' objects
+    antennas : list of :class:`katpoint.Antenna` objects
 
     """
     return _file_action('_get_ants', filename)
@@ -366,7 +367,7 @@ def get_targets(filename):
 
     Returns
     -------
-    targets : :class:'katpoint.Catalogue' object
+    targets : :class:`katpoint.Catalogue` object
         All targets in file
 
     """

@@ -105,8 +105,8 @@ def average_visibilities(vis, weight, flag, timestamps, channel_freqs, timeav=10
     timestamps are second. An array of timestamps and frequencies corresponding
     to each channel is also directly averaged and returned.
 
-    Inputs
-    ------
+    Parameters
+    ----------
     vis: array(numtimestamps,numchannels,numbaselines) of complex64.
           The input visibilities to be averaged.
     weight: array(numtimestamps,numchannels,numbaselines) of float32.
@@ -125,7 +125,7 @@ def average_visibilities(vis, weight, flag, timestamps, channel_freqs, timeav=10
           Flagged averaged data in when there is a single flag in the bin if true.
           Only flag averaged data when all data in the bin is flagged if false.
 
-    Outputs
+    Returns
     -------
     av_vis: array(int(numtimestamps/timeav),int(numchannels/chanav)) of complex64.
     av_weight: array(int(numtimestamps/timeav),int(numchannels/chanav)) of float32.

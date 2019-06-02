@@ -123,7 +123,7 @@ class TestSimplifyIndex(object):
 
 
 def ix_(keep, shape):
-    """Extend numpy.ix_ to accept slices and single ints as well."""
+    r"""Extend numpy.ix\_ to accept slices and single ints as well."""
     # Inspired by Zarr's indexing.py (https://github.com/zarr-developers/zarr)
     keep = [slice_to_range(k, s) if isinstance(k, slice)
             else [k] if isinstance(k, Integral)
