@@ -12,7 +12,7 @@ Welcome to katdal's documentation!
 
    user
    file_format
-   Reference <modules>
+   API reference <modules>
 
 
 Indices and tables
