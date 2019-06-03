@@ -13,3 +13,5 @@ interface.
 
    hdf5_format_v1
    hdf5_format_v2
+   hdf5_format_v3
+   mvf_v4

@@ -43,6 +43,7 @@ extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.napoleon',
     'sphinx.ext.mathjax',
+    'sphinx.ext.intersphinx'
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -73,6 +74,8 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 pygments_style = None
 
 autodoc_member_order = 'bysource'
+
+intersphinx_mapping = {'katsdptelstate': ('https://katsdptelstate.readthedocs.io/en/latest', None)}
 
 
 # -- Options for HTML output -------------------------------------------------
