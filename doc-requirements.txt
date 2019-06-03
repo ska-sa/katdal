@@ -1,0 +1,18 @@
+alabaster
+babel
+certifi
+chardet
+docutils
+idna
+imagesize
+jinja2
+markupsafe
+pygments
+pytz
+requests
+snowballstemmer
+sphinx
+sphinx-rtd-theme
+sphinxcontrib-websupport
+typing; python_version<'3'
+urllib3
