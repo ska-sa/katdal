@@ -10,7 +10,9 @@ Welcome to katdal's documentation!
    :maxdepth: 2
    :caption: Contents:
 
-   modules
+   user
+   file_format
+   Reference <modules>
 
 
 Indices and tables
