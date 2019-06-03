@@ -12,20 +12,20 @@
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #
-# import os
-# import sys
-# sys.path.insert(0, os.path.abspath('.'))
+import os
+import sys
+sys.path.insert(0, os.path.abspath('..'))
 import katdal
 
 
 # -- Project information -----------------------------------------------------
 
 project = 'katdal'
-copyright = '2019, National Research Foundation'
-author = 'SARAO'
+copyright = '2019, South African Radio Astronomy Observatory'
+author = 'South African Radio Astronomy Observatory'
 
 # The short X.Y version
-version = katdal.__version__
+version = '.'.join(katdal.__version__.split('.')[:2])
 # The full version, including alpha/beta/rc tags
 release = katdal.__version__
 
@@ -71,6 +71,8 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = None
+
+autodoc_member_order = 'bysource'
 
 
 # -- Options for HTML output -------------------------------------------------
