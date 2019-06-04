@@ -16,17 +16,11 @@
 
 """Utilities for applying calibration solutions to visibilities and weights."""
 from __future__ import print_function, division, absolute_import
-from builtins import range, zip
 
 import logging
-import itertools
-import operator
 
 import numpy as np
 import dask.array as da
-import dask.base
-import dask.utils
-import toolz
 import numba
 
 from .categorical import CategoricalData, ComparableArrayWrapper
@@ -397,7 +391,8 @@ def calc_correction(chunks, cache, corrprods, cal_products):
             products[product].append(data)
     params = CorrectionParams(inputs, input1_index, input2_index, products)
     name = 'corrections[{}]'.format(','.join(cal_products))
-    return da.map_blocks(_correction_block, chunks=chunks, dtype=np.complex64, params=params)
+    return da.map_blocks(_correction_block, dtype=np.complex64, chunks=chunks,
+                         name=name, params=params)
 
 
 @numba.jit(nopython=True, nogil=True)
