@@ -11,7 +11,7 @@ Welcome to katdal's documentation!
    :caption: Contents:
 
    user
-   file_format
+   data_set_format
    API reference <modules>
 
 

@@ -5,10 +5,10 @@ The version 4 format is the standard format for MeerKAT visibility data.
 Unlike previous versions, the data for an observation does not reside in
 a single HDF5 file, as such files would be unmanageably large. Instead,
 the data is split into chunks, each in its own file, which are loaded
-from disk or the network on demand. For this reason, the term "dataset"
+from disk or the network on demand. For this reason, the term "data set"
 is preferred over "file".
 
-The metadata for a dataset is stored in a `redis`_ dump file
+The metadata for a data set is stored in a `redis`_ dump file
 (extension .rdb), which is exported by
 :doc:`katsdptelstate <katsdptelstate:index>`. Refer to
 :doc:`katsdptelstate <katsdptelstate:index>` for details of how
