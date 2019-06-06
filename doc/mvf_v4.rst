@@ -72,8 +72,13 @@ should be decoded as UTF-8) or Unicode text. Readers should be prepared
 to accept either. The goal is to eventually migrate all such fields to
 use text.
 
-Global information
-^^^^^^^^^^^^^^^^^^
+:doc:`katsdptelstate <katsdptelstate:index>` stores two types of values:
+immutable "attributes", and "sensors" which are a list of timestamped
+values. In the documentation below, most keys contain attributes, and
+sensors are indicated.
+
+Global metadata
+^^^^^^^^^^^^^^^
 
 A subset of the sensors in the MeerKAT system are stored in the file, in
 the global namespace. Documenting the MeerKAT sensors is beyond the
@@ -88,11 +93,11 @@ The following keys are also stored.
     debugging information about the streams and connections between
     them.
 
-``sdp_capture_block_id`` (string)
-    A sensor that is updated with the ID of each capture block. This
-    should not be confused with ``capture_block_id``, which indicates
-    the default capture block ID that should be consulted when the file
-    is opened without specifying a capture block ID.
+``sdp_capture_block_id`` (string) — sensor
+    All capture block IDs seen so far. This should not be confused with
+    ``capture_block_id``, which indicates the default capture block ID
+    that should be consulted when the file is opened without specifying
+    a capture block ID.
 
 ``sdp_image_tag`` (string)
     The Docker image tag for the Docker images forming the realtime SDP
@@ -114,8 +119,8 @@ The following keys are also stored.
     TaskInfo structure.
 
 
-Stream information
-^^^^^^^^^^^^^^^^^^
+Common stream metadata
+^^^^^^^^^^^^^^^^^^^^^^
 The list of streams that can be accessed from the archive is available
 in ``sdp_archived_streams`` (in the global namespace). Within each
 stream, the following keys may be defined (not all make sense for
@@ -170,15 +175,6 @@ appear either in the capture-stream namespace or the stream namespace.
     Number of channels in each SPEAD heap. Not relevant when loading
     archived data.
 
-``n_bls`` (int)
-    Number of baselines. Note that a baseline is a correlation between
-    two polarised inputs (a single entry in a Jones matrix).
-
-``bls_ordering`` (2D array)
-    An array of pairs of strings. Each pair names two antenna inputs
-    that form a baseline. There will be ``n_bls`` rows. Note that this
-    can be either a list of 2-element lists or a numpy array.
-
 ``bandwidth`` (float, Hz)
     Bandwidth of the stream.
 
@@ -191,6 +187,20 @@ appear either in the capture-stream namespace or the stream namespace.
     A half-open range of channels taken from the source stream. The
     length of this range might not equal ``n_chans`` due to channel
     averaging.
+
+Visibility stream metadata
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The following are relevant to ``sdp.vis`` and ``sdp.flags`` streams.
+
+``n_bls`` (int)
+    Number of baselines. Note that a baseline is a correlation between
+    two polarised inputs (a single entry in a Jones matrix).
+
+``bls_ordering`` (2D array)
+    An array of pairs of strings. Each pair names two antenna inputs
+    that form a baseline. There will be ``n_bls`` rows. Note that this
+    can be either a list of 2-element lists or a numpy array.
 
 ``sync_time``, ``int_time``, ``first_timestamp`` (float)
     Refer to :ref:`timestamps` below.
@@ -206,16 +216,125 @@ appear either in the capture-stream namespace or the stream namespace.
 ``need_weights_power_scale`` (bool)
     Refer to :ref:`weights` below. If missing, assume it is false.
 
-``target_list`` (dict)
-    This is only applicable for imaging streams. Each key is a
-    `katpoint`_ target description and the value is a string used to
-    form target-specific sub-namespaces of the stream and capture-stream
-    namespaces.
-
 ``s3_endpoint_url`` (string), ``chunk_info``
     Refer to :ref:`data` below.
 
+Calibration solutions
+^^^^^^^^^^^^^^^^^^^^^
+
+Streams of type ``sdp.cal`` have the following keys.
+
+``antlist`` (list of string)
+    List of antenna names. Arrays of calibration solutions use this
+    order along the antenna axis.
+
+``pol_ordering`` (list of string)
+    List of polarisations (from ``v`` and ``h``). Arrays of calibration
+    solutions use this order along the polarisation axis.
+
+``bls_ordering`` (2D array)
+    Same meaning as for ``sdp.vis`` streams, but describes the internal
+    ordering used within the calibration pipeline and not of much use to
+    users.
+
+``param_*``
+    Parameters used to configure the calibration.
+
+``product_G`` (2D array) — sensor
+    Phase gain solutions, indexed by antenna and polarisation.
+
+``product_K`` (2D array) — sensor
+    Delay solutions (in seconds?), indexed by antenna and polarisation.
+
+``product_B_parts`` (int)
+    Number of keys across which bandpass solutions are split.
+
+:samp:`product_B{N}` (3D array) — sensor
+    Bandpass solutions, indexed by channel, antenna and polarisation.
+
+    For implementation reasons, the bandpass solutions are split across
+    multiple keys. *N* is in the range [0, ``product_B_parts``), and
+    these pieces should be concatenated along the channel (first) axis
+    to reconstruct the full solution. If some pieces are missing (which
+    is rare but can occur), they should be assumed to have the same
+    shape as the present pieces.
+
+``product_KCROSS_DIODE`` (array) — sensor
+    TODO
+
+``product_BCROSS_DIODE`` (array) — sensor
+    TODO
+
+``refant`` (string)
+    `katpoint`_ description of the selected reference antenna (whose
+    name will also appear in ``antlist``). The reference antenna is only
+    chosen when first needed in the capture block, so this key may be
+    absent if there was no calibration.
+
+:samp:`shared_solve_*N*`, :samp:`last_dump_index*N*`
+    These are used for internal communication between the calibration
+    processes, and are not intended for external use.
+
+Some common points to note that about the solutions:
+
+- TODO: are solutions errors or corrections to errors?
+
+- The key will only be present if at least one solution was computed.
+
+- The timestamp associated with each sensor value is the timestamp of
+  the middle of the data that was used to compute the solution.
+
+- Solutions may contain NaN values, which indicates that there was
+  insufficient information to compute a solution (for example, because
+  all the data was flagged).
+
+- Solutions are only valid as long as the system gain controls (TODO:
+  name for these) are not altered. It is thus not generally advisable to
+  re-use gains from one capture block to correct data from another
+  capture block.
+
+Image stream metadata
+^^^^^^^^^^^^^^^^^^^^^
+
+The following apply to ``sdp.continuum_image`` and ``sdp.spectral_image``
+streams.
+
+``target_list`` (dict)
+    This is only applicable for imaging streams. Each key is a
+    `katpoint`_ target description and the value is the *normalised target
+    name*, which is a string used to form target-specific sub-namespaces of the
+    stream and capture-stream namespaces. A normalised target name looks
+    similar to the target name but has a limited character set (suitable for
+    forming filenames and telstate namespaces) and, where necessary, a sequence
+    number appended to ensure uniqueness.
+
 .. _katpoint: https://github.com/ska-sa/katpoint
+
+For each ``sdp.continuum_image`` stream, there is a sub-namespace per target
+(named with the normalised target name) with the following keys (keeping
+in mind that ``.`` is used to indicate whichever separator is in use by
+katsdptelstate for this database):
+
+``target0.clean_components`` (dict)
+    Image of the target field as a set of point sources. The ``target0``
+    sub-namespace is used to allow for possible alternative ways to run
+    the continuum imager in which a single execution would image
+    multiple fields, in which case there would be :samp:`target{N}`
+    sub-namespaces up to some *N*. This is not currently expected for
+    MeerKAT science observations.
+
+    The dictionary has two keys:
+
+    ``description`` (string)
+        `katpoint`_ description of the target field (specifically, the
+        phase centre).
+
+    ``components`` (list of string)
+        `katpoint_` target descriptions for the CLEAN components. The
+        names are arbitrary.
+
+:samp:`m{NNN}.gains` (array)
+    TODO: is this the final form for the selfcal solutions?
 
 .. _linking-streams:
 
