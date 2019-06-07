@@ -334,7 +334,9 @@ katsdptelstate for this database):
 
     ``components`` (list of string)
         `katpoint_` target descriptions for the CLEAN components. The
-        names are arbitrary.
+        names are arbitrary. This describes the **perceived** sky i.e., are
+        modulated by the primary beam.
+
 
 :samp:`m{NNN}.gains` (array)
     TODO: is this the final form for the selfcal solutions?
