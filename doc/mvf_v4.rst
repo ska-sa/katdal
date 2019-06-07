@@ -244,7 +244,9 @@ Streams of type ``sdp.cal`` have the following keys.
     Phase gain solutions, indexed by antenna and polarisation.
 
 ``product_K`` (2D array) — sensor
-    Delay solutions (in seconds?), indexed by antenna and polarisation.
+    Delay solutions (in seconds?), indexed by antenna and polarisation. To
+    correct data at frequency :math:`\nu`, multiply it by
+    :math:`e^{-2\pi i\cdot K\cdot \nu}`.
 
 ``product_B_parts`` (int)
     Number of keys across which bandpass solutions are split.
@@ -277,7 +279,8 @@ Streams of type ``sdp.cal`` have the following keys.
 
 Some common points to note that about the solutions:
 
-- TODO: are solutions errors or corrections to errors?
+- Solutions describe the systematic errors. To correct data, it must be divided
+  by the solutions.
 
 - The key will only be present if at least one solution was computed.
 
