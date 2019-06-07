@@ -341,11 +341,6 @@ katsdptelstate for this database):
 
 .. _linking-streams:
 
-Linking streams
-^^^^^^^^^^^^^^^
-
-TODO
-
 .. _timestamps:
 
 Timestamps
