@@ -262,11 +262,31 @@ Streams of type ``sdp.cal`` have the following keys.
     is rare but can occur), they should be assumed to have the same
     shape as the present pieces.
 
-``product_KCROSS_DIODE`` (array) — sensor
-    TODO
+``product_KCROSS_DIODE`` (2D array) — sensor
+    Cross-hand delay solutions (in seconds), indexed by antenna and
+    polarisation. Derived using noise diode firings.
 
-``product_BCROSS_DIODE`` (array) — sensor
-    TODO
+    Data at a given frequency is corrected in the same
+    manner as ``product_K``. One polarisation will serve as the reference
+    polarisation and have all zero solutions.
+
+``product_KCROSS`` (2D array) — sensor
+    Cross-hand delay solutions (in seconds), indexed by antenna and
+    polarisation.
+
+    Solutions are similar to ``product_KCROSS_DIODE`` but solved for using
+    a celestial source instead of a noise diode.
+
+:samp:`product_BCROSS_DIODE{N}` (3D array) — sensor
+    Cross-hand bandpass phase solutions, indexed by channel, antenna and
+    polarisation.
+    Amplitudes for these solutions should always be one. One polarisation will
+    serve as the reference polarisation and have all zero phase solutions.
+
+    As for :samp:`product_B{N}`` the cross-hand bandpass solutions are split
+    across *N* keys where *N* is in the range [0, ``product_B_parts``).
+    The full solution should be reconstructed as for :samp:`product_B{N}`, by
+    concatenating along the channel (first) axis.
 
 ``refant`` (string)
     `katpoint`_ description of the selected reference antenna (whose
