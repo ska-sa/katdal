@@ -128,7 +128,7 @@ stream, the following keys may be defined (not all make sense for
 every stream type).
 
 Only ``stream_type`` and ``src_streams`` are guaranteed to be in the
-stream namespace i.e., independent of the capture block. The others may
+stream namespace, i.e. independent of the capture block. The others may
 appear either in the capture-stream namespace or the stream namespace.
 
 ``inherit`` (string)
