@@ -522,7 +522,7 @@ def _upgrade_flags(chunk_info, telstate, capture_block_id, stream_name):
         return chunk_info
     for s in archived_streams:
         telstate_cs = view_capture_stream(telstate, capture_block_id, s)
-        if telstate_cs['stream_type'] != 'sdp.flags' or \
+        if telstate_cs.get('stream_type') != 'sdp.flags' or \
            stream_name not in telstate_cs['src_streams']:
             continue
         # Look for chunk metadata in appropriate capture_stream telstate view
