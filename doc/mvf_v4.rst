@@ -361,6 +361,14 @@ There is also ``first_timestamp_adc``, which is the same as
 stored only for internal implementation reasons and should not be relied
 upon.
 
+Light RDB files
+^^^^^^^^^^^^^^^
+The MeerKAT system also writes a "light" version of each RDB file, which
+contains only a subset of the keys. It is intended to contain enough
+information to read the uncalibrated visibilities and some high-level metadata
+about the observation itself. It does not contain information about antenna
+pointing, calibration, or CLEAN components.
+
 .. _data:
 
 Data
