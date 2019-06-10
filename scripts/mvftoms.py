@@ -126,6 +126,10 @@ def main():
                                    description='Convert MVF dataset(s) to MeasurementSet')
     parser.add_option("-o", "--output-ms", default=None,
                       help="Output Measurement Set")
+    parser.add_option("-S", "--s3_endpoint_url", default=None,
+                      help="URL for download")
+    parser.add_option("-T", "--token", default=None,
+                      help="Download token")
     parser.add_option("-c", "--circular", action="store_true", default=False,
                       help="Produce quad circular polarisation. (RR, RL, LR, LL) "
                            "*** Currently just relabels the linear pols ****")
@@ -172,6 +176,7 @@ def main():
                       help="Create calibration tables from gain solutions in the dataset (if present).")
     parser.add_option("--quack", type=int, default=1, metavar='N',
                       help="Discard the first N dumps (which are frequently incomplete).")
+
 
     (options, args) = parser.parse_args()
 
@@ -242,6 +247,11 @@ def main():
     # Open dataset
     open_args = args[0] if len(args) == 1 else args
     # katdal can handle a list of files, which get virtually concatenated internally
+#        parser.add_option("-s3", "--s3_endpoint_url", default=None,
+#                      help="URL for download")
+#    parser.add_option("-to", "--token", default=None,
+#                      help="Download token")
+
     dataset = katdal.open(open_args, ref_ant=options.ref_ant)
 
     # Get list of unique polarisation products in the file
