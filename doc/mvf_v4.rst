@@ -245,7 +245,7 @@ Streams of type ``sdp.cal`` have the following keys.
     Phase gain solutions, indexed by antenna and polarisation.
 
 ``product_K`` (2D array) — sensor
-    Delay solutions (in seconds?), indexed by antenna and polarisation. To
+    Delay solutions (in seconds), indexed by antenna and polarisation. To
     correct data at frequency :math:`\nu`, multiply it by
     :math:`e^{-2\pi i\cdot K\cdot \nu}`.
 
@@ -293,9 +293,9 @@ Some common points to note that about the solutions:
   all the data was flagged).
 
 - Solutions are only valid as long as the system gain controls (TODO:
-  name for these) are not altered. It is thus not generally advisable to
-  re-use gains from one capture block to correct data from another
-  capture block.
+  name for these) are not altered. Re-using gains from one capture block to
+  correct data from another capture block may yield inocrrect results
+  unless one takes extra steps to correct for changes in the system gains.
 
 Image stream metadata
 ^^^^^^^^^^^^^^^^^^^^^
@@ -392,13 +392,13 @@ Weights and flags are similarly treated.
 Chunks are named :samp:`{type}/{AAAAA}_{BBBBB}_{CCCCC}.npy` where *type*
 is one of ``correlator_data`` (visibilities), ``flags``, ``weights``;
 and *AAAAA*, *BBBBB* and *CCCCC* are the (zero-based) indices of the
-first element in the chunk along each axis. Additionally, there are
-chunks named :samp:`weights_channel/{AAAAA}_{BBBBB}.npy`, explained
-below.
+first element in the chunk along each axis, padded to a minimum of five digits.
+Additionally, there are chunks named
+:samp:`weights_channel/{AAAAA}_{BBBBB}.npy`, explained below.
 
 Note that the chunking scheme typically differs between visibilities,
-flags and weights, so files with the same base name do not necessarily
-refer to the same point in time or frequency.
+flags and weights, so files with the same base name start at the same point
+but do not necessarily have the same extent.
 
 All the data for one stream is located in a single chunk store. If it is
 in the MeerKAT archive, the URL to the base of this chunk store
