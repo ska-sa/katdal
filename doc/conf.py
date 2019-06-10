@@ -75,7 +75,10 @@ pygments_style = None
 
 autodoc_member_order = 'bysource'
 
-intersphinx_mapping = {'katsdptelstate': ('https://katsdptelstate.readthedocs.io/en/latest', None)}
+intersphinx_mapping = {
+    'katsdptelstate': ('https://katsdptelstate.readthedocs.io/en/latest', None),
+    'katpoint': ('https://katpoint.readthedocs.io/en/latest', None)
+}
 
 
 # -- Options for HTML output -------------------------------------------------
