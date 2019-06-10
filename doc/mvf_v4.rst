@@ -37,13 +37,13 @@ Chunk store
 Metadata
 --------
 
-The metadata for a data set is stored in a `redis`_ dump file
+The metadata for a data set is stored in a `Redis`_ dump file
 (extension ``.rdb``), which is exported by
 :doc:`katsdptelstate <katsdptelstate:index>`. Refer to
 :doc:`katsdptelstate <katsdptelstate:index>` for details of how
-attributes and sensors are encoded in the redis database.
+attributes and sensors are encoded in the Redis database.
 
-.. _redis: http://redis.io/
+.. _Redis: http://redis.io/
 
 A single ``.rdb`` file contains metadata for a single subarray but
 potentially for multiple streams and capture blocks. The default capture
