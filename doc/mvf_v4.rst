@@ -67,10 +67,11 @@ search for keys from the most specific to the least specific appropriate
 namespace (see for example
 :meth:`katdal.datasources.view_capture_stream`).
 
-Where keys contain strings, they might contain either raw bytes (which
+Where values contain strings, they might contain either raw bytes (which
 should be decoded as UTF-8) or Unicode text. Readers should be prepared
 to accept either. The goal is to eventually migrate all such fields to
-use text.
+use text. katdal recursively converts all strings to the Python interpreter's
+native string type.
 
 :doc:`katsdptelstate <katsdptelstate:index>` stores two types of values:
 immutable "attributes", and "sensors" which are a list of timestamped
