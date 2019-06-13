@@ -312,10 +312,10 @@ Some common points to note that about the solutions:
   insufficient information to compute a solution (for example, because
   all the data was flagged).
 
-- Solutions are only valid as long as the system gain controls (TODO:
-  name for these) are not altered. Re-using gains from one capture block to
-  correct data from another capture block may yield inocrrect results
-  unless one takes extra steps to correct for changes in the system gains.
+- Solutions are only valid as long as the system gain controls are not altered.
+  Re-using gains from one capture block to correct data from another capture
+  block may yield incorrect results unless one takes extra steps to correct for
+  changes in the system gains.
 
 Image stream metadata
 ^^^^^^^^^^^^^^^^^^^^^
