@@ -6,3 +6,4 @@ User guide
    :caption: Contents:
 
    intro
+   signs
