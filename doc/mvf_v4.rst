@@ -18,7 +18,7 @@ Streams
     consist of multiple items of related data e.g., visibilities, flags
     and weights may form a single stream.
 Subarray product
-    A collection of streams in the MeerKAT Science Data Processor (SD)
+    A collection of streams in the MeerKAT Science Data Processor (SDP)
     forms a *subarray product*.
 Capture block
     A capture block is a contiguous period over which data is captured from
