@@ -359,8 +359,9 @@ katsdptelstate for this database):
         modulated by the primary beam.
 
 
-:samp:`m{NNN}.gains` (array)
-    TODO: is this the final form for the selfcal solutions?
+TODO
+    Self-calibration solutions will be stored, but the format is still in
+    discussion.
 
 .. _linking-streams:
 
