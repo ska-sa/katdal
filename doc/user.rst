@@ -6,4 +6,5 @@ User guide
    :caption: Contents:
 
    intro
+   tuning
    signs
