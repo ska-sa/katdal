@@ -19,8 +19,64 @@
 from __future__ import print_function, division, absolute_import
 
 from nose.tools import assert_equal
+import numpy as np
+from numpy.testing import assert_array_equal, assert_array_almost_equal
+from katpoint import Target, Antenna, Timestamp, rad2deg
 
-from katdal.dataset import _selection_to_list
+from katdal.dataset import (_selection_to_list, DataSet, Subarray,
+                            DEFAULT_VIRTUAL_SENSORS)
+from katdal.sensordata import SensorCache
+from katdal.categorical import CategoricalData
+from katdal.spectral_window import SpectralWindow
+
+
+class MinimalDataSet(DataSet):
+    """Minimal data set containing a single target track."""
+    def __init__(self, target, subarray, spectral_window, timestamps):
+        super(MinimalDataSet, self).__init__(name='test', ref_ant='array')
+        num_dumps = len(timestamps)
+        num_chans = spectral_window.num_chans
+        num_corrprods = len(subarray.corr_products)
+        dump_period = timestamps[1] - timestamps[0]
+
+        def constant_sensor(value):
+            return CategoricalData([value], [0, num_dumps])
+
+        self.subarrays = [subarray]
+        self.spectral_windows = [spectral_window]
+        sensors = {}
+        for ant in subarray.ants:
+            sensors['Antennas/%s/antenna' % (ant.name,)] = constant_sensor(ant)
+            az, el = target.azel(timestamps, ant)
+            sensors['Antennas/%s/az' % (ant.name,)] = az
+            sensors['Antennas/%s/el' % (ant.name,)] = el
+        array_ant_fields = ['array'] + ant.description.split(',')[1:5]
+        array_ant = Antenna(','.join(array_ant_fields))
+        sensors['Antennas/array/antenna'] = constant_sensor(array_ant)
+
+        sensors['Observation/target'] = constant_sensor(target)
+        for name in ('spw', 'subarray', 'scan', 'compscan', 'target'):
+            sensors['Observation/%s_index' % (name,)] = constant_sensor(0)
+        sensors['Observation/scan_state'] = constant_sensor('track')
+        sensors['Observation/label'] = constant_sensor('track')
+
+        self._timestamps = timestamps
+        self._time_keep = np.full(num_dumps, True, dtype=np.bool_)
+        self._freq_keep = np.full(num_chans, True, dtype=np.bool_)
+        self._corrprod_keep = np.full(num_corrprods, True, dtype=np.bool_)
+        self.dump_period = dump_period
+        self.start_time = Timestamp(timestamps[0] - 0.5 * dump_period)
+        self.end_time = Timestamp(timestamps[-1] + 0.5 * dump_period)
+        self.sensor = SensorCache(sensors, timestamps, dump_period,
+                                  keep=self._time_keep,
+                                  virtual=DEFAULT_VIRTUAL_SENSORS)
+        self.catalogue.add(target)
+        self.catalogue.antenna = array_ant
+        self.select(spw=0, subarray=0)
+
+    @property
+    def timestamps(self):
+        return self._timestamps[self._time_keep]
 
 
 def test_selection_to_list():
@@ -38,3 +94,48 @@ def test_selection_to_list():
     assert_equal(_selection_to_list(1), [1])
     # Groups
     assert_equal(_selection_to_list('all', all=['a', 'b']), ['a', 'b'])
+
+
+class TestVirtualSensors(object):
+    def setup(self):
+        self.target = Target('PKS1934-638, radec, 19:39, -63:42')
+        self.antennas = [Antenna('m000, -30:42:39.8, 21:26:38.0, 1086.6, 13.5, '
+                                 '-8.264 -207.29 8.5965'),
+                         Antenna('m063, -30:42:39.8, 21:26:38.0, 1086.6, 13.5, '
+                                 '-3419.5845 -1840.48 16.3825')]
+        corrprods = [('m000h', 'm000h'), ('m000v', 'm000v'),
+                     ('m063h', 'm063h'), ('m063v', 'm063v'),
+                     ('m000h', 'm063h'), ('m000v', 'm063v')]
+        subarray = Subarray(self.antennas, corrprods)
+        spw = SpectralWindow(centre_freq=1284e6, channel_width=0, num_chans=16,
+                             sideband=1, bandwidth=856e6)
+        self.timestamps = 1234667890.0 + 1.0 * np.arange(10)
+        self.dataset = MinimalDataSet(self.target, subarray, spw, self.timestamps)
+        self.array_ant = self.dataset.sensor.get('Antennas/array/antenna')[0]
+
+    def test_timestamps(self):
+        mjd = Timestamp(self.timestamps[0]).to_mjd()
+        assert_equal(self.dataset.mjd[0], mjd)
+        lst = self.array_ant.local_sidereal_time(self.timestamps)
+        assert_array_equal(self.dataset.lst, lst * (12 / np.pi))
+
+    def test_pointing(self):
+        az, el = self.target.azel(self.timestamps, self.antennas[1])
+        assert_array_equal(self.dataset.az[:, 1], rad2deg(az))
+        assert_array_equal(self.dataset.el[:, 1], rad2deg(el))
+        ra, dec = self.target.radec(self.timestamps, self.antennas[0])
+        assert_array_almost_equal(self.dataset.ra[:, 0], rad2deg(ra), decimal=5)
+        assert_array_almost_equal(self.dataset.dec[:, 0], rad2deg(dec), decimal=5)
+        angle = self.target.parallactic_angle(self.timestamps, self.antennas[0])
+        # TODO: Check why this is so poor...
+        assert_array_almost_equal(self.dataset.parangle[:, 0], rad2deg(angle), decimal=0)
+        x, y = self.target.sphere_to_plane(az, el, self.timestamps, self.antennas[1])
+        assert_array_equal(self.dataset.target_x[:, 1], rad2deg(x))
+        assert_array_equal(self.dataset.target_y[:, 1], rad2deg(y))
+
+    def test_uvw(self):
+        u, v, w = self.target.uvw(self.antennas[0], self.timestamps,
+                                  self.antennas[1])
+        assert_array_equal(self.dataset.u[:, 4], u)
+        assert_array_equal(self.dataset.v[:, 4], v)
+        assert_array_equal(self.dataset.w[:, 5], w)
