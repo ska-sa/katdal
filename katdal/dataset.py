@@ -1002,7 +1002,7 @@ class DataSet(object):
     def lst(self):
         """Local sidereal time at the reference antenna in hours.
 
-        The sidereal times are returned in an array of float, shape (*T*, *A*).
+        The sidereal times are returned in an array of float, shape (*T*,).
 
         """
         return self.sensor['Antennas/%s/lst' % self.ref_ant] * (12 / np.pi)
