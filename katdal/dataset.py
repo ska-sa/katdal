@@ -164,7 +164,8 @@ DEFAULT_SENSOR_PROPS = {
 
 def _calc_mjd(cache, name):
     """Calculate Modified Julian Day (MJD) timestamps using sensor cache contents."""
-    cache[name] = mjd = np.array([katpoint.Timestamp(t).to_mjd() for t in cache.timestamps[:]])
+    cache[name] = mjd = np.array([katpoint.Timestamp(t).to_mjd()
+                                  for t in cache.timestamps[:]])
     return mjd
 
 
@@ -179,19 +180,21 @@ def _calc_radec(cache, name, ant):
     """Calculate (ra, dec) pointing coordinates using sensor cache contents."""
     ant_group = 'Antennas/%s/' % (ant,)
     antenna = cache.get(ant_group + 'antenna')[0]
-    az, el = cache.get(ant_group + 'az'), cache.get(ant_group + 'el')
-    radec = np.array([katpoint.construct_azel_target(a, e).radec(t, antenna)
-                      for t, a, e in zip(cache.timestamps[:], az, el)])
-    cache[ant_group + 'ra'] = radec[:, 0]
-    cache[ant_group + 'dec'] = radec[:, 1]
-    return radec[:, 0] if name == ant_group + 'ra' else radec[:, 1]
+    az = cache.get(ant_group + 'az')
+    el = cache.get(ant_group + 'el')
+    ra, dec = np.array([katpoint.construct_azel_target(a, e).radec(t, antenna)
+                        for t, a, e in zip(cache.timestamps[:], az, el)]).T
+    cache[ant_group + 'ra'] = ra
+    cache[ant_group + 'dec'] = dec
+    return ra if name.endswith('ra') else dec
 
 
 def _calc_parangle(cache, name, ant):
     """Calculate parallactic angle using sensor cache contents."""
     ant_group = 'Antennas/%s/' % (ant,)
     antenna = cache.get(ant_group + 'antenna')[0]
-    az, el = cache.get(ant_group + 'az'), cache.get(ant_group + 'el')
+    az = cache.get(ant_group + 'az')
+    el = cache.get(ant_group + 'el')
     parangle = np.array([katpoint.construct_azel_target(a, e).parallactic_angle(t, antenna)
                          for t, a, e in zip(cache.timestamps[:], az, el)])
     cache[name] = parangle
@@ -202,16 +205,22 @@ def _calc_target_coords(cache, name, ant, projection, coordsys):
     """Calculate target coordinates using sensor cache contents."""
     ant_group = 'Antennas/%s/' % (ant,)
     antenna = cache.get(ant_group + 'antenna')[0]
-    lon = cache.get(ant_group + 'ra') if coordsys == 'radec' else cache.get(ant_group + 'az')
-    lat = cache.get(ant_group + 'dec') if coordsys == 'radec' else cache.get(ant_group + 'el')
+    if coordsys == 'radec':
+        lon = cache.get(ant_group + 'ra')
+        lat = cache.get(ant_group + 'dec')
+    else:
+        lon = cache.get(ant_group + 'az')
+        lat = cache.get(ant_group + 'el')
     # Fix over-the-top elevations (projections can only handle elevations in range +- 90 degrees)
     over_the_top = (lat > np.pi / 2.0) & (lat < np.pi)
     lon[over_the_top] += np.pi
     lat[over_the_top] = np.pi - lat[over_the_top]
-    x, y = np.empty(len(cache.timestamps)), np.empty(len(cache.timestamps))
+    x = np.empty(len(cache.timestamps))
+    y = np.empty(len(cache.timestamps))
     targets = cache.get('Observation/target')
     for segm, target in targets.segments():
-        x[segm], y[segm] = target.sphere_to_plane(lon[segm], lat[segm], cache.timestamps[segm],
+        x[segm], y[segm] = target.sphere_to_plane(lon[segm], lat[segm],
+                                                  cache.timestamps[segm],
                                                   antenna, projection, coordsys)
     cache[ant_group + 'target_x_%s_%s' % (projection, coordsys)] = x
     cache[ant_group + 'target_y_%s_%s' % (projection, coordsys)] = y
