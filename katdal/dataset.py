@@ -220,16 +220,19 @@ def _calc_target_coords(cache, name, ant, projection, coordsys):
 
 def _calc_uvw(cache, name, antA, antB):
     """Calculate (u,v,w) coordinates using sensor cache contents."""
-    antA_group, antB_group = 'Antennas/%s/' % (antA,), 'Antennas/%s/' % (antB,)
-    antennaA, antennaB = cache.get(antA_group + 'antenna')[0], cache.get(antB_group + 'antenna')[0]
-    u, v, w = np.empty(len(cache.timestamps)), np.empty(len(cache.timestamps)), np.empty(len(cache.timestamps))
+    antennaA = cache.get('Antennas/%s/antenna' % (antA,))[0]
+    antennaB = cache.get('Antennas/%s/antenna' % (antB,))[0]
+    u = np.empty(len(cache.timestamps))
+    v = np.empty(len(cache.timestamps))
+    w = np.empty(len(cache.timestamps))
     targets = cache.get('Observation/target')
     for segm, target in targets.segments():
-        u[segm], v[segm], w[segm] = target.uvw(antennaA, cache.timestamps[segm], antennaB)
-    cache[antA_group + 'u_%s' % (antB,)] = u
-    cache[antA_group + 'v_%s' % (antB,)] = v
-    cache[antA_group + 'w_%s' % (antB,)] = w
-    return u if name.startswith(antA_group + 'u') else v if name.startswith(antA_group + 'v') else w
+        u[segm], v[segm], w[segm] = target.uvw(antennaA, cache.timestamps[segm],
+                                               antennaB)
+    cache['Corrprods/%s/%s/u' % (antA, antB)] = u
+    cache['Corrprods/%s/%s/v' % (antA, antB)] = v
+    cache['Corrprods/%s/%s/w' % (antA, antB)] = w
+    return u if name.endswith('u') else v if name.endswith('v') else w
 
 
 DEFAULT_VIRTUAL_SENSORS = {
@@ -237,7 +240,7 @@ DEFAULT_VIRTUAL_SENSORS = {
     'Antennas/{ant}/ra': _calc_radec, 'Antennas/{ant}/dec': _calc_radec,
     'Antennas/{ant}/parangle': _calc_parangle,
     'Antennas/{ant}/target_[xy]_{projection}_{coordsys}': _calc_target_coords,
-    'Antennas/{antA}/[uvw]_{antB}': _calc_uvw,
+    'Corrprods/{antA}/{antB}/[uvw]': _calc_uvw,
 }
 
 # -------------------------------------------------------------------------------------------------
@@ -1014,7 +1017,7 @@ class DataSet(object):
     def _sensor_per_corrprod(self, base_name):
         """Extract a single sensor per corrprod and safely stack the results."""
         def sensor_data(antA, antB):
-            return self.sensor['Antennas/%s/%s_%s' % (antA, base_name, antB)]
+            return self.sensor['Corrprods/%s/%s/%s' % (antA, antB, base_name)]
         return np.column_stack([sensor_data(inpA[:-1], inpB[:-1])
                                 for inpA, inpB in self.corr_products]) \
             if len(self.corr_products) else np.zeros((self.shape[0], 0))
