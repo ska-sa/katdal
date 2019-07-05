@@ -23,9 +23,9 @@ from builtins import object
 from collections import OrderedDict
 
 import numpy as np
-from nose.tools import assert_equal
+from nose.tools import assert_equal, assert_raises
 
-from katdal.sensordata import to_str
+from katdal.sensordata import SensorCache, to_str
 
 
 def assert_equal_typed(a, b):
@@ -71,3 +71,29 @@ class TestToStr(object):
         a = np.array([b'abc', u'def', (b'xyz', u'uvw')], dtype='O')
         b = np.array(['abc', 'def', ('xyz', 'uvw')], dtype='O')
         np.testing.assert_array_equal(to_str(a), b)
+
+
+class TestSensorCache(object):
+    def setup(self):
+        self.cache = SensorCache({}, timestamps=np.arange(10.), dump_period=1.0)
+
+    def test_virtual_sensors(self):
+
+        def _check_sensor(cache, name, **kwargs):
+            """Check that virtual sensor function gets the expected parameters."""
+            assert_equal(kwargs, params)
+
+        params = {'ant': 'm000', 'param1': 'one', 'param2': 'two'}
+        template = 'Antennas/{ant}/{param1}_{param2}'
+        self.cache.virtual[template] = _check_sensor
+        self.cache.get(template.format(**params))
+        # If your parameter values contain underscores, don't use it as delimiter
+        params = {'ant': 'm000', 'param1': 'one', 'param2': 'two_three'}
+        with assert_raises(AssertionError):
+            self.cache.get(template.format(**params))
+        template = 'Antennas/{ant}/{param1}/{param2}'
+        # The updated template has not yet been added to the cache
+        with assert_raises(KeyError):
+            self.cache.get(template.format(**params))
+        self.cache.virtual[template] = _check_sensor
+        self.cache.get(template.format(**params))

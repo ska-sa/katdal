@@ -874,7 +874,9 @@ class SensorCache(dict):
                 # Otherwise, iterate through virtual sensor templates and look for a match
                 for pattern, create_sensor in self.virtual.items():
                     # Expand variable names enclosed in braces to the relevant regular expression
-                    pattern = re.sub(r'({[a-zA-Z_]\w*})', lambda m: '(?P<' + m.group(0)[1:-1] + '>[^//]+)', pattern)
+                    # (match anything but slashes, which are preferred delimiters in virtual sensor names)
+                    pattern = re.sub(r'({[a-zA-Z_]\w*})',
+                                     lambda m: '(?P<%s>[^/]+)' % (m.group(0)[1:-1],), pattern)
                     match = re.match(pattern, name)
                     if match:
                         # Call sensor creation function with extracted variables from sensor name
