@@ -50,6 +50,7 @@ class MinimalDataSet(DataSet):
             az, el = target.azel(timestamps, ant)
             sensors['Antennas/%s/az' % (ant.name,)] = az
             sensors['Antennas/%s/el' % (ant.name,)] = el
+        # Extract array reference position as 'array_ant' from last antenna
         array_ant_fields = ['array'] + ant.description.split(',')[1:5]
         array_ant = Antenna(','.join(array_ant_fields))
         sensors['Antennas/array/antenna'] = constant_sensor(array_ant)
@@ -109,6 +110,7 @@ class TestVirtualSensors(object):
         subarray = Subarray(self.antennas, corrprods)
         spw = SpectralWindow(centre_freq=1284e6, channel_width=0, num_chans=16,
                              sideband=1, bandwidth=856e6)
+        # Pick a time when the source is up as that seems more realistic
         self.timestamps = 1234667890.0 + 1.0 * np.arange(10)
         self.dataset = MinimalDataSet(self.target, subarray, spw, self.timestamps)
         self.array_ant = self.dataset.sensor.get('Antennas/array/antenna')[0]
@@ -117,6 +119,7 @@ class TestVirtualSensors(object):
         mjd = Timestamp(self.timestamps[0]).to_mjd()
         assert_equal(self.dataset.mjd[0], mjd)
         lst = self.array_ant.local_sidereal_time(self.timestamps)
+        # Convert LST from radians (katpoint) to hours (katdal)
         assert_array_equal(self.dataset.lst, lst * (12 / np.pi))
 
     def test_pointing(self):
@@ -138,4 +141,8 @@ class TestVirtualSensors(object):
                                   self.antennas[1])
         assert_array_equal(self.dataset.u[:, 4], u)
         assert_array_equal(self.dataset.v[:, 4], v)
+        assert_array_equal(self.dataset.w[:, 4], w)
+        # Check that both H and V polarisations have the same (u, v, w)
+        assert_array_equal(self.dataset.u[:, 5], u)
+        assert_array_equal(self.dataset.v[:, 5], v)
         assert_array_equal(self.dataset.w[:, 5], w)
