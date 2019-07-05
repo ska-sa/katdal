@@ -139,10 +139,13 @@ class TestVirtualSensors(object):
     def test_uvw(self):
         u, v, w = self.target.uvw(self.antennas[0], self.timestamps,
                                   self.antennas[1])
-        assert_array_equal(self.dataset.u[:, 4], u)
-        assert_array_equal(self.dataset.v[:, 4], v)
-        assert_array_equal(self.dataset.w[:, 4], w)
+        # The answers now differ because the target direction is calculated once
+        # from the array reference instead of from one of the dishes in each
+        # correlation product pair (the whole reason for the speed-up!)
+        assert_array_almost_equal(self.dataset.u[:, 4], u, decimal=2)
+        assert_array_almost_equal(self.dataset.v[:, 4], v, decimal=2)
+        assert_array_almost_equal(self.dataset.w[:, 4], w, decimal=2)
         # Check that both H and V polarisations have the same (u, v, w)
-        assert_array_equal(self.dataset.u[:, 5], u)
-        assert_array_equal(self.dataset.v[:, 5], v)
-        assert_array_equal(self.dataset.w[:, 5], w)
+        assert_array_almost_equal(self.dataset.u[:, 5], u, decimal=2)
+        assert_array_almost_equal(self.dataset.v[:, 5], v, decimal=2)
+        assert_array_almost_equal(self.dataset.w[:, 5], w, decimal=2)
