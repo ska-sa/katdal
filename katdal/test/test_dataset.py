@@ -130,7 +130,7 @@ class TestVirtualSensors(object):
         assert_array_almost_equal(self.dataset.ra[:, 0], rad2deg(ra), decimal=5)
         assert_array_almost_equal(self.dataset.dec[:, 0], rad2deg(dec), decimal=5)
         angle = self.target.parallactic_angle(self.timestamps, self.antennas[0])
-        # TODO: Check why this is so poor...
+        # TODO: Check why this is so poor... see SR-1882 for progress on this
         assert_array_almost_equal(self.dataset.parangle[:, 0], rad2deg(angle), decimal=0)
         x, y = self.target.sphere_to_plane(az, el, self.timestamps, self.antennas[1])
         assert_array_equal(self.dataset.target_x[:, 1], rad2deg(x))
