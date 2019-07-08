@@ -164,7 +164,8 @@ DEFAULT_SENSOR_PROPS = {
 
 def _calc_mjd(cache, name):
     """Calculate Modified Julian Day (MJD) timestamps using sensor cache contents."""
-    cache[name] = mjd = np.array([katpoint.Timestamp(t).to_mjd() for t in cache.timestamps[:]])
+    cache[name] = mjd = np.array([katpoint.Timestamp(t).to_mjd()
+                                  for t in cache.timestamps[:]])
     return mjd
 
 
@@ -179,19 +180,21 @@ def _calc_radec(cache, name, ant):
     """Calculate (ra, dec) pointing coordinates using sensor cache contents."""
     ant_group = 'Antennas/%s/' % (ant,)
     antenna = cache.get(ant_group + 'antenna')[0]
-    az, el = cache.get(ant_group + 'az'), cache.get(ant_group + 'el')
-    radec = np.array([katpoint.construct_azel_target(a, e).radec(t, antenna)
-                      for t, a, e in zip(cache.timestamps[:], az, el)])
-    cache[ant_group + 'ra'] = radec[:, 0]
-    cache[ant_group + 'dec'] = radec[:, 1]
-    return radec[:, 0] if name == ant_group + 'ra' else radec[:, 1]
+    az = cache.get(ant_group + 'az')
+    el = cache.get(ant_group + 'el')
+    ra, dec = np.array([katpoint.construct_azel_target(a, e).radec(t, antenna)
+                        for t, a, e in zip(cache.timestamps[:], az, el)]).T
+    cache[ant_group + 'ra'] = ra
+    cache[ant_group + 'dec'] = dec
+    return ra if name.endswith('ra') else dec
 
 
 def _calc_parangle(cache, name, ant):
     """Calculate parallactic angle using sensor cache contents."""
     ant_group = 'Antennas/%s/' % (ant,)
     antenna = cache.get(ant_group + 'antenna')[0]
-    az, el = cache.get(ant_group + 'az'), cache.get(ant_group + 'el')
+    az = cache.get(ant_group + 'az')
+    el = cache.get(ant_group + 'el')
     parangle = np.array([katpoint.construct_azel_target(a, e).parallactic_angle(t, antenna)
                          for t, a, e in zip(cache.timestamps[:], az, el)])
     cache[name] = parangle
@@ -202,16 +205,22 @@ def _calc_target_coords(cache, name, ant, projection, coordsys):
     """Calculate target coordinates using sensor cache contents."""
     ant_group = 'Antennas/%s/' % (ant,)
     antenna = cache.get(ant_group + 'antenna')[0]
-    lon = cache.get(ant_group + 'ra') if coordsys == 'radec' else cache.get(ant_group + 'az')
-    lat = cache.get(ant_group + 'dec') if coordsys == 'radec' else cache.get(ant_group + 'el')
+    if coordsys == 'radec':
+        lon = cache.get(ant_group + 'ra')
+        lat = cache.get(ant_group + 'dec')
+    else:
+        lon = cache.get(ant_group + 'az')
+        lat = cache.get(ant_group + 'el')
     # Fix over-the-top elevations (projections can only handle elevations in range +- 90 degrees)
     over_the_top = (lat > np.pi / 2.0) & (lat < np.pi)
     lon[over_the_top] += np.pi
     lat[over_the_top] = np.pi - lat[over_the_top]
-    x, y = np.empty(len(cache.timestamps)), np.empty(len(cache.timestamps))
+    x = np.empty(len(cache.timestamps))
+    y = np.empty(len(cache.timestamps))
     targets = cache.get('Observation/target')
     for segm, target in targets.segments():
-        x[segm], y[segm] = target.sphere_to_plane(lon[segm], lat[segm], cache.timestamps[segm],
+        x[segm], y[segm] = target.sphere_to_plane(lon[segm], lat[segm],
+                                                  cache.timestamps[segm],
                                                   antenna, projection, coordsys)
     cache[ant_group + 'target_x_%s_%s' % (projection, coordsys)] = x
     cache[ant_group + 'target_y_%s_%s' % (projection, coordsys)] = y
@@ -220,16 +229,19 @@ def _calc_target_coords(cache, name, ant, projection, coordsys):
 
 def _calc_uvw(cache, name, antA, antB):
     """Calculate (u,v,w) coordinates using sensor cache contents."""
-    antA_group, antB_group = 'Antennas/%s/' % (antA,), 'Antennas/%s/' % (antB,)
-    antennaA, antennaB = cache.get(antA_group + 'antenna')[0], cache.get(antB_group + 'antenna')[0]
-    u, v, w = np.empty(len(cache.timestamps)), np.empty(len(cache.timestamps)), np.empty(len(cache.timestamps))
+    antennaA = cache.get('Antennas/%s/antenna' % (antA,))[0]
+    antennaB = cache.get('Antennas/%s/antenna' % (antB,))[0]
+    u = np.empty(len(cache.timestamps))
+    v = np.empty(len(cache.timestamps))
+    w = np.empty(len(cache.timestamps))
     targets = cache.get('Observation/target')
     for segm, target in targets.segments():
-        u[segm], v[segm], w[segm] = target.uvw(antennaA, cache.timestamps[segm], antennaB)
-    cache[antA_group + 'u_%s' % (antB,)] = u
-    cache[antA_group + 'v_%s' % (antB,)] = v
-    cache[antA_group + 'w_%s' % (antB,)] = w
-    return u if name.startswith(antA_group + 'u') else v if name.startswith(antA_group + 'v') else w
+        u[segm], v[segm], w[segm] = target.uvw(antennaA, cache.timestamps[segm],
+                                               antennaB)
+    cache['Corrprods/%s/%s/u' % (antA, antB)] = u
+    cache['Corrprods/%s/%s/v' % (antA, antB)] = v
+    cache['Corrprods/%s/%s/w' % (antA, antB)] = w
+    return u if name.endswith('u') else v if name.endswith('v') else w
 
 
 DEFAULT_VIRTUAL_SENSORS = {
@@ -237,7 +249,7 @@ DEFAULT_VIRTUAL_SENSORS = {
     'Antennas/{ant}/ra': _calc_radec, 'Antennas/{ant}/dec': _calc_radec,
     'Antennas/{ant}/parangle': _calc_parangle,
     'Antennas/{ant}/target_[xy]_{projection}_{coordsys}': _calc_target_coords,
-    'Antennas/{antA}/[uvw]_{antB}': _calc_uvw,
+    'Corrprods/{antA}/{antB}/[uvw]': _calc_uvw,
 }
 
 # -------------------------------------------------------------------------------------------------
@@ -999,7 +1011,7 @@ class DataSet(object):
     def lst(self):
         """Local sidereal time at the reference antenna in hours.
 
-        The sidereal times are returned in an array of float, shape (*T*, *A*).
+        The sidereal times are returned in an array of float, shape (*T*,).
 
         """
         return self.sensor['Antennas/%s/lst' % self.ref_ant] * (12 / np.pi)
@@ -1014,7 +1026,7 @@ class DataSet(object):
     def _sensor_per_corrprod(self, base_name):
         """Extract a single sensor per corrprod and safely stack the results."""
         def sensor_data(antA, antB):
-            return self.sensor['Antennas/%s/%s_%s' % (antA, base_name, antB)]
+            return self.sensor['Corrprods/%s/%s/%s' % (antA, antB, base_name)]
         return np.column_stack([sensor_data(inpA[:-1], inpB[:-1])
                                 for inpA, inpB in self.corr_products]) \
             if len(self.corr_products) else np.zeros((self.shape[0], 0))
