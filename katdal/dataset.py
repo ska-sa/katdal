@@ -238,8 +238,8 @@ def _calc_uvw_basis(cache, name, ant):
     for segm, target in targets.segments():
         basis = target.uvw_basis(cache.timestamps[segm], antenna)
         u[segm], v[segm], w[segm] = basis.transpose(0, 2, 1)
-    new_sensors = {ant_group + 'u_basis': u, ant_group + 'v_basis': v,
-                   ant_group + 'w_basis': w}
+    new_sensors = {ant_group + 'basis_u': u, ant_group + 'basis_v': v,
+                   ant_group + 'basis_w': w}
     cache.update(new_sensors)
     return new_sensors[name]
 
@@ -249,7 +249,7 @@ def _calc_uvw_per_ant(cache, name, ant):
     array_ant_group = 'Antennas/array/'
     array_antenna = cache.get(array_ant_group + 'antenna')[0]
     antenna = cache.get('Antennas/%s/antenna' % (ant,))[0]
-    basis = cache.get('%s%s_basis' % (array_ant_group, name[-1]))
+    basis = cache.get('%sbasis_%s' % (array_ant_group, name[-1]))
     # Obtain baseline vector from array reference to specified antenna
     baseline_m = array_antenna.baseline_toward(antenna)
     coord = np.tensordot(basis, baseline_m, ([1], [0]))
@@ -271,7 +271,7 @@ DEFAULT_VIRTUAL_SENSORS = {
     'Antennas/{ant}/ra': _calc_radec, 'Antennas/{ant}/dec': _calc_radec,
     'Antennas/{ant}/parangle': _calc_parangle,
     'Antennas/{ant}/target_[xy]_{projection}_{coordsys}': _calc_target_coords,
-    'Antennas/{ant}/[uvw]_basis': _calc_uvw_basis,
+    'Antennas/{ant}/basis_[uvw]': _calc_uvw_basis,
     'Antennas/{ant}/[uvw]': _calc_uvw_per_ant,
     'Corrprods/{antA}/{antB}/[uvw]': _calc_uvw_per_corrprod,
 }
