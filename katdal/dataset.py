@@ -257,15 +257,6 @@ def _calc_uvw_per_ant(cache, name, ant):
     return coord
 
 
-def _calc_uvw_per_corrprod(cache, name, antA, antB):
-    """Calculate (u,v,w) coordinates per baseline using sensor cache contents."""
-    uvw = name[-1]
-    coord1 = cache.get('Antennas/%s/%s' % (antA, uvw))
-    coord2 = cache.get('Antennas/%s/%s' % (antB, uvw))
-    # Don't cache this as there are thousands of corrprods - just recalculate
-    return coord1 - coord2
-
-
 DEFAULT_VIRTUAL_SENSORS = {
     'Timestamps/mjd': _calc_mjd, 'Antennas/{ant}/lst': _calc_lst,
     'Antennas/{ant}/ra': _calc_radec, 'Antennas/{ant}/dec': _calc_radec,
@@ -273,7 +264,6 @@ DEFAULT_VIRTUAL_SENSORS = {
     'Antennas/{ant}/target_[xy]_{projection}_{coordsys}': _calc_target_coords,
     'Antennas/{ant}/basis_[uvw]': _calc_uvw_basis,
     'Antennas/{ant}/[uvw]': _calc_uvw_per_ant,
-    'Corrprods/{antA}/{antB}/[uvw]': _calc_uvw_per_corrprod,
 }
 
 # -------------------------------------------------------------------------------------------------
@@ -1049,9 +1039,11 @@ class DataSet(object):
 
     def _sensor_per_corrprod(self, base_name):
         """Extract a single sensor per corrprod and safely stack the results."""
-        def sensor_data(antA, antB):
-            return self.sensor['Corrprods/%s/%s/%s' % (antA, antB, base_name)]
-        return np.column_stack([sensor_data(inpA[:-1], inpB[:-1])
+        def difference(antA, antB):
+            coord1 = self.sensor['Antennas/%s/%s' % (antA, base_name)]
+            coord2 = self.sensor['Antennas/%s/%s' % (antB, base_name)]
+            return coord1 - coord2
+        return np.column_stack([difference(inpA[:-1], inpB[:-1])
                                 for inpA, inpB in self.corr_products]) \
             if len(self.corr_products) else np.zeros((self.shape[0], 0))
 
