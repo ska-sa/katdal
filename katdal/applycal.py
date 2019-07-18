@@ -220,6 +220,15 @@ def add_applycal_sensors(cache, attrs, data_freqs):
     function picks the appropriate correction calculator based on the cal
     product name, which also uses auxiliary info like the channel frequencies,
     `data_freqs`.
+
+    Parameters
+    ----------
+    cache : :class:`~katdal.sensordata.SensorCache` object
+        Sensor cache serving cal product sensors and receiving correction sensors
+    attrs : dict-like
+        Calibration product attributes (e.g. a "cal" telstate view)
+    data_freqs : array of float, shape (*F*,)
+        Centre frequency of each frequency channel of visibilities, in Hz
     """
     cal_ants = attrs.get('cal_antlist', [])
     cal_pols = attrs.get('cal_pol_ordering', [])
@@ -280,20 +289,20 @@ class CorrectionParams(object):
 
     Parameters
     ----------
-    products : dict
+    inputs : list of str
+        Names of inputs, in the same order as the input axis of products
+    input1_index, input2_index : array of int
+        Indices into `inputs` of first and second items of correlation product
+    corrections : dict
         A dictionary (indexed by cal product name) of lists (indexed
         by input) of sequences (indexed by dump) of numpy arrays, with
         corrections to apply.
-    inputs : list of str
-        Names of inputs, in the same order as the input axis of products
-    input1_index, input2_index : ndarray
-        Indices into `inputs` of first and second items of correlation product
     """
-    def __init__(self, inputs, input1_index, input2_index, products):
+    def __init__(self, inputs, input1_index, input2_index, corrections):
         self.inputs = inputs
         self.input1_index = input1_index
         self.input2_index = input2_index
-        self.products = products
+        self.corrections = corrections
 
 
 def calc_correction_per_corrprod(dump, channels, params):
@@ -311,7 +320,7 @@ def calc_correction_per_corrprod(dump, channels, params):
     channels : slice
         Channel indices (applicable to full data set, i.e. absolute)
     params : :class:`CorrectionParams`
-        Data for obtaining corrections to merge
+        Corrections per input, together with correlation product indices
 
     Returns
     -------
@@ -325,13 +334,13 @@ def calc_correction_per_corrprod(dump, channels, params):
     """
     n_channels = channels.stop - channels.start
     g_per_input = np.ones((len(params.inputs), n_channels), dtype='complex64')
-    for product in params.products.values():
-        for n in range(len(params.inputs)):
-            sensor = product[n]
+    for product_corrections in params.corrections.values():
+        for i in range(len(params.inputs)):
+            sensor = product_corrections[i]
             g_product = sensor[dump]
             if np.shape(g_product) != ():
                 g_product = g_product[channels]
-            g_per_input[n] *= g_product
+            g_per_input[i] *= g_product
     # Transpose to (channel, input) order, and ensure C ordering
     g_per_input = np.ascontiguousarray(g_per_input.T)
     g_per_cp = np.empty((n_channels, len(params.input1_index)), dtype='complex64')
@@ -359,7 +368,7 @@ def calc_correction(chunks, cache, corrprods, cal_products):
     chunks : tuple of tuple of int
         Chunking scheme of the resulting array, in normalized form (see
         :func:`dask.array.core.normalize_chunks`).
-    cache : :class:`katdal.sensordata.SensorCache` object
+    cache : :class:`~katdal.sensordata.SensorCache` object
         Sensor cache, used to look up individual correction sensors
     corrprods : sequence of (string, string)
         Selected correlation products as pairs of correlator input labels
@@ -373,9 +382,9 @@ def calc_correction(chunks, cache, corrprods, cal_products):
     inputs = sorted(set(np.ravel(corrprods)))
     input1_index = np.array([inputs.index(cp[0]) for cp in corrprods])
     input2_index = np.array([inputs.index(cp[1]) for cp in corrprods])
-    products = {}
+    corrections = {}
     for product in cal_products:
-        products[product] = []
+        corrections[product] = []
         for i, inp in enumerate(inputs):
             sensor_name = 'Calibration/{}_correction_{}'.format(inp, product)
             sensor = cache.get(sensor_name)
@@ -388,8 +397,8 @@ def calc_correction(chunks, cache, corrprods, cal_products):
                         data[j] = v
             else:
                 data = sensor
-            products[product].append(data)
-    params = CorrectionParams(inputs, input1_index, input2_index, products)
+            corrections[product].append(data)
+    params = CorrectionParams(inputs, input1_index, input2_index, corrections)
     name = 'corrections[{}]'.format(','.join(cal_products))
     return da.map_blocks(_correction_block, dtype=np.complex64, chunks=chunks,
                          name=name, params=params)
