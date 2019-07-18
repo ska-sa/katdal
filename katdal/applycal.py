@@ -205,7 +205,7 @@ def add_applycal_sensors(cache, attrs, data_freqs):
     This maps receptor inputs to the relevant indices in each calibration
     product based on the ants and pols found in `attrs`. It then registers
     a virtual sensor per input and per cal product in the SensorCache `cache`,
-    with template 'Calibration/{inp}_correction_{product}'. The virtual sensor
+    with template 'Calibration/Corrections/{product}/{inp}'. The virtual sensor
     function picks the appropriate correction calculator based on the cal
     product name, which also uses auxiliary info like the channel frequencies,
     `data_freqs`.
@@ -257,7 +257,7 @@ def add_applycal_sensors(cache, attrs, data_freqs):
         cache[name] = correction_sensor
         return correction_sensor
 
-    correction_sensor_template = 'Calibration/{inp}_correction_{product}'
+    correction_sensor_template = 'Calibration/Corrections/{product}/{inp}'
     cache.virtual[correction_sensor_template] = calc_correction_per_input
 
 
@@ -391,7 +391,7 @@ def calc_correction(chunks, cache, corrprods, cal_products,
     for product in cal_products:
         corrections_per_product = []
         for i, inp in enumerate(inputs):
-            sensor_name = 'Calibration/{}_correction_{}'.format(inp, product)
+            sensor_name = 'Calibration/Corrections/{}/{}'.format(product, inp)
             try:
                 sensor = cache.get(sensor_name)
             except KeyError:

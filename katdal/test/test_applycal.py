@@ -339,32 +339,32 @@ class TestVirtualCorrectionSensors(object):
     def test_delay_sensors(self):
         for n, ant in enumerate(ANTS):
             for m, pol in enumerate(POLS):
-                sensor_name = 'Calibration/{}{}_correction_K'.format(ant, pol)
+                sensor_name = 'Calibration/Corrections/K/{}{}'.format(ant, pol)
                 sensor = self.cache.get(sensor_name)
                 assert_array_equal(sensor[10 + n], delay_corrections(m, n))
 
     def test_bandpass_sensors(self):
         for n, ant in enumerate(ANTS):
             for m, pol in enumerate(POLS):
-                sensor_name = 'Calibration/{}{}_correction_B'.format(ant, pol)
+                sensor_name = 'Calibration/Corrections/B/{}{}'.format(ant, pol)
                 sensor = self.cache.get(sensor_name)
                 assert_array_equal(sensor[12 + n], bandpass_corrections(m, n))
 
     def test_gain_sensors(self):
         for n, ant in enumerate(ANTS):
             for m, pol in enumerate(POLS):
-                sensor_name = 'Calibration/{}{}_correction_G'.format(ant, pol)
+                sensor_name = 'Calibration/Corrections/G/{}{}'.format(ant, pol)
                 sensor = self.cache.get(sensor_name)
                 assert_array_equal(sensor[:], gain_corrections(m, n))
 
     def test_unknown_inputs_and_products(self):
-        known_input = 'Calibration/{}{}'.format(ANTS[0], POLS[0])
+        known_input = '{}{}'.format(ANTS[0], POLS[0])
         with assert_raises(KeyError):
-            self.cache.get('Calibration/unknown_correction_K')
+            self.cache.get('Calibration/Corrections/K/unknown')
         with assert_raises(KeyError):
-            self.cache.get(known_input + '_correction_unknown')
+            self.cache.get('Calibration/Corrections/unknown/' + known_input)
         with assert_raises(KeyError):
-            self.cache.get(known_input + '_correction_K_unknown')
+            self.cache.get('Calibration/Corrections/K_unknown/' + known_input)
 
 
 class TestCalcCorrection(object):
