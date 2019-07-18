@@ -86,17 +86,6 @@ def complex_interp(x, xi, yi, left=None, right=None):
     return y.astype(yi.dtype)
 
 
-def has_cal_product(cache, attrs, product):
-    """Check if calibration solution `product` is available in `cache`."""
-    key = 'cal_product_' + product
-    try:
-        parts = int(attrs[key + '_parts'])
-    except KeyError:
-        return key in cache
-    else:
-        return any(key + str(part) in cache for part in range(parts))
-
-
 def get_cal_product(cache, attrs, product):
     """Extract calibration solution `product` from `cache` as a sensor.
 
@@ -360,7 +349,8 @@ def _correction_block(block_info, params):
     return correction
 
 
-def calc_correction(chunks, cache, corrprods, cal_products):
+def calc_correction(chunks, cache, corrprods, cal_products,
+                    skip_missing_products=False):
     """Create a dask array containing applycal corrections.
 
     Parameters
@@ -374,6 +364,21 @@ def calc_correction(chunks, cache, corrprods, cal_products):
         Selected correlation products as pairs of correlator input labels
     cal_products : sequence of string
         Calibration products that will contribute to corrections
+    skip_missing_products : bool
+        If True, skip products with missing sensors instead of raising KeyError
+
+    Returns
+    -------
+    corrections : :class:`dask.array.Array` object, or None
+        Dask array that produces corrections for entire vis array, or `None` if
+        no calibration products were found (either `cal_products` is empty or all
+        products had some missing sensors and `skip_missing_products` is True)
+
+    Raises
+    ------
+    KeyError
+        If a correction sensor for a given input and cal product is not found
+        (and `skip_missing_products` is False)
     """
     shape = tuple(sum(bd) for bd in chunks)
     if len(chunks[2]) > 1:
@@ -384,10 +389,16 @@ def calc_correction(chunks, cache, corrprods, cal_products):
     input2_index = np.array([inputs.index(cp[1]) for cp in corrprods])
     corrections = {}
     for product in cal_products:
-        corrections[product] = []
+        corrections_per_product = []
         for i, inp in enumerate(inputs):
             sensor_name = 'Calibration/{}_correction_{}'.format(inp, product)
-            sensor = cache.get(sensor_name)
+            try:
+                sensor = cache.get(sensor_name)
+            except KeyError:
+                if skip_missing_products:
+                    break
+                else:
+                    raise
             # Indexing CategoricalData by dump is relatively slow (tens of
             # microseconds), so expand it into a plain-old Python list.
             if isinstance(sensor, CategoricalData):
@@ -397,9 +408,13 @@ def calc_correction(chunks, cache, corrprods, cal_products):
                         data[j] = v
             else:
                 data = sensor
-            corrections[product].append(data)
+            corrections_per_product.append(data)
+        else:
+            corrections[product] = corrections_per_product
+    if not corrections:
+        return None
     params = CorrectionParams(inputs, input1_index, input2_index, corrections)
-    name = 'corrections[{}]'.format(','.join(cal_products))
+    name = 'corrections[{}]'.format(','.join(corrections.keys()))
     return da.map_blocks(_correction_block, dtype=np.complex64, chunks=chunks,
                          name=name, params=params)
 

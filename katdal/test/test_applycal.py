@@ -26,8 +26,7 @@ import dask.array as da
 from katdal.spectral_window import SpectralWindow
 from katdal.sensordata import SensorCache
 from katdal.categorical import ComparableArrayWrapper, CategoricalData
-from katdal.applycal import (complex_interp,
-                             has_cal_product, get_cal_product, INVALID_GAIN,
+from katdal.applycal import (complex_interp, get_cal_product, INVALID_GAIN,
                              calc_delay_correction, calc_bandpass_correction,
                              calc_gain_correction, apply_vis_correction,
                              apply_weights_correction, apply_flags_correction,
@@ -242,19 +241,6 @@ class TestCalProductAccess(object):
     def setup(self):
         self.cache = create_sensor_cache()
 
-    def test_has_cal_product(self):
-        assert_equal(has_cal_product(self.cache, ATTRS, 'K'), True)
-        assert_equal(has_cal_product(self.cache, ATTRS, 'B'), True)
-        assert_equal(has_cal_product(self.cache, ATTRS, 'G'), True)
-        assert_equal(has_cal_product(self.cache, ATTRS, 'haha'), False)
-        # Remove parts of multi-part cal product one by one
-        cache = create_sensor_cache()
-        for n in range(BANDPASS_PARTS):
-            assert_equal(has_cal_product(cache, ATTRS, 'B'), True)
-            del cache['cal_product_B' + str(n)]
-        # All parts of multi-part cal product gone
-        assert_equal(has_cal_product(cache, ATTRS, 'B'), False)
-
     def test_get_cal_product_basic(self):
         product_sensor = get_cal_product(self.cache, ATTRS, 'K')
         product = create_product(create_delay)
@@ -393,6 +379,26 @@ class TestCalcCorrection(object):
         shape = (N_DUMPS, N_CHANS, N_CORRPRODS)
         chunks = da.core.normalize_chunks((10, 5, -1), shape)
         corrections = calc_correction(chunks, self.cache, CORRPRODS, CAL_PRODUCTS)
+        corrections = corrections[dump:dump+1, channels].compute()
+        expected_corrections = corrections_per_corrprod([dump], channels)
+        assert_array_equal(corrections, expected_corrections)
+
+    def test_skip_missing_products(self):
+        dump = 15
+        channels = np.s_[22:38]
+        shape = (N_DUMPS, N_CHANS, N_CORRPRODS)
+        chunks = da.core.normalize_chunks((10, 5, -1), shape)
+        corrections = calc_correction(chunks, self.cache, CORRPRODS, [])
+        assert_equal(corrections, None)
+        corrections = calc_correction(chunks, self.cache, CORRPRODS, ['UNKNOWN'],
+                                      skip_missing_products=True)
+        assert_equal(corrections, None)
+        cal_products = CAL_PRODUCTS + ['UNKNOWN']
+        with assert_raises(KeyError):
+            corrections = calc_correction(chunks, self.cache, CORRPRODS, cal_products,
+                                          skip_missing_products=False)
+        corrections = calc_correction(chunks, self.cache, CORRPRODS, cal_products,
+                                      skip_missing_products=True)
         corrections = corrections[dump:dump+1, channels].compute()
         expected_corrections = corrections_per_corrprod([dump], channels)
         assert_array_equal(corrections, expected_corrections)
