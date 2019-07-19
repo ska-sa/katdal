@@ -31,7 +31,7 @@ from .flags import POSTPROC
 # A constant indicating invalid / absent gain (typically due to flagged data)
 INVALID_GAIN = np.complex64(complex(np.nan, np.nan))
 # All the calibration products katdal knows about
-CAL_PRODUCTS = ('K', 'B', 'G')
+CAL_PRODUCTS = ('cal.K', 'cal.B', 'cal.G')
 
 logger = logging.getLogger(__name__)
 
@@ -86,31 +86,51 @@ def complex_interp(x, xi, yi, left=None, right=None):
     return y.astype(yi.dtype)
 
 
-def get_cal_product(cache, attrs, product):
-    """Extract calibration solution `product` from `cache` as a sensor.
+def _parse_cal_product(cal_product):
+    """Split `cal_product` into `cal_stream` and `product_type` parts."""
+    fields = cal_product.rsplit('.', 1)
+    product_type = fields.pop()
+    cal_stream = fields.pop() if fields else 'cal'
+    return cal_stream, product_type
+
+
+def get_cal_product(cache, attrs, product_type, cal_stream='cal'):
+    """Extract calibration solution from cache as a sensor.
 
     This takes care of stitching together multiple parts of the product
     if this is indicated in the `attrs` dict.
+
+    Parameters
+    ----------
+    cache : :class:`~katdal.sensordata.SensorCache` object
+        Sensor cache serving cal product sensors
+    attrs : dict-like
+        Calibration product attributes (e.g. a "cal" telstate view)
+    product_type : string
+        Calibration product type (e.g. "G")
+    cal_stream : string, optional
+        Name of calibration stream (e.g. "cal")
     """
-    key = 'cal_product_' + product
+    # XXX The first underscore below is actually a telstate separator...
+    sensor_name = '{}_product_{}'.format(cal_stream, product_type)
     try:
-        n_parts = int(attrs[key + '_parts'])
+        n_parts = int(attrs['product_{}_parts'.format(product_type)])
     except KeyError:
-        return cache.get(key)
+        return cache.get(sensor_name)
     # Handle multi-part cal product (as produced by "split cal")
     # First collect all the parts as sensors (and mark missing ones as None)
     parts = []
     valid_part = None
     for n in range(n_parts):
         try:
-            valid_part = cache.get(key + str(n))
+            valid_part = cache.get(sensor_name + str(n))
         except KeyError:
             parts.append(None)
         else:
             parts.append(valid_part)
     if valid_part is None:
-        raise KeyError("No cal product '{}' parts found (expected {})"
-                       .format(product, n_parts))
+        raise KeyError("No cal product '{}.{}' parts found (expected {})"
+                       .format(cal_stream, product_type, n_parts))
     # Convert each part to its sensor values (filling missing ones with NaNs)
     events = valid_part.events
     invalid_part = None
@@ -123,8 +143,9 @@ def get_cal_product(cache, attrs, product):
             parts[n] = invalid_part
         else:
             if not np.array_equal(parts[n].events, events):
-                raise ValueError("Cal product '{}' part {} does not align in "
-                                 "time with the rest".format(product, n))
+                msg = ("Cal product '{}.{}' part {} does not align in time "
+                       "with the rest".format(cal_stream, product_type, n))
+                raise ValueError(msg)
             parts[n] = [value for segment, value in parts[n].segments()]
     # Stitch all the value arrays together and form a new combined sensor
     values = np.concatenate(parts, axis=1)
@@ -219,17 +240,17 @@ def add_applycal_sensors(cache, attrs, data_freqs):
     data_freqs : array of float, shape (*F*,)
         Centre frequency of each frequency channel of visibilities, in Hz
     """
-    cal_ants = attrs.get('cal_antlist', [])
-    cal_pols = attrs.get('cal_pol_ordering', [])
+    cal_ants = attrs.get('antlist', [])
+    cal_pols = attrs.get('pol_ordering', [])
     cal_input_map = {ant + pol: (pol_idx, ant_idx)
                      for (pol_idx, pol) in enumerate(cal_pols)
                      for (ant_idx, ant) in enumerate(cal_ants)}
     if not cal_input_map:
         return
     try:
-        cal_spw = SpectralWindow(attrs['cal_center_freq'], None,
-                                 attrs['cal_n_chans'], sideband=1,
-                                 bandwidth=attrs['cal_bandwidth'])
+        cal_spw = SpectralWindow(attrs['center_freq'], None,
+                                 attrs['n_chans'], sideband=1,
+                                 bandwidth=attrs['bandwidth'])
         cal_freqs = cal_spw.channel_freqs
     except KeyError:
         logger.warning('Missing cal spectral attributes, disabling applycal')
@@ -237,20 +258,21 @@ def add_applycal_sensors(cache, attrs, data_freqs):
 
     def calc_correction_per_input(cache, name, inp, product):
         """Calculate correction sensor for input `inp` from cal solutions."""
-        product_sensor = get_cal_product(cache, attrs, product)
+        cal_stream, product_type = _parse_cal_product(product)
+        product_sensor = get_cal_product(cache, attrs, product_type, cal_stream)
         try:
             index = cal_input_map[inp]
         except KeyError:
             raise KeyError("No calibration solutions available for input "
                            "'{}' - available ones are {}"
                            .format(inp, sorted(cal_input_map.keys())))
-        if product == 'K':
+        if product_type == 'K':
             correction_sensor = calc_delay_correction(product_sensor, index,
                                                       data_freqs)
-        elif product == 'B':
+        elif product_type == 'B':
             correction_sensor = calc_bandpass_correction(product_sensor, index,
                                                          data_freqs, cal_freqs)
-        elif product == 'G':
+        elif product_type == 'G':
             correction_sensor = calc_gain_correction(product_sensor, index)
         else:
             raise KeyError("Unknown calibration product '{}'".format(product))

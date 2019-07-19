@@ -65,11 +65,11 @@ BANDPASS_PARTS = 4
 GAIN_EVENTS = list(range(0, N_DUMPS, 10))
 BAD_GAIN_ANT = 3
 BAD_GAIN_DUMPS = [20, 40]
-CAL_PRODUCTS = ['K', 'B', 'G']
+CAL_PRODUCTS = ['cal.K', 'cal.B', 'cal.G']
 
-ATTRS = {'cal_antlist': ANTS, 'cal_pol_ordering': POLS,
-         'cal_center_freq': CAL_CENTRE_FREQ, 'cal_bandwidth': CAL_BANDWIDTH,
-         'cal_n_chans': CAL_N_CHANS, 'cal_product_B_parts': BANDPASS_PARTS}
+ATTRS = {'antlist': ANTS, 'pol_ordering': POLS,
+         'center_freq': CAL_CENTRE_FREQ, 'bandwidth': CAL_BANDWIDTH,
+         'n_chans': CAL_N_CHANS, 'product_B_parts': BANDPASS_PARTS}
 
 
 def create_delay(pol, ant):
@@ -172,15 +172,13 @@ def corrections_per_corrprod(dumps, channels, corrprods=()):
                  for (ant_idx, ant) in enumerate(ANTS)}
     gains_per_input = np.ones((len(dumps), N_CHANS, len(INPUTS)),
                               dtype='complex64')
-    if 'K' in CAL_PRODUCTS:
-        gains_per_input *= np.array([delay_corrections(*input_map[inp])
-                                     for inp in INPUTS]).T
-    if 'B' in CAL_PRODUCTS:
-        gains_per_input *= np.array([bandpass_corrections(*input_map[inp])
-                                     for inp in INPUTS]).T
-    if 'G' in CAL_PRODUCTS:
-        gains_per_input *= np.array([gain_corrections(*input_map[inp])[dumps]
-                                     for inp in INPUTS]).T[:, np.newaxis]
+    # Apply (K, B, G) corrections
+    gains_per_input *= np.array([delay_corrections(*input_map[inp])
+                                 for inp in INPUTS]).T
+    gains_per_input *= np.array([bandpass_corrections(*input_map[inp])
+                                 for inp in INPUTS]).T
+    gains_per_input *= np.array([gain_corrections(*input_map[inp])[dumps]
+                                 for inp in INPUTS]).T[:, np.newaxis]
     gains_per_input = gains_per_input[:, channels, :]
     gain1 = gains_per_input[:, :, INDEX1[corrprods]]
     gain2 = gains_per_input[:, :, INDEX2[corrprods]]
@@ -256,7 +254,7 @@ class TestCalProductAccess(object):
     def test_get_cal_product_single_multipart(self):
         cache = create_sensor_cache(bandpass_parts=1)
         attrs = ATTRS.copy()
-        attrs['cal_product_B_parts'] = 1
+        attrs['product_B_parts'] = 1
         product_sensor = get_cal_product(cache, attrs, 'B')
         product = create_product(create_bandpass)
         assert_array_equal(product_sensor[0], np.ones_like(product))
@@ -331,7 +329,7 @@ class TestVirtualCorrectionSensors(object):
         n_virtuals_after = len(cache.virtual)
         assert_equal(n_virtuals_after, n_virtuals_before)
         attrs = ATTRS.copy()
-        del attrs['cal_center_freq']
+        del attrs['center_freq']
         add_applycal_sensors(self.cache, attrs, FREQS)
         n_virtuals_after = len(cache.virtual)
         assert_equal(n_virtuals_after, n_virtuals_before)

@@ -357,7 +357,9 @@ class VisibilityDataV4(DataSet):
         # ------ Register applycal virtual sensors and products ------
 
         freqs = self.spectral_windows[0].channel_freqs
-        add_applycal_sensors(self.sensor, attrs, freqs)
+        # XXX This assumes that `attrs` is a telstate and not a dict-like
+        cal_attrs = attrs.view('cal', exclusive=True)
+        add_applycal_sensors(self.sensor, cal_attrs, freqs)
         applycal_products = _selection_to_list(applycal, all=CAL_PRODUCTS)
         skip_missing_products = (applycal == 'all')
         if not self.source.data or not applycal_products:
