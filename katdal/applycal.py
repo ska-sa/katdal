@@ -30,8 +30,8 @@ from .flags import POSTPROC
 
 # A constant indicating invalid / absent gain (typically due to flagged data)
 INVALID_GAIN = np.complex64(complex(np.nan, np.nan))
-# All the calibration products katdal knows about
-CAL_PRODUCTS = ('cal.K', 'cal.B', 'cal.G')
+# All the calibration product types katdal knows about
+CAL_PRODUCT_TYPES = ('K', 'B', 'G')
 
 logger = logging.getLogger(__name__)
 
@@ -105,14 +105,13 @@ def get_cal_product(cache, attrs, product_type, cal_stream='cal'):
     cache : :class:`~katdal.sensordata.SensorCache` object
         Sensor cache serving cal product sensors
     attrs : dict-like
-        Calibration product attributes (e.g. a "cal" telstate view)
+        Calibration stream attributes (e.g. a "cal" telstate view)
     product_type : string
         Calibration product type (e.g. "G")
     cal_stream : string, optional
-        Name of calibration stream (e.g. "cal")
+        Name of calibration stream (e.g. "L1")
     """
-    # XXX The first underscore below is actually a telstate separator...
-    sensor_name = '{}_product_{}'.format(cal_stream, product_type)
+    sensor_name = 'Calibration/Products/{}/{}'.format(cal_stream, product_type)
     try:
         n_parts = int(attrs['product_{}_parts'.format(product_type)])
     except KeyError:
@@ -220,26 +219,40 @@ def calc_gain_correction(sensor, index):
     return np.reciprocal(smooth_gains)
 
 
-def add_applycal_sensors(cache, attrs, data_freqs):
-    """Add virtual sensors that store calibration corrections, to sensor cache.
+def add_applycal_sensors(cache, attrs, data_freqs, cal_stream='cal',
+                         cal_substreams=None):
+    """Register virtual sensors for one calibration stream.
 
-    This maps receptor inputs to the relevant indices in each calibration
-    product based on the ants and pols found in `attrs`. It then registers
-    a virtual sensor per input and per cal product in the SensorCache `cache`,
-    with template 'Calibration/Corrections/{product}/{inp}'. The virtual sensor
-    function picks the appropriate correction calculator based on the cal
-    product name, which also uses auxiliary info like the channel frequencies,
-    `data_freqs`.
+    This operates on a single calibration stream called `cal_stream` (possibly
+    an alias), which derives from one or more underlying cal streams listed in
+    `cal_substreams` and has stream attributes in `attrs`.
+
+    The first set of virtual sensors maps all cal products into a unified
+    namespace (template 'Calibration/Products/`cal_stream`/{product_type}').
+    Map receptor inputs to the relevant indices in each calibration product
+    based on the ants and pols found in `attrs`. Then register a virtual sensor
+    per product type and per input in the SensorCache `cache`, with template
+    'Calibration/Corrections/`cal_stream`/{product_type}/{inp}'. The virtual
+    sensor function picks the appropriate correction calculator based on the
+    cal product type, which also uses auxiliary info like the channel
+    frequencies, `data_freqs`.
 
     Parameters
     ----------
     cache : :class:`~katdal.sensordata.SensorCache` object
         Sensor cache serving cal product sensors and receiving correction sensors
     attrs : dict-like
-        Calibration product attributes (e.g. a "cal" telstate view)
+        Calibration stream attributes (e.g. a "cal" telstate view)
     data_freqs : array of float, shape (*F*,)
         Centre frequency of each frequency channel of visibilities, in Hz
+    cal_stream : string, optional
+        Name of (possibly virtual) calibration stream (e.g. "L1")
+    cal_substreams : sequence of string, optional
+        Names of actual underlying calibration streams (e.g. ["cal"]),
+        defaults to [`cal_stream`] itself
     """
+    if cal_substreams is None:
+        cal_substreams = [cal_stream]
     cal_ants = attrs.get('antlist', [])
     cal_pols = attrs.get('pol_ordering', [])
     cal_input_map = {ant + pol: (pol_idx, ant_idx)
@@ -253,12 +266,16 @@ def add_applycal_sensors(cache, attrs, data_freqs):
                                  bandwidth=attrs['bandwidth'])
         cal_freqs = cal_spw.channel_freqs
     except KeyError:
-        logger.warning('Missing cal spectral attributes, disabling applycal')
+        logger.warning("Disabling cal stream '%s' due to missing "
+                       "spectral attributes", cal_stream)
         return
 
-    def calc_correction_per_input(cache, name, inp, product):
+    def indirect_cal_product(cache, name, product_type):
+        # XXX The first underscore below is actually a telstate separator...
+        return cache.get('{}_product_{}'.format(cal_substreams[0], product_type))
+
+    def calc_correction_per_input(cache, name, inp, product_type):
         """Calculate correction sensor for input `inp` from cal solutions."""
-        cal_stream, product_type = _parse_cal_product(product)
         product_sensor = get_cal_product(cache, attrs, product_type, cal_stream)
         try:
             index = cal_input_map[inp]
@@ -275,12 +292,15 @@ def add_applycal_sensors(cache, attrs, data_freqs):
         elif product_type == 'G':
             correction_sensor = calc_gain_correction(product_sensor, index)
         else:
-            raise KeyError("Unknown calibration product '{}'".format(product))
+            raise KeyError("Unknown calibration product type '{}' - available "
+                           "ones are {}".format(product_type, CAL_PRODUCT_TYPES))
         cache[name] = correction_sensor
         return correction_sensor
 
-    correction_sensor_template = 'Calibration/Corrections/{product}/{inp}'
-    cache.virtual[correction_sensor_template] = calc_correction_per_input
+    template = 'Calibration/Products/{}/{{product_type}}'.format(cal_stream)
+    cache.virtual[template] = indirect_cal_product
+    template = 'Calibration/Corrections/{}/{{product_type}}/{{inp}}'.format(cal_stream)
+    cache.virtual[template] = calc_correction_per_input
 
 
 @numba.jit(nopython=True, nogil=True)
@@ -410,12 +430,13 @@ def calc_correction(chunks, cache, corrprods, cal_products,
     input1_index = np.array([inputs.index(cp[0]) for cp in corrprods])
     input2_index = np.array([inputs.index(cp[1]) for cp in corrprods])
     corrections = {}
-    for product in cal_products:
+    for cal_product in cal_products:
+        cal_stream, product_type = _parse_cal_product(cal_product)
+        sensor_prefix = 'Calibration/Corrections/{}/{}/'.format(cal_stream, product_type)
         corrections_per_product = []
         for i, inp in enumerate(inputs):
-            sensor_name = 'Calibration/Corrections/{}/{}'.format(product, inp)
             try:
-                sensor = cache.get(sensor_name)
+                sensor = cache.get(sensor_prefix + inp)
             except KeyError:
                 if skip_missing_products:
                     break
@@ -432,7 +453,7 @@ def calc_correction(chunks, cache, corrprods, cal_products,
                 data = sensor
             corrections_per_product.append(data)
         else:
-            corrections[product] = corrections_per_product
+            corrections[cal_product] = corrections_per_product
     if not corrections:
         return None
     params = CorrectionParams(inputs, input1_index, input2_index, corrections)

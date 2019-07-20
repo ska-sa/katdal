@@ -238,6 +238,7 @@ class TestCalProductAccess(object):
     """Test the :func:`~katdal.applycal.*_cal_product` functions."""
     def setup(self):
         self.cache = create_sensor_cache()
+        add_applycal_sensors(self.cache, ATTRS, FREQS)
 
     def test_get_cal_product_basic(self):
         product_sensor = get_cal_product(self.cache, ATTRS, 'K')
@@ -286,6 +287,7 @@ class TestCorrectionPerInput(object):
     """Test the :func:`~katdal.applycal.calc_*_correction` functions."""
     def setup(self):
         self.cache = create_sensor_cache()
+        add_applycal_sensors(self.cache, ATTRS, FREQS)
 
     def test_calc_delay_correction(self):
         product_sensor = get_cal_product(self.cache, ATTRS, 'K')
@@ -337,32 +339,34 @@ class TestVirtualCorrectionSensors(object):
     def test_delay_sensors(self):
         for n, ant in enumerate(ANTS):
             for m, pol in enumerate(POLS):
-                sensor_name = 'Calibration/Corrections/K/{}{}'.format(ant, pol)
+                sensor_name = 'Calibration/Corrections/cal/K/{}{}'.format(ant, pol)
                 sensor = self.cache.get(sensor_name)
                 assert_array_equal(sensor[10 + n], delay_corrections(m, n))
 
     def test_bandpass_sensors(self):
         for n, ant in enumerate(ANTS):
             for m, pol in enumerate(POLS):
-                sensor_name = 'Calibration/Corrections/B/{}{}'.format(ant, pol)
+                sensor_name = 'Calibration/Corrections/cal/B/{}{}'.format(ant, pol)
                 sensor = self.cache.get(sensor_name)
                 assert_array_equal(sensor[12 + n], bandpass_corrections(m, n))
 
     def test_gain_sensors(self):
         for n, ant in enumerate(ANTS):
             for m, pol in enumerate(POLS):
-                sensor_name = 'Calibration/Corrections/G/{}{}'.format(ant, pol)
+                sensor_name = 'Calibration/Corrections/cal/G/{}{}'.format(ant, pol)
                 sensor = self.cache.get(sensor_name)
                 assert_array_equal(sensor[:], gain_corrections(m, n))
 
     def test_unknown_inputs_and_products(self):
         known_input = '{}{}'.format(ANTS[0], POLS[0])
         with assert_raises(KeyError):
-            self.cache.get('Calibration/Corrections/K/unknown')
+            self.cache.get('Calibration/Corrections/cal/K/unknown')
         with assert_raises(KeyError):
-            self.cache.get('Calibration/Corrections/unknown/' + known_input)
+            self.cache.get('Calibration/Corrections/cal/unknown/' + known_input)
         with assert_raises(KeyError):
-            self.cache.get('Calibration/Corrections/K_unknown/' + known_input)
+            self.cache.get('Calibration/Corrections/cal/K_unknown/' + known_input)
+        with assert_raises(KeyError):
+            self.cache.get('Calibration/Corrections/unknown/K/' + known_input)
 
 
 class TestCalcCorrection(object):

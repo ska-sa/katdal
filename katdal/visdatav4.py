@@ -34,7 +34,7 @@ from .categorical import CategoricalData
 from .lazy_indexer import DaskLazyIndexer
 from .applycal import (add_applycal_sensors, calc_correction,
                        apply_vis_correction, apply_weights_correction,
-                       apply_flags_correction, CAL_PRODUCTS)
+                       apply_flags_correction)
 from .flags import NAMES as FLAG_NAMES, DESCRIPTIONS as FLAG_DESCRIPTIONS
 
 
@@ -81,6 +81,8 @@ def _add_sensor_alias(cache, new_name, old_name):
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel,
                         'Antennas/{ant}/el': _calc_azel})
+
+DEFAULT_CAL_PRODUCTS = ('L1.K', 'L1.B', 'L1.G')
 
 # -----------------------------------------------------------------------------
 # -- CLASS :  VisibilityDataV4
@@ -359,8 +361,9 @@ class VisibilityDataV4(DataSet):
         freqs = self.spectral_windows[0].channel_freqs
         # XXX This assumes that `attrs` is a telstate and not a dict-like
         cal_attrs = attrs.view('cal', exclusive=True)
-        add_applycal_sensors(self.sensor, cal_attrs, freqs)
-        applycal_products = _selection_to_list(applycal, all=CAL_PRODUCTS)
+        add_applycal_sensors(self.sensor, cal_attrs, freqs, cal_stream='L1',
+                             cal_substreams=['cal'])
+        applycal_products = _selection_to_list(applycal, all=DEFAULT_CAL_PRODUCTS)
         skip_missing_products = (applycal == 'all')
         if not self.source.data or not applycal_products:
             self._corrections = None
