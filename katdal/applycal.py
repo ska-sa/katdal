@@ -109,7 +109,7 @@ def get_cal_product(cache, attrs, product_type, cal_stream='cal'):
     product_type : string
         Calibration product type (e.g. "G")
     cal_stream : string, optional
-        Name of calibration stream (e.g. "L1")
+        Name of calibration stream (e.g. "l1")
     """
     sensor_name = 'Calibration/Products/{}/{}'.format(cal_stream, product_type)
     try:
@@ -246,7 +246,7 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream='cal',
     data_freqs : array of float, shape (*F*,)
         Centre frequency of each frequency channel of visibilities, in Hz
     cal_stream : string, optional
-        Name of (possibly virtual) calibration stream (e.g. "L1")
+        Name of (possibly virtual) calibration stream (e.g. "l1")
     cal_substreams : sequence of string, optional
         Names of actual underlying calibration streams (e.g. ["cal"]),
         defaults to [`cal_stream`] itself

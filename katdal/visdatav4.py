@@ -82,7 +82,7 @@ VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel,
                         'Antennas/{ant}/el': _calc_azel})
 
-DEFAULT_CAL_PRODUCTS = ('L1.K', 'L1.B', 'L1.G')
+DEFAULT_CAL_PRODUCTS = ('l1.K', 'l1.B', 'l1.G')
 
 # -----------------------------------------------------------------------------
 # -- CLASS :  VisibilityDataV4
@@ -361,7 +361,7 @@ class VisibilityDataV4(DataSet):
         freqs = self.spectral_windows[0].channel_freqs
         # XXX This assumes that `attrs` is a telstate and not a dict-like
         cal_attrs = attrs.view('cal', exclusive=True)
-        add_applycal_sensors(self.sensor, cal_attrs, freqs, cal_stream='L1',
+        add_applycal_sensors(self.sensor, cal_attrs, freqs, cal_stream='l1',
                              cal_substreams=['cal'])
         applycal_products = _selection_to_list(applycal, all=DEFAULT_CAL_PRODUCTS)
         skip_missing_products = (applycal == 'all')
