@@ -367,6 +367,10 @@ class TestVirtualCorrectionSensors(object):
             self.cache.get('Calibration/Corrections/cal/K_unknown/' + known_input)
         with assert_raises(KeyError):
             self.cache.get('Calibration/Corrections/unknown/K/' + known_input)
+        with assert_raises(KeyError):
+            self.cache.get('Calibration/Products/cal/K_unknown')
+        with assert_raises(KeyError):
+            self.cache.get('Calibration/Products/unknown/K')
 
 
 class TestCalcCorrection(object):
