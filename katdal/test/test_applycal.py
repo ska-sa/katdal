@@ -395,7 +395,8 @@ class TestCalcCorrection(object):
         channels = np.s_[22:38]
         shape = (N_DUMPS, N_CHANS, N_CORRPRODS)
         chunks = da.core.normalize_chunks((10, 5, -1), shape)
-        corrections = calc_correction(chunks, self.cache, CORRPRODS, CAL_PRODUCTS)
+        corrections = calc_correction(chunks, self.cache, CORRPRODS, CAL_PRODUCTS,
+                                      FREQS, {'cal': CAL_FREQS})
         corrections = corrections[dump:dump+1, channels].compute()
         expected_corrections = corrections_per_corrprod([dump], channels)
         assert_array_equal(corrections, expected_corrections)
@@ -405,19 +406,24 @@ class TestCalcCorrection(object):
         channels = np.s_[22:38]
         shape = (N_DUMPS, N_CHANS, N_CORRPRODS)
         chunks = da.core.normalize_chunks((10, 5, -1), shape)
-        corrections = calc_correction(chunks, self.cache, CORRPRODS, [])
-        with assert_raises(ValueError):
-            corrections = calc_correction(chunks, self.cache, CORRPRODS, ['INVALID'])
+        corrections = calc_correction(chunks, self.cache, CORRPRODS, [],
+                                      FREQS, {'cal': CAL_FREQS})
         assert_equal(corrections, None)
+        with assert_raises(ValueError):
+            corrections = calc_correction(chunks, self.cache, CORRPRODS,
+                                          ['INVALID'], FREQS, {'cal': CAL_FREQS})
         unknown = '{}.UNKNOWN'.format(CAL_STREAM)
         corrections = calc_correction(chunks, self.cache, CORRPRODS, [unknown],
+                                      FREQS, {'cal': CAL_FREQS},
                                       skip_missing_products=True)
         assert_equal(corrections, None)
         cal_products = CAL_PRODUCTS + [unknown]
         with assert_raises(KeyError):
-            corrections = calc_correction(chunks, self.cache, CORRPRODS, cal_products,
+            corrections = calc_correction(chunks, self.cache, CORRPRODS,
+                                          cal_products, FREQS, {'cal': CAL_FREQS},
                                           skip_missing_products=False)
         corrections = calc_correction(chunks, self.cache, CORRPRODS, cal_products,
+                                      FREQS, {'cal': CAL_FREQS},
                                       skip_missing_products=True)
         corrections = corrections[dump:dump+1, channels].compute()
         expected_corrections = corrections_per_corrprod([dump], channels)
@@ -433,7 +439,8 @@ class TestApplyCal(object):
     def _applycal(self, array, apply_correction):
         """Calibrate `array` with `apply_correction` and return all factors."""
         array_dask = da.from_array(array, chunks=(10, 4, 6))
-        correction = calc_correction(array_dask.chunks, self.cache, CORRPRODS, CAL_PRODUCTS)
+        correction = calc_correction(array_dask.chunks, self.cache, CORRPRODS,
+                                     CAL_PRODUCTS, FREQS, {'cal': CAL_FREQS})
         corrected = da.core.elemwise(apply_correction, array_dask, correction, dtype=array_dask.dtype)
         return corrected.compute(), correction.compute()
 

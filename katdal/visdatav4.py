@@ -361,8 +361,9 @@ class VisibilityDataV4(DataSet):
         freqs = self.spectral_windows[0].channel_freqs
         # XXX This assumes that `attrs` is a telstate and not a dict-like
         cal_attrs = attrs.view('cal', exclusive=True)
-        add_applycal_sensors(self.sensor, cal_attrs, freqs, cal_stream='l1',
-                             cal_substreams=['cal'])
+        cal_freqs = {'l1': add_applycal_sensors(self.sensor, cal_attrs,
+                                                freqs, cal_stream='l1',
+                                                cal_substreams=['cal'])}
         applycal_products = _selection_to_list(applycal, all=DEFAULT_CAL_PRODUCTS)
         skip_missing_products = (applycal == 'all')
         # Let 'l1' be the default stream if only a product type is specified
@@ -374,7 +375,8 @@ class VisibilityDataV4(DataSet):
         else:
             self._corrections = calc_correction(self.source.data.vis.chunks, self.sensor,
                                                 self.subarrays[self.subarray].corr_products,
-                                                applycal_products, skip_missing_products)
+                                                applycal_products, freqs, cal_freqs,
+                                                skip_missing_products)
             if self._corrections is None:
                 self._corrected = self.source.data
             else:

@@ -250,6 +250,12 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
     cal_substreams : sequence of string, optional
         Names of actual underlying calibration streams (e.g. ["cal"]),
         defaults to [`cal_stream`] itself
+
+    Returns
+    -------
+    cal_freqs : array of float, shape (*Fcal*,), or None
+        Centre frequency of each frequency channel of calibration stream, in Hz
+        (or None if no sensors were registered)
     """
     if cal_substreams is None:
         cal_substreams = [cal_stream]
@@ -301,6 +307,7 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
     cache.virtual[template] = indirect_cal_product
     template = 'Calibration/Corrections/{}/{{product_type}}/{{inp}}'.format(cal_stream)
     cache.virtual[template] = calc_correction_per_input
+    return cal_freqs
 
 
 @numba.jit(nopython=True, nogil=True)
@@ -328,12 +335,18 @@ class CorrectionParams(object):
         A dictionary (indexed by cal product name) of lists (indexed
         by input) of sequences (indexed by dump) of numpy arrays, with
         corrections to apply.
+    channel_maps : dict
+        A dictionary (indexed by cal product name) of functions (signature
+        `g = channel_map(g, channels)`) that map the frequency axis of the
+        cal product `g` onto the frequency axis of the visibility data, where
+        the vis frequency axis will be indexed by the slice `channels`.
     """
-    def __init__(self, inputs, input1_index, input2_index, corrections):
+    def __init__(self, inputs, input1_index, input2_index, corrections, channel_maps):
         self.inputs = inputs
         self.input1_index = input1_index
         self.input2_index = input2_index
         self.corrections = corrections
+        self.channel_maps = channel_maps
 
 
 def calc_correction_per_corrprod(dump, channels, params):
@@ -365,13 +378,13 @@ def calc_correction_per_corrprod(dump, channels, params):
     """
     n_channels = channels.stop - channels.start
     g_per_input = np.ones((len(params.inputs), n_channels), dtype='complex64')
-    for product_corrections in params.corrections.values():
+    for cal_product in params.corrections:
+        product_corrections = params.corrections[cal_product]
+        channel_map = params.channel_maps[cal_product]
         for i in range(len(params.inputs)):
             sensor = product_corrections[i]
-            g_product = sensor[dump]
-            if np.shape(g_product) != ():
-                g_product = g_product[channels]
-            g_per_input[i] *= g_product
+            g_per_channel = sensor[dump]
+            g_per_input[i] *= channel_map(g_per_channel, channels)
     # Transpose to (channel, input) order, and ensure C ordering
     g_per_input = np.ascontiguousarray(g_per_input.T)
     g_per_cp = np.empty((n_channels, len(params.input1_index)), dtype='complex64')
@@ -391,8 +404,8 @@ def _correction_block(block_info, params):
     return correction
 
 
-def calc_correction(chunks, cache, corrprods, cal_products,
-                    skip_missing_products=False):
+def calc_correction(chunks, cache, corrprods, cal_products, data_freqs,
+                    all_cal_freqs, skip_missing_products=False):
     """Create a dask array containing applycal corrections.
 
     Parameters
@@ -406,6 +419,10 @@ def calc_correction(chunks, cache, corrprods, cal_products,
         Selected correlation products as pairs of correlator input labels
     cal_products : sequence of string
         Calibration products that will contribute to corrections (e.g. ["l1.G"])
+    data_freqs : array of float, shape (*F*,)
+        Centre frequency of each frequency channel of visibilities, in Hz
+    all_cal_freqs : dict
+        Dictionary mapping cal stream name to array of associated frequencies
     skip_missing_products : bool
         If True, skip products with missing sensors instead of raising KeyError
 
@@ -430,6 +447,7 @@ def calc_correction(chunks, cache, corrprods, cal_products,
     input1_index = np.array([inputs.index(cp[0]) for cp in corrprods])
     input2_index = np.array([inputs.index(cp[1]) for cp in corrprods])
     corrections = {}
+    channel_maps = {}
     for cal_product in cal_products:
         cal_stream, product_type = _parse_cal_product(cal_product)
         sensor_prefix = 'Calibration/Corrections/{}/{}/'.format(cal_stream, product_type)
@@ -454,9 +472,20 @@ def calc_correction(chunks, cache, corrprods, cal_products,
             corrections_per_product.append(data)
         else:
             corrections[cal_product] = corrections_per_product
+            if product_type in ('K', 'B'):
+                channel_maps[cal_product] = lambda g, channels: g[channels]
+            elif product_type in ('G',):
+                channel_maps[cal_product] = lambda g, channels: g
+            elif product_type in ('GPHASE', 'GAMP_PHASE'):
+                cal_freqs = all_cal_freqs[cal_stream]
+                # Closest cal channel for each data channel
+                expand = np.abs(data_freqs[:, np.newaxis]
+                                - cal_freqs[np.newaxis, :]).argmin(axis=-1)
+                channel_maps[cal_product] = lambda g, channels: g[expand][channels]
     if not corrections:
         return None
-    params = CorrectionParams(inputs, input1_index, input2_index, corrections)
+    params = CorrectionParams(inputs, input1_index, input2_index,
+                              corrections, channel_maps)
     name = 'corrections[{}]'.format(','.join(sorted(corrections.keys())))
     return da.map_blocks(_correction_block, dtype=np.complex64, chunks=chunks,
                          name=name, params=params)
