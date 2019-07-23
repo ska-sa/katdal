@@ -17,6 +17,7 @@
 """Tests for :py:mod:`katdal.applycal`."""
 from __future__ import print_function, division, absolute_import
 from builtins import object, range
+from functools import partial
 
 import numpy as np
 from numpy.testing import assert_array_equal, assert_allclose
@@ -49,6 +50,8 @@ CAL_BANDWIDTH = 800.0
 CAL_N_CHANS = 64
 CAL_FREQS = SpectralWindow(CAL_CENTRE_FREQ, None, CAL_N_CHANS,
                            sideband=1, bandwidth=CAL_BANDWIDTH).channel_freqs
+DATA_TO_CAL_CHANNEL = np.abs(FREQS[:, np.newaxis]
+                             - CAL_FREQS[np.newaxis, :]).argmin(axis=-1)
 
 INPUTS = [ant + pol for ant in ANTS for pol in POLS]
 INDEX1, INDEX2 = np.triu_indices(len(INPUTS))
@@ -70,7 +73,7 @@ CAL_STREAM = 'cal'
 ATTRS = {'antlist': ANTS, 'pol_ordering': POLS,
          'center_freq': CAL_CENTRE_FREQ, 'bandwidth': CAL_BANDWIDTH,
          'n_chans': CAL_N_CHANS, 'product_B_parts': BANDPASS_PARTS}
-CAL_PRODUCT_TYPES = ('K', 'B', 'G')
+CAL_PRODUCT_TYPES = ('K', 'B', 'G', 'GPHASE')
 CAL_PRODUCTS = ['{}.{}'.format(CAL_STREAM, prod) for prod in CAL_PRODUCT_TYPES]
 
 
@@ -90,11 +93,18 @@ def create_bandpass(pol, ant):
     return bp.astype(np.complex64)
 
 
-def create_gain(pol, ant):
-    """Synthesise a gain time series from `pol`, `ant` indices and events."""
+def create_gain(pol, ant, multi_channel=False):
+    """Synthesise a gain time series from `pol`, `ant` indices and events.
+
+    The gain can also vary with frequency a la GPHASE if `multi_channel` is True.
+    """
     events = np.array(GAIN_EVENTS)
     gains = np.ones_like(events, dtype=np.complex64)
     gains *= (-1) ** pol * (1 + ant) * np.exp(2j * np.pi * events / 100.)
+    if multi_channel:
+        gains = np.outer(gains, create_bandpass(pol, ant))
+        # Make it phase-only for kicks
+        gains /= np.abs(gains)
     if ant == BAD_GAIN_ANT:
         gains[:] = INVALID_GAIN
     bad_events = [GAIN_EVENTS.index(dump) for dump in BAD_GAIN_DUMPS]
@@ -117,7 +127,7 @@ def create_product(func):
 def create_sensor_cache(bandpass_parts=BANDPASS_PARTS):
     """Create a SensorCache for testing applycal sensors."""
     cache = {}
-    # Add delay product (single)
+    # Add delay product
     delays = create_product(create_delay)
     cache[CAL_STREAM + '_product_K'] = CategoricalData(
         [np.zeros_like(delays), delays], events=[0, 10, N_DUMPS])
@@ -126,11 +136,16 @@ def create_sensor_cache(bandpass_parts=BANDPASS_PARTS):
     for part, bp in enumerate(np.split(bandpasses, bandpass_parts)):
         cache[CAL_STREAM + '_product_B' + str(part)] = CategoricalData(
             [np.ones_like(bp), bp], events=[0, 12, N_DUMPS])
-    # Add gain product (single multi-part as a corner case)
+    # Add gain product (one value for entire band)
     gains = create_product(create_gain)
     gains = [ComparableArrayWrapper(g) for g in gains]
     cache[CAL_STREAM + '_product_G'] = CategoricalData(gains,
                                                        GAIN_EVENTS + [N_DUMPS])
+    # Add gain product (varying across frequency and time)
+    gains = create_product(partial(create_gain, multi_channel=True))
+    gains = [ComparableArrayWrapper(g) for g in gains]
+    cache[CAL_STREAM + '_product_GPHASE'] = CategoricalData(gains,
+                                                            GAIN_EVENTS + [N_DUMPS])
     # Construct sensor cache
     return SensorCache(cache, timestamps=np.arange(N_DUMPS, dtype=float),
                        dump_period=1.)
@@ -155,17 +170,18 @@ def bandpass_corrections(pol, ant):
     return np.reciprocal(bp)
 
 
-def gain_corrections(pol, ant):
+def gain_corrections(pol, ant, multi_channel=False):
     """Figure out N_DUMPS gain corrections given `pol` and `ant` indices."""
     dumps = np.arange(N_DUMPS)
     events = np.array(GAIN_EVENTS)
-    gains = create_gain(pol, ant)
-    valid = np.isfinite(gains)
-    if valid.any():
-        gains = complex_interp(dumps, events[valid], gains[valid])
-    else:
-        gains = np.full(N_DUMPS, INVALID_GAIN)
-    return np.reciprocal(gains)
+    gains = create_gain(pol, ant, multi_channel)
+    gains = np.atleast_2d(gains.T)
+    smooth_gains = np.empty((N_DUMPS, gains.shape[0]), dtype=gains.dtype)
+    for chan, gains_per_chan in enumerate(gains):
+        valid = np.isfinite(gains_per_chan)
+        smooth_gains[:, chan] = INVALID_GAIN if not valid.any() else \
+            complex_interp(dumps, events[valid], gains_per_chan[valid])
+    return np.reciprocal(smooth_gains)
 
 
 def corrections_per_corrprod(dumps, channels, corrprods=()):
@@ -181,7 +197,11 @@ def corrections_per_corrprod(dumps, channels, corrprods=()):
     gains_per_input *= np.array([bandpass_corrections(*input_map[inp])
                                  for inp in INPUTS]).T
     gains_per_input *= np.array([gain_corrections(*input_map[inp])[dumps]
-                                 for inp in INPUTS]).T[:, np.newaxis]
+                                 for inp in INPUTS]).T
+    gains_per_input *= np.array([gain_corrections(*input_map[inp],
+                                                  multi_channel=True)[dumps]
+                                 for inp in INPUTS]
+                                ).transpose(1, 2, 0)[:, DATA_TO_CAL_CHANNEL]
     gains_per_input = gains_per_input[:, channels, :]
     gain1 = gains_per_input[:, :, INDEX1[corrprods]]
     gain2 = gains_per_input[:, :, INDEX2[corrprods]]

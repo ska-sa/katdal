@@ -31,7 +31,7 @@ from .flags import POSTPROC
 # A constant indicating invalid / absent gain (typically due to flagged data)
 INVALID_GAIN = np.complex64(complex(np.nan, np.nan))
 # All the calibration product types katdal knows about
-CAL_PRODUCT_TYPES = ('K', 'B', 'G')
+CAL_PRODUCT_TYPES = ('K', 'B', 'G', 'GPHASE', 'GAMP_PHASE')
 
 logger = logging.getLogger(__name__)
 
@@ -212,11 +212,15 @@ def calc_gain_correction(sensor, index):
     """
     dumps = np.arange(sensor.events[-1])
     events = sensor.events[:-1]
-    gains = np.array([value[index] for segment, value in sensor.segments()])
-    valid = np.isfinite(gains)
-    if not valid.any():
-        return CategoricalData([INVALID_GAIN], [0, len(dumps)])
-    smooth_gains = complex_interp(dumps, events[valid], gains[valid])
+    gains = np.array([value[(Ellipsis,) + index]
+                      for segment, value in sensor.segments()])
+    gains = np.atleast_2d(gains.T)
+    # The gains are now shaped either (n_cal_freqs, n_events) or (1, n_events)
+    smooth_gains = np.empty((len(dumps), gains.shape[0]), dtype=gains.dtype)
+    for chan, gains_per_chan in enumerate(gains):
+        valid = np.isfinite(gains_per_chan)
+        smooth_gains[:, chan] = INVALID_GAIN if not valid.any() else \
+            complex_interp(dumps, events[valid], gains_per_chan[valid])
     return np.reciprocal(smooth_gains)
 
 
@@ -295,7 +299,7 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
         elif product_type == 'B':
             correction_sensor = calc_bandpass_correction(product_sensor, index,
                                                          data_freqs, cal_freqs)
-        elif product_type == 'G':
+        elif product_type in ('G', 'GPHASE', 'GAMP_PHASE'):
             correction_sensor = calc_gain_correction(product_sensor, index)
         else:
             raise KeyError("Unknown calibration product type '{}' - available "
@@ -475,7 +479,7 @@ def calc_correction(chunks, cache, corrprods, cal_products, data_freqs,
             if product_type in ('K', 'B'):
                 channel_maps[cal_product] = lambda g, channels: g[channels]
             elif product_type in ('G',):
-                channel_maps[cal_product] = lambda g, channels: g
+                channel_maps[cal_product] = lambda g, channels: g[0]
             elif product_type in ('GPHASE', 'GAMP_PHASE'):
                 cal_freqs = all_cal_freqs[cal_stream]
                 # Closest cal channel for each data channel
