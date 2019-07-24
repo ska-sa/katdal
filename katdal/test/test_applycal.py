@@ -377,6 +377,12 @@ class TestVirtualCorrectionSensors(object):
         with assert_raises(KeyError):
             self.cache.get('Calibration/Products/unknown/K')
 
+    def test_indirect_cal_product(self):
+        add_applycal_sensors(self.cache, ATTRS, FREQS, 'my_cal', [CAL_STREAM])
+        self.test_delay_sensors('my_cal')
+        self.test_bandpass_sensors('my_cal')
+        self.test_gain_sensors('my_cal')
+
 
 class TestCalcCorrection(object):
     """Test :func:`~katdal.applycal.calc_correction` function."""
