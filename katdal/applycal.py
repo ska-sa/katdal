@@ -89,12 +89,13 @@ def complex_interp(x, xi, yi, left=None, right=None):
 def _parse_cal_product(cal_product):
     """Split `cal_product` into `cal_stream` and `product_type` parts."""
     fields = cal_product.rsplit('.', 1)
-    product_type = fields.pop()
-    cal_stream = fields.pop() if fields else 'cal'
-    return cal_stream, product_type
+    if len(fields) != 2:
+        raise ValueError('Calibration product {} is not in the format '
+                         '<cal_stream>.<product_type>'.format(cal_product))
+    return fields[0], fields[1]
 
 
-def get_cal_product(cache, attrs, product_type, cal_stream='cal'):
+def get_cal_product(cache, attrs, cal_stream, product_type):
     """Extract calibration solution from cache as a sensor.
 
     This takes care of stitching together multiple parts of the product
@@ -106,10 +107,10 @@ def get_cal_product(cache, attrs, product_type, cal_stream='cal'):
         Sensor cache serving cal product sensors
     attrs : dict-like
         Calibration stream attributes (e.g. a "cal" telstate view)
+    cal_stream : string
+        Name of calibration stream (e.g. "l1")
     product_type : string
         Calibration product type (e.g. "G")
-    cal_stream : string, optional
-        Name of calibration stream (e.g. "l1")
     """
     sensor_name = 'Calibration/Products/{}/{}'.format(cal_stream, product_type)
     try:
@@ -219,8 +220,7 @@ def calc_gain_correction(sensor, index):
     return np.reciprocal(smooth_gains)
 
 
-def add_applycal_sensors(cache, attrs, data_freqs, cal_stream='cal',
-                         cal_substreams=None):
+def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=None):
     """Register virtual sensors for one calibration stream.
 
     This operates on a single calibration stream called `cal_stream` (possibly
@@ -245,7 +245,7 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream='cal',
         Calibration stream attributes (e.g. a "cal" telstate view)
     data_freqs : array of float, shape (*F*,)
         Centre frequency of each frequency channel of visibilities, in Hz
-    cal_stream : string, optional
+    cal_stream : string
         Name of (possibly virtual) calibration stream (e.g. "l1")
     cal_substreams : sequence of string, optional
         Names of actual underlying calibration streams (e.g. ["cal"]),
@@ -276,7 +276,7 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream='cal',
 
     def calc_correction_per_input(cache, name, inp, product_type):
         """Calculate correction sensor for input `inp` from cal solutions."""
-        product_sensor = get_cal_product(cache, attrs, product_type, cal_stream)
+        product_sensor = get_cal_product(cache, attrs, cal_stream, product_type)
         try:
             index = cal_input_map[inp]
         except KeyError:
@@ -405,7 +405,7 @@ def calc_correction(chunks, cache, corrprods, cal_products,
     corrprods : sequence of (string, string)
         Selected correlation products as pairs of correlator input labels
     cal_products : sequence of string
-        Calibration products that will contribute to corrections
+        Calibration products that will contribute to corrections (e.g. ["l1.G"])
     skip_missing_products : bool
         If True, skip products with missing sensors instead of raising KeyError
 

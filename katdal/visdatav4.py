@@ -365,6 +365,9 @@ class VisibilityDataV4(DataSet):
                              cal_substreams=['cal'])
         applycal_products = _selection_to_list(applycal, all=DEFAULT_CAL_PRODUCTS)
         skip_missing_products = (applycal == 'all')
+        # Let 'l1' be the default stream if only a product type is specified
+        applycal_products = [product if '.' in product else 'l1.' + product
+                             for product in applycal_products]
         if not self.source.data or not applycal_products:
             self._corrections = None
             self._corrected = self.source.data
