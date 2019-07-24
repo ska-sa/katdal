@@ -457,7 +457,7 @@ def calc_correction(chunks, cache, corrprods, cal_products,
     if not corrections:
         return None
     params = CorrectionParams(inputs, input1_index, input2_index, corrections)
-    name = 'corrections[{}]'.format(','.join(corrections.keys()))
+    name = 'corrections[{}]'.format(','.join(sorted(corrections.keys())))
     return da.map_blocks(_correction_block, dtype=np.complex64, chunks=chunks,
                          name=name, params=params)
 
