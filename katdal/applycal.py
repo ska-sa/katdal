@@ -16,17 +16,11 @@
 
 """Utilities for applying calibration solutions to visibilities and weights."""
 from __future__ import print_function, division, absolute_import
-from builtins import range, zip
 
 import logging
-import itertools
-import operator
 
 import numpy as np
 import dask.array as da
-import dask.base
-import dask.utils
-import toolz
 import numba
 
 from .categorical import CategoricalData, ComparableArrayWrapper
@@ -36,8 +30,8 @@ from .flags import POSTPROC
 
 # A constant indicating invalid / absent gain (typically due to flagged data)
 INVALID_GAIN = np.complex64(complex(np.nan, np.nan))
-# All the calibration products katdal knows about
-CAL_PRODUCTS = ('K', 'B', 'G')
+# All the calibration product types katdal knows about
+CAL_PRODUCT_TYPES = ('K', 'B', 'G')
 
 logger = logging.getLogger(__name__)
 
@@ -92,42 +86,51 @@ def complex_interp(x, xi, yi, left=None, right=None):
     return y.astype(yi.dtype)
 
 
-def has_cal_product(cache, attrs, product):
-    """Check if calibration solution `product` is available in `cache`."""
-    key = 'cal_product_' + product
-    try:
-        parts = int(attrs[key + '_parts'])
-    except KeyError:
-        return key in cache
-    else:
-        return any(key + str(part) in cache for part in range(parts))
+def _parse_cal_product(cal_product):
+    """Split `cal_product` into `cal_stream` and `product_type` parts."""
+    fields = cal_product.rsplit('.', 1)
+    if len(fields) != 2:
+        raise ValueError('Calibration product {} is not in the format '
+                         '<cal_stream>.<product_type>'.format(cal_product))
+    return fields[0], fields[1]
 
 
-def get_cal_product(cache, attrs, product):
-    """Extract calibration solution `product` from `cache` as a sensor.
+def get_cal_product(cache, attrs, cal_stream, product_type):
+    """Extract calibration solution from cache as a sensor.
 
     This takes care of stitching together multiple parts of the product
     if this is indicated in the `attrs` dict.
+
+    Parameters
+    ----------
+    cache : :class:`~katdal.sensordata.SensorCache` object
+        Sensor cache serving cal product sensors
+    attrs : dict-like
+        Calibration stream attributes (e.g. a "cal" telstate view)
+    cal_stream : string
+        Name of calibration stream (e.g. "l1")
+    product_type : string
+        Calibration product type (e.g. "G")
     """
-    key = 'cal_product_' + product
+    sensor_name = 'Calibration/Products/{}/{}'.format(cal_stream, product_type)
     try:
-        n_parts = int(attrs[key + '_parts'])
+        n_parts = int(attrs['product_{}_parts'.format(product_type)])
     except KeyError:
-        return cache.get(key)
+        return cache.get(sensor_name)
     # Handle multi-part cal product (as produced by "split cal")
     # First collect all the parts as sensors (and mark missing ones as None)
     parts = []
     valid_part = None
     for n in range(n_parts):
         try:
-            valid_part = cache.get(key + str(n))
+            valid_part = cache.get(sensor_name + str(n))
         except KeyError:
             parts.append(None)
         else:
             parts.append(valid_part)
     if valid_part is None:
-        raise KeyError("No cal product '{}' parts found (expected {})"
-                       .format(product, n_parts))
+        raise KeyError("No cal product '{}.{}' parts found (expected {})"
+                       .format(cal_stream, product_type, n_parts))
     # Convert each part to its sensor values (filling missing ones with NaNs)
     events = valid_part.events
     invalid_part = None
@@ -140,8 +143,9 @@ def get_cal_product(cache, attrs, product):
             parts[n] = invalid_part
         else:
             if not np.array_equal(parts[n].events, events):
-                raise ValueError("Cal product '{}' part {} does not align in "
-                                 "time with the rest".format(product, n))
+                msg = ("Cal product '{}.{}' part {} does not align in time "
+                       "with the rest".format(cal_stream, product_type, n))
+                raise ValueError(msg)
             parts[n] = [value for segment, value in parts[n].segments()]
     # Stitch all the value arrays together and form a new combined sensor
     values = np.concatenate(parts, axis=1)
@@ -216,57 +220,87 @@ def calc_gain_correction(sensor, index):
     return np.reciprocal(smooth_gains)
 
 
-def add_applycal_sensors(cache, attrs, data_freqs):
-    """Add virtual sensors that store calibration corrections, to sensor cache.
+def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=None):
+    """Register virtual sensors for one calibration stream.
 
-    This maps receptor inputs to the relevant indices in each calibration
-    product based on the ants and pols found in `attrs`. It then registers
-    a virtual sensor per input and per cal product in the SensorCache `cache`,
-    with template 'Calibration/{inp}_correction_{product}'. The virtual sensor
-    function picks the appropriate correction calculator based on the cal
-    product name, which also uses auxiliary info like the channel frequencies,
-    `data_freqs`.
+    This operates on a single calibration stream called `cal_stream` (possibly
+    an alias), which derives from one or more underlying cal streams listed in
+    `cal_substreams` and has stream attributes in `attrs`.
+
+    The first set of virtual sensors maps all cal products into a unified
+    namespace (template 'Calibration/Products/`cal_stream`/{product_type}').
+    Map receptor inputs to the relevant indices in each calibration product
+    based on the ants and pols found in `attrs`. Then register a virtual sensor
+    per product type and per input in the SensorCache `cache`, with template
+    'Calibration/Corrections/`cal_stream`/{product_type}/{inp}'. The virtual
+    sensor function picks the appropriate correction calculator based on the
+    cal product type, which also uses auxiliary info like the channel
+    frequencies, `data_freqs`.
+
+    Parameters
+    ----------
+    cache : :class:`~katdal.sensordata.SensorCache` object
+        Sensor cache serving cal product sensors and receiving correction sensors
+    attrs : dict-like
+        Calibration stream attributes (e.g. a "cal" telstate view)
+    data_freqs : array of float, shape (*F*,)
+        Centre frequency of each frequency channel of visibilities, in Hz
+    cal_stream : string
+        Name of (possibly virtual) calibration stream (e.g. "l1")
+    cal_substreams : sequence of string, optional
+        Names of actual underlying calibration streams (e.g. ["cal"]),
+        defaults to [`cal_stream`] itself
     """
-    cal_ants = attrs.get('cal_antlist', [])
-    cal_pols = attrs.get('cal_pol_ordering', [])
+    if cal_substreams is None:
+        cal_substreams = [cal_stream]
+    cal_ants = attrs.get('antlist', [])
+    cal_pols = attrs.get('pol_ordering', [])
     cal_input_map = {ant + pol: (pol_idx, ant_idx)
                      for (pol_idx, pol) in enumerate(cal_pols)
                      for (ant_idx, ant) in enumerate(cal_ants)}
     if not cal_input_map:
         return
     try:
-        cal_spw = SpectralWindow(attrs['cal_center_freq'], None,
-                                 attrs['cal_n_chans'], sideband=1,
-                                 bandwidth=attrs['cal_bandwidth'])
+        cal_spw = SpectralWindow(attrs['center_freq'], None,
+                                 attrs['n_chans'], sideband=1,
+                                 bandwidth=attrs['bandwidth'])
         cal_freqs = cal_spw.channel_freqs
     except KeyError:
-        logger.warning('Missing cal spectral attributes, disabling applycal')
+        logger.warning("Disabling cal stream '%s' due to missing "
+                       "spectral attributes", cal_stream)
         return
 
-    def calc_correction_per_input(cache, name, inp, product):
+    def indirect_cal_product(cache, name, product_type):
+        # XXX The first underscore below is actually a telstate separator...
+        return cache.get('{}_product_{}'.format(cal_substreams[0], product_type))
+
+    def calc_correction_per_input(cache, name, inp, product_type):
         """Calculate correction sensor for input `inp` from cal solutions."""
-        product_sensor = get_cal_product(cache, attrs, product)
+        product_sensor = get_cal_product(cache, attrs, cal_stream, product_type)
         try:
             index = cal_input_map[inp]
         except KeyError:
             raise KeyError("No calibration solutions available for input "
                            "'{}' - available ones are {}"
                            .format(inp, sorted(cal_input_map.keys())))
-        if product == 'K':
+        if product_type == 'K':
             correction_sensor = calc_delay_correction(product_sensor, index,
                                                       data_freqs)
-        elif product == 'B':
+        elif product_type == 'B':
             correction_sensor = calc_bandpass_correction(product_sensor, index,
                                                          data_freqs, cal_freqs)
-        elif product == 'G':
+        elif product_type == 'G':
             correction_sensor = calc_gain_correction(product_sensor, index)
         else:
-            raise KeyError("Unknown calibration product '{}'".format(product))
+            raise KeyError("Unknown calibration product type '{}' - available "
+                           "ones are {}".format(product_type, CAL_PRODUCT_TYPES))
         cache[name] = correction_sensor
         return correction_sensor
 
-    correction_sensor_template = 'Calibration/{inp}_correction_{product}'
-    cache.virtual[correction_sensor_template] = calc_correction_per_input
+    template = 'Calibration/Products/{}/{{product_type}}'.format(cal_stream)
+    cache.virtual[template] = indirect_cal_product
+    template = 'Calibration/Corrections/{}/{{product_type}}/{{inp}}'.format(cal_stream)
+    cache.virtual[template] = calc_correction_per_input
 
 
 @numba.jit(nopython=True, nogil=True)
@@ -286,20 +320,20 @@ class CorrectionParams(object):
 
     Parameters
     ----------
-    products : dict
+    inputs : list of str
+        Names of inputs, in the same order as the input axis of products
+    input1_index, input2_index : array of int
+        Indices into `inputs` of first and second items of correlation product
+    corrections : dict
         A dictionary (indexed by cal product name) of lists (indexed
         by input) of sequences (indexed by dump) of numpy arrays, with
         corrections to apply.
-    inputs : list of str
-        Names of inputs, in the same order as the input axis of products
-    input1_index, input2_index : ndarray
-        Indices into `inputs` of first and second items of correlation product
     """
-    def __init__(self, inputs, input1_index, input2_index, products):
+    def __init__(self, inputs, input1_index, input2_index, corrections):
         self.inputs = inputs
         self.input1_index = input1_index
         self.input2_index = input2_index
-        self.products = products
+        self.corrections = corrections
 
 
 def calc_correction_per_corrprod(dump, channels, params):
@@ -317,7 +351,7 @@ def calc_correction_per_corrprod(dump, channels, params):
     channels : slice
         Channel indices (applicable to full data set, i.e. absolute)
     params : :class:`CorrectionParams`
-        Data for obtaining corrections to merge
+        Corrections per input, together with correlation product indices
 
     Returns
     -------
@@ -331,13 +365,13 @@ def calc_correction_per_corrprod(dump, channels, params):
     """
     n_channels = channels.stop - channels.start
     g_per_input = np.ones((len(params.inputs), n_channels), dtype='complex64')
-    for product in params.products.values():
-        for n in range(len(params.inputs)):
-            sensor = product[n]
+    for product_corrections in params.corrections.values():
+        for i in range(len(params.inputs)):
+            sensor = product_corrections[i]
             g_product = sensor[dump]
             if np.shape(g_product) != ():
                 g_product = g_product[channels]
-            g_per_input[n] *= g_product
+            g_per_input[i] *= g_product
     # Transpose to (channel, input) order, and ensure C ordering
     g_per_input = np.ascontiguousarray(g_per_input.T)
     g_per_cp = np.empty((n_channels, len(params.input1_index)), dtype='complex64')
@@ -357,7 +391,8 @@ def _correction_block(block_info, params):
     return correction
 
 
-def calc_correction(chunks, cache, corrprods, cal_products):
+def calc_correction(chunks, cache, corrprods, cal_products,
+                    skip_missing_products=False):
     """Create a dask array containing applycal corrections.
 
     Parameters
@@ -365,12 +400,27 @@ def calc_correction(chunks, cache, corrprods, cal_products):
     chunks : tuple of tuple of int
         Chunking scheme of the resulting array, in normalized form (see
         :func:`dask.array.core.normalize_chunks`).
-    cache : :class:`katdal.sensordata.SensorCache` object
+    cache : :class:`~katdal.sensordata.SensorCache` object
         Sensor cache, used to look up individual correction sensors
     corrprods : sequence of (string, string)
         Selected correlation products as pairs of correlator input labels
     cal_products : sequence of string
-        Calibration products that will contribute to corrections
+        Calibration products that will contribute to corrections (e.g. ["l1.G"])
+    skip_missing_products : bool
+        If True, skip products with missing sensors instead of raising KeyError
+
+    Returns
+    -------
+    corrections : :class:`dask.array.Array` object, or None
+        Dask array that produces corrections for entire vis array, or `None` if
+        no calibration products were found (either `cal_products` is empty or all
+        products had some missing sensors and `skip_missing_products` is True)
+
+    Raises
+    ------
+    KeyError
+        If a correction sensor for a given input and cal product is not found
+        (and `skip_missing_products` is False)
     """
     shape = tuple(sum(bd) for bd in chunks)
     if len(chunks[2]) > 1:
@@ -379,12 +429,19 @@ def calc_correction(chunks, cache, corrprods, cal_products):
     inputs = sorted(set(np.ravel(corrprods)))
     input1_index = np.array([inputs.index(cp[0]) for cp in corrprods])
     input2_index = np.array([inputs.index(cp[1]) for cp in corrprods])
-    products = {}
-    for product in cal_products:
-        products[product] = []
+    corrections = {}
+    for cal_product in cal_products:
+        cal_stream, product_type = _parse_cal_product(cal_product)
+        sensor_prefix = 'Calibration/Corrections/{}/{}/'.format(cal_stream, product_type)
+        corrections_per_product = []
         for i, inp in enumerate(inputs):
-            sensor_name = 'Calibration/{}_correction_{}'.format(inp, product)
-            sensor = cache.get(sensor_name)
+            try:
+                sensor = cache.get(sensor_prefix + inp)
+            except KeyError:
+                if skip_missing_products:
+                    break
+                else:
+                    raise
             # Indexing CategoricalData by dump is relatively slow (tens of
             # microseconds), so expand it into a plain-old Python list.
             if isinstance(sensor, CategoricalData):
@@ -394,10 +451,15 @@ def calc_correction(chunks, cache, corrprods, cal_products):
                         data[j] = v
             else:
                 data = sensor
-            products[product].append(data)
-    params = CorrectionParams(inputs, input1_index, input2_index, products)
-    name = 'corrections[{}]'.format(','.join(cal_products))
-    return da.map_blocks(_correction_block, chunks=chunks, dtype=np.complex64, params=params)
+            corrections_per_product.append(data)
+        else:
+            corrections[cal_product] = corrections_per_product
+    if not corrections:
+        return None
+    params = CorrectionParams(inputs, input1_index, input2_index, corrections)
+    name = 'corrections[{}]'.format(','.join(sorted(corrections.keys())))
+    return da.map_blocks(_correction_block, dtype=np.complex64, chunks=chunks,
+                         name=name, params=params)
 
 
 @numba.jit(nopython=True, nogil=True)

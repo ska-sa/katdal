@@ -34,7 +34,7 @@ from .categorical import CategoricalData
 from .lazy_indexer import DaskLazyIndexer
 from .applycal import (add_applycal_sensors, calc_correction,
                        apply_vis_correction, apply_weights_correction,
-                       apply_flags_correction, has_cal_product, CAL_PRODUCTS)
+                       apply_flags_correction)
 from .flags import NAMES as FLAG_NAMES, DESCRIPTIONS as FLAG_DESCRIPTIONS
 
 
@@ -81,6 +81,8 @@ def _add_sensor_alias(cache, new_name, old_name):
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel,
                         'Antennas/{ant}/el': _calc_azel})
+
+DEFAULT_CAL_PRODUCTS = ('l1.K', 'l1.B', 'l1.G')
 
 # -----------------------------------------------------------------------------
 # -- CLASS :  VisibilityDataV4
@@ -357,28 +359,39 @@ class VisibilityDataV4(DataSet):
         # ------ Register applycal virtual sensors and products ------
 
         freqs = self.spectral_windows[0].channel_freqs
-        add_applycal_sensors(self.sensor, attrs, freqs)
-        available_products = [product for product in CAL_PRODUCTS
-                              if has_cal_product(self.sensor, attrs, product)]
-        self._applycal = _selection_to_list(applycal, all=available_products)
-        if not self.source.data or not self._applycal:
+        # XXX This assumes that `attrs` is a telstate and not a dict-like
+        cal_attrs = attrs.view('cal', exclusive=True)
+        add_applycal_sensors(self.sensor, cal_attrs, freqs, cal_stream='l1',
+                             cal_substreams=['cal'])
+        applycal_products = _selection_to_list(applycal, all=DEFAULT_CAL_PRODUCTS)
+        skip_missing_products = (applycal == 'all')
+        # Let 'l1' be the default stream if only a product type is specified
+        applycal_products = [product if '.' in product else 'l1.' + product
+                             for product in applycal_products]
+        if not self.source.data or not applycal_products:
             self._corrections = None
             self._corrected = self.source.data
         else:
             self._corrections = calc_correction(self.source.data.vis.chunks, self.sensor,
                                                 self.subarrays[self.subarray].corr_products,
-                                                self._applycal)
-            corrected_vis = self._make_corrected(apply_vis_correction, self.source.data.vis)
-            corrected_flags = self._make_corrected(apply_flags_correction, self.source.data.flags)
-            corrected_weights = self._make_corrected(apply_weights_correction, self.source.data.weights)
-            name = self.source.data.name
-            # Acknowledge that the applycal step is making the L1 product
-            if 'sdp_l0' in name:
-                name = name.replace('sdp_l0', 'sdp_l1')
+                                                applycal_products, skip_missing_products)
+            if self._corrections is None:
+                self._corrected = self.source.data
             else:
-                name = name + ' (corrected)'
-            self._corrected = VisFlagsWeights(corrected_vis, corrected_flags, corrected_weights,
-                                              name=name)
+                corrected_vis = self._make_corrected(apply_vis_correction,
+                                                     self.source.data.vis)
+                corrected_flags = self._make_corrected(apply_flags_correction,
+                                                       self.source.data.flags)
+                corrected_weights = self._make_corrected(apply_weights_correction,
+                                                         self.source.data.weights)
+                name = self.source.data.name
+                # Acknowledge that the applycal step is making the L1 product
+                if 'sdp_l0' in name:
+                    name = name.replace('sdp_l0', 'sdp_l1')
+                else:
+                    name = name + ' (corrected)'
+                self._corrected = VisFlagsWeights(corrected_vis, corrected_flags,
+                                                  corrected_weights, name=name)
 
         # Apply default selection and initialise all members that depend
         # on selection in the process

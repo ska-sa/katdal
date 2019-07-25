@@ -26,8 +26,7 @@ import dask.array as da
 from katdal.spectral_window import SpectralWindow
 from katdal.sensordata import SensorCache
 from katdal.categorical import ComparableArrayWrapper, CategoricalData
-from katdal.applycal import (complex_interp,
-                             has_cal_product, get_cal_product, INVALID_GAIN,
+from katdal.applycal import (complex_interp, get_cal_product, INVALID_GAIN,
                              calc_delay_correction, calc_bandpass_correction,
                              calc_gain_correction, apply_vis_correction,
                              apply_weights_correction, apply_flags_correction,
@@ -66,11 +65,13 @@ BANDPASS_PARTS = 4
 GAIN_EVENTS = list(range(0, N_DUMPS, 10))
 BAD_GAIN_ANT = 3
 BAD_GAIN_DUMPS = [20, 40]
-CAL_PRODUCTS = ['K', 'B', 'G']
 
-ATTRS = {'cal_antlist': ANTS, 'cal_pol_ordering': POLS,
-         'cal_center_freq': CAL_CENTRE_FREQ, 'cal_bandwidth': CAL_BANDWIDTH,
-         'cal_n_chans': CAL_N_CHANS, 'cal_product_B_parts': BANDPASS_PARTS}
+CAL_STREAM = 'cal'
+ATTRS = {'antlist': ANTS, 'pol_ordering': POLS,
+         'center_freq': CAL_CENTRE_FREQ, 'bandwidth': CAL_BANDWIDTH,
+         'n_chans': CAL_N_CHANS, 'product_B_parts': BANDPASS_PARTS}
+CAL_PRODUCT_TYPES = ('K', 'B', 'G')
+CAL_PRODUCTS = ['{}.{}'.format(CAL_STREAM, prod) for prod in CAL_PRODUCT_TYPES]
 
 
 def create_delay(pol, ant):
@@ -118,17 +119,18 @@ def create_sensor_cache(bandpass_parts=BANDPASS_PARTS):
     cache = {}
     # Add delay product (single)
     delays = create_product(create_delay)
-    cache['cal_product_K'] = CategoricalData([np.zeros_like(delays), delays],
-                                             events=[0, 10, N_DUMPS])
+    cache[CAL_STREAM + '_product_K'] = CategoricalData(
+        [np.zeros_like(delays), delays], events=[0, 10, N_DUMPS])
     # Add bandpass product (multi-part)
     bandpasses = create_product(create_bandpass)
     for part, bp in enumerate(np.split(bandpasses, bandpass_parts)):
-        cache['cal_product_B' + str(part)] = CategoricalData(
+        cache[CAL_STREAM + '_product_B' + str(part)] = CategoricalData(
             [np.ones_like(bp), bp], events=[0, 12, N_DUMPS])
     # Add gain product (single multi-part as a corner case)
     gains = create_product(create_gain)
     gains = [ComparableArrayWrapper(g) for g in gains]
-    cache['cal_product_G'] = CategoricalData(gains, GAIN_EVENTS + [N_DUMPS])
+    cache[CAL_STREAM + '_product_G'] = CategoricalData(gains,
+                                                       GAIN_EVENTS + [N_DUMPS])
     # Construct sensor cache
     return SensorCache(cache, timestamps=np.arange(N_DUMPS, dtype=float),
                        dump_period=1.)
@@ -173,15 +175,13 @@ def corrections_per_corrprod(dumps, channels, corrprods=()):
                  for (ant_idx, ant) in enumerate(ANTS)}
     gains_per_input = np.ones((len(dumps), N_CHANS, len(INPUTS)),
                               dtype='complex64')
-    if 'K' in CAL_PRODUCTS:
-        gains_per_input *= np.array([delay_corrections(*input_map[inp])
-                                     for inp in INPUTS]).T
-    if 'B' in CAL_PRODUCTS:
-        gains_per_input *= np.array([bandpass_corrections(*input_map[inp])
-                                     for inp in INPUTS]).T
-    if 'G' in CAL_PRODUCTS:
-        gains_per_input *= np.array([gain_corrections(*input_map[inp])[dumps]
-                                     for inp in INPUTS]).T[:, np.newaxis]
+    # Apply (K, B, G) corrections
+    gains_per_input *= np.array([delay_corrections(*input_map[inp])
+                                 for inp in INPUTS]).T
+    gains_per_input *= np.array([bandpass_corrections(*input_map[inp])
+                                 for inp in INPUTS]).T
+    gains_per_input *= np.array([gain_corrections(*input_map[inp])[dumps]
+                                 for inp in INPUTS]).T[:, np.newaxis]
     gains_per_input = gains_per_input[:, channels, :]
     gain1 = gains_per_input[:, :, INDEX1[corrprods]]
     gain2 = gains_per_input[:, :, INDEX2[corrprods]]
@@ -241,28 +241,16 @@ class TestCalProductAccess(object):
     """Test the :func:`~katdal.applycal.*_cal_product` functions."""
     def setup(self):
         self.cache = create_sensor_cache()
-
-    def test_has_cal_product(self):
-        assert_equal(has_cal_product(self.cache, ATTRS, 'K'), True)
-        assert_equal(has_cal_product(self.cache, ATTRS, 'B'), True)
-        assert_equal(has_cal_product(self.cache, ATTRS, 'G'), True)
-        assert_equal(has_cal_product(self.cache, ATTRS, 'haha'), False)
-        # Remove parts of multi-part cal product one by one
-        cache = create_sensor_cache()
-        for n in range(BANDPASS_PARTS):
-            assert_equal(has_cal_product(cache, ATTRS, 'B'), True)
-            del cache['cal_product_B' + str(n)]
-        # All parts of multi-part cal product gone
-        assert_equal(has_cal_product(cache, ATTRS, 'B'), False)
+        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM)
 
     def test_get_cal_product_basic(self):
-        product_sensor = get_cal_product(self.cache, ATTRS, 'K')
+        product_sensor = get_cal_product(self.cache, ATTRS, CAL_STREAM, 'K')
         product = create_product(create_delay)
         assert_array_equal(product_sensor[0], np.zeros_like(product))
         assert_array_equal(product_sensor[10], product)
 
     def test_get_cal_product_multipart(self):
-        product_sensor = get_cal_product(self.cache, ATTRS, 'B')
+        product_sensor = get_cal_product(self.cache, ATTRS, CAL_STREAM, 'B')
         product = create_product(create_bandpass)
         assert_array_equal(product_sensor[0], np.ones_like(product))
         assert_array_equal(product_sensor[12], product)
@@ -270,8 +258,8 @@ class TestCalProductAccess(object):
     def test_get_cal_product_single_multipart(self):
         cache = create_sensor_cache(bandpass_parts=1)
         attrs = ATTRS.copy()
-        attrs['cal_product_B_parts'] = 1
-        product_sensor = get_cal_product(cache, attrs, 'B')
+        attrs['product_B_parts'] = 1
+        product_sensor = get_cal_product(cache, attrs, CAL_STREAM, 'B')
         product = create_product(create_bandpass)
         assert_array_equal(product_sensor[0], np.ones_like(product))
         assert_array_equal(product_sensor[12], product)
@@ -282,18 +270,18 @@ class TestCalProductAccess(object):
         n_chans_per_part = CAL_N_CHANS // BANDPASS_PARTS
         # Remove parts of multi-part cal product one by one
         for n in range(BANDPASS_PARTS - 1):
-            del cache['cal_product_B' + str(n)]
-            product_sensor = get_cal_product(cache, ATTRS, 'B')
+            del cache[CAL_STREAM + '_product_B' + str(n)]
+            product_sensor = get_cal_product(cache, ATTRS, CAL_STREAM, 'B')
             part = slice(n * n_chans_per_part, (n + 1) * n_chans_per_part)
             product[part] = INVALID_GAIN
             assert_array_equal(product_sensor[12], product)
         # All parts gone triggers a KeyError
-        del cache['cal_product_B' + str(BANDPASS_PARTS - 1)]
+        del cache[CAL_STREAM + '_product_B' + str(BANDPASS_PARTS - 1)]
         with assert_raises(KeyError):
-            get_cal_product(cache, ATTRS, 'B')
+            get_cal_product(cache, ATTRS, CAL_STREAM, 'B')
 
     def test_get_cal_product_gain(self):
-        product_sensor = get_cal_product(self.cache, ATTRS, 'G')
+        product_sensor = get_cal_product(self.cache, ATTRS, CAL_STREAM, 'G')
         product = create_product(create_gain)
         assert_array_equal(product_sensor[GAIN_EVENTS], product)
 
@@ -302,9 +290,10 @@ class TestCorrectionPerInput(object):
     """Test the :func:`~katdal.applycal.calc_*_correction` functions."""
     def setup(self):
         self.cache = create_sensor_cache()
+        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM)
 
     def test_calc_delay_correction(self):
-        product_sensor = get_cal_product(self.cache, ATTRS, 'K')
+        product_sensor = get_cal_product(self.cache, ATTRS, CAL_STREAM, 'K')
         constant_bandpass = np.ones(N_CHANS, dtype='complex64')
         for n in range(len(ANTS)):
             for m in range(len(POLS)):
@@ -313,7 +302,7 @@ class TestCorrectionPerInput(object):
                 assert_array_equal(sensor[10 + n], delay_corrections(m, n))
 
     def test_calc_bandpass_correction(self):
-        product_sensor = get_cal_product(self.cache, ATTRS, 'B')
+        product_sensor = get_cal_product(self.cache, ATTRS, CAL_STREAM, 'B')
         constant_bandpass = np.ones(N_CHANS, dtype='complex64')
         constant_bandpass[FREQS < CAL_FREQS[0]] = INVALID_GAIN
         constant_bandpass[FREQS > CAL_FREQS[-1]] = INVALID_GAIN
@@ -325,7 +314,7 @@ class TestCorrectionPerInput(object):
                 assert_array_equal(sensor[12 + n], bandpass_corrections(m, n))
 
     def test_calc_gain_correction(self):
-        product_sensor = get_cal_product(self.cache, ATTRS, 'G')
+        product_sensor = get_cal_product(self.cache, ATTRS, CAL_STREAM, 'G')
         for n in range(len(ANTS)):
             for m in range(len(POLS)):
                 sensor = calc_gain_correction(product_sensor, (m, n))
@@ -336,56 +325,70 @@ class TestVirtualCorrectionSensors(object):
     """Test :func:`~katdal.applycal.add_applycal_sensors` function."""
     def setup(self):
         self.cache = create_sensor_cache()
-        add_applycal_sensors(self.cache, ATTRS, FREQS)
+        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM)
 
     def test_add_sensors_does_nothing_if_no_ants_pols_or_spw(self):
         cache = create_sensor_cache()
         n_virtuals_before = len(cache.virtual)
-        add_applycal_sensors(cache, {}, [])
+        add_applycal_sensors(cache, {}, [], CAL_STREAM)
         n_virtuals_after = len(cache.virtual)
         assert_equal(n_virtuals_after, n_virtuals_before)
         attrs = ATTRS.copy()
-        del attrs['cal_center_freq']
-        add_applycal_sensors(self.cache, attrs, FREQS)
+        del attrs['center_freq']
+        add_applycal_sensors(self.cache, attrs, FREQS, CAL_STREAM)
         n_virtuals_after = len(cache.virtual)
         assert_equal(n_virtuals_after, n_virtuals_before)
 
-    def test_delay_sensors(self):
+    def test_delay_sensors(self, stream=CAL_STREAM):
         for n, ant in enumerate(ANTS):
             for m, pol in enumerate(POLS):
-                sensor_name = 'Calibration/{}{}_correction_K'.format(ant, pol)
+                sensor_name = 'Calibration/Corrections/{}/K/{}{}'.format(stream, ant, pol)
                 sensor = self.cache.get(sensor_name)
                 assert_array_equal(sensor[10 + n], delay_corrections(m, n))
 
-    def test_bandpass_sensors(self):
+    def test_bandpass_sensors(self, stream=CAL_STREAM):
         for n, ant in enumerate(ANTS):
             for m, pol in enumerate(POLS):
-                sensor_name = 'Calibration/{}{}_correction_B'.format(ant, pol)
+                sensor_name = 'Calibration/Corrections/{}/B/{}{}'.format(stream, ant, pol)
                 sensor = self.cache.get(sensor_name)
                 assert_array_equal(sensor[12 + n], bandpass_corrections(m, n))
 
-    def test_gain_sensors(self):
+    def test_gain_sensors(self, stream=CAL_STREAM):
         for n, ant in enumerate(ANTS):
             for m, pol in enumerate(POLS):
-                sensor_name = 'Calibration/{}{}_correction_G'.format(ant, pol)
+                sensor_name = 'Calibration/Corrections/{}/G/{}{}'.format(stream, ant, pol)
                 sensor = self.cache.get(sensor_name)
                 assert_array_equal(sensor[:], gain_corrections(m, n))
 
     def test_unknown_inputs_and_products(self):
-        known_input = 'Calibration/{}{}'.format(ANTS[0], POLS[0])
+        known_input = '{}{}'.format(ANTS[0], POLS[0])
         with assert_raises(KeyError):
-            self.cache.get('Calibration/unknown_correction_K')
+            self.cache.get('Calibration/Corrections/{}/K/unknown'.format(CAL_STREAM))
         with assert_raises(KeyError):
-            self.cache.get(known_input + '_correction_unknown')
+            self.cache.get('Calibration/Corrections/{}/unknown/{}'
+                           .format(CAL_STREAM, known_input))
         with assert_raises(KeyError):
-            self.cache.get(known_input + '_correction_K_unknown')
+            self.cache.get('Calibration/Corrections/{}/K_unknown/{}'
+                           .format(CAL_STREAM, known_input))
+        with assert_raises(KeyError):
+            self.cache.get('Calibration/Corrections/unknown/K/' + known_input)
+        with assert_raises(KeyError):
+            self.cache.get('Calibration/Products/{}/K_unknown'.format(CAL_STREAM))
+        with assert_raises(KeyError):
+            self.cache.get('Calibration/Products/unknown/K')
+
+    def test_indirect_cal_product(self):
+        add_applycal_sensors(self.cache, ATTRS, FREQS, 'my_cal', [CAL_STREAM])
+        self.test_delay_sensors('my_cal')
+        self.test_bandpass_sensors('my_cal')
+        self.test_gain_sensors('my_cal')
 
 
 class TestCalcCorrection(object):
     """Test :func:`~katdal.applycal.calc_correction` function."""
     def setup(self):
         self.cache = create_sensor_cache()
-        add_applycal_sensors(self.cache, ATTRS, FREQS)
+        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM)
 
     def test_calc_correction(self):
         dump = 15
@@ -397,12 +400,35 @@ class TestCalcCorrection(object):
         expected_corrections = corrections_per_corrprod([dump], channels)
         assert_array_equal(corrections, expected_corrections)
 
+    def test_skip_missing_products(self):
+        dump = 15
+        channels = np.s_[22:38]
+        shape = (N_DUMPS, N_CHANS, N_CORRPRODS)
+        chunks = da.core.normalize_chunks((10, 5, -1), shape)
+        corrections = calc_correction(chunks, self.cache, CORRPRODS, [])
+        with assert_raises(ValueError):
+            corrections = calc_correction(chunks, self.cache, CORRPRODS, ['INVALID'])
+        assert_equal(corrections, None)
+        unknown = '{}.UNKNOWN'.format(CAL_STREAM)
+        corrections = calc_correction(chunks, self.cache, CORRPRODS, [unknown],
+                                      skip_missing_products=True)
+        assert_equal(corrections, None)
+        cal_products = CAL_PRODUCTS + [unknown]
+        with assert_raises(KeyError):
+            corrections = calc_correction(chunks, self.cache, CORRPRODS, cal_products,
+                                          skip_missing_products=False)
+        corrections = calc_correction(chunks, self.cache, CORRPRODS, cal_products,
+                                      skip_missing_products=True)
+        corrections = corrections[dump:dump+1, channels].compute()
+        expected_corrections = corrections_per_corrprod([dump], channels)
+        assert_array_equal(corrections, expected_corrections)
+
 
 class TestApplyCal(object):
     """Test :func:`~katdal.applycal.apply_vis_correction` and friends"""
     def setup(self):
         self.cache = create_sensor_cache()
-        add_applycal_sensors(self.cache, ATTRS, FREQS)
+        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM)
 
     def _applycal(self, array, apply_correction):
         """Calibrate `array` with `apply_correction` and return all factors."""
