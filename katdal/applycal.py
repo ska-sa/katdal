@@ -198,29 +198,38 @@ def calc_bandpass_correction(sensor, index, data_freqs, cal_freqs):
     return CategoricalData(corrections, sensor.events)
 
 
-def calc_gain_correction(sensor, index):
+def calc_gain_correction(sensor, index, targets=None):
     """Calculate correction sensor from gain calibration solution sensor.
 
     Given the gain calibration solution `sensor`, this extracts the time
     series of gains for the input specified by `index` (in the form (pol, ant))
     and interpolates them over time to get the corresponding complex correction
-    terms.
+    terms. The optional `targets` parameter is a `CategoricalData` or array of
+    target indices, i.e. a sensor indicating the target associated with each
+    dump. If provided, interpolate solutions derived from one target only at
+    dumps associated with that target, which is what you want for
+    self-calibration solutions.
 
     Invalid solutions (NaNs) are replaced by linear interpolations over time
     (separately for magnitude and phase), as long as some dumps have valid
-    solutions.
+    solutions on the appropriate target.
     """
     dumps = np.arange(sensor.events[-1])
     events = sensor.events[:-1]
     gains = np.array([value[(Ellipsis,) + index]
                       for segment, value in sensor.segments()])
+    # Let the gains be shaped either (n_cal_freqs, n_events) or (1, n_events)
     gains = np.atleast_2d(gains.T)
-    # The gains are now shaped either (n_cal_freqs, n_events) or (1, n_events)
+    # Assume all dumps have the same target by default, i.e. interpolate freely
+    if targets is None:
+        targets = CategoricalData([0], [0, len(dumps)])
     smooth_gains = np.empty((len(dumps), gains.shape[0]), dtype=gains.dtype)
     for chan, gains_per_chan in enumerate(gains):
-        valid = np.isfinite(gains_per_chan)
-        smooth_gains[:, chan] = INVALID_GAIN if not valid.any() else \
-            complex_interp(dumps, events[valid], gains_per_chan[valid])
+        for target in set(targets):
+            on_target = (targets == target)
+            valid = np.isfinite(gains_per_chan) & on_target[events]
+            smooth_gains[on_target, chan] = INVALID_GAIN if not valid.any() else \
+                complex_interp(dumps[on_target], events[valid], gains_per_chan[valid])
     return np.reciprocal(smooth_gains)
 
 
@@ -299,8 +308,11 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
         elif product_type == 'B':
             correction_sensor = calc_bandpass_correction(product_sensor, index,
                                                          data_freqs, cal_freqs)
-        elif product_type in ('G', 'GPHASE', 'GAMP_PHASE'):
+        elif product_type == 'G':
             correction_sensor = calc_gain_correction(product_sensor, index)
+        elif product_type in ('GPHASE', 'GAMP_PHASE'):
+            targets = cache.get('Observation/target_index')
+            correction_sensor = calc_gain_correction(product_sensor, index, targets)
         else:
             raise KeyError("Unknown calibration product type '{}' - available "
                            "ones are {}".format(product_type, CAL_PRODUCT_TYPES))
