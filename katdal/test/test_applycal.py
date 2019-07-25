@@ -195,28 +195,31 @@ def gain_corrections(pol, ant, multi_channel=False, targets=False):
     return np.reciprocal(smooth_gains)
 
 
-def corrections_per_corrprod(dumps, channels, corrprods=()):
+def corrections_per_corrprod(dumps, channels, cal_products):
     """Predict corrprod correction for a time-frequency-baseline selection."""
     input_map = {ant + pol: (pol_idx, ant_idx)
                  for (pol_idx, pol) in enumerate(POLS)
                  for (ant_idx, ant) in enumerate(ANTS)}
     gains_per_input = np.ones((len(dumps), N_CHANS, len(INPUTS)),
                               dtype='complex64')
-    # Apply (K, B, G, GPHASE) corrections
-    gains_per_input *= np.array([delay_corrections(*input_map[inp])
-                                 for inp in INPUTS]).T
-    gains_per_input *= np.array([bandpass_corrections(*input_map[inp])
-                                 for inp in INPUTS]).T
-    gains_per_input *= np.array([gain_corrections(*input_map[inp])[dumps]
-                                 for inp in INPUTS]).T
-    gains_per_input *= np.array([gain_corrections(*input_map[inp],
-                                                  multi_channel=True,
-                                                  targets=True)[dumps]
-                                 for inp in INPUTS]
-                                ).transpose(1, 2, 0)[:, DATA_TO_CAL_CHANNEL]
+    corrections = {
+        CAL_STREAM + '.K': np.array([delay_corrections(*input_map[inp])
+                                     for inp in INPUTS]).T,
+        CAL_STREAM + '.B': np.array([bandpass_corrections(*input_map[inp])
+                                     for inp in INPUTS]).T,
+        CAL_STREAM + '.G': np.array([gain_corrections(*input_map[inp])[dumps]
+                                     for inp in INPUTS]).T,
+        CAL_STREAM + '.GPHASE': np.array([gain_corrections(*input_map[inp],
+                                                           multi_channel=True,
+                                                           targets=True)[dumps]
+                                          for inp in INPUTS]
+                                         ).transpose(1, 2, 0)[:, DATA_TO_CAL_CHANNEL]}
+    # Apply (K, B, G, GPHASE) corrections in correct order
+    for cal_product in cal_products:
+        gains_per_input *= corrections[cal_product]
     gains_per_input = gains_per_input[:, channels, :]
-    gain1 = gains_per_input[:, :, INDEX1[corrprods]]
-    gain2 = gains_per_input[:, :, INDEX2[corrprods]]
+    gain1 = gains_per_input[:, :, INDEX1]
+    gain2 = gains_per_input[:, :, INDEX2]
     return gain1 * gain2.conj()
 
 
@@ -449,10 +452,12 @@ class TestCalcCorrection(object):
         channels = np.s_[22:38]
         shape = (N_DUMPS, N_CHANS, N_CORRPRODS)
         chunks = da.core.normalize_chunks((10, 5, -1), shape)
-        corrections = calc_correction(chunks, self.cache, CORRPRODS, CAL_PRODUCTS,
-                                      FREQS, {'cal': CAL_FREQS})
+        final_cal_products, corrections = calc_correction(
+            chunks, self.cache, CORRPRODS, CAL_PRODUCTS, FREQS, {'cal': CAL_FREQS})
+        assert_equal(set(final_cal_products), set(CAL_PRODUCTS))
         corrections = corrections[dump:dump+1, channels].compute()
-        expected_corrections = corrections_per_corrprod([dump], channels)
+        expected_corrections = corrections_per_corrprod([dump], channels,
+                                                        final_cal_products)
         assert_array_equal(corrections, expected_corrections)
 
     def test_skip_missing_products(self):
@@ -460,27 +465,30 @@ class TestCalcCorrection(object):
         channels = np.s_[22:38]
         shape = (N_DUMPS, N_CHANS, N_CORRPRODS)
         chunks = da.core.normalize_chunks((10, 5, -1), shape)
-        corrections = calc_correction(chunks, self.cache, CORRPRODS, [],
-                                      FREQS, {'cal': CAL_FREQS})
+        final_cal_products, corrections = calc_correction(
+            chunks, self.cache, CORRPRODS, [], FREQS, {'cal': CAL_FREQS})
+        assert_equal(final_cal_products, [])
         assert_equal(corrections, None)
         with assert_raises(ValueError):
-            corrections = calc_correction(chunks, self.cache, CORRPRODS,
-                                          ['INVALID'], FREQS, {'cal': CAL_FREQS})
-        unknown = '{}.UNKNOWN'.format(CAL_STREAM)
-        corrections = calc_correction(chunks, self.cache, CORRPRODS, [unknown],
-                                      FREQS, {'cal': CAL_FREQS},
-                                      skip_missing_products=True)
+            calc_correction(chunks, self.cache, CORRPRODS, ['INVALID'], FREQS,
+                            {'cal': CAL_FREQS})
+        unknown = CAL_STREAM + '.UNKNOWN'
+        final_cal_products, corrections = calc_correction(
+            chunks, self.cache, CORRPRODS, [unknown], FREQS, {'cal': CAL_FREQS},
+            skip_missing_products=True)
+        assert_equal(final_cal_products, [])
         assert_equal(corrections, None)
         cal_products = CAL_PRODUCTS + [unknown]
         with assert_raises(KeyError):
-            corrections = calc_correction(chunks, self.cache, CORRPRODS,
-                                          cal_products, FREQS, {'cal': CAL_FREQS},
-                                          skip_missing_products=False)
-        corrections = calc_correction(chunks, self.cache, CORRPRODS, cal_products,
-                                      FREQS, {'cal': CAL_FREQS},
-                                      skip_missing_products=True)
+            calc_correction(chunks, self.cache, CORRPRODS, cal_products, FREQS,
+                            {'cal': CAL_FREQS}, skip_missing_products=False)
+        final_cal_products, corrections = calc_correction(
+            chunks, self.cache, CORRPRODS, cal_products, FREQS, {'cal': CAL_FREQS},
+            skip_missing_products=True)
+        assert_equal(set(final_cal_products), set(CAL_PRODUCTS))
         corrections = corrections[dump:dump+1, channels].compute()
-        expected_corrections = corrections_per_corrprod([dump], channels)
+        expected_corrections = corrections_per_corrprod([dump], channels,
+                                                        final_cal_products)
         assert_array_equal(corrections, expected_corrections)
 
 
@@ -493,9 +501,10 @@ class TestApplyCal(object):
     def _applycal(self, array, apply_correction):
         """Calibrate `array` with `apply_correction` and return all factors."""
         array_dask = da.from_array(array, chunks=(10, 4, 6))
-        correction = calc_correction(array_dask.chunks, self.cache, CORRPRODS,
-                                     CAL_PRODUCTS, FREQS, {'cal': CAL_FREQS})
-        corrected = da.core.elemwise(apply_correction, array_dask, correction, dtype=array_dask.dtype)
+        final_cal_products, correction = calc_correction(
+            array_dask.chunks, self.cache, CORRPRODS, CAL_PRODUCTS, FREQS, {'cal': CAL_FREQS})
+        corrected = da.core.elemwise(apply_correction, array_dask, correction,
+                                     dtype=array_dask.dtype)
         return corrected.compute(), correction.compute()
 
     def test_applycal_vis(self):

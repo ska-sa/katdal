@@ -444,6 +444,9 @@ def calc_correction(chunks, cache, corrprods, cal_products, data_freqs,
 
     Returns
     -------
+    final_cal_products : list of string
+        List of calibration products in the order that they will be applied
+        (potentially a subset of `cal_products` if skipping missing products)
     corrections : :class:`dask.array.Array` object, or None
         Dask array that produces corrections for entire vis array, or `None` if
         no calibration products were found (either `cal_products` is empty or all
@@ -498,13 +501,15 @@ def calc_correction(chunks, cache, corrprods, cal_products, data_freqs,
                 expand = np.abs(data_freqs[:, np.newaxis]
                                 - cal_freqs[np.newaxis, :]).argmin(axis=-1)
                 channel_maps[cal_product] = lambda g, channels: g[expand][channels]
-    if not corrections:
-        return None
+    final_cal_products = list(corrections.keys())
+    if not final_cal_products:
+        return final_cal_products, None
     params = CorrectionParams(inputs, input1_index, input2_index,
                               corrections, channel_maps)
-    name = 'corrections[{}]'.format(','.join(sorted(corrections.keys())))
-    return da.map_blocks(_correction_block, dtype=np.complex64, chunks=chunks,
-                         name=name, params=params)
+    name = 'corrections[{}]'.format(','.join(sorted(final_cal_products)))
+    return (final_cal_products,
+            da.map_blocks(_correction_block, dtype=np.complex64, chunks=chunks,
+                          name=name, params=params))
 
 
 @numba.jit(nopython=True, nogil=True)

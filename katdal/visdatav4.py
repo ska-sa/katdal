@@ -373,10 +373,10 @@ class VisibilityDataV4(DataSet):
             self._corrections = None
             self._corrected = self.source.data
         else:
-            self._corrections = calc_correction(self.source.data.vis.chunks, self.sensor,
-                                                self.subarrays[self.subarray].corr_products,
-                                                applycal_products, freqs, cal_freqs,
-                                                skip_missing_products)
+            self._applycal_products, self._corrections = calc_correction(
+                self.source.data.vis.chunks, self.sensor,
+                self.subarrays[self.subarray].corr_products, applycal_products,
+                freqs, cal_freqs, skip_missing_products)
             if self._corrections is None:
                 self._corrected = self.source.data
             else:
