@@ -24,6 +24,7 @@ import dask.array as da
 import numba
 
 from .categorical import CategoricalData, ComparableArrayWrapper
+from .sensordata import SensorData, RecordSensorData
 from .spectral_window import SpectralWindow
 from .flags import POSTPROC
 
@@ -292,7 +293,26 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
 
     def indirect_cal_product(cache, name, product_type):
         # XXX The first underscore below is actually a telstate separator...
-        return cache.get('{}_product_{}'.format(cal_substreams[0], product_type))
+        product_str = '_product_' + product_type
+        if len(cal_substreams) == 1:
+            return cache.get(cal_substreams[0] + product_str)
+        else:
+            timestamps = []
+            values = []
+            for stream in cal_substreams:
+                sensor_name = stream + product_str
+                raw_product = cache.get(sensor_name, extract=False)
+                assert isinstance(raw_product, SensorData), \
+                    sensor_name + ' is already extracted'
+                timestamps.append(raw_product['timestamp'])
+                values.append(raw_product['value'])
+            timestamps = np.concatenate(timestamps)
+            values = np.concatenate(values)
+            ordered = timestamps.argsort()
+            data = np.rec.fromarrays([timestamps[ordered], values[ordered]],
+                                     names='timestamp,value')
+            cal_stream = name.split('/')[-2]
+            return RecordSensorData(data, name=cal_stream + product_str)
 
     def calc_correction_per_input(cache, name, inp, product_type):
         """Calculate correction sensor for input `inp` from cal solutions."""

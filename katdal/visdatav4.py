@@ -34,7 +34,7 @@ from .categorical import CategoricalData
 from .lazy_indexer import DaskLazyIndexer
 from .applycal import (add_applycal_sensors, calc_correction,
                        apply_vis_correction, apply_weights_correction,
-                       apply_flags_correction)
+                       apply_flags_correction, CAL_PRODUCT_TYPES)
 from .flags import NAMES as FLAG_NAMES, DESCRIPTIONS as FLAG_DESCRIPTIONS
 
 
@@ -78,11 +78,36 @@ def _add_sensor_alias(cache, new_name, old_name):
         pass
 
 
+def _normalise_cal_products(products, cal_streams):
+    """"""
+    requested_cal_products = _selection_to_list(products, all=cal_streams,
+                                                default=DEFAULT_CAL_PRODUCTS)
+    skip_missing_products = products in ('all', 'default') or any(
+        ['.' not in product for product in requested_cal_products])
+    normalised_cal_products = []
+    for product in requested_cal_products:
+        if '.' in product:
+            normalised_cal_products.append(product)
+        elif product in cal_streams:
+            normalised_cal_products.extend(['.'.join((product, product_type))
+                                            for product_type in CAL_PRODUCT_TYPES])
+        elif product in CAL_PRODUCT_TYPES:
+            normalised_cal_products.extend(['.'.join((stream, product))
+                                            for stream in cal_streams])
+        else:
+            msg = ('Unknown calibration product {}: it should be a stream (one '
+                   'of {}), product type (one of {}) or <stream>.<product_type>'
+                   .format(product, ','.join(cal_streams),
+                           ','.join(CAL_PRODUCT_TYPES)))
+            raise ValueError(msg)
+    return normalised_cal_products, skip_missing_products
+
+
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel,
                         'Antennas/{ant}/el': _calc_azel})
 
-DEFAULT_CAL_PRODUCTS = ('l1.K', 'l1.B', 'l1.G')
+DEFAULT_CAL_PRODUCTS = ('l1.K', 'l1.B', 'l1.G', 'l2.GPHASE')
 
 # -----------------------------------------------------------------------------
 # -- CLASS :  VisibilityDataV4
@@ -358,25 +383,19 @@ class VisibilityDataV4(DataSet):
 
         # ------ Register applycal virtual sensors and products ------
 
-        freqs = self.spectral_windows[0].channel_freqs
-        # XXX This assumes that `attrs` is a telstate and not a dict-like
-        cal_attrs = attrs.view('cal', exclusive=True)
-        cal_freqs = {'l1': add_applycal_sensors(self.sensor, cal_attrs,
-                                                freqs, cal_stream='l1',
-                                                cal_substreams=['cal'])}
-        applycal_products = _selection_to_list(applycal, all=DEFAULT_CAL_PRODUCTS)
-        skip_missing_products = (applycal == 'all')
-        # Let 'l1' be the default stream if only a product type is specified
-        applycal_products = [product if '.' in product else 'l1.' + product
-                             for product in applycal_products]
-        if not self.source.data or not applycal_products:
+        cal_freqs = self._register_standard_cal_streams()
+        normalised_cal_products, skip_missing_products = _normalise_cal_products(
+            applycal, cal_freqs.keys())
+        if not self.source.data or not normalised_cal_products:
+            self._applycal_products = []
             self._corrections = None
             self._corrected = self.source.data
         else:
+            freqs = self.spectral_windows[0].channel_freqs
+            corrprods = self.subarrays[self.subarray].corr_products
             self._applycal_products, self._corrections = calc_correction(
-                self.source.data.vis.chunks, self.sensor,
-                self.subarrays[self.subarray].corr_products, applycal_products,
-                freqs, cal_freqs, skip_missing_products)
+                self.source.data.vis.chunks, self.sensor, corrprods,
+                normalised_cal_products, freqs, cal_freqs, skip_missing_products)
             if self._corrections is None:
                 self._corrected = self.source.data
             else:
@@ -398,6 +417,37 @@ class VisibilityDataV4(DataSet):
         # Apply default selection and initialise all members that depend
         # on selection in the process
         self.select(spw=0, subarray=0, ants=obs_ants)
+
+    def _register_standard_cal_streams(self):
+        freqs = self.spectral_windows[0].channel_freqs
+        attrs = self.source.metadata.attrs
+        archived_streams = attrs.get('sdp_archived_streams', [])
+        # The default L1 cal stream, useful for older files
+        l1_stream = 'cal'
+        for stream in archived_streams:
+            if attrs.view(stream).get('stream_type') == 'sdp.cal':
+                l1_stream = stream
+                break
+        l2_streams = []
+        for stream in archived_streams:
+            if attrs.view(stream).get('stream_type') == 'sdp.continuum_image':
+                targets = attrs.get(attrs.join(stream, 'targets'), {})
+                l2_streams = [attrs.join(stream, target + '_selfcal')
+                              for target in targets.values()]
+                break
+        cal_freqs = {}
+        # XXX This assumes that `attrs` is a telstate and not a dict-like
+        l1_attrs = attrs.view(l1_stream, exclusive=True)
+        cal_freqs['l1'] = add_applycal_sensors(
+            self.sensor, l1_attrs, freqs, cal_stream='l1', cal_substreams=[l1_stream])
+        if l2_streams:
+            # Add a relative view to the first underlying L2 cal stream
+            l2_attrs = attrs.root()
+            for prefix in reversed(attrs.prefixes):
+                l2_attrs = l2_attrs.view(prefix + l2_streams[0])
+            cal_freqs['l2'] = add_applycal_sensors(
+                self.sensor, l2_attrs, freqs, cal_stream='l2', cal_substreams=l2_streams)
+        return cal_freqs
 
     def _make_corrected(self, apply_correction, data):
         return da.core.elemwise(apply_correction, data, self._corrections, dtype=data.dtype)
