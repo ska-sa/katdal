@@ -204,11 +204,11 @@ def calc_gain_correction(sensor, index, targets=None):
     Given the gain calibration solution `sensor`, this extracts the time
     series of gains for the input specified by `index` (in the form (pol, ant))
     and interpolates them over time to get the corresponding complex correction
-    terms. The optional `targets` parameter is a `CategoricalData` or array of
-    target indices, i.e. a sensor indicating the target associated with each
-    dump. If provided, interpolate solutions derived from one target only at
-    dumps associated with that target, which is what you want for
-    self-calibration solutions.
+    terms. The optional `targets` parameter is a :class:`CategoricalData` or
+    array of target indices, i.e. a sensor indicating the target associated with
+    each dump. If provided, interpolate solutions derived from one target only
+    at dumps associated with that target, which is what you want for
+    self-calibration solutions and flux calibration.
 
     Invalid solutions (NaNs) are replaced by linear interpolations over time
     (separately for magnitude and phase), as long as some dumps have valid
@@ -218,12 +218,13 @@ def calc_gain_correction(sensor, index, targets=None):
     events = sensor.events[:-1]
     gains = np.array([value[(Ellipsis,) + index]
                       for segment, value in sensor.segments()])
-    # Let the gains be shaped either (n_cal_freqs, n_events) or (1, n_events)
+    # Let the gains be shaped either (cal_n_chans, n_events) or (1, n_events)
     gains = np.atleast_2d(gains.T)
     # Assume all dumps have the same target by default, i.e. interpolate freely
     if targets is None:
         targets = CategoricalData([0], [0, len(dumps)])
     smooth_gains = np.empty((len(dumps), gains.shape[0]), dtype=gains.dtype)
+    # Iterate over number of channels / "IFs" / subbands in gain product
     for chan, gains_per_chan in enumerate(gains):
         for target in set(targets):
             on_target = (targets == target)
@@ -266,7 +267,7 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
 
     Returns
     -------
-    cal_freqs : array of float, shape (*Fcal*,), or None
+    cal_freqs : 1D array of float, or None
         Centre frequency of each frequency channel of calibration stream, in Hz
         (or None if no sensors were registered)
     """
@@ -394,8 +395,7 @@ def calc_correction_per_corrprod(dump, channels, params):
     """
     n_channels = channels.stop - channels.start
     g_per_input = np.ones((len(params.inputs), n_channels), dtype='complex64')
-    for cal_product in params.corrections:
-        product_corrections = params.corrections[cal_product]
+    for cal_product, product_corrections in params.corrections.items():
         channel_map = params.channel_maps[cal_product]
         for i in range(len(params.inputs)):
             sensor = product_corrections[i]
@@ -494,7 +494,8 @@ def calc_correction(chunks, cache, corrprods, cal_products, data_freqs,
             if product_type in ('K', 'B'):
                 channel_maps[cal_product] = lambda g, channels: g[channels]
             elif product_type in ('G',):
-                channel_maps[cal_product] = lambda g, channels: g[0]
+                # This assumes `g` is single value to be broadcast over entire band
+                channel_maps[cal_product] = lambda g, channels: g
             elif product_type in ('GPHASE', 'GAMP_PHASE'):
                 cal_freqs = all_cal_freqs[cal_stream]
                 # Closest cal channel for each data channel

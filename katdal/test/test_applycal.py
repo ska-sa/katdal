@@ -96,7 +96,9 @@ def create_bandpass(pol, ant):
 def create_gain(pol, ant, multi_channel=False, targets=False):
     """Synthesise a gain time series from `pol`, `ant` indices and events.
 
-    The gain can also vary with frequency a la GPHASE if `multi_channel` is True.
+    The gain can also vary with frequency a la GPHASE if `multi_channel` is
+    True, in which case all valid gains are also normalised to magnitude 1 to
+    resemble GPHASE.
     """
     events = np.array(GAIN_EVENTS)
     gains = np.ones_like(events, dtype=np.complex64)
@@ -106,7 +108,6 @@ def create_gain(pol, ant, multi_channel=False, targets=False):
         gains *= (-1) ** np.arange(len(GAIN_EVENTS))
     if multi_channel:
         gains = np.outer(gains, create_bandpass(pol, ant))
-        # Make it phase-only for kicks
         gains /= np.abs(gains)
     if ant == BAD_GAIN_ANT:
         gains[:] = INVALID_GAIN
@@ -214,7 +215,8 @@ def corrections_per_corrprod(dumps, channels, cal_products):
                                                            targets=True)[dumps]
                                           for inp in INPUTS]
                                          ).transpose(1, 2, 0)[:, DATA_TO_CAL_CHANNEL]}
-    # Apply (K, B, G, GPHASE) corrections in correct order
+    # Apply (K, B, G, GPHASE) corrections in the same order
+    # used by the system under test to get bit-exact results
     for cal_product in cal_products:
         gains_per_input *= corrections[cal_product]
     gains_per_input = gains_per_input[:, channels, :]
