@@ -31,7 +31,7 @@ from .flags import POSTPROC
 # A constant indicating invalid / absent gain (typically due to flagged data)
 INVALID_GAIN = np.complex64(complex(np.nan, np.nan))
 # All the calibration product types katdal knows about
-CAL_PRODUCT_TYPES = ('K', 'B', 'G')
+CAL_PRODUCT_TYPES = ('K', 'B', 'G', 'GPHASE', 'GAMP_PHASE')
 
 logger = logging.getLogger(__name__)
 
@@ -198,25 +198,39 @@ def calc_bandpass_correction(sensor, index, data_freqs, cal_freqs):
     return CategoricalData(corrections, sensor.events)
 
 
-def calc_gain_correction(sensor, index):
+def calc_gain_correction(sensor, index, targets=None):
     """Calculate correction sensor from gain calibration solution sensor.
 
     Given the gain calibration solution `sensor`, this extracts the time
     series of gains for the input specified by `index` (in the form (pol, ant))
     and interpolates them over time to get the corresponding complex correction
-    terms.
+    terms. The optional `targets` parameter is a :class:`CategoricalData` or
+    array of target indices, i.e. a sensor indicating the target associated with
+    each dump. If provided, interpolate solutions derived from one target only
+    at dumps associated with that target, which is what you want for
+    self-calibration solutions and flux calibration.
 
     Invalid solutions (NaNs) are replaced by linear interpolations over time
     (separately for magnitude and phase), as long as some dumps have valid
-    solutions.
+    solutions on the appropriate target.
     """
     dumps = np.arange(sensor.events[-1])
     events = sensor.events[:-1]
-    gains = np.array([value[index] for segment, value in sensor.segments()])
-    valid = np.isfinite(gains)
-    if not valid.any():
-        return CategoricalData([INVALID_GAIN], [0, len(dumps)])
-    smooth_gains = complex_interp(dumps, events[valid], gains[valid])
+    gains = np.array([value[(Ellipsis,) + index]
+                      for segment, value in sensor.segments()])
+    # Let the gains be shaped either (cal_n_chans, n_events) or (1, n_events)
+    gains = np.atleast_2d(gains.T)
+    # Assume all dumps have the same target by default, i.e. interpolate freely
+    if targets is None:
+        targets = CategoricalData([0], [0, len(dumps)])
+    smooth_gains = np.empty((len(dumps), gains.shape[0]), dtype=gains.dtype)
+    # Iterate over number of channels / "IFs" / subbands in gain product
+    for chan, gains_per_chan in enumerate(gains):
+        for target in set(targets):
+            on_target = (targets == target)
+            valid = np.isfinite(gains_per_chan) & on_target[events]
+            smooth_gains[on_target, chan] = INVALID_GAIN if not valid.any() else \
+                complex_interp(dumps[on_target], events[valid], gains_per_chan[valid])
     return np.reciprocal(smooth_gains)
 
 
@@ -250,6 +264,12 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
     cal_substreams : sequence of string, optional
         Names of actual underlying calibration streams (e.g. ["cal"]),
         defaults to [`cal_stream`] itself
+
+    Returns
+    -------
+    cal_freqs : 1D array of float, or None
+        Centre frequency of each frequency channel of calibration stream, in Hz
+        (or None if no sensors were registered)
     """
     if cal_substreams is None:
         cal_substreams = [cal_stream]
@@ -291,6 +311,9 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
                                                          data_freqs, cal_freqs)
         elif product_type == 'G':
             correction_sensor = calc_gain_correction(product_sensor, index)
+        elif product_type in ('GPHASE', 'GAMP_PHASE'):
+            targets = cache.get('Observation/target_index')
+            correction_sensor = calc_gain_correction(product_sensor, index, targets)
         else:
             raise KeyError("Unknown calibration product type '{}' - available "
                            "ones are {}".format(product_type, CAL_PRODUCT_TYPES))
@@ -301,6 +324,7 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
     cache.virtual[template] = indirect_cal_product
     template = 'Calibration/Corrections/{}/{{product_type}}/{{inp}}'.format(cal_stream)
     cache.virtual[template] = calc_correction_per_input
+    return cal_freqs
 
 
 @numba.jit(nopython=True, nogil=True)
@@ -328,12 +352,18 @@ class CorrectionParams(object):
         A dictionary (indexed by cal product name) of lists (indexed
         by input) of sequences (indexed by dump) of numpy arrays, with
         corrections to apply.
+    channel_maps : dict
+        A dictionary (indexed by cal product name) of functions (signature
+        `g = channel_map(g, channels)`) that map the frequency axis of the
+        cal product `g` onto the frequency axis of the visibility data, where
+        the vis frequency axis will be indexed by the slice `channels`.
     """
-    def __init__(self, inputs, input1_index, input2_index, corrections):
+    def __init__(self, inputs, input1_index, input2_index, corrections, channel_maps):
         self.inputs = inputs
         self.input1_index = input1_index
         self.input2_index = input2_index
         self.corrections = corrections
+        self.channel_maps = channel_maps
 
 
 def calc_correction_per_corrprod(dump, channels, params):
@@ -365,13 +395,12 @@ def calc_correction_per_corrprod(dump, channels, params):
     """
     n_channels = channels.stop - channels.start
     g_per_input = np.ones((len(params.inputs), n_channels), dtype='complex64')
-    for product_corrections in params.corrections.values():
+    for cal_product, product_corrections in params.corrections.items():
+        channel_map = params.channel_maps[cal_product]
         for i in range(len(params.inputs)):
             sensor = product_corrections[i]
-            g_product = sensor[dump]
-            if np.shape(g_product) != ():
-                g_product = g_product[channels]
-            g_per_input[i] *= g_product
+            g_per_channel = sensor[dump]
+            g_per_input[i] *= channel_map(g_per_channel, channels)
     # Transpose to (channel, input) order, and ensure C ordering
     g_per_input = np.ascontiguousarray(g_per_input.T)
     g_per_cp = np.empty((n_channels, len(params.input1_index)), dtype='complex64')
@@ -391,8 +420,8 @@ def _correction_block(block_info, params):
     return correction
 
 
-def calc_correction(chunks, cache, corrprods, cal_products,
-                    skip_missing_products=False):
+def calc_correction(chunks, cache, corrprods, cal_products, data_freqs,
+                    all_cal_freqs, skip_missing_products=False):
     """Create a dask array containing applycal corrections.
 
     Parameters
@@ -406,11 +435,19 @@ def calc_correction(chunks, cache, corrprods, cal_products,
         Selected correlation products as pairs of correlator input labels
     cal_products : sequence of string
         Calibration products that will contribute to corrections (e.g. ["l1.G"])
+    data_freqs : array of float, shape (*F*,)
+        Centre frequency of each frequency channel of visibilities, in Hz
+    all_cal_freqs : dict
+        Dictionary mapping cal stream name (e.g. "l1") to array of associated
+        frequencies
     skip_missing_products : bool
         If True, skip products with missing sensors instead of raising KeyError
 
     Returns
     -------
+    final_cal_products : list of string
+        List of calibration products in the order that they will be applied
+        (potentially a subset of `cal_products` if skipping missing products)
     corrections : :class:`dask.array.Array` object, or None
         Dask array that produces corrections for entire vis array, or `None` if
         no calibration products were found (either `cal_products` is empty or all
@@ -430,6 +467,7 @@ def calc_correction(chunks, cache, corrprods, cal_products,
     input1_index = np.array([inputs.index(cp[0]) for cp in corrprods])
     input2_index = np.array([inputs.index(cp[1]) for cp in corrprods])
     corrections = {}
+    channel_maps = {}
     for cal_product in cal_products:
         cal_stream, product_type = _parse_cal_product(cal_product)
         sensor_prefix = 'Calibration/Corrections/{}/{}/'.format(cal_stream, product_type)
@@ -454,12 +492,35 @@ def calc_correction(chunks, cache, corrprods, cal_products,
             corrections_per_product.append(data)
         else:
             corrections[cal_product] = corrections_per_product
-    if not corrections:
-        return None
-    params = CorrectionParams(inputs, input1_index, input2_index, corrections)
-    name = 'corrections[{}]'.format(','.join(sorted(corrections.keys())))
-    return da.map_blocks(_correction_block, dtype=np.complex64, chunks=chunks,
-                         name=name, params=params)
+            # Frequency configuration for *stream* (not necessarily for product)
+            cal_stream_freqs = all_cal_freqs[cal_stream]
+            # Get number of frequency channels of *corrections* by inspecting it
+            # at first dump for each input and picking max to reject bad inputs.
+            # Expected to be either 1, len(cal_stream_freqs) or len(data_freqs).
+            correction_n_chans = max([len(np.atleast_1d(corr_per_input[0]))
+                                      for corr_per_input in corrections_per_product])
+            if correction_n_chans == 1:
+                # Scalar values will be broadcast by NumPy - no slicing required
+                channel_maps[cal_product] = lambda g, channels: g
+            elif correction_n_chans == len(data_freqs) and (
+                    len(cal_stream_freqs) != len(data_freqs)
+                    or np.array_almost_equal(cal_stream_freqs, data_freqs)):
+                # Corrections are already lined up with data - slice directly
+                channel_maps[cal_product] = lambda g, channels: g[channels]
+            else:
+                # Pick closest cal channel for each data channel
+                expand = np.abs(data_freqs[:, np.newaxis]
+                                - cal_stream_freqs[np.newaxis, :]).argmin(axis=-1)
+                channel_maps[cal_product] = lambda g, channels: g[expand[channels]]
+    final_cal_products = list(corrections.keys())
+    if not final_cal_products:
+        return final_cal_products, None
+    params = CorrectionParams(inputs, input1_index, input2_index,
+                              corrections, channel_maps)
+    name = 'corrections[{}]'.format(','.join(sorted(final_cal_products)))
+    return (final_cal_products,
+            da.map_blocks(_correction_block, dtype=np.complex64, chunks=chunks,
+                          name=name, params=params))
 
 
 @numba.jit(nopython=True, nogil=True)
