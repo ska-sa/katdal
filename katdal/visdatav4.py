@@ -83,7 +83,7 @@ def _normalise_cal_products(products, cal_streams):
     requested_cal_products = _selection_to_list(products, all=cal_streams,
                                                 default=DEFAULT_CAL_PRODUCTS)
     skip_missing_products = products in ('all', 'default') or any(
-        ['.' not in product for product in requested_cal_products])
+        '.' not in product for product in requested_cal_products)
     normalised_cal_products = []
     for product in requested_cal_products:
         if '.' in product:
@@ -95,10 +95,11 @@ def _normalise_cal_products(products, cal_streams):
             normalised_cal_products.extend(['.'.join((stream, product))
                                             for stream in cal_streams])
         else:
-            msg = ('Unknown calibration product {}: it should be a stream (one '
-                   'of {}), product type (one of {}) or <stream>.<product_type>'
-                   .format(product, ','.join(cal_streams),
-                           ','.join(CAL_PRODUCT_TYPES)))
+            streams = ','.join(cal_streams)
+            streams = ' (one of {})'.format(streams) if streams else ' (none found)'
+            msg = ("Unknown calibration product '{}': it should be a stream{}, "
+                   "product type (one of {}) or <stream>.<product_type>"
+                   .format(product, streams, ','.join(CAL_PRODUCT_TYPES)))
             raise ValueError(msg)
     return normalised_cal_products, skip_missing_products
 
@@ -438,15 +439,19 @@ class VisibilityDataV4(DataSet):
         cal_freqs = {}
         # XXX This assumes that `attrs` is a telstate and not a dict-like
         l1_attrs = attrs.view(l1_stream, exclusive=True)
-        cal_freqs['l1'] = add_applycal_sensors(
-            self.sensor, l1_attrs, freqs, cal_stream='l1', cal_substreams=[l1_stream])
+        l1_freqs = add_applycal_sensors(self.sensor, l1_attrs, freqs,
+                                        cal_stream='l1', cal_substreams=[l1_stream])
+        if l1_freqs is not None:
+            cal_freqs['l1'] = l1_freqs
         if l2_streams:
             # Add a relative view to the first underlying L2 cal stream
             l2_attrs = attrs.root()
             for prefix in reversed(attrs.prefixes):
                 l2_attrs = l2_attrs.view(prefix + l2_streams[0])
-            cal_freqs['l2'] = add_applycal_sensors(
-                self.sensor, l2_attrs, freqs, cal_stream='l2', cal_substreams=l2_streams)
+            l2_freqs = add_applycal_sensors(self.sensor, l2_attrs, freqs,
+                                            cal_stream='l2', cal_substreams=l2_streams)
+            if l2_freqs is not None:
+                cal_freqs['l2'] = l2_freqs
         return cal_freqs
 
     def _make_corrected(self, apply_correction, data):
