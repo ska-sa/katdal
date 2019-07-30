@@ -102,7 +102,10 @@ def create_gain(pol, ant, multi_channel=False, targets=False):
     """
     events = np.array(GAIN_EVENTS)
     gains = np.ones_like(events, dtype=np.complex64)
+    # The gain magnitude reflects the input or (ant, pol) index
     factor = len(POLS) * ant + pol + 1
+    # The gain phase drifts as a function of time but over a limited range
+    # so that the target index can be reflected in the sign of the gain
     gains *= factor * np.exp(2j * np.pi * events / N_DUMPS / 12)
     if targets:
         gains *= (-1) ** np.arange(len(GAIN_EVENTS))

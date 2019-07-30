@@ -438,7 +438,8 @@ def calc_correction(chunks, cache, corrprods, cal_products, data_freqs,
     data_freqs : array of float, shape (*F*,)
         Centre frequency of each frequency channel of visibilities, in Hz
     all_cal_freqs : dict
-        Dictionary mapping cal stream name to array of associated frequencies
+        Dictionary mapping cal stream name (e.g. "l1") to array of associated
+        frequencies
     skip_missing_products : bool
         If True, skip products with missing sensors instead of raising KeyError
 
@@ -491,17 +492,26 @@ def calc_correction(chunks, cache, corrprods, cal_products, data_freqs,
             corrections_per_product.append(data)
         else:
             corrections[cal_product] = corrections_per_product
-            if product_type in ('K', 'B'):
-                channel_maps[cal_product] = lambda g, channels: g[channels]
-            elif product_type in ('G',):
-                # This assumes `g` is single value to be broadcast over entire band
+            # Frequency configuration for *stream* (not necessarily for product)
+            cal_stream_freqs = all_cal_freqs[cal_stream]
+            # Get number of frequency channels of *corrections* by inspecting it
+            # at first dump for each input and picking max to reject bad inputs.
+            # Expected to be either 1, len(cal_stream_freqs) or len(data_freqs).
+            correction_n_chans = max([len(np.atleast_1d(corr_per_input[0]))
+                                      for corr_per_input in corrections_per_product])
+            if correction_n_chans == 1:
+                # Scalar values will be broadcast by NumPy - no slicing required
                 channel_maps[cal_product] = lambda g, channels: g
-            elif product_type in ('GPHASE', 'GAMP_PHASE'):
-                cal_freqs = all_cal_freqs[cal_stream]
-                # Closest cal channel for each data channel
+            elif correction_n_chans == len(data_freqs) and (
+                    len(cal_stream_freqs) != len(data_freqs)
+                    or np.array_almost_equal(cal_stream_freqs, data_freqs)):
+                # Corrections are already lined up with data - slice directly
+                channel_maps[cal_product] = lambda g, channels: g[channels]
+            else:
+                # Pick closest cal channel for each data channel
                 expand = np.abs(data_freqs[:, np.newaxis]
-                                - cal_freqs[np.newaxis, :]).argmin(axis=-1)
-                channel_maps[cal_product] = lambda g, channels: g[expand][channels]
+                                - cal_stream_freqs[np.newaxis, :]).argmin(axis=-1)
+                channel_maps[cal_product] = lambda g, channels: g[expand[channels]]
     final_cal_products = list(corrections.keys())
     if not final_cal_products:
         return final_cal_products, None
