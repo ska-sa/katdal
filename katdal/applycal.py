@@ -569,7 +569,7 @@ def apply_weights_correction(data, correction):
         for j in range(out.shape[1]):
             for k in range(out.shape[2]):
                 cc = correction[i, j, k]
-                c = cc.real**2 + cc.imag**2
+                c = cc.real * cc.real + cc.imag * cc.imag
                 if c > 0:   # Will be false if c is NaN
                     out[i, j, k] = data[i, j, k] / c
                 else:
