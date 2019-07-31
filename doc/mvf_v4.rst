@@ -170,7 +170,7 @@ appear either in the capture-stream namespace or the stream namespace.
     than the SDP.
 
 ``n_chans`` (int)
-    Number of channels in a channelised product
+    Number of channels in a channelised product.
 
 ``n_chans_per_substream`` (int)
     Number of channels in each SPEAD heap. Not relevant when loading
@@ -242,7 +242,8 @@ Streams of type ``sdp.cal`` have the following keys.
     Parameters used to configure the calibration.
 
 ``product_G`` (2D array) — sensor
-    Phase gain solutions, indexed by antenna and polarisation.
+    Gain solutions (derived e.g. on a phase calibrator), indexed by antenna
+    and polarisation. The complex values in the array apply to the entire band.
 
 ``product_K`` (2D array) — sensor
     Delay solutions (in seconds), indexed by antenna and polarisation. To
@@ -358,10 +359,37 @@ katsdptelstate for this database):
         names are arbitrary. This describes the **perceived** sky i.e., are
         modulated by the primary beam.
 
+Each sub-namespace per target contains a further sub-sub-namespace called
+``selfcal`` that contains the self-calibration solutions. It behaves like
+an ``sdp.cal`` stream namespace and has the following keys:
 
-TODO
-    Self-calibration solutions will be stored, but the format is still in
-    discussion.
+``antlist`` (list of string)
+    List of antenna names. Arrays of self-calibration solutions use this
+    order along the antenna axis.
+
+``pol_ordering`` (list of string)
+    List of polarisations (from ``v`` and ``h``). Arrays of self-calibration
+    solutions use this order along the polarisation axis.
+
+``n_chans`` (int)
+    Number of channels in the self-calibration solutions, which corresponds to
+    the number of "IFs" or sub-bands in the continuum imager.
+
+``bandwidth`` (float, Hz)
+    Bandwidth of the self-calibration solutions.
+
+``center_freq`` (float, Hz)
+    Middle of the central channel. Note that if the number of channels
+    is even, this is actually half a channel higher than the middle of
+    the band.
+
+``product_GPHASE`` (3D array) — sensor
+    Phase-only self-calibration solutions, indexed by channel, antenna and
+    polarisation.
+
+``product_GAMP_PHASE`` (3D array) — sensor
+    Amplitude + phase self-calibration solutions, indexed by channel, antenna
+    and polarisation.
 
 .. _linking-streams:
 
