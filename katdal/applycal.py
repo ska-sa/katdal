@@ -523,8 +523,11 @@ def calc_correction(chunks, cache, corrprods, cal_products, data_freqs,
                 # Scalar values will be broadcast by NumPy - no slicing required
                 channel_maps[cal_product] = lambda g, channels: g
             elif correction_n_chans == len(data_freqs) and (
+                    # This test indicates that correction frequencies either differ
+                    # from those of cal stream (i.e. already interpolated), or the
+                    # cal stream matches the data freqs to within 1 mHz anyway.
                     len(cal_stream_freqs) != len(data_freqs)
-                    or np.array_almost_equal(cal_stream_freqs, data_freqs)):
+                    or np.allclose(cal_stream_freqs, data_freqs, rtol=0, atol=1e-3)):
                 # Corrections are already lined up with data - slice directly
                 channel_maps[cal_product] = lambda g, channels: g[channels]
             else:
