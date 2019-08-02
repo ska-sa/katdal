@@ -422,6 +422,10 @@ class H5DataV3(DataSet):
         # Store antenna objects in sensor cache too, for use in virtual sensor calculations
         for ant in ants:
             self.sensor['Antennas/%s/antenna' % (ant.name,)] = CategoricalData([ant], [0, num_dumps])
+        # Extract array reference from first antenna (first 5 fields of description)
+        array_ant_fields = ['array'] + ants[0].description.split(',')[1:5]
+        array_ant = katpoint.Antenna(','.join(array_ant_fields))
+        self.sensor['Antennas/array/antenna'] = CategoricalData([array_ant], [0, num_dumps])
 
         # ------ Extract spectral windows / frequencies ------
 

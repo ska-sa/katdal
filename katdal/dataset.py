@@ -246,10 +246,9 @@ def _calc_uvw_basis(cache, name, ant):
 
 def _calc_uvw_per_ant(cache, name, ant):
     """Calculate (u,v,w) coordinates per antenna using sensor cache contents."""
-    array_ant_group = 'Antennas/array/'
-    array_antenna = cache.get(array_ant_group + 'antenna')[0]
+    array_antenna = cache.get('Antennas/array/antenna')[0]
     antenna = cache.get('Antennas/%s/antenna' % (ant,))[0]
-    basis = cache.get('%sbasis_%s' % (array_ant_group, name[-1]))
+    basis = cache.get('Antennas/array/basis_' + name[-1])
     # Obtain baseline vector from array reference to specified antenna
     baseline_m = array_antenna.baseline_toward(antenna)
     coord = np.tensordot(basis, baseline_m, ([1], [0]))
