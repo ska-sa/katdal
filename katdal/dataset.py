@@ -236,7 +236,9 @@ def _calc_uvw_basis(cache, name, ant):
     w = np.empty((len(cache.timestamps), 3))
     targets = cache.get('Observation/target')
     for segm, target in targets.segments():
+        # The basis is a series of 3x3 matrices converting ENU to UVW
         basis = target.uvw_basis(cache.timestamps[segm], antenna)
+        # Basis has shape (3, 3, T) which we split into 3 sensors of shape (T, 3)
         u[segm], v[segm], w[segm] = basis.transpose(0, 2, 1)
     new_sensors = {ant_group + 'basis_u': u, ant_group + 'basis_v': v,
                    ant_group + 'basis_w': w}
@@ -251,7 +253,7 @@ def _calc_uvw_per_ant(cache, name, ant):
     basis = cache.get('Antennas/array/basis_' + name[-1])
     # Obtain baseline vector from array reference to specified antenna
     baseline_m = array_antenna.baseline_toward(antenna)
-    coord = np.tensordot(basis, baseline_m, ([1], [0]))
+    coord = basis.dot(baseline_m)
     cache[name] = coord
     return coord
 
