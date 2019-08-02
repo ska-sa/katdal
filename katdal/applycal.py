@@ -232,14 +232,15 @@ def calc_gain_correction(sensor, index, targets=None):
     # Assume all dumps have the same target by default, i.e. interpolate freely
     if targets is None:
         targets = CategoricalData([0], [0, len(dumps)])
-    smooth_gains = np.empty((len(dumps), gains.shape[0]), dtype=gains.dtype)
+    smooth_gains = np.full((len(dumps), gains.shape[0]), INVALID_GAIN)
     # Iterate over number of channels / "IFs" / subbands in gain product
     for chan, gains_per_chan in enumerate(gains):
         for target in set(targets):
             on_target = (targets == target)
             valid = np.isfinite(gains_per_chan) & on_target[events]
-            smooth_gains[on_target, chan] = INVALID_GAIN if not valid.any() else \
-                complex_interp(dumps[on_target], events[valid], gains_per_chan[valid])
+            if valid.any():
+                smooth_gains[on_target, chan] = complex_interp(
+                    dumps[on_target], events[valid], gains_per_chan[valid])
     return np.reciprocal(smooth_gains)
 
 
