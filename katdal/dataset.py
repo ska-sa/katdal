@@ -1036,8 +1036,13 @@ class DataSet(object):
         return np.column_stack([sensor_data(ant.name) for ant in self.ants]) \
             if self.ants else np.zeros((self.shape[0], 0))
 
-    def _sensor_per_corrprod(self, base_name):
-        """Extract a single sensor per corrprod and safely stack the results."""
+    def _delta_sensor_per_corrprod(self, base_name):
+        """Extract a single sensor per corrprod and safely stack the results.
+
+        The sensor is specialised to return the difference between the sensors
+        of the two antennas making up the correlation product, since that is
+        what (u, v, w) sensors need.
+        """
         def difference(antA, antB):
             coord1 = self.sensor['Antennas/%s/%s' % (antA, base_name)]
             coord2 = self.sensor['Antennas/%s/%s' % (antB, base_name)]
@@ -1139,7 +1144,7 @@ class DataSet(object):
         convention is :math:`u_1 - u_2` for baseline (ant1, ant2).
 
         """
-        return self._sensor_per_corrprod('u')
+        return self._delta_sensor_per_corrprod('u')
 
     @property
     def v(self):
@@ -1151,7 +1156,7 @@ class DataSet(object):
         convention is :math:`v_1 - v_2` for baseline (ant1, ant2).
 
         """
-        return self._sensor_per_corrprod('v')
+        return self._delta_sensor_per_corrprod('v')
 
     @property
     def w(self):
@@ -1163,4 +1168,4 @@ class DataSet(object):
         convention is :math:`w_1 - w_2` for baseline (ant1, ant2).
 
         """
-        return self._sensor_per_corrprod('w')
+        return self._delta_sensor_per_corrprod('w')
