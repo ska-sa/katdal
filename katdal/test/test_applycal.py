@@ -66,7 +66,7 @@ BAD_CHANNELS = np.full(CAL_N_CHANS, False)
 BAD_CHANNELS[30:40] = True
 BAD_CHANNELS[50] = True
 BANDPASS_PARTS = 4
-GAIN_EVENTS = list(range(0, N_DUMPS, 10))
+GAIN_EVENTS = list(range(10, N_DUMPS, 10))
 BAD_GAIN_ANT = 3
 BAD_GAIN_DUMPS = [20, 40]
 
@@ -159,11 +159,11 @@ def create_sensor_cache(bandpass_parts=BANDPASS_PARTS):
         cache[CAL_STREAM + '_product_B' + str(part)] = sensor
     # Add gain product (one value for entire band)
     gains = create_product(create_gain)
-    sensor = create_categorical_sensor(GAIN_EVENTS, gains)
+    sensor = create_categorical_sensor(GAIN_EVENTS, gains, INVALID_GAIN)
     cache[CAL_STREAM + '_product_G'] = sensor
     # Add gain product (varying across frequency and time)
     gains = create_product(partial(create_gain, multi_channel=True, targets=True))
-    sensor = create_categorical_sensor(GAIN_EVENTS, gains)
+    sensor = create_categorical_sensor(GAIN_EVENTS, gains, INVALID_GAIN)
     cache[CAL_STREAM + '_product_GPHASE'] = sensor
     # Construct sensor cache
     return SensorCache(cache, timestamps=np.arange(N_DUMPS, dtype=float),
