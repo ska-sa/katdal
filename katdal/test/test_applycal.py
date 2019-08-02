@@ -26,7 +26,8 @@ import dask.array as da
 
 from katdal.spectral_window import SpectralWindow
 from katdal.sensordata import SensorCache
-from katdal.categorical import ComparableArrayWrapper, CategoricalData
+from katdal.categorical import (ComparableArrayWrapper, CategoricalData,
+                                sensor_to_categorical)
 from katdal.applycal import (complex_interp, get_cal_product, INVALID_GAIN,
                              calc_delay_correction, calc_bandpass_correction,
                              calc_gain_correction, apply_vis_correction,
@@ -131,29 +132,39 @@ def create_product(func):
     return np.moveaxis(values, 0, -1).reshape(rest + pol_ant)
 
 
+def create_categorical_sensor(timestamps, values, initial_value=None):
+    """Create a :class:`CategoricalData` from raw sensor data."""
+    wrapped_values = [ComparableArrayWrapper(value) for value in values]
+    dump_midtimes = np.arange(N_DUMPS, dtype=float)
+    return sensor_to_categorical(timestamps, wrapped_values, dump_midtimes,
+                                 1.0, initial_value=initial_value)
+
+
+TARGET_SENSOR = create_categorical_sensor(GAIN_EVENTS,
+                                          np.arange(len(GAIN_EVENTS)) % 2)
+
+
 def create_sensor_cache(bandpass_parts=BANDPASS_PARTS):
     """Create a SensorCache for testing applycal sensors."""
     cache = {}
-    gain_events = GAIN_EVENTS + [N_DUMPS]
-    cache['Observation/target_index'] = CategoricalData(
-        np.arange(len(GAIN_EVENTS)) % 2, gain_events)
+    cache['Observation/target_index'] = TARGET_SENSOR
     # Add delay product
     delays = create_product(create_delay)
-    cache[CAL_STREAM + '_product_K'] = CategoricalData(
-        [np.zeros_like(delays), delays], events=[0, 10, N_DUMPS])
+    sensor = create_categorical_sensor([3., 10.], [np.zeros_like(delays), delays])
+    cache[CAL_STREAM + '_product_K'] = sensor
     # Add bandpass product (multi-part)
     bandpasses = create_product(create_bandpass)
     for part, bp in enumerate(np.split(bandpasses, bandpass_parts)):
-        cache[CAL_STREAM + '_product_B' + str(part)] = CategoricalData(
-            [np.ones_like(bp), bp], events=[0, 12, N_DUMPS])
+        sensor = create_categorical_sensor([2., 12.], [np.ones_like(bp), bp])
+        cache[CAL_STREAM + '_product_B' + str(part)] = sensor
     # Add gain product (one value for entire band)
     gains = create_product(create_gain)
-    gains = [ComparableArrayWrapper(g) for g in gains]
-    cache[CAL_STREAM + '_product_G'] = CategoricalData(gains, gain_events)
+    sensor = create_categorical_sensor(GAIN_EVENTS, gains)
+    cache[CAL_STREAM + '_product_G'] = sensor
     # Add gain product (varying across frequency and time)
     gains = create_product(partial(create_gain, multi_channel=True, targets=True))
-    gains = [ComparableArrayWrapper(g) for g in gains]
-    cache[CAL_STREAM + '_product_GPHASE'] = CategoricalData(gains, gain_events)
+    sensor = create_categorical_sensor(GAIN_EVENTS, gains)
+    cache[CAL_STREAM + '_product_GPHASE'] = sensor
     # Construct sensor cache
     return SensorCache(cache, timestamps=np.arange(N_DUMPS, dtype=float),
                        dump_period=1.)
@@ -184,11 +195,7 @@ def gain_corrections(pol, ant, multi_channel=False, targets=False):
     events = np.array(GAIN_EVENTS)
     gains = create_gain(pol, ant, multi_channel, targets)
     gains = np.atleast_2d(gains.T)
-    if targets:
-        targets = CategoricalData(np.arange(len(GAIN_EVENTS)) % 2,
-                                  GAIN_EVENTS + [N_DUMPS])
-    else:
-        targets = CategoricalData([0], [0, len(dumps)])
+    targets = TARGET_SENSOR if targets else CategoricalData([0], [0, len(dumps)])
     smooth_gains = np.empty((N_DUMPS, gains.shape[0]), dtype=gains.dtype)
     for chan, gains_per_chan in enumerate(gains):
         for target in set(targets):
