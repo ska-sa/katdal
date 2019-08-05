@@ -462,7 +462,7 @@ def _safe_linear_interp(xi, yi, x):
 
 
 _KATCP_DECODER = {'integer': int, 'float': float, 'timestamp': float,
-                  'boolean': lambda x: x == '1'}   # other types map to str
+                  'boolean': lambda x: x == 'True'}   # other types map to str
 
 
 def get_sensor_from_katstore(store, name, start_time, end_time):
