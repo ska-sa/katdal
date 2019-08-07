@@ -20,11 +20,11 @@
 # (MVF) dataset using casapy or casacore.
 
 from __future__ import print_function, division, absolute_import
-
 from future import standard_library
 standard_library.install_aliases()    # noqa: E402
 from builtins import zip
 from builtins import range
+
 from collections import namedtuple
 import os
 import tarfile
@@ -33,6 +33,7 @@ import time
 import multiprocessing
 import multiprocessing.sharedctypes
 import queue
+import urllib.parse
 
 import numpy as np
 import dask
@@ -264,10 +265,6 @@ def main():
     if set(pols_to_use) == set(['HH', 'HV', 'VH', 'VV']) and not options.circular:
         options.full_pol = True
 
-    pol_for_name = 'full_pol' if options.full_pol else \
-                   'circular_pol' if options.circular else \
-                   '_'.join(pols_to_use).lower()
-
     for win in range(len(dataset.spectral_windows)):
         dataset.select(reset='T')
 
@@ -278,10 +275,20 @@ def main():
         # If no output MS filename supplied, infer the output filename
         # from the first dataset.
         if options.output_ms is None:
-            # create MS in current working directory
-            ms_name = '%s_%d.%s%s.ms' % (
-                os.path.splitext(args[0])[0], freq_MHz,
-                "" if len(args) == 1 else "et_al.", pol_for_name)
+            url_parts = urllib.parse.urlparse(args[0], scheme='file')
+            # Create MS in current working directory (strip off directories)
+            dataset_filename = os.path.basename(url_parts.path)
+            # Get rid of the ".full" bit on RDB files (it's the same dataset)
+            if dataset_filename.endswith('.full.rdb'):
+                dataset_basename = dataset_filename[:-9]
+            else:
+                dataset_basename = os.path.splitext(dataset_filename)[0]
+            # Add frequency to name to disambiguate multiple spectral windows
+            if len(dataset.spectral_windows) > 1:
+                dataset_basename += '_{:d}MHz'.format(int(freq_MHz))
+            # Add ".et_al" as reminder that we concatenated multiple datasets
+            ms_name = '{}{}.ms'.format(dataset_basename,
+                                       "" if len(args) == 1 else ".et_al")
         else:
             ms_name = options.output_ms
         basename = os.path.splitext(ms_name)[0]
