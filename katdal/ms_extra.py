@@ -762,29 +762,54 @@ def populate_spectral_window_dict(center_frequencies, channel_bandwidths, ref_fr
     return spectral_window_dict
 
 
-def populate_source_dict(phase_centers, time_origins, center_frequencies, field_names=None):
+def populate_source_dict(phase_centers, time_origins, field_names=None):
     """Construct a dictionary containing the columns of the SOURCE subtable.
 
     The SOURCE subtable describes time-variable source information, that may
     be associated with a given FIELD_ID. It appears to be optional, but for
-    completeness it is included here (with no time varying terms).
+    completeness it is included here (with no time varying terms). Some RARG
+    tasks and CASA's exportuvfits do require it, though.
+
+    Parameters
+    ----------
+    phase_centers : array of float, shape (M, 2)
+        Direction of *M* phase centers as (ra, dec) coordinates in radians
+    time_origins : array of float, shape (M,)
+        Time origins where the *M* phase centers are correct, as Modified Julian
+        Dates in seconds
+    field_names : array of string, shape (M,), optional
+        Names of fields/pointings (typically some source names)
+
+    Returns
+    -------
+    source_dict : dict
+        Dictionary containing columns of SOURCE subtable
+
     """
-    num_channels = len(center_frequencies)
     phase_centers = np.atleast_2d(np.asarray(phase_centers, np.float64))
     num_fields = len(phase_centers)
     if field_names is None:
         field_names = ['Source%d' % (field,) for field in range(num_fields)]
     source_dict = {}
+    # Source identifier as specified in the FIELD sub-table (integer)
     source_dict['SOURCE_ID'] = np.arange(num_fields, dtype=np.int32)
+    # Source proper motion in radians per second (double, 1-dim, shape=(2,))
     source_dict['PROPER_MOTION'] = np.zeros((num_fields, 2), dtype=np.float32)
+    # Source direction (e.g. RA, DEC) in radians (double, 1-dim, shape=(2,))
     source_dict['DIRECTION'] = phase_centers
-    source_dict['CALIBRATION_GROUP'] = np.ones(num_fields, dtype=np.int32) * -1  # Grouping for calibration purpose
+    # Calibration group number to which this source belongs (integer)
+    source_dict['CALIBRATION_GROUP'] = np.full(num_fields, -1, dtype=np.int32)
+    # Name of source as given during observations (string)
     source_dict['NAME'] = np.atleast_1d(field_names)
-    source_dict['NUM_LINES'] = np.ones(num_fields, dtype=np.int32)  # Number of spectral lines
+    # Number of spectral line transitions associated with this source
+    # and spectral window id combination (integer)
+    source_dict['NUM_LINES'] = np.zeros(num_fields, dtype=np.int32)
+    # Midpoint of time for which this set of parameters is accurate (double)
     source_dict['TIME'] = np.atleast_1d(np.asarray(time_origins, dtype=np.float64))
-    source_dict['REST_FREQUENCY'] = np.tile(np.array([center_frequencies[num_channels // 2]],
-                                                     dtype=np.float64), (num_fields, 1))
-    source_dict['SYSVEL'] = np.ones((num_fields, 1), dtype=np.float64)
+    # Rest frequencies for the transitions in Hz (double, 1-dim, shape=(NUM_LINES,))
+    # This column is optional but expected by exportuvfits and even though
+    # NUM_LINES is 0, put something sensible here in case it is read.
+    source_dict['REST_FREQUENCY'] = np.zeros((num_fields, 0), dtype=np.float64)
     return source_dict
 
 
@@ -986,7 +1011,7 @@ def populate_ms_dict(uvw_coordinates, vis_data, timestamps, antenna1_index, ante
     ms_dict['SPECTRAL_WINDOW'] = populate_spectral_window_dict(center_frequencies, channel_bandwidths)
     ms_dict['FIELD'] = populate_field_dict(phase_center, start_time)
     ms_dict['STATE'] = populate_state_dict(obs_modes)
-    ms_dict['SOURCE'] = populate_source_dict(phase_center)
+    ms_dict['SOURCE'] = populate_source_dict(phase_center, start_time)
     return ms_dict
 
 # ----------------- Write completed dictionary to MS file --------------------

@@ -635,7 +635,7 @@ def main():
             field_centers, field_times, field_names)
         ms_dict['STATE'] = ms_extra.populate_state_dict(obs_modes)
         ms_dict['SOURCE'] = ms_extra.populate_source_dict(
-            field_centers, field_times, out_freqs, field_names)
+            field_centers, field_times, field_names)
 
         print("\nWriting dynamic fields to disk....\n")
         # Finally we write the MS as per our created dicts
