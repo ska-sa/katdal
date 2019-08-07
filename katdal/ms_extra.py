@@ -315,11 +315,18 @@ elif casacore_binding == 'pyrap':
         return t if type(t) == tables.table else None
 
     def create_ms(filename, table_desc=None, dm_info=None):
-        with tables.default_ms(filename, table_desc, dm_info) as T:
-            # Add the SOURCE subtable
-            source_filename = os.path.join(os.getcwd(), filename, "SOURCE")
-            tables.default_ms_subtable("SOURCE", source_filename)
-            T.putkeyword("SOURCE", "Table: %s" % source_filename)
+        with tables.default_ms(filename, table_desc, dm_info) as main_table:
+            # Add the optional SOURCE subtable
+            source_path = os.path.join(os.getcwd(), filename, 'SOURCE')
+            with tables.default_ms_subtable('SOURCE', source_path) as source_table:
+                # Add the optional REST_FREQUENCY column to appease exportuvfits
+                # (it only seems to need the column keywords)
+                rest_freq_desc = tables.makearrcoldesc(
+                    'REST_FREQUENCY', 0, valuetype='DOUBLE', ndim=1,
+                    keywords={'MEASINFO': {'Ref': 'LSRK', 'type': 'frequency'},
+                              'QuantumUnits': 'Hz'})
+                source_table.addcols(rest_freq_desc)
+            main_table.putkeyword('SOURCE', 'Table: ' + source_path)
 
 else:
     def open_table(filename, readonly=False):
