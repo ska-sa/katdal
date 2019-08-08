@@ -14,11 +14,7 @@
 # limitations under the License.
 ################################################################################
 
-"""Create MS compatible data and write this data into a template MeasurementSet.
-
-This can use either casapy (the default) or pyrap to create the MS.
-
-"""
+"""Create MS compatible data and write this data into a template MeasurementSet."""
 #
 # Ludwig Schwardt
 # 25 March 2008
@@ -32,34 +28,39 @@ import os.path
 from copy import deepcopy
 
 import numpy as np
+from pkg_resources import parse_version
+import casacore
+from casacore import tables
 
-# Look for a casacore library binding that will provide Table tools
-try:
-    # Try to use the casapy table tool first
-    import casac
-    tb = casac.homefinder.find_home_by_name('tableHome').create()
-    casacore_binding = 'casapy'
-except ImportError:
-    try:
-        # Otherwise fall back to python-casacore aka pyrap
-        from casacore import tables
-        casacore_binding = 'pyrap'
-    except ImportError:
-        casacore_binding = ''
-    else:
-        # Perform python-casacore version checks
-        from pkg_resources import parse_version
-        import casacore
+# Perform python-casacore version checks
+pyc_ver = parse_version(casacore.__version__)
+req_ver = parse_version("2.2.1")
+if not pyc_ver >= req_ver:
+    raise ImportError("python-casacore %s is required, but the current version is %s. "
+                      "Note that python-casacore %s requires at least casacore 2.3.0."
+                      % (req_ver, pyc_ver, req_ver))
 
-        pyc_ver = parse_version(casacore.__version__)
-        req_ver = parse_version("2.2.1")
 
-        if not pyc_ver >= req_ver:
-            raise ImportError("python-casacore %s is required, "
-                              "but the current version is %s. "
-                              "Note that python-casacore %s "
-                              "requires at least casacore 2.3.0."
-                              % (req_ver, pyc_ver, req_ver))
+def open_table(filename, readonly=False, ack=False, **kwargs):
+    """Open casacore Table."""
+    t = tables.table(filename, readonly=readonly, ack=ack, **kwargs)
+    return t if type(t) == tables.table else None
+
+
+def create_ms(filename, table_desc=None, dm_info=None):
+    """Create an empty MS with the default expected sub-tables and columns."""
+    with tables.default_ms(filename, table_desc, dm_info) as main_table:
+        # Add the optional SOURCE subtable
+        source_path = os.path.join(os.getcwd(), filename, 'SOURCE')
+        with tables.default_ms_subtable('SOURCE', source_path) as source_table:
+            # Add the optional REST_FREQUENCY column to appease exportuvfits
+            # (it only seems to need the column keywords)
+            rest_freq_desc = tables.makearrcoldesc(
+                'REST_FREQUENCY', 0, valuetype='DOUBLE', ndim=1,
+                keywords={'MEASINFO': {'Ref': 'LSRK', 'type': 'frequency'},
+                          'QuantumUnits': 'Hz'})
+            source_table.addcols(rest_freq_desc)
+        main_table.putkeyword('SOURCE', 'Table: ' + source_path)
 
 
 def std_scalar(comment, valueType='integer', option=0, **kwargs):
@@ -124,14 +125,8 @@ def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
             the extra columns and hypercolumns, as well as a Data Manager
             description.
     """
-
-    if not casacore_binding == 'pyrap':
-        raise ValueError("kat_ms_desc_and_dminfo requires the "
-                         "casacore binding to operate")
-
-    # Columns that will be modified.
-    # We want to keep things like their
-    # keywords, dims and shapes
+    # Columns that will be modified. We want to keep things like their
+    # keywords, dims and shapes.
     modify_columns = {"WEIGHT", "SIGMA", "FLAG", "FLAG_CATEGORY",
                       "UVW", "ANTENNA1", "ANTENNA2"}
 
@@ -298,44 +293,6 @@ define_hypercolumn(caltable_desc_float)
 caltable_desc_complex = deepcopy(caltable_desc)
 caltable_desc_complex['CPARAM'] = std_array('Solution values', 'complex', -1)
 define_hypercolumn(caltable_desc_complex)
-
-# Define the appropriate way to open a table using the selected binding
-if casacore_binding == 'casapy':
-    def open_table(filename, readonly=False, ack=False, **kwargs):
-        success = tb.open(filename, nomodify=readonly, **kwargs)
-        return tb if success else None
-
-    def create_ms(filename, table_desc=None, dm_info=None):
-        raise NotImplementedError("create_ms not implemented for casapy")
-
-elif casacore_binding == 'pyrap':
-    def open_table(filename, readonly=False, ack=False, **kwargs):
-        t = tables.table(filename, readonly=readonly, ack=ack, **kwargs)
-
-        return t if type(t) == tables.table else None
-
-    def create_ms(filename, table_desc=None, dm_info=None):
-        with tables.default_ms(filename, table_desc, dm_info) as main_table:
-            # Add the optional SOURCE subtable
-            source_path = os.path.join(os.getcwd(), filename, 'SOURCE')
-            with tables.default_ms_subtable('SOURCE', source_path) as source_table:
-                # Add the optional REST_FREQUENCY column to appease exportuvfits
-                # (it only seems to need the column keywords)
-                rest_freq_desc = tables.makearrcoldesc(
-                    'REST_FREQUENCY', 0, valuetype='DOUBLE', ndim=1,
-                    keywords={'MEASINFO': {'Ref': 'LSRK', 'type': 'frequency'},
-                              'QuantumUnits': 'Hz'})
-                source_table.addcols(rest_freq_desc)
-            main_table.putkeyword('SOURCE', 'Table: ' + source_path)
-
-else:
-    def open_table(filename, readonly=False):
-        raise NotImplementedError("Cannot open MS '%s', as neither "
-                                  "casapy nor pyrap were found" % (filename,))
-
-    def create_ms(filename, table_desc=None, dm_info=None):
-        raise NotImplementedError("Cannot create MS '%s', as neither "
-                                  "casapy nor pyrap were found" % (filename,))
 
 
 # -------- Routines that create MS data structures in dictionaries -----------
@@ -1038,7 +995,7 @@ def write_rows(t, row_dict, verbose=True):
             if col_data.dtype.kind == 'U':
                 col_data = np.char.encode(col_data, encoding='utf-8')
             try:
-                t.putcol(col_name, col_data.T if casacore_binding == 'casapy' else col_data, startrow)
+                t.putcol(col_name, col_data, startrow)
                 if verbose:
                     print("  wrote column '%s' with shape %s" % (col_name, col_data.shape))
             except RuntimeError as err:
@@ -1058,9 +1015,11 @@ def write_dict(ms_dict, ms_name, verbose=True):
         for row_dict in sub_dict:
             if verbose:
                 print("Table %s:" % (sub_table_name,))
-            # Open table using whichever casacore library was found
-            t = open_table(ms_name, ack=verbose) if sub_table_name == 'MAIN' else \
-                open_table(os.path.join(ms_name, sub_table_name))
+            # Open main table or sub-table
+            if sub_table_name == 'MAIN':
+                t = open_table(ms_name, ack=verbose)
+            else:
+                t = open_table(os.path.join(ms_name, sub_table_name))
             if verbose and t is not None:
                 print("  opened successfully")
             if t is None:

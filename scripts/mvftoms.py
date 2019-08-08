@@ -16,8 +16,8 @@
 # limitations under the License.
 ################################################################################
 
-# Produce a CASA-compatible Measurement Set from a MeerKAT Visibility Format
-# (MVF) dataset using casapy or casacore.
+# Produce a CASA-compatible MeasurementSet from a MeerKAT Visibility Format
+# (MVF) dataset using casacore.
 
 from __future__ import print_function, division, absolute_import
 from future import standard_library
@@ -124,7 +124,7 @@ def main():
                      'target': 'TARGET'}
 
     usage = "%prog [options] <dataset> [<dataset2>]*"
-    description = "Convert MVF dataset(s) to MeasurementSet. The datasets may " \
+    description = "Convert MVF dataset(s) to CASA MeasurementSet. The datasets may " \
                   "be local filenames or archive URLs (including access tokens). " \
                   "If there are multiple datasets they will be concatenated via " \
                   "katdal before conversion."
@@ -206,13 +206,6 @@ def main():
 
     if len(args) > 1:
         print("Concatenating multiple datasets into single MS.")
-
-    if not ms_extra.casacore_binding:
-        raise RuntimeError("Failed to find casacore binding. You need to install both "
-                           "casacore and python-casacore, or run the script from within "
-                           "a modified casapy containing h5py and katpoint.")
-    else:
-        print("Using '%s' casacore binding to produce MS" % (ms_extra.casacore_binding,))
 
     def antenna_indices(na, no_auto_corr):
         """Get default antenna1 and antenna2 arrays."""
