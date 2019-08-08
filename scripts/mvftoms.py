@@ -173,7 +173,11 @@ def main():
                       help="Create calibration tables from gain solutions in the dataset (if present).")
     parser.add_option("--quack", type=int, default=1, metavar='N',
                       help="Discard the first N dumps (which are frequently incomplete).")
-
+    parser.add_option("--applycal", default="",
+                      help="List of calibration solutions to apply to data as "
+                           "a string of comma-separated names, e.g. 'l1' or "
+                           "'K,B,G'. Use 'default' for L1 + L2 and 'all' for "
+                           "all available products.")
     (options, args) = parser.parse_args()
 
     # Loading is I/O-bound, so give more threads than CPUs
@@ -243,7 +247,12 @@ def main():
     # Open dataset
     open_args = args[0] if len(args) == 1 else args
     # katdal can handle a list of files, which get virtually concatenated internally
-    dataset = katdal.open(open_args, ref_ant=options.ref_ant)
+    dataset = katdal.open(open_args, ref_ant=options.ref_ant, applycal=options.applycal)
+    applycal_products = ', '.join(getattr(dataset, '_applycal_products', []))
+    if applycal_products:
+        print('The following calibration products will be applied:', applycal_products)
+    else:
+        print('No calibration products will be applied')
 
     # Get list of unique polarisation products in the file
     pols_in_file = np.unique([(cp[0][-1] + cp[1][-1]).upper() for cp in dataset.corr_products])
