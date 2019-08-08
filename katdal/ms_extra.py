@@ -94,7 +94,7 @@ def define_hypercolumn(desc):
                                          for k, v in desc.items() if v['dataManagerType'] == 'TiledShapeStMan'])
 
 
-# Map Measurement Set string types to numpy types
+# Map MeasurementSet string types to numpy types
 MS_TO_NP_TYPE_MAP = {
     'INT': np.int32,
     'FLOAT': np.float32,
@@ -107,7 +107,7 @@ MS_TO_NP_TYPE_MAP = {
 
 def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
     """
-    Creates Table Description and Data Manager Information objecs that
+    Creates Table Description and Data Manager Information objects that
     describe a MeasurementSet suitable for holding MeerKAT data.
 
     Creates additional DATA, IMAGING_WEIGHT and possibly
@@ -117,7 +117,7 @@ def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
 
     :param nbl: Number of baselines.
     :param nchan: Number of channels.
-    :param ncorr: Number of correlations.
+    :param ncorr: Number of correlation products.
     :param model_data: Boolean indicated whether MODEL_DATA and CORRECTED_DATA
                         should be added to the Measurement Set.
     :return: Returns a tuple containing a table description describing

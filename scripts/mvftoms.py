@@ -123,27 +123,34 @@ def main():
                      'bpcal': 'CALIBRATE_BANDPASS,CALIBRATE_FLUX',
                      'target': 'TARGET'}
 
-    parser = optparse.OptionParser(usage="%prog [options] <filename> [<filename2>]*",
-                                   description='Convert MVF dataset(s) to MeasurementSet')
+    usage = "%prog [options] <dataset> [<dataset2>]*"
+    description = "Convert MVF dataset(s) to MeasurementSet. The datasets may " \
+                  "be local filenames or archive URLs (including access tokens). " \
+                  "If there are multiple datasets they will be concatenated via " \
+                  "katdal before conversion."
+    parser = optparse.OptionParser(usage=usage, description=description)
     parser.add_option("-o", "--output-ms", default=None,
-                      help="Output Measurement Set")
+                      help="Name of output MeasurementSet")
     parser.add_option("-c", "--circular", action="store_true", default=False,
                       help="Produce quad circular polarisation. (RR, RL, LR, LL) "
                            "*** Currently just relabels the linear pols ****")
     parser.add_option("-r", "--ref-ant",
-                      help="Reference antenna (default is first one used by script)")
+                      help="Override the reference antenna used to pick targets "
+                           "and scans (default is the 'array' antenna in MVFv4 "
+                           "and the first antenna in older formats)")
     parser.add_option("-t", "--tar", action="store_true", default=False,
                       help="Tar-ball the MS")
     parser.add_option("-f", "--full_pol", action="store_true", default=False,
                       help="Produce a full polarisation MS in CASA canonical order "
-                           "(HH, HV, VH, VV). Default is to produce HH,VV only")
+                           "(HH, HV, VH, VV). Default is to produce HH,VV only.")
     parser.add_option("-v", "--verbose", action="store_true", default=False,
                       help="More verbose progress information")
     parser.add_option("-w", "--stop-w", action="store_true", default=False,
                       help="Use W term to stop fringes for each baseline")
     parser.add_option("-p", "--pols-to-use", default=None,
-                      help="Select polarisation products to include in MS as comma separated list "
-                           "(from: HH, HV, VH, VV). Default is all available from HH, VV")
+                      help="Select polarisation products to include in MS as "
+                           "comma-separated list (from: HH, HV, VH, VV). "
+                           "Default is all available from (HH, VV).")
     parser.add_option("-u", "--uvfits", action="store_true", default=False,
                       help="Print command to convert MS to miriad uvfits in casapy")
     parser.add_option("-a", "--no-auto", action="store_true", default=False,
@@ -154,7 +161,8 @@ def main():
                       help="Range of frequency channels to keep (zero-based inclusive "
                            "'first_chan,last_chan', default is all channels)")
     parser.add_option("-e", "--elevation-range",
-                      help="Flag elevations outside the range 'lowest_elevation,highest_elevation'")
+                      help="Flag elevations outside the range "
+                           "'lowest_elevation,highest_elevation'")
     parser.add_option("-m", "--model-data", action="store_true", default=False,
                       help="Add MODEL_DATA and CORRECTED_DATA columns to the MS. "
                            "MODEL_DATA initialised to unity amplitude zero phase, "
@@ -164,15 +172,20 @@ def main():
                            "(from 'static,cam,data_lost,ingest_rfi,cal_rfi,predicted_rfi', "
                            "default is all flags, '' will apply no flags)")
     parser.add_option("--dumptime", type=float, default=0.0,
-                      help="Output time averaging interval in seconds, default is no averaging.")
+                      help="Output time averaging interval in seconds, "
+                           "default is no averaging")
     parser.add_option("--chanbin", type=int, default=0,
-                      help="Bin width for channel averaging in channels, default is no averaging.")
+                      help="Bin width for channel averaging in channels, "
+                           "default is no averaging")
     parser.add_option("--flagav", action="store_true", default=False,
-                      help="If a single element in an averaging bin is flagged, flag the averaged bin.")
+                      help="If a single element in an averaging bin is flagged, "
+                           "flag the averaged bin")
     parser.add_option("--caltables", action="store_true", default=False,
-                      help="Create calibration tables from gain solutions in the dataset (if present).")
+                      help="Create calibration tables from gain solutions in "
+                           "the dataset (if present)")
     parser.add_option("--quack", type=int, default=1, metavar='N',
-                      help="Discard the first N dumps (which are frequently incomplete).")
+                      help="Discard the first N dumps "
+                           "(which are frequently incomplete)")
     parser.add_option("--applycal", default="",
                       help="List of calibration solutions to apply to data as "
                            "a string of comma-separated names, e.g. 'l1' or "
@@ -185,7 +198,7 @@ def main():
 
     if len(args) < 1:
         parser.print_help()
-        raise RuntimeError("Please provide one or more filenames as arguments")
+        raise RuntimeError("Please provide one or more MVF dataset names as arguments")
 
     if options.elevation_range and len(options.elevation_range.split(',')) < 2:
         raise RuntimeError("You have selected elevation flagging. Please provide elevation "
@@ -246,7 +259,7 @@ def main():
 
     # Open dataset
     open_args = args[0] if len(args) == 1 else args
-    # katdal can handle a list of files, which get virtually concatenated internally
+    # katdal can handle a list of datasets, which get virtually concatenated internally
     dataset = katdal.open(open_args, ref_ant=options.ref_ant, applycal=options.applycal)
     applycal_products = ', '.join(getattr(dataset, '_applycal_products', []))
     if applycal_products:
@@ -254,35 +267,34 @@ def main():
     else:
         print('No calibration products will be applied')
 
-    # Get list of unique polarisation products in the file
-    pols_in_file = np.unique([(cp[0][-1] + cp[1][-1]).upper() for cp in dataset.corr_products])
+    # Get list of unique polarisation products in the dataset
+    pols_in_dataset = np.unique([(cp[0][-1] + cp[1][-1]).upper() for cp in dataset.corr_products])
 
     # Which polarisation do we want to write into the MS
     # select all possible pols if full-pol selected, otherwise the selected polarisations via pols_to_use
     # otherwise finally select any of HH,VV present (the default).
     pols_to_use = ['HH', 'HV', 'VH', 'VV'] if (options.full_pol or options.circular) else \
         list(np.unique(options.pols_to_use.split(','))) if options.pols_to_use else \
-        [pol for pol in ['HH', 'VV'] if pol in pols_in_file]
+        [pol for pol in ['HH', 'VV'] if pol in pols_in_dataset]
 
     # Check we have the chosen polarisations
-    if np.any([pol not in pols_in_file for pol in pols_to_use]):
+    if np.any([pol not in pols_in_dataset for pol in pols_to_use]):
         raise RuntimeError("Selected polarisation(s): %s not available. "
                            "Available polarisation(s): %s"
-                           % (','.join(pols_to_use), ','.join(pols_in_file)))
+                           % (','.join(pols_to_use), ','.join(pols_in_dataset)))
 
     # Set full_pol if this is selected via options.pols_to_use
     if set(pols_to_use) == set(['HH', 'HV', 'VH', 'VV']) and not options.circular:
         options.full_pol = True
 
+    # Extract one MS per spectral window in the dataset(s)
     for win in range(len(dataset.spectral_windows)):
         dataset.select(reset='T')
 
-        # Extract MS file per spectral window in observation file
         freq_MHz = dataset.spectral_windows[win].centre_freq / 1e6
         print('Extract MS for spw %d: central frequency %.2f MHz' % (win, freq_MHz))
 
-        # If no output MS filename supplied, infer the output filename
-        # from the first dataset.
+        # If no output MS directory name supplied, infer it from first dataset
         if options.output_ms is None:
             url_parts = urllib.parse.urlparse(args[0], scheme='file')
             # Create MS in current working directory (strip off directories)
@@ -332,11 +344,6 @@ def main():
         else:
             print("\n#### Producing MS with %s polarisation(s) ####\n"
                   % (','.join(pols_to_use)))
-
-        # # Open HDF5 file
-        # if len(args) == 1: args = args[0]
-        # dataset = katdal.open(args, ref_ant=options.ref_ant)
-        #  # katdal can handle a list of files, which get virtually concatenated internally
 
         # if fringe stopping is requested, check that it has not already been done in hardware
         if options.stop_w:
@@ -413,17 +420,17 @@ def main():
             dataset.select(corrprods='cross')
             print("\nCross-correlations only.")
 
-        print("\nUsing %s as the reference antenna. All targets and activity "
-              "detection will be based on this antenna.\n" % (dataset.ref_ant,))
+        print("\nUsing %s as the reference antenna. All targets and scans "
+              "will be based on this antenna.\n" % (dataset.ref_ant,))
         # MS expects timestamps in MJD seconds
         start_time = dataset.start_time.to_mjd() * 24 * 60 * 60
         end_time = dataset.end_time.to_mjd() * 24 * 60 * 60
-        # Version 1 and 2 files are KAT-7; the rest are MeerKAT
+        # MVF version 1 and 2 datasets are KAT-7; the rest are MeerKAT
         telescope_name = 'KAT-7' if dataset.version[0] in '12' else 'MeerKAT'
 
         # increment scans sequentially in the ms
         scan_itr = 1
-        print("\nIterating through scans in file(s)...\n")
+        print("\nIterating through scans in dataset(s)...\n")
 
         cp_info = corrprod_index(dataset)
         nbl = cp_info.ant1_index.size
@@ -630,7 +637,7 @@ def main():
             raise writer_exc
 
         if total_size == 0:
-            raise RuntimeError("No usable data found in HDF5 file "
+            raise RuntimeError("No usable data found in MVF dataset "
                                "(pick another reference antenna, maybe?)")
 
         # Remove spaces from source names, unless otherwise specified
