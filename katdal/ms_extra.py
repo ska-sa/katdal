@@ -981,18 +981,21 @@ def write_rows(t, row_dict, verbose=True):
     if verbose:
         print("  added %d rows" % (num_rows,))
     for col_name, col_data in row_dict.items():
-        if col_name in t.colnames():
-            if col_data.dtype.kind == 'U':
-                col_data = np.char.encode(col_data, encoding='utf-8')
-            try:
-                t.putcol(col_name, col_data, startrow)
-                if verbose:
-                    print("  wrote column '%s' with shape %s" % (col_name, col_data.shape))
-            except RuntimeError as err:
-                print("  error writing column '%s' with shape %s (%s)" % (col_name, col_data.shape, err))
-        else:
+        if col_name not in t.colnames():
             if verbose:
                 print("  column '%s' not in table" % (col_name,))
+            continue
+        if col_data.dtype.kind == 'U':
+            col_data = np.char.encode(col_data, encoding='utf-8')
+        try:
+            t.putcol(col_name, col_data, startrow)
+        except RuntimeError as err:
+            print("  error writing column '%s' with shape %s (%s)" %
+                  (col_name, col_data.shape, err))
+        else:
+            if verbose:
+                print("  wrote column '%s' with shape %s" %
+                      (col_name, col_data.shape))
 
 
 def write_dict(ms_dict, ms_name, verbose=True):
