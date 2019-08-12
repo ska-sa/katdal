@@ -51,6 +51,25 @@ from katdal.lazy_indexer import DaskLazyIndexer
 SLOTS = 4    # Controls overlap between loading and writing
 
 
+def default_ms_name(args, freq_MHz=None):
+    """Infer default MS name from argument list and optional frequency label."""
+    # Use the first dataset in the list to generate the base part of the MS name
+    url_parts = urllib.parse.urlparse(args[0], scheme='file')
+    # Create MS in current working directory (strip off directories)
+    dataset_filename = os.path.basename(url_parts.path)
+    # Get rid of the ".full" bit on RDB files (it's the same dataset)
+    full_rdb_ext = '.full.rdb'
+    if dataset_filename.endswith(full_rdb_ext):
+        dataset_basename = dataset_filename[:-len(full_rdb_ext)]
+    else:
+        dataset_basename = os.path.splitext(dataset_filename)[0]
+    # Add frequency to name to disambiguate multiple spectral windows
+    if freq_MHz:
+        dataset_basename += '_{:d}MHz'.format(int(freq_MHz))
+    # Add ".et_al" as reminder that we concatenated multiple datasets
+    return '{}{}.ms'.format(dataset_basename, "" if len(args) == 1 else ".et_al")
+
+
 def load(dataset, indices, vis, weights, flags):
     """Load data from lazy indexers into existing storage.
 
@@ -287,22 +306,13 @@ def main():
         freq_MHz = dataset.spectral_windows[win].centre_freq / 1e6
         print('Extract MS for spw %d: central frequency %.2f MHz' % (win, freq_MHz))
 
-        # If no output MS directory name supplied, infer it from first dataset
+        # If no output MS directory name supplied, infer it from dataset(s)
         if options.output_ms is None:
-            url_parts = urllib.parse.urlparse(args[0], scheme='file')
-            # Create MS in current working directory (strip off directories)
-            dataset_filename = os.path.basename(url_parts.path)
-            # Get rid of the ".full" bit on RDB files (it's the same dataset)
-            if dataset_filename.endswith('.full.rdb'):
-                dataset_basename = dataset_filename[:-9]
-            else:
-                dataset_basename = os.path.splitext(dataset_filename)[0]
-            # Add frequency to name to disambiguate multiple spectral windows
             if len(dataset.spectral_windows) > 1:
-                dataset_basename += '_{:d}MHz'.format(int(freq_MHz))
-            # Add ".et_al" as reminder that we concatenated multiple datasets
-            ms_name = '{}{}.ms'.format(dataset_basename,
-                                       "" if len(args) == 1 else ".et_al")
+                # Use frequency label to disambiguate multiple spectral windows
+                ms_name = default_ms_name(args, freq_MHz)
+            else:
+                ms_name = default_ms_name(args)
         else:
             ms_name = options.output_ms
         basename = os.path.splitext(ms_name)[0]
