@@ -660,7 +660,7 @@ def main():
         #   (can't extract telstate params from contatenated katdal file as it
         #    uses the hdf5 file directly)
         first_dataset = katdal.open(args[0], ref_ant=options.ref_ant)
-        main_table = ms_extra.open_main(ms_name, verbose=options.verbose)
+        main_table = ms_extra.open_table(ms_name, verbose=options.verbose)
 
         if options.caltables:
             # copy extra subtable dictionary values necessary for caltable

@@ -22,7 +22,6 @@
 from __future__ import print_function, division, absolute_import
 from builtins import range
 
-import sys
 import os
 import os.path
 from copy import deepcopy
@@ -41,10 +40,9 @@ if not pyc_ver >= req_ver:
                       % (req_ver, pyc_ver, req_ver))
 
 
-def open_table(filename, readonly=False, ack=False, **kwargs):
+def open_table(name, readonly=False, verbose=False, **kwargs):
     """Open casacore Table."""
-    t = tables.table(filename, readonly=readonly, ack=ack, **kwargs)
-    return t if type(t) == tables.table else None
+    return tables.table(name, readonly=readonly, ack=verbose, **kwargs)
 
 
 def create_ms(filename, table_desc=None, dm_info=None):
@@ -974,14 +972,6 @@ def populate_ms_dict(uvw_coordinates, vis_data, timestamps, antenna1_index, ante
 # ----------------- Write completed dictionary to MS file --------------------
 
 
-def open_main(ms_name, verbose=True):
-    t = open_table(ms_name, ack=verbose)
-    if t is None:
-        print("Failed to open main table for writing.")
-        sys.exit(1)
-    return t
-
-
 def write_rows(t, row_dict, verbose=True):
     num_rows = list(row_dict.values())[0].shape[0]
     # Append rows to the table by starting after the last row in table
@@ -1017,14 +1007,11 @@ def write_dict(ms_dict, ms_name, verbose=True):
                 print("Table %s:" % (sub_table_name,))
             # Open main table or sub-table
             if sub_table_name == 'MAIN':
-                t = open_table(ms_name, ack=verbose)
+                t = open_table(ms_name, verbose=verbose)
             else:
-                t = open_table(os.path.join(ms_name, sub_table_name))
-            if verbose and t is not None:
+                t = open_table('::'.join((ms_name, sub_table_name)))
+            if verbose:
                 print("  opened successfully")
-            if t is None:
-                print("  could not open table!")
-                break
             write_rows(t, row_dict, verbose)
             t.close()
             if verbose:
