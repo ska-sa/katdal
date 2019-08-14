@@ -137,8 +137,11 @@ class TestVirtualSensors(object):
         assert_array_equal(self.dataset.target_y[:, 1], rad2deg(y))
 
     def test_uvw(self):
-        u, v, w = self.target.uvw(self.antennas[0], self.timestamps,
-                                  self.antennas[1])
+        u0, v0, w0 = self.target.uvw(self.antennas[0], self.timestamps, self.array_ant)
+        u1, v1, w1 = self.target.uvw(self.antennas[1], self.timestamps, self.array_ant)
+        u = u0 - u1
+        v = v0 - v1
+        w = w0 - w1
         assert_array_equal(self.dataset.u[:, 4], u)
         assert_array_equal(self.dataset.v[:, 4], v)
         assert_array_equal(self.dataset.w[:, 4], w)

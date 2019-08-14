@@ -227,21 +227,35 @@ def _calc_target_coords(cache, name, ant, projection, coordsys):
     return x if name.startswith(ant_group + 'target_x') else y
 
 
-def _calc_uvw(cache, name, antA, antB):
-    """Calculate (u,v,w) coordinates using sensor cache contents."""
-    antennaA = cache.get('Antennas/%s/antenna' % (antA,))[0]
-    antennaB = cache.get('Antennas/%s/antenna' % (antB,))[0]
-    u = np.empty(len(cache.timestamps))
-    v = np.empty(len(cache.timestamps))
-    w = np.empty(len(cache.timestamps))
+def _calc_uvw_basis(cache, name, ant):
+    """Calculate (u,v,w) basis vectors using sensor cache contents."""
+    ant_group = 'Antennas/%s/' % (ant,)
+    antenna = cache.get(ant_group + 'antenna')[0]
+    u = np.empty((len(cache.timestamps), 3))
+    v = np.empty((len(cache.timestamps), 3))
+    w = np.empty((len(cache.timestamps), 3))
     targets = cache.get('Observation/target')
     for segm, target in targets.segments():
-        u[segm], v[segm], w[segm] = target.uvw(antennaA, cache.timestamps[segm],
-                                               antennaB)
-    cache['Corrprods/%s/%s/u' % (antA, antB)] = u
-    cache['Corrprods/%s/%s/v' % (antA, antB)] = v
-    cache['Corrprods/%s/%s/w' % (antA, antB)] = w
-    return u if name.endswith('u') else v if name.endswith('v') else w
+        # The basis is a series of 3x3 matrices converting ENU to UVW
+        basis = target.uvw_basis(cache.timestamps[segm], antenna)
+        # Basis has shape (3, 3, T) which we split into 3 sensors of shape (T, 3)
+        u[segm], v[segm], w[segm] = basis.transpose(0, 2, 1)
+    new_sensors = {ant_group + 'basis_u': u, ant_group + 'basis_v': v,
+                   ant_group + 'basis_w': w}
+    cache.update(new_sensors)
+    return new_sensors[name]
+
+
+def _calc_uvw_per_ant(cache, name, ant):
+    """Calculate (u,v,w) coordinates per antenna using sensor cache contents."""
+    array_antenna = cache.get('Antennas/array/antenna')[0]
+    antenna = cache.get('Antennas/%s/antenna' % (ant,))[0]
+    basis = cache.get('Antennas/array/basis_' + name[-1])
+    # Obtain baseline vector from array reference to specified antenna
+    baseline_m = array_antenna.baseline_toward(antenna)
+    coord = basis.dot(baseline_m)
+    cache[name] = coord
+    return coord
 
 
 DEFAULT_VIRTUAL_SENSORS = {
@@ -249,7 +263,8 @@ DEFAULT_VIRTUAL_SENSORS = {
     'Antennas/{ant}/ra': _calc_radec, 'Antennas/{ant}/dec': _calc_radec,
     'Antennas/{ant}/parangle': _calc_parangle,
     'Antennas/{ant}/target_[xy]_{projection}_{coordsys}': _calc_target_coords,
-    'Corrprods/{antA}/{antB}/[uvw]': _calc_uvw,
+    'Antennas/{ant}/basis_[uvw]': _calc_uvw_basis,
+    'Antennas/{ant}/[uvw]': _calc_uvw_per_ant,
 }
 
 # -------------------------------------------------------------------------------------------------
@@ -1026,11 +1041,18 @@ class DataSet(object):
         return np.column_stack([sensor_data(ant.name) for ant in self.ants]) \
             if self.ants else np.zeros((self.shape[0], 0))
 
-    def _sensor_per_corrprod(self, base_name):
-        """Extract a single sensor per corrprod and safely stack the results."""
-        def sensor_data(antA, antB):
-            return self.sensor['Corrprods/%s/%s/%s' % (antA, antB, base_name)]
-        return np.column_stack([sensor_data(inpA[:-1], inpB[:-1])
+    def _delta_sensor_per_corrprod(self, base_name):
+        """Extract a single sensor per corrprod and safely stack the results.
+
+        The sensor is specialised to return the difference between the sensors
+        of the two antennas making up the correlation product, since that is
+        what (u, v, w) sensors need.
+        """
+        def difference(antA, antB):
+            coord1 = self.sensor['Antennas/%s/%s' % (antA, base_name)]
+            coord2 = self.sensor['Antennas/%s/%s' % (antB, base_name)]
+            return coord1 - coord2
+        return np.column_stack([difference(inpA[:-1], inpB[:-1])
                                 for inpA, inpB in self.corr_products]) \
             if len(self.corr_products) else np.zeros((self.shape[0], 0))
 
@@ -1127,7 +1149,7 @@ class DataSet(object):
         convention is :math:`u_1 - u_2` for baseline (ant1, ant2).
 
         """
-        return self._sensor_per_corrprod('u')
+        return self._delta_sensor_per_corrprod('u')
 
     @property
     def v(self):
@@ -1139,7 +1161,7 @@ class DataSet(object):
         convention is :math:`v_1 - v_2` for baseline (ant1, ant2).
 
         """
-        return self._sensor_per_corrprod('v')
+        return self._delta_sensor_per_corrprod('v')
 
     @property
     def w(self):
@@ -1151,4 +1173,4 @@ class DataSet(object):
         convention is :math:`w_1 - w_2` for baseline (ant1, ant2).
 
         """
-        return self._sensor_per_corrprod('w')
+        return self._delta_sensor_per_corrprod('w')
