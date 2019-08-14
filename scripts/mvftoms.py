@@ -273,9 +273,9 @@ def main():
     open_args = args[0] if len(args) == 1 else args
     # katdal can handle a list of datasets, which get virtually concatenated internally
     dataset = katdal.open(open_args, ref_ant=options.ref_ant, applycal=options.applycal)
-    applycal_products = ', '.join(getattr(dataset, '_applycal_products', []))
-    if applycal_products:
-        print('The following calibration products will be applied:', applycal_products)
+    if dataset.applycal_products:
+        print('The following calibration products will be applied:',
+              ', '.join(dataset.applycal_products))
     else:
         print('No calibration products will be applied')
 
