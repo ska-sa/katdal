@@ -216,22 +216,31 @@ def calc_gain_correction(sensor, index, targets=None):
     solutions on the appropriate target.
     """
     dumps = np.arange(sensor.events[-1])
-    events = sensor.events[:-1]
-    gains = np.array([value[(Ellipsis,) + index]
-                      for segment, value in sensor.segments()])
+    events = []
+    gains = []
+    for segment, value in sensor.segments():
+        # Discard "invalid gain" placeholder (typically the initial value)
+        if value is INVALID_GAIN:
+            continue
+        events.append(segment.start)
+        gains.append(value[(Ellipsis,) + index])
+    if not events:
+        return np.full((len(dumps), 1), INVALID_GAIN)
+    events = np.array(events)
     # Let the gains be shaped either (cal_n_chans, n_events) or (1, n_events)
-    gains = np.atleast_2d(gains.T)
+    gains = np.atleast_2d(np.array(gains).T)
     # Assume all dumps have the same target by default, i.e. interpolate freely
     if targets is None:
         targets = CategoricalData([0], [0, len(dumps)])
-    smooth_gains = np.empty((len(dumps), gains.shape[0]), dtype=gains.dtype)
+    smooth_gains = np.full((len(dumps), gains.shape[0]), INVALID_GAIN)
     # Iterate over number of channels / "IFs" / subbands in gain product
     for chan, gains_per_chan in enumerate(gains):
         for target in set(targets):
             on_target = (targets == target)
             valid = np.isfinite(gains_per_chan) & on_target[events]
-            smooth_gains[on_target, chan] = INVALID_GAIN if not valid.any() else \
-                complex_interp(dumps[on_target], events[valid], gains_per_chan[valid])
+            if valid.any():
+                smooth_gains[on_target, chan] = complex_interp(
+                    dumps[on_target], events[valid], gains_per_chan[valid])
     return np.reciprocal(smooth_gains)
 
 

@@ -34,7 +34,7 @@ from .categorical import CategoricalData
 from .lazy_indexer import DaskLazyIndexer
 from .applycal import (add_applycal_sensors, calc_correction,
                        apply_vis_correction, apply_weights_correction,
-                       apply_flags_correction, CAL_PRODUCT_TYPES)
+                       apply_flags_correction, CAL_PRODUCT_TYPES, INVALID_GAIN)
 from .flags import NAMES as FLAG_NAMES, DESCRIPTIONS as FLAG_DESCRIPTIONS
 
 
@@ -55,6 +55,9 @@ SENSOR_PROPS.update({
     '*serial_number': {'initial_value': 0},
     '*target': {'initial_value': '', 'transform': _robust_target},
     'obs_label': {'initial_value': '', 'allow_repeats': True},
+    '*_product_G': {'initial_value': INVALID_GAIN},
+    '*_product_GPHASE': {'initial_value': INVALID_GAIN},
+    '*_product_GAMP_PHASE': {'initial_value': INVALID_GAIN},
 })
 
 SENSOR_ALIASES = {
