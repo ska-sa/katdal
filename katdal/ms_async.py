@@ -108,7 +108,7 @@ def ms_writer_process(
         tdiff = vis_arrays.shape[1]
         nbl = vis_arrays.shape[2]
 
-        main_table = ms_extra.open_main(ms_name, verbose=options.verbose)
+        main_table = ms_extra.open_table(ms_name, verbose=options.verbose)
         with contextlib.closing(main_table):
             array_centre = katpoint.Antenna('', *antennas[0].ref_position_wgs84)
             baseline_vectors = np.array([array_centre.baseline_toward(antenna)

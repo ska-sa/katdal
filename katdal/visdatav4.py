@@ -388,13 +388,12 @@ class VisibilityDataV4(DataSet):
         normalised_cal_products, skip_missing_products = _normalise_cal_products(
             applycal, cal_freqs.keys())
         if not self.source.data or not normalised_cal_products:
-            self._applycal_products = []
             self._corrections = None
             self._corrected = self.source.data
         else:
             freqs = self.spectral_windows[0].channel_freqs
             corrprods = self.subarrays[self.subarray].corr_products
-            self._applycal_products, self._corrections = calc_correction(
+            self.applycal_products, self._corrections = calc_correction(
                 self.source.data.vis.chunks, self.sensor, corrprods,
                 normalised_cal_products, freqs, cal_freqs, skip_missing_products)
             if self._corrections is None:

@@ -14,11 +14,7 @@
 # limitations under the License.
 ################################################################################
 
-"""Create MS compatible data and write this data into a template MeasurementSet.
-
-This can use either casapy (the default) or pyrap to create the MS.
-
-"""
+"""Create MS compatible data and write this data into a template MeasurementSet."""
 #
 # Ludwig Schwardt
 # 25 March 2008
@@ -26,40 +22,43 @@ This can use either casapy (the default) or pyrap to create the MS.
 from __future__ import print_function, division, absolute_import
 from builtins import range
 
-import sys
 import os
 import os.path
 from copy import deepcopy
 
 import numpy as np
+from pkg_resources import parse_version
+import casacore
+from casacore import tables
 
-# Look for a casacore library binding that will provide Table tools
-try:
-    # Try to use the casapy table tool first
-    import casac
-    tb = casac.homefinder.find_home_by_name('tableHome').create()
-    casacore_binding = 'casapy'
-except ImportError:
-    try:
-        # Otherwise fall back to python-casacore aka pyrap
-        from casacore import tables
-        casacore_binding = 'pyrap'
-    except ImportError:
-        casacore_binding = ''
-    else:
-        # Perform python-casacore version checks
-        from pkg_resources import parse_version
-        import casacore
+# Perform python-casacore version checks
+pyc_ver = parse_version(casacore.__version__)
+req_ver = parse_version("2.2.1")
+if not pyc_ver >= req_ver:
+    raise ImportError("python-casacore %s is required, but the current version is %s. "
+                      "Note that python-casacore %s requires at least casacore 2.3.0."
+                      % (req_ver, pyc_ver, req_ver))
 
-        pyc_ver = parse_version(casacore.__version__)
-        req_ver = parse_version("2.2.1")
 
-        if not pyc_ver >= req_ver:
-            raise ImportError("python-casacore %s is required, "
-                              "but the current version is %s. "
-                              "Note that python-casacore %s "
-                              "requires at least casacore 2.3.0."
-                              % (req_ver, pyc_ver, req_ver))
+def open_table(name, readonly=False, verbose=False, **kwargs):
+    """Open casacore Table."""
+    return tables.table(name, readonly=readonly, ack=verbose, **kwargs)
+
+
+def create_ms(filename, table_desc=None, dm_info=None):
+    """Create an empty MS with the default expected sub-tables and columns."""
+    with tables.default_ms(filename, table_desc, dm_info) as main_table:
+        # Add the optional SOURCE subtable
+        source_path = os.path.join(os.getcwd(), filename, 'SOURCE')
+        with tables.default_ms_subtable('SOURCE', source_path) as source_table:
+            # Add the optional REST_FREQUENCY column to appease exportuvfits
+            # (it only seems to need the column keywords)
+            rest_freq_desc = tables.makearrcoldesc(
+                'REST_FREQUENCY', 0, valuetype='DOUBLE', ndim=1,
+                keywords={'MEASINFO': {'Ref': 'LSRK', 'type': 'frequency'},
+                          'QuantumUnits': 'Hz'})
+            source_table.addcols(rest_freq_desc)
+        main_table.putkeyword('SOURCE', 'Table: ' + source_path)
 
 
 def std_scalar(comment, valueType='integer', option=0, **kwargs):
@@ -94,7 +93,7 @@ def define_hypercolumn(desc):
                                          for k, v in desc.items() if v['dataManagerType'] == 'TiledShapeStMan'])
 
 
-# Map Measurement Set string types to numpy types
+# Map MeasurementSet string types to numpy types
 MS_TO_NP_TYPE_MAP = {
     'INT': np.int32,
     'FLOAT': np.float32,
@@ -107,7 +106,7 @@ MS_TO_NP_TYPE_MAP = {
 
 def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
     """
-    Creates Table Description and Data Manager Information objecs that
+    Creates Table Description and Data Manager Information objects that
     describe a MeasurementSet suitable for holding MeerKAT data.
 
     Creates additional DATA, IMAGING_WEIGHT and possibly
@@ -117,21 +116,15 @@ def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
 
     :param nbl: Number of baselines.
     :param nchan: Number of channels.
-    :param ncorr: Number of correlations.
+    :param ncorr: Number of correlation products.
     :param model_data: Boolean indicated whether MODEL_DATA and CORRECTED_DATA
                         should be added to the Measurement Set.
     :return: Returns a tuple containing a table description describing
             the extra columns and hypercolumns, as well as a Data Manager
             description.
     """
-
-    if not casacore_binding == 'pyrap':
-        raise ValueError("kat_ms_desc_and_dminfo requires the "
-                         "casacore binding to operate")
-
-    # Columns that will be modified.
-    # We want to keep things like their
-    # keywords, dims and shapes
+    # Columns that will be modified. We want to keep things like their
+    # keywords, dims and shapes.
     modify_columns = {"WEIGHT", "SIGMA", "FLAG", "FLAG_CATEGORY",
                       "UVW", "ANTENNA1", "ANTENNA2"}
 
@@ -298,37 +291,6 @@ define_hypercolumn(caltable_desc_float)
 caltable_desc_complex = deepcopy(caltable_desc)
 caltable_desc_complex['CPARAM'] = std_array('Solution values', 'complex', -1)
 define_hypercolumn(caltable_desc_complex)
-
-# Define the appropriate way to open a table using the selected binding
-if casacore_binding == 'casapy':
-    def open_table(filename, readonly=False, ack=False, **kwargs):
-        success = tb.open(filename, nomodify=readonly, **kwargs)
-        return tb if success else None
-
-    def create_ms(filename, table_desc=None, dm_info=None):
-        raise NotImplementedError("create_ms not implemented for casapy")
-
-elif casacore_binding == 'pyrap':
-    def open_table(filename, readonly=False, ack=False, **kwargs):
-        t = tables.table(filename, readonly=readonly, ack=ack, **kwargs)
-
-        return t if type(t) == tables.table else None
-
-    def create_ms(filename, table_desc=None, dm_info=None):
-        with tables.default_ms(filename, table_desc, dm_info) as T:
-            # Add the SOURCE subtable
-            source_filename = os.path.join(os.getcwd(), filename, "SOURCE")
-            tables.default_ms_subtable("SOURCE", source_filename)
-            T.putkeyword("SOURCE", "Table: %s" % source_filename)
-
-else:
-    def open_table(filename, readonly=False):
-        raise NotImplementedError("Cannot open MS '%s', as neither "
-                                  "casapy nor pyrap were found" % (filename,))
-
-    def create_ms(filename, table_desc=None, dm_info=None):
-        raise NotImplementedError("Cannot create MS '%s', as neither "
-                                  "casapy nor pyrap were found" % (filename,))
 
 
 # -------- Routines that create MS data structures in dictionaries -----------
@@ -755,29 +717,54 @@ def populate_spectral_window_dict(center_frequencies, channel_bandwidths, ref_fr
     return spectral_window_dict
 
 
-def populate_source_dict(phase_centers, time_origins, center_frequencies, field_names=None):
+def populate_source_dict(phase_centers, time_origins, field_names=None):
     """Construct a dictionary containing the columns of the SOURCE subtable.
 
     The SOURCE subtable describes time-variable source information, that may
     be associated with a given FIELD_ID. It appears to be optional, but for
-    completeness it is included here (with no time varying terms).
+    completeness it is included here (with no time varying terms). Some RARG
+    tasks and CASA's exportuvfits do require it, though.
+
+    Parameters
+    ----------
+    phase_centers : array of float, shape (M, 2)
+        Direction of *M* phase centers as (ra, dec) coordinates in radians
+    time_origins : array of float, shape (M,)
+        Time origins where the *M* phase centers are correct, as Modified Julian
+        Dates in seconds
+    field_names : array of string, shape (M,), optional
+        Names of fields/pointings (typically some source names)
+
+    Returns
+    -------
+    source_dict : dict
+        Dictionary containing columns of SOURCE subtable
+
     """
-    num_channels = len(center_frequencies)
     phase_centers = np.atleast_2d(np.asarray(phase_centers, np.float64))
     num_fields = len(phase_centers)
     if field_names is None:
         field_names = ['Source%d' % (field,) for field in range(num_fields)]
     source_dict = {}
+    # Source identifier as specified in the FIELD sub-table (integer)
     source_dict['SOURCE_ID'] = np.arange(num_fields, dtype=np.int32)
+    # Source proper motion in radians per second (double, 1-dim, shape=(2,))
     source_dict['PROPER_MOTION'] = np.zeros((num_fields, 2), dtype=np.float32)
+    # Source direction (e.g. RA, DEC) in radians (double, 1-dim, shape=(2,))
     source_dict['DIRECTION'] = phase_centers
-    source_dict['CALIBRATION_GROUP'] = np.ones(num_fields, dtype=np.int32) * -1  # Grouping for calibration purpose
+    # Calibration group number to which this source belongs (integer)
+    source_dict['CALIBRATION_GROUP'] = np.full(num_fields, -1, dtype=np.int32)
+    # Name of source as given during observations (string)
     source_dict['NAME'] = np.atleast_1d(field_names)
-    source_dict['NUM_LINES'] = np.ones(num_fields, dtype=np.int32)  # Number of spectral lines
+    # Number of spectral line transitions associated with this source
+    # and spectral window id combination (integer)
+    source_dict['NUM_LINES'] = np.zeros(num_fields, dtype=np.int32)
+    # Midpoint of time for which this set of parameters is accurate (double)
     source_dict['TIME'] = np.atleast_1d(np.asarray(time_origins, dtype=np.float64))
-    source_dict['REST_FREQUENCY'] = np.tile(np.array([center_frequencies[num_channels // 2]],
-                                                     dtype=np.float64), (num_fields, 1))
-    source_dict['SYSVEL'] = np.ones((num_fields, 1), dtype=np.float64)
+    # Rest frequencies for the transitions in Hz (double, 1-dim, shape=(NUM_LINES,))
+    # This column is optional but expected by exportuvfits and even though
+    # NUM_LINES is 0, put something sensible here in case it is read.
+    source_dict['REST_FREQUENCY'] = np.zeros((num_fields, 0), dtype=np.float64)
     return source_dict
 
 
@@ -979,18 +966,10 @@ def populate_ms_dict(uvw_coordinates, vis_data, timestamps, antenna1_index, ante
     ms_dict['SPECTRAL_WINDOW'] = populate_spectral_window_dict(center_frequencies, channel_bandwidths)
     ms_dict['FIELD'] = populate_field_dict(phase_center, start_time)
     ms_dict['STATE'] = populate_state_dict(obs_modes)
-    ms_dict['SOURCE'] = populate_source_dict(phase_center)
+    ms_dict['SOURCE'] = populate_source_dict(phase_center, start_time)
     return ms_dict
 
 # ----------------- Write completed dictionary to MS file --------------------
-
-
-def open_main(ms_name, verbose=True):
-    t = open_table(ms_name, ack=verbose)
-    if t is None:
-        print("Failed to open main table for writing.")
-        sys.exit(1)
-    return t
 
 
 def write_rows(t, row_dict, verbose=True):
@@ -1002,18 +981,21 @@ def write_rows(t, row_dict, verbose=True):
     if verbose:
         print("  added %d rows" % (num_rows,))
     for col_name, col_data in row_dict.items():
-        if col_name in t.colnames():
-            if col_data.dtype.kind == 'U':
-                col_data = np.char.encode(col_data, encoding='utf-8')
-            try:
-                t.putcol(col_name, col_data.T if casacore_binding == 'casapy' else col_data, startrow)
-                if verbose:
-                    print("  wrote column '%s' with shape %s" % (col_name, col_data.shape))
-            except RuntimeError as err:
-                print("  error writing column '%s' with shape %s (%s)" % (col_name, col_data.shape, err))
-        else:
+        if col_name not in t.colnames():
             if verbose:
                 print("  column '%s' not in table" % (col_name,))
+            continue
+        if col_data.dtype.kind == 'U':
+            col_data = np.char.encode(col_data, encoding='utf-8')
+        try:
+            t.putcol(col_name, col_data, startrow)
+        except RuntimeError as err:
+            print("  error writing column '%s' with shape %s (%s)" %
+                  (col_name, col_data.shape, err))
+        else:
+            if verbose:
+                print("  wrote column '%s' with shape %s" %
+                      (col_name, col_data.shape))
 
 
 def write_dict(ms_dict, ms_name, verbose=True):
@@ -1026,14 +1008,13 @@ def write_dict(ms_dict, ms_name, verbose=True):
         for row_dict in sub_dict:
             if verbose:
                 print("Table %s:" % (sub_table_name,))
-            # Open table using whichever casacore library was found
-            t = open_table(ms_name, ack=verbose) if sub_table_name == 'MAIN' else \
-                open_table(os.path.join(ms_name, sub_table_name))
-            if verbose and t is not None:
+            # Open main table or sub-table
+            if sub_table_name == 'MAIN':
+                t = open_table(ms_name, verbose=verbose)
+            else:
+                t = open_table('::'.join((ms_name, sub_table_name)))
+            if verbose:
                 print("  opened successfully")
-            if t is None:
-                print("  could not open table!")
-                break
             write_rows(t, row_dict, verbose)
             t.close()
             if verbose:

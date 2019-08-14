@@ -343,6 +343,8 @@ class DataSet(object):
         Shape of selected visibility data array, as (*T*, *F*, *B*)
     size : int
         Size of selected visibility data array, in bytes
+    applycal_products : list of string
+        List of calibration products that will be applied to data
 
     """
 
@@ -383,6 +385,7 @@ class DataSet(object):
         self.target_coordsys = 'azel'
         self.shape = (0, 0, 0)
         self.size = 0
+        self.applycal_products = []
 
         self._selection = {}
         self._time_keep = []
