@@ -121,6 +121,16 @@ class TestReadArray(object):
         with assert_raises(ValueError):
             read_array(fp)
 
+    def testShort(self):
+        fp = io.BytesIO()
+        np.save(fp, np.arange(20))
+        # Chop off last byte
+        fp.seek(-1, 2)
+        fp.truncate()
+        fp.seek(0)
+        with assert_raises(ValueError):
+            read_array(fp)
+
 
 class TestS3ChunkStore(ChunkStoreTestBase):
     """Test S3 functionality against an actual (minio) S3 service."""

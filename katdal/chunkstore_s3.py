@@ -106,7 +106,10 @@ def read_array(fp):
     # For HTTPResponse it works to just pass in `data` directly, but the
     # wrapping is added for the benefit of any other implementation that
     # isn't expecting a numpy array
-    fp.readinto(memoryview(data.view(np.uint8)))
+    bytes_read = fp.readinto(memoryview(data.view(np.uint8)))
+    if bytes_read != data.nbytes:
+        raise ValueError('Error reading numpy array from S3: expected {} bytes, got {}',
+                         data.nbytes, bytes_read)
     if fortran_order:
         data.shape = shape[::-1]
         data = data.transpose()
