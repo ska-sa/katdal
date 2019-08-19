@@ -30,6 +30,7 @@ import katsdptelstate
 import numpy as np
 import dask.array as da
 from dask.array.rechunk import intersect_chunks
+from dask.core import literal
 import numba
 
 from .sensordata import TelstateSensorData, TelstateToStr
@@ -95,7 +96,7 @@ class VisFlagsWeights(object):
 
 
 def _apply_data_lost(orig_flags, lost, block_id):
-    mark = lost.get(block_id)
+    mark = lost.data.get(block_id)
     if not mark:
         return orig_flags    # Common case - no data lost
     flags = orig_flags.copy()
@@ -250,8 +251,10 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
                     for piece in pieces:
                         chunk_idx, slices = zip(*piece)
                         lost[chunk_idx].append(slices)
+        # 'literal' is needed to prevent dask copying the dictionary for every
+        # chunk.
         flags = da.map_blocks(_apply_data_lost, darray['flags'], dtype=np.uint8,
-                              name=flags_raw_name, lost=lost)
+                              name=flags_raw_name, lost=literal(lost))
         # Combine low-resolution weights and high-resolution weights_channel
         weights = darray['weights'] * darray['weights_channel'][..., np.newaxis]
         # Scale weights according to power
