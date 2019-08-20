@@ -225,15 +225,15 @@ Calibration solutions
 
 Streams of type ``sdp.cal`` have the following keys.
 
-``antlist`` (list of string, length ``n_ants``)
+``antlist`` (list of string, length n_ants)
     List of antenna names. Arrays of calibration solutions use this
     order along the antenna axis.
 
-``pol_ordering`` (list of string, length ``n_pols``)
+``pol_ordering`` (list of string, length n_pols)
     List of polarisations (from ``v`` and ``h``). Arrays of calibration
     solutions use this order along the polarisation axis.
 
-``bls_ordering`` (list of string pairs, length ``n_bls``)
+``bls_ordering`` (list of string pairs, length n_bls)
     Same meaning as for ``sdp.vis`` streams, but describes the internal
     ordering used within the calibration pipeline and not of much use to
     users.
@@ -245,13 +245,15 @@ Streams of type ``sdp.cal`` have the following keys.
     Name of the selected reference antenna (which will also appear in
     ``antlist``). The reference antenna is only chosen when first needed in
     a capture block, so this key may be absent if there was no calibration yet.
+    In older datasets this key contains the `katpoint`_ antenna description
+    string instead of the name.
 
-``product_G`` (array of complex64, shape (``n_pols``, ``n_ants``)) — sensor
+``product_G`` (array of complex, shape (n_pols, n_ants)) — sensor
     Gain solutions (derived e.g. on a phase calibrator), indexed by
     polarisation and antenna. The complex values in the array apply to the
     entire band.
 
-``product_K`` (array of float32, shape (``n_pols``, ``n_ants``)) — sensor
+``product_K`` (array of float, shape (n_pols, n_ants)) — sensor
     Delay solutions (in seconds), indexed by polarisation and antenna. To
     correct data at frequency :math:`\nu`, multiply it by
     :math:`e^{-2\pi i\cdot K\cdot \nu}`.
@@ -259,7 +261,7 @@ Streams of type ``sdp.cal`` have the following keys.
 ``product_B_parts`` (int)
     Number of keys across which bandpass-like solutions are split.
 
-:samp:`product_B{N}` (array of complex64, shape (``n_chans``, ``n_pols``, ``n_ants``)) — sensor
+:samp:`product_B{N}` (array of complex, shape (n_chans, n_pols, n_ants)) — sensor
     Bandpass solutions, indexed by channel, polarisation and antenna.
 
     For implementation reasons, the bandpass solutions are split across
@@ -269,7 +271,7 @@ Streams of type ``sdp.cal`` have the following keys.
     is rare but can occur), they should be assumed to have the same
     shape as the present pieces.
 
-``product_KCROSS_DIODE`` (array of float32, shape (``n_pols``, ``n_ants``)) — sensor
+``product_KCROSS_DIODE`` (array of float, shape (n_pols, n_ants)) — sensor
     Cross-hand delay solutions (in seconds), indexed by polarisation
     and antenna. Derived using noise diode firings.
 
@@ -277,14 +279,14 @@ Streams of type ``sdp.cal`` have the following keys.
     ``product_K``. One polarisation will serve as the reference
     polarisation and have all zero solutions.
 
-``product_KCROSS`` (array of float32, shape (``n_pols``, ``n_ants``)) — sensor
+``product_KCROSS`` (array of float, shape (n_pols, n_ants)) — sensor
     Cross-hand delay solutions (in seconds), indexed by polarisation
     and antenna.
 
     Solutions are similar to ``product_KCROSS_DIODE`` but solved for
     using a celestial source instead of a noise diode.
 
-:samp:`product_BCROSS_DIODE{N}` (array of complex64, shape (``n_chans``, ``n_pols``, ``n_ants``)) — sensor
+:samp:`product_BCROSS_DIODE{N}` (array of complex, shape (n_chans, n_pols, n_ants)) — sensor
     Cross-hand bandpass phase solutions, indexed by channel, polarisation
     and antenna.
 
@@ -356,7 +358,7 @@ katsdptelstate for this database):
         phase centre).
 
     ``components`` (list of string)
-        `katpoint_` target descriptions for the CLEAN components. The
+        `katpoint`_ target descriptions for the CLEAN components. The
         names are arbitrary. This describes the **perceived** sky i.e., are
         modulated by the primary beam.
 
@@ -364,11 +366,11 @@ Each sub-namespace per target contains a further sub-sub-namespace called
 ``selfcal`` that contains the self-calibration solutions. It behaves like
 an ``sdp.cal`` stream namespace and has the following keys:
 
-``antlist`` (list of string, length ``n_ants``)
+``antlist`` (list of string, length n_ants)
     List of antenna names. Arrays of self-calibration solutions use this
     order along the antenna axis.
 
-``pol_ordering`` (list of string, length ``n_pols``)
+``pol_ordering`` (list of string, length n_pols)
     List of polarisations (from ``v`` and ``h``). Arrays of self-calibration
     solutions use this order along the polarisation axis.
 
@@ -384,14 +386,14 @@ an ``sdp.cal`` stream namespace and has the following keys:
     is even, this is actually half a channel higher than the middle of
     the band.
 
-``product_GPHASE`` (array of complex64, shape (``n_chans``, ``n_pols``, ``n_ants``)) — sensor
+``product_GPHASE`` (array of complex, shape (n_chans, n_pols, n_ants)) — sensor
     Phase-only self-calibration solutions, indexed by channel, polarisation
     and antenna.
 
     Amplitudes for these solutions will be very close to one (to within
     numerical precision).
 
-``product_GAMP_PHASE`` (array of complex64, shape (``n_chans``, ``n_pols``, ``n_ants``)) — sensor
+``product_GAMP_PHASE`` (array of complex, shape (n_chans, n_pols, n_ants)) — sensor
     Amplitude + phase self-calibration solutions, indexed by channel,
     polarisation and antenna.
 
