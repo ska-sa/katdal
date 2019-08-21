@@ -198,10 +198,10 @@ The following are relevant to ``sdp.vis`` and ``sdp.flags`` streams.
     Number of baselines. Note that a baseline is a correlation between
     two polarised inputs (a single entry in a Jones matrix).
 
-``bls_ordering`` (2D array)
+``bls_ordering`` (either a list of string pairs or a 2D array)
     An array of pairs of strings. Each pair names two antenna inputs
     that form a baseline. There will be ``n_bls`` rows. Note that this
-    can be either a list of 2-element lists or a numpy array.
+    can be either a list of 2-element lists or a NumPy array.
 
 ``sync_time``, ``int_time``, ``first_timestamp`` (float)
     Refer to :ref:`timestamps` below.
@@ -233,7 +233,7 @@ Streams of type ``sdp.cal`` have the following keys.
     List of polarisations (from ``v`` and ``h``). Arrays of calibration
     solutions use this order along the polarisation axis.
 
-``bls_ordering`` (list of string pairs, length n_bls)
+``bls_ordering`` (either a list of string pairs or a 2D array)
     Same meaning as for ``sdp.vis`` streams, but describes the internal
     ordering used within the calibration pipeline and not of much use to
     users.
