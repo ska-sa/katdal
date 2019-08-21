@@ -74,7 +74,7 @@ use text. katdal recursively converts all strings to the Python interpreter's
 native string type.
 
 :doc:`katsdptelstate <katsdptelstate:index>` stores two types of values:
-immutable "attributes", and "sensors" which are a list of timestamped
+immutable "attributes", and "sensors" which are lists of timestamped
 values. In the documentation below, most keys contain attributes, and
 sensors are indicated.
 
@@ -198,10 +198,10 @@ The following are relevant to ``sdp.vis`` and ``sdp.flags`` streams.
     Number of baselines. Note that a baseline is a correlation between
     two polarised inputs (a single entry in a Jones matrix).
 
-``bls_ordering`` (2D array)
+``bls_ordering`` (either a list of string pairs or a 2D array)
     An array of pairs of strings. Each pair names two antenna inputs
     that form a baseline. There will be ``n_bls`` rows. Note that this
-    can be either a list of 2-element lists or a numpy array.
+    can be either a list of 2-element lists or a NumPy array.
 
 ``sync_time``, ``int_time``, ``first_timestamp`` (float)
     Refer to :ref:`timestamps` below.
@@ -225,15 +225,15 @@ Calibration solutions
 
 Streams of type ``sdp.cal`` have the following keys.
 
-``antlist`` (list of string)
+``antlist`` (list of string, length n_ants)
     List of antenna names. Arrays of calibration solutions use this
     order along the antenna axis.
 
-``pol_ordering`` (list of string)
+``pol_ordering`` (list of string, length n_pols)
     List of polarisations (from ``v`` and ``h``). Arrays of calibration
     solutions use this order along the polarisation axis.
 
-``bls_ordering`` (2D array)
+``bls_ordering`` (either a list of string pairs or a 2D array)
     Same meaning as for ``sdp.vis`` streams, but describes the internal
     ordering used within the calibration pipeline and not of much use to
     users.
@@ -241,20 +241,28 @@ Streams of type ``sdp.cal`` have the following keys.
 ``param_*``
     Parameters used to configure the calibration.
 
-``product_G`` (2D array) — sensor
-    Gain solutions (derived e.g. on a phase calibrator), indexed by antenna
-    and polarisation. The complex values in the array apply to the entire band.
+``refant`` (string)
+    Name of the selected reference antenna (which will also appear in
+    ``antlist``). The reference antenna is only chosen when first needed in
+    a capture block, so this key may be absent if there was no calibration yet.
+    In older datasets this key contains the `katpoint`_ antenna description
+    string instead of the name.
 
-``product_K`` (2D array) — sensor
-    Delay solutions (in seconds), indexed by antenna and polarisation. To
+``product_G`` (array of complex, shape (n_pols, n_ants)) — sensor
+    Gain solutions (derived e.g. on a phase calibrator), indexed by
+    polarisation and antenna. The complex values in the array apply to the
+    entire band.
+
+``product_K`` (array of float, shape (n_pols, n_ants)) — sensor
+    Delay solutions (in seconds), indexed by polarisation and antenna. To
     correct data at frequency :math:`\nu`, multiply it by
     :math:`e^{-2\pi i\cdot K\cdot \nu}`.
 
 ``product_B_parts`` (int)
-    Number of keys across which bandpass solutions are split.
+    Number of keys across which bandpass-like solutions are split.
 
-:samp:`product_B{N}` (3D array) — sensor
-    Bandpass solutions, indexed by channel, antenna and polarisation.
+:samp:`product_B{N}` (array of complex, shape (n_chans, n_pols, n_ants)) — sensor
+    Bandpass solutions, indexed by channel, polarisation and antenna.
 
     For implementation reasons, the bandpass solutions are split across
     multiple keys. *N* is in the range [0, ``product_B_parts``), and
@@ -263,37 +271,32 @@ Streams of type ``sdp.cal`` have the following keys.
     is rare but can occur), they should be assumed to have the same
     shape as the present pieces.
 
-``product_KCROSS_DIODE`` (2D array) — sensor
-    Cross-hand delay solutions (in seconds), indexed by antenna and
-    polarisation. Derived using noise diode firings.
+``product_KCROSS_DIODE`` (array of float, shape (n_pols, n_ants)) — sensor
+    Cross-hand delay solutions (in seconds), indexed by polarisation
+    and antenna. Derived using noise diode firings.
 
-    Data at a given frequency is corrected in the same
-    manner as ``product_K``. One polarisation will serve as the reference
+    Data at a given frequency is corrected in the same manner as
+    ``product_K``. One polarisation will serve as the reference
     polarisation and have all zero solutions.
 
-``product_KCROSS`` (2D array) — sensor
-    Cross-hand delay solutions (in seconds), indexed by antenna and
-    polarisation.
+``product_KCROSS`` (array of float, shape (n_pols, n_ants)) — sensor
+    Cross-hand delay solutions (in seconds), indexed by polarisation
+    and antenna.
 
-    Solutions are similar to ``product_KCROSS_DIODE`` but solved for using
-    a celestial source instead of a noise diode.
+    Solutions are similar to ``product_KCROSS_DIODE`` but solved for
+    using a celestial source instead of a noise diode.
 
-:samp:`product_BCROSS_DIODE{N}` (3D array) — sensor
-    Cross-hand bandpass phase solutions, indexed by channel, antenna and
-    polarisation.
+:samp:`product_BCROSS_DIODE{N}` (array of complex, shape (n_chans, n_pols, n_ants)) — sensor
+    Cross-hand bandpass phase solutions, indexed by channel, polarisation
+    and antenna.
+
     Amplitudes for these solutions should always be one. One polarisation will
     serve as the reference polarisation and have all zero phase solutions.
 
-    As for :samp:`product_B{N}`` the cross-hand bandpass solutions are split
-    across *N* keys where *N* is in the range [0, ``product_B_parts``).
-    The full solution should be reconstructed as for :samp:`product_B{N}`, by
-    concatenating along the channel (first) axis.
-
-``refant`` (string)
-    `katpoint`_ description of the selected reference antenna (whose
-    name will also appear in ``antlist``). The reference antenna is only
-    chosen when first needed in the capture block, so this key may be
-    absent if there was no calibration.
+    As for :samp:`product_B{N}`` the cross-hand bandpass solutions are
+    split across multiple keys indexed by *N*, where *N* is in the range
+    [0, ``product_B_parts``). The full solution should be reconstructed as
+    for :samp:`product_B{N}`, by concatenating along the channel (first) axis.
 
 :samp:`shared_solve_*N*`, :samp:`last_dump_index*N*`
     These are used for internal communication between the calibration
@@ -355,7 +358,7 @@ katsdptelstate for this database):
         phase centre).
 
     ``components`` (list of string)
-        `katpoint_` target descriptions for the CLEAN components. The
+        `katpoint`_ target descriptions for the CLEAN components. The
         names are arbitrary. This describes the **perceived** sky i.e., are
         modulated by the primary beam.
 
@@ -363,11 +366,11 @@ Each sub-namespace per target contains a further sub-sub-namespace called
 ``selfcal`` that contains the self-calibration solutions. It behaves like
 an ``sdp.cal`` stream namespace and has the following keys:
 
-``antlist`` (list of string)
+``antlist`` (list of string, length n_ants)
     List of antenna names. Arrays of self-calibration solutions use this
     order along the antenna axis.
 
-``pol_ordering`` (list of string)
+``pol_ordering`` (list of string, length n_pols)
     List of polarisations (from ``v`` and ``h``). Arrays of self-calibration
     solutions use this order along the polarisation axis.
 
@@ -383,13 +386,16 @@ an ``sdp.cal`` stream namespace and has the following keys:
     is even, this is actually half a channel higher than the middle of
     the band.
 
-``product_GPHASE`` (3D array) — sensor
-    Phase-only self-calibration solutions, indexed by channel, antenna and
-    polarisation.
+``product_GPHASE`` (array of complex, shape (n_chans, n_pols, n_ants)) — sensor
+    Phase-only self-calibration solutions, indexed by channel, polarisation
+    and antenna.
 
-``product_GAMP_PHASE`` (3D array) — sensor
-    Amplitude + phase self-calibration solutions, indexed by channel, antenna
-    and polarisation.
+    Amplitudes for these solutions will be very close to one (to within
+    numerical precision).
+
+``product_GAMP_PHASE`` (array of complex, shape (n_chans, n_pols, n_ants)) — sensor
+    Amplitude + phase self-calibration solutions, indexed by channel,
+    polarisation and antenna.
 
 .. _linking-streams:
 
