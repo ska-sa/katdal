@@ -110,10 +110,7 @@ def ms_writer_process(
 
         main_table = ms_extra.open_table(ms_name, verbose=options.verbose)
         with contextlib.closing(main_table):
-            array_centre = katpoint.Antenna('', *antennas[0].ref_position_wgs84)
-            baseline_vectors = np.array([array_centre.baseline_toward(antenna)
-                                         for antenna in antennas])
-
+            array_centre = antennas[0].array_reference_antenna()
             while True:
                 item = work_queue.get()
                 if item is None:
@@ -131,12 +128,13 @@ def ms_writer_process(
                     flag_data = flag_arrays[item.slot].reshape(new_shape)
 
                     # Iterate through baselines, computing UVW coordinates
-                    # for a chunk of timesteps
-                    uvw_basis = item.target.uvw_basis(item.time_utc, array_centre)
-                    # Axes in uvw_ant are antenna, axis (u/v/w), and time
-                    uvw_ant = np.tensordot(baseline_vectors, uvw_basis, ([1], [1]))
-                    # Permute to time, antenna, axis
-                    uvw_ant = np.transpose(uvw_ant, (2, 0, 1))
+                    # for a chunk of timesteps. Note that we can't rely on the
+                    # u, v, w properties of the dataset because those
+                    # correspond to the original dumps, and we might be
+                    # averaging in time.
+                    uvw_ant = item.target.uvw(antennas, item.time_utc, array_centre)
+                    # Permute from axis, time, antenna to time, antenna, axis
+                    uvw_ant = np.transpose(uvw_ant, (1, 2, 0))
                     # Compute baseline UVW coordinates from per-antenna coordinates.
                     # The sign convention matches `CASA`_, rather than the
                     # Measurement Set `definition`_.
