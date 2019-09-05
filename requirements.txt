@@ -29,5 +29,5 @@ subprocess32
 toolz
 urllib3
 
-git+https://github.com/ska-sa/katpoint#egg=katpoint
-git+https://github.com/ska-sa/katsdptelstate#egg=katsdptelstate
+katpoint @ git+https://github.com/ska-sa/katpoint
+katsdptelstate @ git+https://github.com/ska-sa/katsdptelstate
