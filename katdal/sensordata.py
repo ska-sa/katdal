@@ -461,17 +461,13 @@ def _safe_linear_interp(xi, yi, x):
     return (1.0 - end_weight) * yi[start] + end_weight * yi[end]
 
 
-_KATCP_DECODER = {'integer': int, 'float': float, 'timestamp': float,
-                  'boolean': lambda x: x == 'True'}   # other types map to str
-
-
 def get_sensor_from_katstore(store, name, start_time, end_time):
     """Get raw sensor data from katstore (CAM's central sensor database).
 
     Parameters
     ----------
     store : string
-        Hostname / endpoint of katstore webserver speaking katstore REST API
+        Hostname / endpoint of katstore webserver speaking katstore64 API
     name : string
         Sensor name (the normalised / escaped version with underscores)
     start_time, end_time : float
@@ -487,7 +483,7 @@ def get_sensor_from_katstore(store, name, start_time, end_time):
     ConnectionError
         If this cannot connect to the katstore server
     RuntimeError
-        If connection succeeded but interaction with REST API failed
+        If connection succeeded but interaction with katstore64 API failed
     KeyError
         If the sensor was not found in the store or it has no data in time range
     """
@@ -495,31 +491,9 @@ def get_sensor_from_katstore(store, name, start_time, end_time):
     if not isidentifier(name):
         raise KeyError("Sensor name '%s' is not valid Python identifier" % (name,))
     with requests.Session() as session:
-        # First check existence of sensor and get its KATCP type
-        url = "http://%s/katstore/sensors" % (store,)
-        try:
-            response = session.get(url, params={'sensors': '^%s$' % (name,)})
-        except requests.exceptions.ConnectionError as exc:
-            err = ConnectionError("Could not connect to sensor store '%s'" % (store,))
-            raise_from(err, exc)
-        with response:
-            try:
-                response.raise_for_status()
-                sensor_info = {rec[0]: rec[2] for rec in response.json()}
-            except (ValueError, IndexError, TypeError, KeyError,
-                    requests.exceptions.RequestException) as exc:
-                err = RuntimeError("Could not retrieve sensor info from '%s' (%d: %s)" %
-                                   (url, response.status_code, response.reason))
-                raise_from(err, exc)
-        try:
-            decode = _KATCP_DECODER.get(sensor_info[name]['type'], str)
-        except (KeyError, IndexError):
-            raise KeyError("Sensor store has no sensor named '%s'" % (name,))
-
-        # Now get the historical data for the sensor in the given time range
-        url = "http://%s/katstore/samples" % (store,)
-        params = {'sensor': name, 'start': start_time, 'end': end_time,
-                  'time_type': 's', 'limit': 1000000}
+        url = "http://%s/katstore/api/query" % (store,)
+        params = {'sensor': name, 'start_time': start_time, 'end_time': end_time,
+                  'limit': 1000000, 'include_value_time': 'True'}
         try:
             response = session.get(url, params=params)
         except requests.exceptions.ConnectionError as exc:
@@ -528,8 +502,9 @@ def get_sensor_from_katstore(store, name, start_time, end_time):
         with response:
             try:
                 response.raise_for_status()
-                samples = [(rec[1], decode(rec[3]), rec[5])
-                           for rec in response.json() if rec[4] == name]
+                sensor_data = response.json()['data']
+                samples = [(rec['value_time'], rec['value'], rec['status'])
+                           for rec in sensor_data if rec['sensor'] == name]
             except (ValueError, IndexError, TypeError, KeyError,
                     requests.exceptions.RequestException) as exc:
                 err = RuntimeError("Could not retrieve samples from '%s' (%d: %s)" %
