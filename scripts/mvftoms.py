@@ -395,7 +395,7 @@ def main():
     print('Per user request the following scans will be dumped: {}'.format(
         ", ".join(map(str, dump_scans))))
 
-    dataset.select(scans=dump_scans)
+    dataset.select(scans=dump_scans, targets=dump_fields)
 
     # Get list of unique polarisation products in the dataset
     pols_in_dataset = np.unique([(cp[0][-1] + cp[1][-1]).upper() for cp in dataset.corr_products])
@@ -438,7 +438,8 @@ def main():
 
         # Discard first N dumps which are frequently incomplete
         dataset.select(spw=win,
-                       scans='track', # should already be filtered to target type only
+                       scans=dump_scans, # should already be filtered to target type only
+                       targets=dump_fields,
                        flags=options.flags,
                        ants=dump_ants,
                        dumps=slice(options.quack, None))
