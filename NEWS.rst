@@ -8,7 +8,7 @@ History
 * Produce documentation on readthedocs.org (#244, #245, #247, #250, #261)
 * Clean up mvftoms and fix REST_FREQUENCY in SOURCE sub-table (#258)
 * Support katstore64 API (#265)
-* Improve chunk store: detect short reads and speed up lost data (#259, #260)
+* Improve chunk store: detect short reads, speed up handling of lost data (#259, #260)
 * Use katpoint 0.9 and dask 1.2.1 features (#262, #243)
 
 0.13 (2019-05-09)
