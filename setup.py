@@ -58,7 +58,7 @@ setup(name='katdal',
       python_requires='>=2.7,!=3.0,!=3.1,!=3.2',
       setup_requires=['katversion'],
       use_katversion=True,
-      install_requires=['numpy', 'katpoint', 'h5py >= 2.3', 'numba',
+      install_requires=['numpy', 'katpoint >= 0.9', 'h5py >= 2.3', 'numba',
                         'katsdptelstate[rdb] >= 0.8', 'dask[array] >= 1.2.1',
                         'requests >= 2.18.0', 'defusedxml', 'future'],
       extras_require={
