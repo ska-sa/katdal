@@ -46,6 +46,7 @@ from katdal import ms_extra
 from katdal import ms_async
 from katdal.sensordata import telstate_decode
 from katdal.lazy_indexer import DaskLazyIndexer
+from katdal.flags import NAMES as FLAG_NAMES
 
 
 SLOTS = 4    # Controls overlap between loading and writing
@@ -186,9 +187,10 @@ def main():
                       help="Add MODEL_DATA and CORRECTED_DATA columns to the MS. "
                            "MODEL_DATA initialised to unity amplitude zero phase, "
                            "CORRECTED_DATA initialised to DATA.")
+    flag_names = ', '.join(name for name in FLAG_NAMES if not name.startswith('reserved'))
     parser.add_option("--flags", default="all",
                       help="List of online flags to apply "
-                           "(from 'static,cam,data_lost,ingest_rfi,cal_rfi,predicted_rfi', "
+                           "(from " + flag_names + ") "
                            "default is all flags, '' will apply no flags)")
     parser.add_option("--dumptime", type=float, default=0.0,
                       help="Output time averaging interval in seconds, "
