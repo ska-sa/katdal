@@ -14,11 +14,8 @@
 # limitations under the License.
 ################################################################################
 
-"""A store of chunks (i.e. N-dimensional arrays) based on the Amazon S3 API.
+"""A store of chunks (i.e. N-dimensional arrays) based on the Amazon S3 API."""
 
-It does not support S3 authentication/signatures, relying instead on external
-code to provide HTTP authentication.
-"""
 from __future__ import print_function, division, absolute_import
 from future import standard_library
 standard_library.install_aliases()  # noqa: E402
@@ -118,10 +115,11 @@ def read_array(fp):
 
 
 class _BearerAuth(requests.auth.AuthBase):
+    """Add bearer token to authorisation request header."""
     def __init__(self, token):
         # Character set from RFC 6750
         if not re.match('^[A-Za-z0-9-._~+/]*$', token):
-            raise ValueError('token contains invalid characters')
+            raise ValueError('Token contains invalid characters')
         self._token = token
 
     def __call__(self, r):
@@ -130,6 +128,7 @@ class _BearerAuth(requests.auth.AuthBase):
 
 
 class _AWSAuth(requests.auth.AuthBase):
+    """Add AWS access + secret credentials to authorisation request header."""
     def __init__(self, credentials):
         credentials = botocore.credentials.ReadOnlyCredentials(
             credentials[0], credentials[1], None)
@@ -180,7 +179,7 @@ class _CacheSettingsSession(requests.Session):
 
 
 class _TimeoutHTTPAdapter(_HTTPAdapter):
-    """Allow an HTTPAdapter to have a default timeout"""
+    """Allow an HTTPAdapter to have a default timeout."""
     def __init__(self, *args, **kwargs):
         self._default_timeout = kwargs.pop('timeout', None)
         super(_TimeoutHTTPAdapter, self).__init__(*args, **kwargs)
@@ -282,12 +281,6 @@ class S3ChunkStore(ChunkStore):
     expiry_days : int
         If set to a value greater than 0 will set a future expiry time in days
         for any new buckets created.
-
-
-    Raises
-    ------
-    ImportError
-        If requests is not installed (it's an optional dependency otherwise)
     """
 
     def __init__(self, session_factory, url, public_read=False, expiry_days=0):
@@ -319,11 +312,11 @@ class S3ChunkStore(ChunkStore):
             parsed = urllib.parse.urlparse(url)
             # The exception for 127.0.0.1 lets the unit test work
             if parsed.scheme != 'https' and parsed.hostname != '127.0.0.1':
-                raise StoreUnavailable('auth token may only be used with https')
+                raise StoreUnavailable('Auth token may only be used with https')
             auth = _BearerAuth(token)
         elif credentials is not None:
             if not botocore:
-                raise StoreUnavailable('passing credentials requires botocore to be installed')
+                raise StoreUnavailable('Passing credentials requires botocore to be installed')
             auth = _AWSAuth(credentials)
         else:
             auth = None
