@@ -27,7 +27,6 @@ import future.utils
 from future.utils import raise_, bytes_to_native_str
 
 import contextlib
-import io
 import threading
 import queue
 import sys
@@ -118,18 +117,6 @@ def read_array(fp):
     return data
 
 
-class _TimeoutHTTPAdapter(_HTTPAdapter):
-    """Allow an HTTPAdapter to have a default timeout"""
-    def __init__(self, *args, **kwargs):
-        self._default_timeout = kwargs.pop('timeout', None)
-        super(_TimeoutHTTPAdapter, self).__init__(*args, **kwargs)
-
-    def send(self, request, stream=False, timeout=None, *args, **kwargs):
-        if timeout is None:
-            timeout = self._default_timeout
-        return super(_TimeoutHTTPAdapter, self).send(request, stream, timeout, *args, **kwargs)
-
-
 class _BearerAuth(requests.auth.AuthBase):
     def __init__(self, token):
         # Character set from RFC 6750
@@ -156,24 +143,52 @@ class _AWSAuth(requests.auth.AuthBase):
         return r
 
 
-class _Multipart(object):
-    """Allow a sequence of bytes-like objects to be used as a request body.
+class _CacheSettingsSession(requests.Session):
+    """Session that caches the result of proxy lookup.
 
-    This is intended to allow a zero-copy upload of bytes-like objects that
-    are not contiguous in memory. The requests library treats standard
-    iterable classes (list, tuple) specially, which is why a custom class is
-    needed.
+    Normally requests spends a lot of time per request just to figure out what
+    proxy server to use if any. For our usage, all URLs will be going to the
+    same host and hence should always have the same proxy config, so we look
+    it up once on the root URL for the chunk store and save the result.
+
+    This has some limitations:
+    - Proxy settings can't be changed.
+    - Session settings (e.g. certificate-related) must not be changed after the
+      first request.
+    - All requests should be to the same host.
+    - It is not thread-safe.
     """
-    def __init__(self, items=()):
-        self.items = list(items)
 
-    def __iter__(self):
-        return iter(self.items)
+    def __init__(self, url):
+        super(_CacheSettingsSession, self).__init__()
+        self._cached_settings = super(_CacheSettingsSession, self).merge_environment_settings(
+            url, {}, True, None, None)
 
-    @property
-    def len(self):
-        """Total content length (retrieved by requests to set Content-Length)"""
-        return sum(memoryview(item).nbytes for item in self.items)
+    def merge_environment_settings(self, url, proxies, stream, verify, cert):
+        # Only cache for a specific combination of input settings (the
+        # combination used by get_chunk), rather than trying to cache all
+        # variants.
+        if (proxies, stream, verify, cert) == ({}, True, None, None):
+            if self._cached_settings is None:
+                self._cached_settings = \
+                    super(_CacheSettingsSession, self).merge_environment_settings(
+                        url, proxies, stream, verify, cert)
+            return self._cached_settings
+        else:
+            return super(_CacheSettingsSession, self).merge_environment_settings(
+                url, proxies, stream, verify, cert)
+
+
+class _TimeoutHTTPAdapter(_HTTPAdapter):
+    """Allow an HTTPAdapter to have a default timeout"""
+    def __init__(self, *args, **kwargs):
+        self._default_timeout = kwargs.pop('timeout', None)
+        super(_TimeoutHTTPAdapter, self).__init__(*args, **kwargs)
+
+    def send(self, request, stream=False, timeout=None, *args, **kwargs):
+        if timeout is None:
+            timeout = self._default_timeout
+        return super(_TimeoutHTTPAdapter, self).send(request, stream, timeout, *args, **kwargs)
 
 
 def _raise_for_status(response):
@@ -215,40 +230,24 @@ class _Pool(object):
         self.put(item)
 
 
-class _CacheSettingsSession(requests.Session):
-    """Session that caches the result of proxy lookup.
+class _Multipart(object):
+    """Allow a sequence of bytes-like objects to be used as a request body.
 
-    Normally requests spends a lot of time per request just to figure out what
-    proxy server to use if any. For our usage, all URLs will be going to the
-    same host and hence should always have the same proxy config, so we look
-    it up once on the root URL for the chunk store and save the result.
-
-    This has some limitations:
-    - Proxy settings can't be changed.
-    - Session settings (e.g. certificate-related) must not be changed after the
-      first request.
-    - All requests should be to the same host.
-    - It is not thread-safe.
+    This is intended to allow a zero-copy upload of bytes-like objects that
+    are not contiguous in memory. The requests library treats standard
+    iterable classes (list, tuple) specially, which is why a custom class is
+    needed.
     """
+    def __init__(self, items=()):
+        self.items = list(items)
 
-    def __init__(self, url):
-        super(_CacheSettingsSession, self).__init__()
-        self._cached_settings = super(_CacheSettingsSession, self).merge_environment_settings(
-            url, {}, True, None, None)
+    def __iter__(self):
+        return iter(self.items)
 
-    def merge_environment_settings(self, url, proxies, stream, verify, cert):
-        # Only cache for a specific combination of input settings (the
-        # combination used by get_chunk), rather than trying to cache all
-        # variants.
-        if (proxies, stream, verify, cert) == ({}, True, None, None):
-            if self._cached_settings is None:
-                self._cached_settings = \
-                    super(_CacheSettingsSession, self).merge_environment_settings(
-                        url, proxies, stream, verify, cert)
-            return self._cached_settings
-        else:
-            return super(_CacheSettingsSession, self).merge_environment_settings(
-                url, proxies, stream, verify, cert)
+    @property
+    def len(self):
+        """Total content length (retrieved by requests to set Content-Length)"""
+        return sum(memoryview(item).nbytes for item in self.items)
 
 
 class S3ChunkStore(ChunkStore):
