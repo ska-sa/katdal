@@ -268,46 +268,38 @@ class S3ChunkStore(ChunkStore):
 
     Parameters
     ----------
-    session_factory : callable
-        A callable called with no arguments that returns an instance of
-        :class:`requests.Session`. The returned session is only used by
-        one thread at a time.
     url : str
-        Base URL for the S3 service. It can be specified as either bytes or
-        unicode, and is converted to the native string type with UTF-8.
+        Endpoint of S3 service, e.g. 'http://127.0.0.1:9000'. It can be
+        specified as either bytes or unicode, and is converted to the native
+        string type with UTF-8.
+    timeout : int or float, optional
+        Read / connect timeout, in seconds (set to None to leave unchanged)
+    extra_timeout : int or float, optional
+        Additional timeout, useful to terminate e.g. slow DNS lookups
+        without masking read / connect errors (ignored if `timeout` is None)
+    token : str
+        Bearer token to authenticate
+    credentials: tuple of str
+        AWS access key and secret key to authenticate
     public_read : bool
         If set to true, new buckets will be created with a policy that allows
         everyone (including unauthenticated users) to read the data.
     expiry_days : int
         If set to a value greater than 0 will set a future expiry time in days
         for any new buckets created.
+    kwargs : dict
+        Extra keyword arguments (unused)
+
+    Raises
+    ------
+    :exc:`chunkstore.StoreUnavailable`
+        If S3 server interaction failed (it's down, no authentication, etc)
     """
 
-    def __init__(self, session_factory, url, public_read=False, expiry_days=0):
-        try:
-            # Quick smoke test to see if the S3 server is available, by listing
-            # buckets. Depending on the server in use, this may return a 403
-            # error if we do not have credentials (this occurs for minio, but
-            # Ceph RGW just returns an empty list).
-            with session_factory() as session:
-                with session.get(url) as response:
-                    if (response.status_code != 403
-                            or 'Authorization' in response.request.headers):
-                        _raise_for_status(response)
-        except requests.exceptions.RequestException as error:
-            raise StoreUnavailable(str(error))
-
-        error_map = {requests.exceptions.RequestException: StoreUnavailable,
-                     defusedxml.ElementTree.ParseError: StoreUnavailable}
-        super(S3ChunkStore, self).__init__(error_map)
-        self._session_pool = _Pool(session_factory)
-        self._url = to_str(url)
-        self.public_read = public_read
-        self.expiry_days = int(expiry_days)
-
-    @classmethod
-    def _from_url(cls, url, timeout, token, credentials, public_read, expiry_days):
-        """Construct S3 chunk store from endpoint URL (see :meth:`from_url`)."""
+    def __init__(self, url, timeout=300, extra_timeout=10, token=None,
+                 credentials=None, public_read=False, expiry_days=0, **kwargs):
+        if token is not None and credentials is not None:
+            raise ValueError('Cannot specify both token and credentials')
         if token is not None:
             parsed = urllib.parse.urlparse(url)
             # The exception for 127.0.0.1 lets the unit test work
@@ -328,57 +320,33 @@ class S3ChunkStore(ChunkStore):
             session.mount(url, adapter)
             return session
 
-        return cls(session_factory, url, public_read, expiry_days)
-
-    @classmethod
-    def from_url(cls, url, timeout=300, extra_timeout=10,
-                 token=None, credentials=None, public_read=False,
-                 expiry_days=0, **kwargs):
-        """Construct S3 chunk store from endpoint URL.
-
-        Parameters
-        ----------
-        url : string
-            Endpoint of S3 service, e.g. 'http://127.0.0.1:9000'
-        timeout : int or float, optional
-            Read / connect timeout, in seconds (set to None to leave unchanged)
-        extra_timeout : int or float, optional
-            Additional timeout, useful to terminate e.g. slow DNS lookups
-            without masking read / connect errors (ignored if `timeout` is None)
-        token : str
-            Bearer token to authenticate
-        credentials: tuple of str
-            AWS access key and secret key to authenticate
-        public_read : bool
-            If set to true, new buckets will be created with a policy that allows
-            everyone (including unauthenticated users) to read the data.
-        expiry_days : int
-            If set to a value greater than 0 will set a future expiry time in days
-            for any new buckets created.
-        kwargs : dict
-            Extra keyword arguments (unused)
-
-        Raises
-        ------
-        :exc:`chunkstore.StoreUnavailable`
-            If S3 server interaction failed (it's down, no authentication, etc)
-        """
-        if token is not None and credentials is not None:
-            raise ValueError('Cannot specify both token and credentials')
+        def _ping_store():
+            try:
+                # Quick smoke test to see if the S3 server is available, by listing
+                # buckets. Depending on the server in use, this may return a 403
+                # error if we do not have credentials (this occurs for minio, but
+                # Ceph RGW just returns an empty list).
+                with session_factory() as session:
+                    with session.get(url) as response:
+                        if (response.status_code != 403
+                                or 'Authorization' in response.request.headers):
+                            _raise_for_status(response)
+            except requests.exceptions.RequestException as error:
+                raise StoreUnavailable(str(error))
 
         # XXX This is a poor man's attempt at concurrent.futures functionality
         # (avoiding extra dependency on Python 2, revisit when Python 3 only)
         q = queue.Queue()
 
-        def _from_url(url, timeout, token, credentials, public_read, expiry_days):
-            """Construct chunk store and return it (or exception) via queue."""
+        def _ping_store_wrapper():
             try:
-                q.put(cls._from_url(url, timeout, token, credentials, public_read, expiry_days))
+                _ping_store()
             except BaseException:
                 q.put(sys.exc_info())
+            else:
+                q.put(None)
 
-        thread = threading.Thread(target=_from_url,
-                                  args=(url, timeout, token, credentials, public_read, expiry_days))
+        thread = threading.Thread(target=_ping_store_wrapper)
         thread.daemon = True
         thread.start()
         if timeout is not None:
@@ -390,11 +358,17 @@ class S3ChunkStore(ChunkStore):
             raise StoreUnavailable('Timed out, possibly due to DNS lookup '
                                    'of {} stalling'.format(hostname))
         else:
-            if isinstance(result, cls):
-                return result
-            else:
+            if result:
                 # Assume result is (exception type, exception value, traceback)
                 raise_(result[0], result[1], result[2])
+
+        error_map = {requests.exceptions.RequestException: StoreUnavailable,
+                     defusedxml.ElementTree.ParseError: StoreUnavailable}
+        super(S3ChunkStore, self).__init__(error_map)
+        self._session_pool = _Pool(session_factory)
+        self._url = to_str(url)
+        self.public_read = public_read
+        self.expiry_days = int(expiry_days)
 
     def _chunk_url(self, chunk_name):
         return urllib.parse.urljoin(self._url, to_str(urllib.parse.quote(chunk_name + '.npy')))

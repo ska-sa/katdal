@@ -192,7 +192,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         """Create the chunk store"""
         if authenticate:
             kwargs['credentials'] = cls.credentials
-        return S3ChunkStore.from_url(url, timeout=10, **kwargs)
+        return S3ChunkStore(url, timeout=10, **kwargs)
 
     @classmethod
     def setup_class(cls):
@@ -244,20 +244,20 @@ class TestS3ChunkStore(ChunkStoreTestBase):
     @timed(0.1 + 0.05)
     def test_store_unavailable_invalid_url(self):
         # Ensure that timeouts work
-        assert_raises(StoreUnavailable, S3ChunkStore.from_url,
+        assert_raises(StoreUnavailable, S3ChunkStore,
                       'http://apparently.invalid/',
                       timeout=0.1, extra_timeout=0)
 
     def test_token_without_https(self):
         # Don't allow users to leak their tokens by accident
-        assert_raises(StoreUnavailable, S3ChunkStore.from_url,
+        assert_raises(StoreUnavailable, S3ChunkStore,
                       'http://apparently.invalid/', token='secrettoken')
 
     @timed(0.1 + 1 + 0.05)
     @mock.patch('socket.gethostbyname', side_effect=gethostbyname_slow)
     def test_store_unavailable_slow_dns(self, mock_dns_lookup):
         # Some pathological DNS setups (sshuttle?) take forever to time out
-        assert_raises(StoreUnavailable, S3ChunkStore.from_url,
+        assert_raises(StoreUnavailable, S3ChunkStore,
                       'http://a-valid-domain-is-somehow-harder.kat.ac.za/',
                       timeout=0.1, extra_timeout=1)
 
@@ -359,7 +359,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
     def from_url(cls, url, authenticate=True, **kwargs):
         """Create the chunk store"""
         if not authenticate:
-            return S3ChunkStore.from_url(url, timeout=10, **kwargs)
+            return S3ChunkStore(url, timeout=10, **kwargs)
 
         if cls.httpd is None:
             proxy_host = '127.0.0.1'
@@ -377,4 +377,4 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
             cls.proxy_url = 'http://{}:{}'.format(proxy_host, proxy_port)
         elif url != cls.httpd.target:
             raise RuntimeError('Cannot use multiple target URLs with http proxy')
-        return S3ChunkStore.from_url(cls.proxy_url, timeout=10, token='mysecret', **kwargs)
+        return S3ChunkStore(cls.proxy_url, timeout=10, token='mysecret', **kwargs)
