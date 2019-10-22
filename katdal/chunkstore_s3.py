@@ -316,10 +316,10 @@ class S3ChunkStore(ChunkStore):
                  credentials=None, public_read=False, expiry_days=0, **kwargs):
         auth = _auth_factory(url, token, credentials)
 
-        def session_factory():
+        def session_factory(timeout=timeout, retries=2):
             session = _CacheSettingsSession(url)
             session.auth = auth
-            adapter = _TimeoutHTTPAdapter(max_retries=2, timeout=timeout)
+            adapter = _TimeoutHTTPAdapter(max_retries=retries, timeout=timeout)
             session.mount(url, adapter)
             return session
 
@@ -329,7 +329,7 @@ class S3ChunkStore(ChunkStore):
                 # buckets. Depending on the server in use, this may return a 403
                 # error if we do not have credentials (this occurs for minio, but
                 # Ceph RGW just returns an empty list).
-                with session_factory() as session:
+                with session_factory(timeout=30) as session:
                     with session.get(url) as response:
                         if (response.status_code != 403
                                 or 'Authorization' in response.request.headers):
