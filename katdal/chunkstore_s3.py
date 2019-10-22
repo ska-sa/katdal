@@ -142,6 +142,22 @@ class _AWSAuth(requests.auth.AuthBase):
         return r
 
 
+def _auth_factory(url, token=None, credentials=None):
+    """Turn either JWT token or AWS credentials into a requests auth handler."""
+    if token is not None and credentials is not None:
+        raise ValueError('Cannot specify both token and credentials')
+    if token is not None:
+        parsed = urllib.parse.urlparse(url)
+        # The exception for 127.0.0.1 lets the unit test work
+        if parsed.scheme != 'https' and parsed.hostname != '127.0.0.1':
+            raise StoreUnavailable('Auth token may only be used with https')
+        return _BearerAuth(token)
+    elif credentials is not None:
+        if not botocore:
+            raise StoreUnavailable('Passing credentials requires botocore to be installed')
+        return _AWSAuth(credentials)
+
+
 class _CacheSettingsSession(requests.Session):
     """Session that caches the result of proxy lookup.
 
@@ -298,20 +314,7 @@ class S3ChunkStore(ChunkStore):
 
     def __init__(self, url, timeout=300, extra_timeout=10, token=None,
                  credentials=None, public_read=False, expiry_days=0, **kwargs):
-        if token is not None and credentials is not None:
-            raise ValueError('Cannot specify both token and credentials')
-        if token is not None:
-            parsed = urllib.parse.urlparse(url)
-            # The exception for 127.0.0.1 lets the unit test work
-            if parsed.scheme != 'https' and parsed.hostname != '127.0.0.1':
-                raise StoreUnavailable('Auth token may only be used with https')
-            auth = _BearerAuth(token)
-        elif credentials is not None:
-            if not botocore:
-                raise StoreUnavailable('Passing credentials requires botocore to be installed')
-            auth = _AWSAuth(credentials)
-        else:
-            auth = None
+        auth = _auth_factory(url, token, credentials)
 
         def session_factory():
             session = _CacheSettingsSession(url)
