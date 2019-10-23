@@ -21,12 +21,10 @@ from future import standard_library
 standard_library.install_aliases()  # noqa: E402
 from builtins import object
 import future.utils
-from future.utils import raise_, bytes_to_native_str
+from future.utils import bytes_to_native_str
 
 import contextlib
 import threading
-import queue
-import sys
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -290,9 +288,6 @@ class S3ChunkStore(ChunkStore):
         string type with UTF-8.
     timeout : int or float, optional
         Read / connect timeout, in seconds (set to None to leave unchanged)
-    extra_timeout : int or float, optional
-        Additional timeout, useful to terminate e.g. slow DNS lookups
-        without masking read / connect errors (ignored if `timeout` is None)
     token : str
         Bearer token to authenticate
     credentials: tuple of str
@@ -312,8 +307,11 @@ class S3ChunkStore(ChunkStore):
         If S3 server interaction failed (it's down, no authentication, etc)
     """
 
-    def __init__(self, url, timeout=300, extra_timeout=10, token=None,
-                 credentials=None, public_read=False, expiry_days=0, **kwargs):
+    def __init__(self, url, timeout=300, token=None, credentials=None,
+                 public_read=False, expiry_days=0, **kwargs):
+        error_map = {requests.exceptions.RequestException: StoreUnavailable,
+                     defusedxml.ElementTree.ParseError: StoreUnavailable}
+        super(S3ChunkStore, self).__init__(error_map)
         auth = _auth_factory(url, token, credentials)
 
         def session_factory(timeout=timeout, retries=2):
@@ -323,51 +321,17 @@ class S3ChunkStore(ChunkStore):
             session.mount(url, adapter)
             return session
 
-        def _ping_store():
-            try:
-                # Quick smoke test to see if the S3 server is available, by listing
-                # buckets. Depending on the server in use, this may return a 403
-                # error if we do not have credentials (this occurs for minio, but
-                # Ceph RGW just returns an empty list).
-                with session_factory(timeout=30) as session:
-                    with session.get(url) as response:
-                        if (response.status_code != 403
-                                or 'Authorization' in response.request.headers):
-                            _raise_for_status(response)
-            except requests.exceptions.RequestException as error:
-                raise StoreUnavailable(str(error))
+        # Quick smoke test to see if the S3 server is available, by listing
+        # buckets. Depending on the server in use, this may return a 403
+        # error if we do not have credentials (this occurs for minio, but
+        # Ceph RGW just returns an empty list).
+        with self._standard_errors():
+            with session_factory(min(30, timeout)) as session:
+                with session.get(url) as response:
+                    if (response.status_code != 403
+                            or 'Authorization' in response.request.headers):
+                        _raise_for_status(response)
 
-        # XXX This is a poor man's attempt at concurrent.futures functionality
-        # (avoiding extra dependency on Python 2, revisit when Python 3 only)
-        q = queue.Queue()
-
-        def _ping_store_wrapper():
-            try:
-                _ping_store()
-            except BaseException:
-                q.put(sys.exc_info())
-            else:
-                q.put(None)
-
-        thread = threading.Thread(target=_ping_store_wrapper)
-        thread.daemon = True
-        thread.start()
-        if timeout is not None:
-            timeout += extra_timeout
-        try:
-            result = q.get(timeout=timeout)
-        except queue.Empty:
-            hostname = urllib.parse.urlparse(url).hostname
-            raise StoreUnavailable('Timed out, possibly due to DNS lookup '
-                                   'of {} stalling'.format(hostname))
-        else:
-            if result:
-                # Assume result is (exception type, exception value, traceback)
-                raise_(result[0], result[1], result[2])
-
-        error_map = {requests.exceptions.RequestException: StoreUnavailable,
-                     defusedxml.ElementTree.ParseError: StoreUnavailable}
-        super(S3ChunkStore, self).__init__(error_map)
         self._session_pool = _Pool(session_factory)
         self._url = to_str(url)
         self.public_read = public_read

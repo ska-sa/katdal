@@ -49,18 +49,11 @@ import warnings
 import numpy as np
 from nose import SkipTest
 from nose.tools import assert_raises, assert_equal, timed
-import mock
 import requests
 
 from katdal.chunkstore_s3 import S3ChunkStore, _AWSAuth, read_array
 from katdal.chunkstore import StoreUnavailable
 from katdal.test.test_chunkstore import ChunkStoreTestBase
-
-
-def gethostbyname_slow(host):
-    """Mock DNS lookup that is meant to be slow."""
-    time.sleep(30)
-    return '127.0.0.1'
 
 
 @contextlib.contextmanager
@@ -245,21 +238,12 @@ class TestS3ChunkStore(ChunkStoreTestBase):
     def test_store_unavailable_invalid_url(self):
         # Ensure that timeouts work
         assert_raises(StoreUnavailable, S3ChunkStore,
-                      'http://apparently.invalid/',
-                      timeout=0.1, extra_timeout=0)
+                      'http://apparently.invalid/', timeout=0.1)
 
     def test_token_without_https(self):
         # Don't allow users to leak their tokens by accident
         assert_raises(StoreUnavailable, S3ChunkStore,
                       'http://apparently.invalid/', token='secrettoken')
-
-    @timed(0.1 + 1 + 0.05)
-    @mock.patch('socket.gethostbyname', side_effect=gethostbyname_slow)
-    def test_store_unavailable_slow_dns(self, mock_dns_lookup):
-        # Some pathological DNS setups (sshuttle?) take forever to time out
-        assert_raises(StoreUnavailable, S3ChunkStore,
-                      'http://a-valid-domain-is-somehow-harder.kat.ac.za/',
-                      timeout=0.1, extra_timeout=1)
 
 
 class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
