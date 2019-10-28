@@ -45,6 +45,7 @@ import urllib.parse
 import contextlib
 import io
 import warnings
+import lxml
 
 import numpy as np
 from nose import SkipTest
@@ -53,8 +54,14 @@ import mock
 import requests
 
 from katdal.chunkstore_s3 import S3ChunkStore, _AWSAuth, read_array
-from katdal.chunkstore import StoreUnavailable
+from katdal.chunkstore import StoreUnavailable, UnsupportedStoreFeature
 from katdal.test.test_chunkstore import ChunkStoreTestBase
+
+# No expiration rule included
+_INVALID_LIFECYCLE_POLICY = """<?xml version="1.0" encoding="UTF-8"?>
+<LifecycleConfiguration><Rule>
+<ID>katdal_expiry_{0}_days</ID><Filter></Filter><Status>Enabled</Status>
+</Rule></LifecycleConfiguration>"""
 
 
 def gethostbyname_slow(host):
@@ -240,6 +247,28 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         store.put_chunk('public', slices, x)
         y = reader.get_chunk('public', slices, x.dtype)
         np.testing.assert_array_equal(x, y)
+
+    def test_bucket_expiry(self):
+        # NOTE: Minimum bucket expiry time is 1 day so real world testing is impractical.
+        # We expect not supported since minio doesn't allow lifecycle policies
+        test_store = self.from_url(self.url, expiry_days=1)
+        assert_raises(UnsupportedStoreFeature, test_store.create_array, 'test-expiry')
+
+    def test_bucket_expiry_with_validation(self):
+        test_store = self.from_url(self.url, expiry_days=1, validate_xml_policies=True)
+        assert_raises(UnsupportedStoreFeature, test_store.create_array, 'test-expiry')
+
+    @mock.patch('katdal.chunkstore_s3._BASE_LIFECYCLE_POLICY', _INVALID_LIFECYCLE_POLICY)
+    def test_bucket_expiry_invalid_schema(self):
+        # Now test with an invalid policy
+        test_store = self.from_url(self.url, expiry_days=1, validate_xml_policies=True)
+        assert_raises(lxml.etree.DocumentInvalid, test_store.create_array, 'test-expiry')
+
+    @mock.patch('katdal.chunkstore_s3._BASE_LIFECYCLE_POLICY', "<XML?>")
+    def test_bucket_expiry_not_xml(self):
+        # Code path coverage to test a policy that is not even valid XML
+        test_store = self.from_url(self.url, expiry_days=1, validate_xml_policies=True)
+        assert_raises(ValueError, test_store.create_array, 'test-expiry')
 
     @timed(0.1 + 0.05)
     def test_store_unavailable_invalid_url(self):

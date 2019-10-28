@@ -24,7 +24,7 @@ from future import standard_library
 standard_library.install_aliases()  # noqa: E402
 from builtins import object
 import future.utils
-from future.utils import raise_, bytes_to_native_str
+from future.utils import raise_, bytes_to_native_str, raise_from
 
 import contextlib
 import io
@@ -53,8 +53,10 @@ except ImportError:
     botocore = None
 
 from .chunkstore import (ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk,
-                         npy_header_and_body)
+                         UnsupportedStoreFeature, npy_header_and_body)
 from .sensordata import to_str
+
+from . import schemas
 
 
 # Lifecycle policies unfortunately use XML encoding rather than JSON
@@ -183,6 +185,8 @@ def _raise_for_status(response):
     except requests.HTTPError as error:
         if response.status_code == 404:
             raise ChunkNotFound(str(error))
+        elif response.status_code == 501:
+            raise_from(UnsupportedStoreFeature(str(error)), error)
         else:
             raise StoreUnavailable(str(error))
 
@@ -283,6 +287,11 @@ class S3ChunkStore(ChunkStore):
     expiry_days : int
         If set to a value greater than 0 will set a future expiry time in days
         for any new buckets created.
+    validate_xml_policies : bool
+        If set to true, S3 operations that use XML policies will be validated
+        against the inbuilt schemas. Note that these are relatively minimal
+        and not a guarantee of operation success on passing validation.
+        Requires lxml
 
 
     Raises
@@ -291,7 +300,7 @@ class S3ChunkStore(ChunkStore):
         If requests is not installed (it's an optional dependency otherwise)
     """
 
-    def __init__(self, session_factory, url, public_read=False, expiry_days=0):
+    def __init__(self, session_factory, url, public_read=False, expiry_days=0, validate_xml_policies=False):
         try:
             # Quick smoke test to see if the S3 server is available, by listing
             # buckets. Depending on the server in use, this may return a 403
@@ -312,9 +321,10 @@ class S3ChunkStore(ChunkStore):
         self._url = to_str(url)
         self.public_read = public_read
         self.expiry_days = int(expiry_days)
+        self.validate_xml_policies = validate_xml_policies
 
     @classmethod
-    def _from_url(cls, url, timeout, token, credentials, public_read, expiry_days):
+    def _from_url(cls, url, timeout, token, credentials, public_read, expiry_days, validate_xml_policies):
         """Construct S3 chunk store from endpoint URL (see :meth:`from_url`)."""
         if token is not None:
             parsed = urllib.parse.urlparse(url)
@@ -336,12 +346,12 @@ class S3ChunkStore(ChunkStore):
             session.mount(url, adapter)
             return session
 
-        return cls(session_factory, url, public_read, expiry_days)
+        return cls(session_factory, url, public_read, expiry_days, validate_xml_policies)
 
     @classmethod
     def from_url(cls, url, timeout=300, extra_timeout=10,
                  token=None, credentials=None, public_read=False,
-                 expiry_days=0, **kwargs):
+                 expiry_days=0, validate_xml_policies=False, **kwargs):
         """Construct S3 chunk store from endpoint URL.
 
         Parameters
@@ -363,6 +373,11 @@ class S3ChunkStore(ChunkStore):
         expiry_days : int
             If set to a value greater than 0 will set a future expiry time in days
             for any new buckets created.
+        validate_xml_policies : bool
+            If set to true, S3 operations that use XML policies will be validated
+            against the inbuilt schemas. Note that these are relatively minimal
+            and not a guarantee of operation success on passing validation.
+            Requires lxml
         kwargs : dict
             Extra keyword arguments (unused)
 
@@ -378,15 +393,16 @@ class S3ChunkStore(ChunkStore):
         # (avoiding extra dependency on Python 2, revisit when Python 3 only)
         q = queue.Queue()
 
-        def _from_url(url, timeout, token, credentials, public_read, expiry_days):
+        def _from_url(url, timeout, token, credentials, public_read, expiry_days, validate_xml_policies):
             """Construct chunk store and return it (or exception) via queue."""
             try:
-                q.put(cls._from_url(url, timeout, token, credentials, public_read, expiry_days))
+                q.put(cls._from_url(url, timeout, token, credentials, public_read, expiry_days, validate_xml_policies))
             except BaseException:
                 q.put(sys.exc_info())
 
         thread = threading.Thread(target=_from_url,
-                                  args=(url, timeout, token, credentials, public_read, expiry_days))
+                                  args=(url, timeout, token, credentials, public_read, expiry_days,
+                                        validate_xml_policies))
         thread.daemon = True
         thread.start()
         if timeout is not None:
@@ -470,6 +486,10 @@ class S3ChunkStore(ChunkStore):
 
         if self.expiry_days > 0:
             xml_payload = _BASE_LIFECYCLE_POLICY.format(self.expiry_days)
+            if self.validate_xml_policies:
+                if not schemas.has_lxml:
+                    raise ImportError("XML schema validation requires lxml to be installed.")
+                schemas.validate('MINIMAL_LIFECYCLE_POLICY', xml_payload)
             b64_md5 = base64.b64encode(hashlib.md5(xml_payload.encode('utf-8')).digest()).decode('utf-8')
             lifecycle_headers = {'Content-Type': 'text/xml', 'Content-MD5': b64_md5}
             with self.request(None, 'PUT', url, params='lifecycle', data=xml_payload, headers=lifecycle_headers):
