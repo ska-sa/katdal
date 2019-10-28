@@ -746,16 +746,17 @@ class DataSet(object):
                 target_keep = np.zeros(len(self._time_keep), dtype=np.bool)
                 target_index_sensor = self.sensor.get('Observation/target_index')
                 for t in targets:
-                    if isinstance(t, numbers.Integral):
-                        target_index = t
-                    elif t not in self.catalogue:
+                    try:
+                        if isinstance(t, numbers.Integral):
+                            target_index = t
+                        elif isinstance(t, katpoint.Target) or isinstance(t, basestring) and ',' in t:
+                            target_index = self.catalogue.targets.index(t)
+                        else:
+                            target_index = self.catalogue.targets.index(self.catalogue[t])
+                    except (KeyError, ValueError):
                         # Warn here, in case the user gets the target subtly wrong and wonders why it is not selected
-                        logger.warning("Skipping unknown selected target '%s'" % (t,))
+                        logger.warning("Skipping unknown selected target '%s'", t)
                         continue
-                    elif isinstance(t, katpoint.Target) or isinstance(t, basestring) and ',' in t:
-                        target_index = self.catalogue.targets.index(t)
-                    else:
-                        target_index = self.catalogue.targets.index(self.catalogue[t])
                     target_keep |= (target_index_sensor == target_index)
                 self._time_keep &= target_keep
             # Selections that affect frequency axis
