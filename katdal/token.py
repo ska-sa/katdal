@@ -19,7 +19,7 @@
 from __future__ import print_function, division, absolute_import
 from future import standard_library
 standard_library.install_aliases()  # noqa: E402
-from future.utils import raise_from
+from future.utils import bytes_to_native_str, raise_from
 
 import base64
 import json
@@ -37,7 +37,7 @@ class InvalidToken(ValueError):
 def encode_base64url_without_padding(b):
     """Encode bytes `b` to base64url string without padding (see RFC 7515)."""
     # Strip off padding as described in Appendix C of RFC 7515
-    return base64.urlsafe_b64encode(b).rstrip(b'=').decode()
+    return bytes_to_native_str(base64.urlsafe_b64encode(b).rstrip(b'='))
 
 
 def decode_base64url_without_padding(s):
@@ -50,7 +50,11 @@ def decode_base64url_without_padding(s):
                          'characters ({}) cannot be 1 more than a multiple of 4'
                          .format(s, len(s)))
     # Use the standard base64 decoder with padding (but with base64url alphabet)
-    return base64.urlsafe_b64decode(s)
+    try:
+        return base64.urlsafe_b64decode(s)
+    except TypeError as err:
+        # In Python 2, base64 raises a TypeError if string is incorrectly padded
+        raise_from(ValueError(err), err)
 
 
 def encode_json_base64url(d):
