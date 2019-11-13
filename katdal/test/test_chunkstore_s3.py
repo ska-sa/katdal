@@ -53,6 +53,7 @@ import requests
 
 from katdal.chunkstore_s3 import S3ChunkStore, _AWSAuth, read_array
 from katdal.chunkstore import StoreUnavailable
+from katdal.token import encode_jwt, decode_jwt, InvalidToken
 from katdal.test.test_chunkstore import ChunkStoreTestBase
 
 
@@ -264,7 +265,16 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
         url = urllib.parse.urljoin(self.server.target, self.path)
         data_len = int(self.headers.get('Content-Length', 0))
         data = self.rfile.read(data_len)
-        if self.headers.get('Authorization') != 'Bearer mysecret':
+        auth_header = self.headers.get('Authorization').split()
+        if len(auth_header) == 2 and auth_header[0] == 'Bearer':
+            token = auth_header[1]
+        else:
+            token = ''
+        try:
+            prefixes = decode_jwt(token).get('prefix', [])
+        except InvalidToken:
+            prefixes = []
+        if not any(self.path.startswith(prefix) for prefix in prefixes):
             self.send_response(401, 'Unauthorized')
             self.end_headers()
             return
@@ -361,4 +371,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
             cls.proxy_url = 'http://{}:{}'.format(proxy_host, proxy_port)
         elif url != cls.httpd.target:
             raise RuntimeError('Cannot use multiple target URLs with http proxy')
-        return S3ChunkStore(cls.proxy_url, timeout=10, token='mysecret', **kwargs)
+        # For now this token authorises all prefixes (with dud signature of expected length)
+        token = encode_jwt({'alg': 'ES256', 'typ': 'JWT'},
+                           {'prefix': ['']}, 64 * b'*')
+        return S3ChunkStore(cls.proxy_url, timeout=10, token=token, **kwargs)

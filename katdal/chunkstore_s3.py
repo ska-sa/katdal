@@ -21,7 +21,7 @@ from future import standard_library
 standard_library.install_aliases()  # noqa: E402
 from builtins import object
 import future.utils
-from future.utils import bytes_to_native_str
+from future.utils import bytes_to_native_str, raise_from
 
 import contextlib
 import threading
@@ -30,7 +30,6 @@ import urllib.request
 import urllib.error
 import hashlib
 import base64
-import re
 import warnings
 import copy
 import json
@@ -49,6 +48,7 @@ except ImportError:
 from .chunkstore import (ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk,
                          npy_header_and_body)
 from .sensordata import to_str
+from .token import decode_jwt, InvalidToken
 
 
 # Lifecycle policies unfortunately use XML encoding rather than JSON
@@ -112,16 +112,30 @@ def read_array(fp):
     return data
 
 
+class AuthorisationFailed(StoreUnavailable):
+    """Authorisation failed, e.g. due to invalid, malformed or expired token."""
+
+
 class _BearerAuth(requests.auth.AuthBase):
     """Add bearer token to authorisation request header."""
 
     def __init__(self, token):
-        # Character set from RFC 6750
-        if not re.match('^[A-Za-z0-9-._~+/]*$', token):
-            raise ValueError('Token contains invalid characters')
+        try:
+            self._claims = decode_jwt(token)
+        except InvalidToken as error:
+            raise_from(AuthorisationFailed(str(error)), error)
+        if 'prefix' not in self._claims:
+            raise AuthorisationFailed("Token has no 'prefix' claim")
         self._token = token
 
     def __call__(self, r):
+        # Check if token authorises URL even before hitting server for better reporting
+        path = urllib.parse.urlparse(r.url).path.lstrip('/')
+        valid_prefixes = self._claims['prefix']
+        if not any(path.startswith(prefix) for prefix in valid_prefixes):
+            allowed = ', '.join(prefix + '*' for prefix in valid_prefixes)
+            raise AuthorisationFailed('Token does not grant permission for '
+                                      '{}, only for {}'.format(path, allowed))
         r.headers['Authorization'] = 'Bearer ' + self._token
         return r
 
@@ -130,6 +144,8 @@ class _AWSAuth(requests.auth.AuthBase):
     """Add AWS access + secret credentials to authorisation request header."""
 
     def __init__(self, credentials):
+        if not botocore:
+            raise AuthorisationFailed('Passing credentials requires botocore to be installed')
         credentials = botocore.credentials.ReadOnlyCredentials(
             credentials[0], credentials[1], None)
         self._signer = botocore.auth.HmacV1Auth(credentials)
@@ -145,16 +161,14 @@ class _AWSAuth(requests.auth.AuthBase):
 def _auth_factory(url, token=None, credentials=None):
     """Turn either JWT token or AWS credentials into a requests auth handler."""
     if token is not None and credentials is not None:
-        raise ValueError('Cannot specify both token and credentials')
+        raise AuthorisationFailed('Cannot specify both token and credentials')
     if token is not None:
         parsed = urllib.parse.urlparse(url)
         # The exception for 127.0.0.1 lets the unit test work
         if parsed.scheme != 'https' and parsed.hostname != '127.0.0.1':
-            raise StoreUnavailable('Auth token may only be used with https')
+            raise AuthorisationFailed('Token may only be used with https')
         return _BearerAuth(token)
     elif credentials is not None:
-        if not botocore:
-            raise StoreUnavailable('Passing credentials requires botocore to be installed')
         return _AWSAuth(credentials)
     else:
         return None
