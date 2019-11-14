@@ -52,7 +52,7 @@ from nose.tools import assert_raises, assert_equal, timed
 import requests
 
 from katdal.chunkstore_s3 import S3ChunkStore, _AWSAuth, read_array
-from katdal.chunkstore import StoreUnavailable
+from katdal.chunkstore import StoreUnavailable, ChunkNotFound
 from katdal.token import encode_jwt, decode_jwt, InvalidToken
 from katdal.test.test_chunkstore import ChunkStoreTestBase
 
@@ -225,7 +225,8 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         x = np.arange(5)
         self.store.create_array('private')
         self.store.put_chunk('private', slices, x)
-        with assert_raises(StoreUnavailable):
+        # Ceph RGW returns 403 for missing chunks too so we see ChunkNotFound
+        with assert_raises(ChunkNotFound):
             reader.get_chunk('private', slices, x.dtype)
 
         # Now a public-read array

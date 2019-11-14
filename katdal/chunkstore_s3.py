@@ -227,10 +227,19 @@ def _raise_for_status(response):
     try:
         response.raise_for_status()
     except requests.HTTPError as error:
-        if response.status_code == 404:
-            raise ChunkNotFound(str(error))
+        # Missing buckets are worse than missing objects so distinguish them
+        path = urllib.parse.urlparse(response.url).path
+        parts = [part for part in S3ChunkStore.split(path) if part]
+        # This also includes top-level directory, which behaves like a bucket
+        is_bucket = len(parts) <= 1
+        if response.status_code == 401:
+            raise_from(AuthorisationFailed(str(error)), error)
+        elif response.status_code in (403, 404) and not is_bucket:
+            # Ceph RGW returns 403 for missing keys due to our bucket policy
+            # (see https://tracker.ceph.com/issues/38638 for discussion)
+            raise_from(ChunkNotFound(str(error)), error)
         else:
-            raise StoreUnavailable(str(error))
+            raise_from(StoreUnavailable(str(error)), error)
 
 
 class _Pool(object):
