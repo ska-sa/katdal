@@ -81,14 +81,13 @@ class TestTokenUtils(object):
         with assert_raises(InvalidToken):
             h, p, s = token.split('.')
             decode_jwt('.'.join((h, p[:-1], s)))
-        # Token signature failed to decode (depends on signature length!)
+        # Token signature failed to decode or wrong length
         with assert_raises(InvalidToken):
             decode_jwt(token[:-1])
-        decode_jwt(token[:-2])
-        decode_jwt(token[:-3])
-        decode_jwt(token[:-4])
         with assert_raises(InvalidToken):
-            decode_jwt(token[:-5])
+            decode_jwt(token[:-2])
+        with assert_raises(InvalidToken):
+            decode_jwt(token + token[-4:])
 
     def test_jwt_invalid_header(self):
         header = {'typ': 'JWT'}

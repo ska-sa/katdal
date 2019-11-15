@@ -25,9 +25,7 @@ import base64
 import json
 import re
 import time
-
-
-BASE64URL_PADDING = {0: '', 2: '==', 3: '='}
+import math
 
 
 class InvalidToken(ValueError):
@@ -42,13 +40,8 @@ def encode_base64url_without_padding(b):
 
 def decode_base64url_without_padding(s):
     """Decode base64url-encoded string `s` without padding (RFC 7515) to bytes."""
-    # Restore padding as described in Appendix C of RFC 7515
-    try:
-        s += BASE64URL_PADDING[len(s) % 4]
-    except KeyError:
-        raise ValueError('Invalid base64url-encoded string {}: number of data '
-                         'characters ({}) cannot be 1 more than a multiple of 4'
-                         .format(s, len(s)))
+    # Restore padding to multiple of 4 chars as described in Appendix C of RFC 7515
+    s = s.ljust(4 * math.ceil(len(s) / 4), '=')
     # Use the standard base64 decoder with padding (but with base64url alphabet)
     try:
         return base64.urlsafe_b64decode(s)
@@ -146,10 +139,10 @@ def decode_jwt(token):
                                 .format(encoded_payload)), err)
     # Check that signature is at least encoded properly (maybe truncated otherwise)
     try:
-        decode_base64url_without_padding(encoded_signature)
+        signature = decode_base64url_without_padding(encoded_signature)
     except ValueError as err:
-        raise_from(InvalidToken('Could not decode token signature {} (maybe token '
-                                'is truncated?)'.format(encoded_signature)), err)
+        raise_from(InvalidToken('Could not decode token signature {} (check token '
+                                'string length)'.format(encoded_signature)), err)
     # A valid JWT must have 'alg' parameter, and be of type 'JWT' in our application
     if 'alg' not in header or header.get('typ') != 'JWT':
         raise InvalidToken('Token is not valid JWT')
@@ -158,4 +151,10 @@ def decode_jwt(token):
         if claims['exp'] <= time.time():
             exp_time = time.strftime('%d-%b-%Y %H:%M:%S', time.gmtime(claims['exp']))
             raise InvalidToken('Token has expired on {} UTC'.format(exp_time))
+    # Check signature length for typical MeerKAT signature algorithm
+    len_sig = len(signature)
+    if header['alg'] == 'ES256' and len_sig != 64:
+        raise InvalidToken('Decoded signature has {} bytes instead of 64 - '
+                           'token string is too {}'
+                           .format(len_sig, 'short' if len_sig < 64 else 'long'))
     return claims
