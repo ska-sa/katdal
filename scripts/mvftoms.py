@@ -29,7 +29,7 @@ from collections import namedtuple
 import os
 import sys
 import tarfile
-#import optparse # Deprecated since version 2.7
+
 import argparse
 import time
 import multiprocessing
@@ -148,29 +148,34 @@ def main():
                      'target': 'TARGET'}
 
     def casa_style_int_list(val, argparse=False, opt_unit="m"):
-        """ returns list of ints """
+        """ returns list of ints from a casa style range of the form
+            [0-9]*~[0-9]*, ...
+            the range may contain unit strings such as 10~50m if 
+            the accepted unit is specified in opt_unit
+            return None if no range is specified,
+            list of range values otherwise
+        """
         RangeException = ArgumentTypeError if argparse else ValueError
         if val.strip() == "" or val.strip() == "*":
             return None
-        elif re.match(r"^(\d+)(~\d+[" + opt_unit +
-                      r"]?)?(,(\d+)(~\d+[" + opt_unit +
-                      r"]?)?)*$", val):
-            val = val.replace(" ", "").replace("\t", "")
-            for u in opt_unit:
-                val = val.replace(opt_unit, "")
-            vals = val.split(",")
-            range_vals = list(filter(lambda x: "~" in x, vals))
-            list_vals = filter(lambda x: "~" not in x, vals)
-            list_vals = list(map(int, list_vals))
-            range_vals = [tuple(map(int, v.split("~"))) for v in range_vals]
-            range_vals = [np.arange(rmin, rmax + 1) for rmin, rmax in range_vals]
-            range_vals_flat = []
-            for r in range_vals:
-                range_vals_flat += list(r)
-            vals = list(set(range_vals_flat + list_vals))
-            return vals
-        else:
-            raise RangeException("Value must be range, comma list or blank")
+        vals = []
+        for val in map(lambda x: x.strip(), val.strip().split(",")):
+            val = val.strip()
+            range_type = r"^((\d+)[{}]?)?(~(\d+)[{}]?)?$".format(opt_unit, opt_unit)
+            match = re.match(range_type, val)
+            if not match:
+                raise RangeException("Value must be CASA range, comma list or blank")
+            elif match.group(4):
+                # range
+                rmin = int(match.group(2))
+                rmax = int(match.group(4))
+                vals = vals + list(range(rmin, rmax + 1))
+            elif match.group(2):
+                # int
+                vals = vals + [int(match.group(2))]
+            else:
+                raise RangeException("Value must be CASA range, comma list or blank")
+        return vals
 
     usage = "%(prog)s [options] <dataset> [<dataset2>]*"
     description = "Convert MVF dataset(s) to CASA MeasurementSet. The datasets may " \
@@ -179,87 +184,87 @@ def main():
                   "katdal before conversion."
     parser = argparse.ArgumentParser(usage=usage, description=description)
     parser.add_argument("-o", "--output-ms", default=None,
-                      help="Name of output MeasurementSet")
+                        help="Name of output MeasurementSet")
     parser.add_argument("-c", "--circular", action="store_true", default=False,
-                      help="Produce quad circular polarisation. (RR, RL, LR, LL) "
-                           "*** Currently just relabels the linear pols ****")
+                        help="Produce quad circular polarisation. (RR, RL, LR, LL) "
+                             "*** Currently just relabels the linear pols ****")
     parser.add_argument("-r", "--ref-ant",
-                      help="Override the reference antenna used to pick targets "
-                           "and scans (default is the 'array' antenna in MVFv4 "
-                           "and the first antenna in older formats)")
+                       help="Override the reference antenna used to pick targets "
+                            "and scans (default is the 'array' antenna in MVFv4 "
+                            "and the first antenna in older formats)")
     parser.add_argument("-t", "--tar", action="store_true", default=False,
-                      help="Tar-ball the MS")
+                        help="Tar-ball the MS")
     parser.add_argument("-f", "--full_pol", action="store_true", default=False,
-                      help="Produce a full polarisation MS in CASA canonical order "
-                           "(HH, HV, VH, VV). Default is to produce HH,VV only.")
+                       help="Produce a full polarisation MS in CASA canonical order "
+                            "(HH, HV, VH, VV). Default is to produce HH,VV only.")
     parser.add_argument("-v", "--verbose", action="store_true", default=False,
-                      help="More verbose progress information")
+                        help="More verbose progress information")
     parser.add_argument("-w", "--stop-w", action="store_true", default=False,
-                      help="Use W term to stop fringes for each baseline")
+                        help="Use W term to stop fringes for each baseline")
     parser.add_argument("-p", "--pols-to-use", default=None,
-                      help="Select polarisation products to include in MS as "
-                           "comma-separated list (from: HH, HV, VH, VV). "
-                           "Default is all available from (HH, VV).")
+                        help="Select polarisation products to include in MS as "
+                            "comma-separated list (from: HH, HV, VH, VV). "
+                            "Default is all available from (HH, VV).")
     parser.add_argument("-u", "--uvfits", action="store_true", default=False,
-                      help="Print command to convert MS to miriad uvfits in casapy")
+                        help="Print command to convert MS to miriad uvfits in casapy")
     parser.add_argument("-a", "--no-auto", action="store_true", default=False,
-                      help="MeasurementSet will exclude autocorrelation data")
+                        help="MeasurementSet will exclude autocorrelation data")
     parser.add_argument("-s", "--keep-spaces", action="store_true", default=False,
-                      help="Keep spaces in source names, default removes spaces")
+                        help="Keep spaces in source names, default removes spaces")
     parser.add_argument("-C", "--channel-range",
-                      help="Range of frequency channels to keep (zero-based inclusive "
-                           "'first_chan,last_chan', default is all channels)")
+                        help="Range of frequency channels to keep (zero-based inclusive "
+                             "'first_chan,last_chan', default is all channels)")
     parser.add_argument("-e", "--elevation-range",
-                      help="Flag elevations outside the range "
-                           "'lowest_elevation,highest_elevation'")
+                        help="Flag elevations outside the range "
+                             "'lowest_elevation,highest_elevation'")
     parser.add_argument("-m", "--model-data", action="store_true", default=False,
-                      help="Add MODEL_DATA and CORRECTED_DATA columns to the MS. "
-                           "MODEL_DATA initialised to unity amplitude zero phase, "
-                           "CORRECTED_DATA initialised to DATA.")
+                        help="Add MODEL_DATA and CORRECTED_DATA columns to the MS. "
+                             "MODEL_DATA initialised to unity amplitude zero phase, "
+                             "CORRECTED_DATA initialised to DATA.")
     flag_names = ', '.join(name for name in FLAG_NAMES if not name.startswith('reserved'))
     parser.add_argument("--flags", default="all",
                         help="List of online flags to apply "
                              "(from " + flag_names + ") "
                              "default is all flags, '' will apply no flags)")
     parser.add_argument("--dumptime", type=float, default=0.0,
-                      help="Output time averaging interval in seconds, "
-                           "default is no averaging")
+                        help="Output time averaging interval in seconds, "
+                             "default is no averaging")
     parser.add_argument("--chanbin", type=int, default=0,
-                      help="Bin width for channel averaging in channels, "
-                           "default is no averaging")
+                        help="Bin width for channel averaging in channels, "
+                             "default is no averaging")
     parser.add_argument("--flagav", action="store_true", default=False,
-                      help="If a single element in an averaging bin is flagged, "
-                           "flag the averaged bin")
+                        help="If a single element in an averaging bin is flagged, "
+                             "flag the averaged bin")
     parser.add_argument("--caltables", action="store_true", default=False,
-                      help="Create calibration tables from gain solutions in "
-                           "the dataset (if present)")
+                        help="Create calibration tables from gain solutions in "
+                             "the dataset (if present)")
     parser.add_argument("--quack", type=int, default=1, metavar='N',
-                      help="Discard the first N dumps "
-                           "(which are frequently incomplete)")
+                        help="Discard the first N dumps "
+                             "(which are frequently incomplete)")
     parser.add_argument("--applycal", default="",
-                      help="List of calibration solutions to apply to data as "
-                           "a string of comma-separated names, e.g. 'l1' or "
-                           "'K,B,G'. Use 'default' for L1 + L2 and 'all' for "
-                           "all available products.")
-    parser.add_argument("--field", default=[], action="append",
-                      help="Dump only specified field (name). This switch can "
-                           "be specified multiple times if need be. Default is dump "
-                           "all fields.")
-    parser.add_argument("--antenna", default=[], action="append",
-                      help="Dump only specified antennae (names). This switch can "
-                           "be specified multiple times if need be. Default is dump "
-                           "all antennae.")
+                        help="List of calibration solutions to apply to data as "
+                             "a string of comma-separated names, e.g. 'l1' or "
+                             "'K,B,G'. Use 'default' for L1 + L2 and 'all' for "
+                             "all available products.")
+    parser.add_argument("--target", default=[], action="append",
+                        help="Select only specified target field (name). This switch can "
+                             "be specified multiple times if need be. Default is select "
+                             "all fields.")
+    parser.add_argument("--ant", default=[], action="append",
+                        help="Select only specified antenna (specified as name). This switch can "
+                             "be specified multiple times if need be. Default is select "
+                             "all antennas.")
     parser.add_argument("--scans", default="",
-                      type=lambda x: casa_style_int_list(x, argparse=True, opt_unit=" "),
-                      help="Only dump a range of tracking scans. Default is dump all "
-                           "tracking scans. Accepts a comma list or a casa style range "
-                           "such as 5~10.")
-    parser.add_argument("dataset", help="Dataset path", nargs='+')
+                        type=lambda x: casa_style_int_list(x, argparse=True, opt_unit="m"),
+                        help="Only select a range of tracking scans. Default is select all "
+                             "tracking scans. Accepts a comma list or a casa style range "
+                             "such as 5~10.")
+    parser.add_argument("datasets", help="Dataset path", nargs='+')
 
     parseargs = parser.parse_args()
     # positional arguments are now part of arguments, but lets keep the logic the same
     options = parseargs
-    args = parseargs.dataset
+    args = parseargs.datasets
 
     # Loading is I/O-bound, so give more threads than CPUs
     dask.config.set(pool=multiprocessing.pool.ThreadPool(4 * multiprocessing.cpu_count()))
@@ -330,7 +335,7 @@ def main():
 
     # select a subset of antennas
     avail_ants = [a.name for a in dataset.ants]
-    dump_ants = options.antenna if len(options.antenna) != 0 else \
+    dump_ants = options.ant if len(options.ant) != 0 else \
                 avail_ants
     # some users may specify comma-separated lists although we said the switch should
     # be specified multiple times. Put in a guard to split comma separated lists as well
@@ -340,22 +345,22 @@ def main():
     dump_ants = split_ants
 
     if not set(dump_ants) <= set(avail_ants):
-        raise ValueError("One or more antennas cannot be found in the dataset. "
-                         "You requested {0:s}, but only {1:s} are available.".format(
-                         ", ".join(["'{}'".format(f) for f in dump_ants]),
-                         ", ".join(["'{}'".format(f) for f in avail_ants])))
+        raise RuntimeError("One or more antennas cannot be found in the dataset. "
+                           "You requested {0:s}, but only {1:s} are available.".format(
+                           ", ".join([repr(f) for f in dump_ants]),
+                           ", ".join([repr(f) for f in avail_ants])))
 
     if len(dump_ants) == 0:
        print('User antenna criterion resulted in empty database, nothing to be done. '
              'Perhaps you wanted to select from the following: {}'.format(
              ", ".join(["'{}'".format(f) for f in avail_ants])))
 
-    print('Per user request the following antennae will be dumped: {}'.format(
+    print('Per user request the following antennas will be selected: {}'.format(
         ", ".join(["'{}'".format(f) for f in dump_ants])))
 
     # select a subset of targets
     avail_fields = [f.name for f in dataset.catalogue.targets]
-    dump_fields = options.field if len(options.field) != 0 else \
+    dump_fields = options.target if len(options.target) != 0 else \
                   avail_fields
 
     # some users may specify comma-separated lists although we said the switch should
@@ -366,38 +371,36 @@ def main():
     dump_fields = split_fields
 
     if not set(dump_fields) <= set(avail_fields):
-        raise ValueError("One or more fields cannot be found in the dataset. "
-                         "You requested {0:s}, but only {1:s} are available.".format(
-                         ", ".join(["'{}'".format(f) for f in dump_fields]),
-                         ", ".join(["'{}'".format(f) for f in avail_fields])))
+        raise RuntimeError("One or more fields cannot be found in the dataset. "
+                           "You requested {0:s}, but only {1:s} are available.".format(
+                           ", ".join(["'{}'".format(f) for f in dump_fields]),
+                           ", ".join(["'{}'".format(f) for f in avail_fields])))
 
     if len(dump_fields) == 0:
-       print('User field criterion resulted in empty database, nothing to be done. '
+       print('User target field criterion resulted in empty database, nothing to be done. '
              'Perhaps you wanted to select from the following: {}'.format(
              ", ".join(["'{}'".format(f) for f in avail_fields])))
 
-    print('Per user request the following fields will be dumped: {}'.format(
-        ", ".join(["'{}'".format(f) for f in dump_fields])))
+    print('Per user request the following target fields will be selected: {}'.format(
+          ", ".join(["'{}'".format(f) for f in dump_fields])))
 
     dataset.select(targets=dump_fields)
 
     # get a set of user selected available tracking scans, ignore slew scans
     avail_tracks = map(lambda x: x[0],
                      filter(lambda x: x[1] == 'track',
-                            list(dataset.scans())))
+                            dataset.scans()))
 
     dump_scans = options.scans if options.scans else \
                  avail_tracks
     dump_scans = list(set(dump_scans).intersection(set(avail_tracks)))
     if len(dump_scans) == 0:
-        print('User scan criterion resulted in empty database, nothing to be done. '
-              'Perhaps you wanted to select from the following: {}'.format(
-               ", ".join(map(str, avail_tracks))))
-        sys.exit(0)
+        raise RuntimeError('User scan criterion resulted in empty database, nothing to be done. '
+                           'Perhaps you wanted to select from the following: {}'.format(
+                           ", ".join(map(str, avail_tracks))))
+        
     print('Per user request the following scans will be dumped: {}'.format(
-        ", ".join(map(str, dump_scans))))
-
-    dataset.select(scans=dump_scans, targets=dump_fields)
+          ", ".join(map(str, dump_scans))))
 
     # Get list of unique polarisation products in the dataset
     pols_in_dataset = np.unique([(cp[0][-1] + cp[1][-1]).upper() for cp in dataset.corr_products])
