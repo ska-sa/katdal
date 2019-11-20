@@ -46,11 +46,12 @@ import urllib.parse
 import contextlib
 import io
 import warnings
+import re
 from urllib3.util.retry import Retry
 
 import numpy as np
 from nose import SkipTest
-from nose.tools import assert_raises, assert_equal, timed
+from nose.tools import assert_raises, assert_equal, timed, assert_true, assert_false
 import requests
 import jwt
 
@@ -68,6 +69,7 @@ BUCKET = 'katdal-unittest'
 TIMEOUT = (0.2, 0.4)
 RETRY = Retry(connect=1, read=1, status=3, backoff_factor=0.1,
               raise_on_status=False, status_forcelist=_TEMPORARY_SERVER_ERRORS)
+SUGGESTED_STATUS_DELAY = 0.1
 
 
 @contextlib.contextmanager
@@ -262,8 +264,11 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             cls.minio.wait()
         shutil.rmtree(cls.tempdir)
 
-    def array_name(self, path):
-        return self.store.join(BUCKET, path)
+    def array_name(self, path, suggestion=None):
+        if suggestion:
+            return self.store.join(BUCKET, suggestion, path)
+        else:
+            return self.store.join(BUCKET, path)
 
     def test_public_read(self):
         reader = self.from_url(self.url, authenticate=False)
@@ -307,13 +312,16 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             S3ChunkStore('http://apparently.invalid/', token='secrettoken')
 
 
+_proxy_request_timestamps = {}
+
+
 class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
-    """HTTP proxy that substitutes AWS credentials in place of a bearer token"""
+    """HTTP proxy that substitutes AWS credentials in place of a bearer token."""
     def __getattr__(self, name):
+        """Handle all HTTP requests by the same method since this is a proxy."""
         if name.startswith('do_'):
             return self.do_all
-        else:
-            return getattr(super(_TokenHTTPProxyHandler, self), name)
+        return self.__getattribute__(name)
 
     def do_all(self):
         # See https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Connection
@@ -322,9 +330,36 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
             'upgrade', 'proxy-authorization', 'proxy-authenticate'
         }
         self.protocol_version = 'HTTP/1.1'
-        url = urllib.parse.urljoin(self.server.target, self.path)
         data_len = int(self.headers.get('Content-Length', 0))
         data = self.rfile.read(data_len)
+
+        # Extract a proxy suggestion prepended to the path
+        suggestion = re.search(r'/please-([^/]+?)(?:-for-([\d\.]+)-seconds)*/',
+                               self.path)
+        if suggestion:
+            # Check when this command+path combo was first accessed
+            key = (self.command, self.path)
+            initial_time = _proxy_request_timestamps.get(key, time.time())
+            _proxy_request_timestamps[key] = initial_time
+            # Remove suggestion from path
+            start, end = suggestion.span()
+            self.path = self.path[:start] + '/' + self.path[end:]
+            command, duration = suggestion.groups()
+            duration = float(duration) if duration else np.inf
+            # If the suggestion is still active, go ahead with it
+            if time.time() < initial_time + duration:
+                # Respond with the suggested status code for a while
+                respond_with = re.match(r'^respond-with-(\d+)$', command)
+                if respond_with:
+                    status_code = int(respond_with.group(1))
+                    time.sleep(SUGGESTED_STATUS_DELAY)
+                    self.send_response(status_code, 'Suggested by unit test')
+                    self.end_headers()
+                    return
+            else:
+                del _proxy_request_timestamps[key]
+
+        # Extract token, validate it and check if path is authorised by it
         auth_header = self.headers.get('Authorization').split()
         if len(auth_header) == 2 and auth_header[0] == 'Bearer':
             token = auth_header[1]
@@ -340,12 +375,13 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        # Clear out hop-to-hop headers
+        # Clear out hop-by-hop headers
         request_headers = dict(self.headers.items())
         for header in self.headers:
             if header.lower() in HOP_HEADERS:
                 del request_headers[header]
 
+        url = urllib.parse.urljoin(self.server.target, self.path)
         try:
             with self.server.session.request(self.command, url,
                                              headers=request_headers, data=data,
@@ -445,3 +481,30 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
     def test_unauthorised_bucket(self):
         with assert_raises(InvalidToken):
             self.store.is_complete('unauthorised_bucket')
+
+    @timed(0.9 + 0.1)
+    def test_recover_from_server_errors(self):
+        # First make sure some chunk is there
+        s = (slice(3, 5),)
+        self.put_has_get_chunk('x', s)
+        # With the RETRY settings of 3 status retries, backoff factor of 0.1 s
+        # and SUGGESTED_STATUS_DELAY of 0.1 s we get the following timeline
+        # (indexed by seconds):
+        # 0.0 - access chunk for the first time
+        # 0.1 - response is 500, immediately try again (retry #1)
+        # 0.2 - response is 500, back off for 2 * 0.1 seconds
+        # 0.4 - retry #2
+        # 0.5 - response is 500, back off for 4 * 0.1 seconds
+        # 0.9 - retry #3 (the final attempt) - server should now be fixed
+        # 0.9 - success!
+        array_name = self.array_name('x', 'please-respond-with-500-for-0.8-seconds')
+        assert_true(self.store.has_chunk(array_name, s, self.x.dtype))
+
+    @timed(1.0 + 0.1)
+    def test_persistent_server_errors(self):
+        # First make sure some chunk is there
+        s = (slice(3, 5),)
+        self.put_has_get_chunk('x', s)
+        # After 0.9 seconds the client gives up and returns with failure 0.1 s later
+        array_name = self.array_name('x', 'please-respond-with-502-for-1.2-seconds')
+        assert_false(self.store.has_chunk(array_name, s, self.x.dtype))
