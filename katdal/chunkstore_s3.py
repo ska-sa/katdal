@@ -39,6 +39,7 @@ import defusedxml.cElementTree
 import numpy as np
 import requests
 from requests.adapters import HTTPAdapter as _HTTPAdapter
+from urllib3.util.retry import Retry
 import jwt
 try:
     import botocore.credentials
@@ -74,6 +75,10 @@ _BUCKET_POLICY = {
         }
     ]
 }
+
+# These HTTP responses typically indicate temporary S3 server / proxy overload,
+# which will trigger retries terminating in a missing data response if unsuccessful.
+_TEMPORARY_SERVER_ERRORS = (500, 502, 503, 504)
 
 
 def read_array(fp):
@@ -298,7 +303,7 @@ def _raise_for_status(response):
         is_bucket = len(parts) <= 1
         if response.status_code == 401:
             raise_from(AuthorisationFailed(str(error)), error)
-        elif response.status_code in (403, 404) and not is_bucket:
+        elif response.status_code in (403, 404) + _TEMPORARY_SERVER_ERRORS and not is_bucket:
             # Ceph RGW returns 403 for missing keys due to our bucket policy
             # (see https://tracker.ceph.com/issues/38638 for discussion)
             raise_from(ChunkNotFound(str(error)), error)
@@ -377,8 +382,13 @@ class S3ChunkStore(ChunkStore):
         Endpoint of S3 service, e.g. 'http://127.0.0.1:9000'. It can be
         specified as either bytes or unicode, and is converted to the native
         string type with UTF-8.
-    timeout : int or float, optional
-        Read / connect timeout, in seconds (set to None to leave unchanged)
+    timeout : float or tuple of 2 floats, optional
+        Connect / read timeout, in seconds, either a single value for both or
+        custom values as (connect, read) tuple (set to None to leave unchanged)
+    retries : int or tuple of 2 ints or :class:`urllib3.util.retry.Retry`, optional
+        Number of connect / read retries, either a single value for both or
+        custom values as (connect, read) tuple, or a `Retry` object for full
+        customisation (including status retries).
     token : str, optional
         Bearer token to authenticate
     credentials: tuple of str, optional
@@ -398,17 +408,30 @@ class S3ChunkStore(ChunkStore):
         If S3 server interaction failed (it's down, no authentication, etc)
     """
 
-    def __init__(self, url, timeout=300, token=None, credentials=None,
-                 public_read=False, expiry_days=0, **kwargs):
+    def __init__(self, url, timeout=(30, 300), retries=2, token=None,
+                 credentials=None, public_read=False, expiry_days=0, **kwargs):
         error_map = {requests.exceptions.RequestException: StoreUnavailable,
                      defusedxml.ElementTree.ParseError: StoreUnavailable}
         super(S3ChunkStore, self).__init__(error_map)
         auth = _auth_factory(url, token, credentials)
+        if isinstance(retries, Retry):
+            retry = retries
+        else:
+            try:
+                connect_retries, read_retries = retries
+            except TypeError:
+                connect_retries = read_retries = retries
+            # The backoff factor of 10 provides 5 minutes worth of retries
+            # when the Ceph gateway is strained; with 5 retries you get
+            # (0 + 2 + 4 + 8 + 16) * 10 = 300 seconds on top of read timeouts.
+            retry = Retry(connect=connect_retries, read=read_retries, status=5,
+                          backoff_factor=10., raise_on_status=False,
+                          status_forcelist=_TEMPORARY_SERVER_ERRORS)
 
-        def session_factory(timeout=timeout, retries=2):
+        def session_factory():
             session = _CacheSettingsSession(url)
             session.auth = auth
-            adapter = _TimeoutHTTPAdapter(max_retries=retries, timeout=timeout)
+            adapter = _TimeoutHTTPAdapter(max_retries=retry, timeout=timeout)
             session.mount(url, adapter)
             return session
 

@@ -46,6 +46,7 @@ import urllib.parse
 import contextlib
 import io
 import warnings
+from urllib3.util.retry import Retry
 
 import numpy as np
 from nose import SkipTest
@@ -53,13 +54,20 @@ from nose.tools import assert_raises, assert_equal, timed
 import requests
 import jwt
 
-from katdal.chunkstore_s3 import (S3ChunkStore, _AWSAuth, read_array,
-                                  decode_jwt, InvalidToken)
+from katdal.chunkstore_s3 import (S3ChunkStore, _AWSAuth, read_array, decode_jwt,
+                                  InvalidToken, _TEMPORARY_SERVER_ERRORS)
 from katdal.chunkstore import StoreUnavailable, ChunkNotFound
 from katdal.test.test_chunkstore import ChunkStoreTestBase
 
 
 BUCKET = 'katdal-unittest'
+# Pick quick but different timeouts and retries for unit tests:
+# The effective connect timeout is 0.2 (initial) + 0.2 (1 retry) = 0.4 seconds
+# The effective read timeout is 0.4 + 0.4 = 0.8 seconds
+# The effective status timeout is 4 * 0.4 + 0.1 * (0 + 2 + 4) = 2.2 seconds
+TIMEOUT = (0.2, 0.4)
+RETRY = Retry(connect=1, read=1, status=3, backoff_factor=0.1,
+              raise_on_status=False, status_forcelist=_TEMPORARY_SERVER_ERRORS)
 
 
 @contextlib.contextmanager
@@ -228,7 +236,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         """Create the chunk store"""
         if authenticate:
             kwargs['credentials'] = cls.credentials
-        return S3ChunkStore(url, timeout=10, **kwargs)
+        return S3ChunkStore(url, timeout=TIMEOUT, retries=RETRY, **kwargs)
 
     @classmethod
     def setup_class(cls):
@@ -277,17 +285,26 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         y = reader.get_chunk('public', slices, x.dtype)
         np.testing.assert_array_equal(x, y)
 
-    @timed(0.1 + 0.05)
+    @timed(0.1 + 0.1)
     def test_store_unavailable_invalid_url(self):
         # Ensure that timeouts work
-        store = S3ChunkStore('http://apparently.invalid/', timeout=0.1)
+        store = S3ChunkStore('http://apparently.invalid/', timeout=0.1, retries=0)
         with assert_raises(StoreUnavailable):
             store.is_complete('irrelevant_since_store_is_nonexistent')
 
+    @timed(0.4 + 0.1)
+    def test_store_unavailable_unresponsive_server(self):
+        host = '127.0.0.1'
+        with get_free_port(host) as port:
+            url = 'http://{}:{}/'.format(host, port)
+            store = S3ChunkStore(url, timeout=TIMEOUT, retries=RETRY)
+            with assert_raises(StoreUnavailable):
+                store.is_complete('irrelevant_since_store_is_not_listening')
+
     def test_token_without_https(self):
         # Don't allow users to leak their tokens by accident
-        assert_raises(StoreUnavailable, S3ChunkStore,
-                      'http://apparently.invalid/', token='secrettoken')
+        with assert_raises(StoreUnavailable):
+            S3ChunkStore('http://apparently.invalid/', token='secrettoken')
 
 
 class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
@@ -397,7 +414,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
     def from_url(cls, url, authenticate=True, **kwargs):
         """Create the chunk store"""
         if not authenticate:
-            return S3ChunkStore(url, timeout=10, **kwargs)
+            return S3ChunkStore(url, timeout=TIMEOUT, retries=RETRY, **kwargs)
 
         if cls.httpd is None:
             proxy_host = '127.0.0.1'
@@ -417,7 +434,8 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
             raise RuntimeError('Cannot use multiple target URLs with http proxy')
         # The token only authorises the one known bucket
         token = encode_jwt({'alg': 'ES256', 'typ': 'JWT'}, {'prefix': [BUCKET]})
-        return S3ChunkStore(cls.proxy_url, timeout=10, token=token, **kwargs)
+        return S3ChunkStore(cls.proxy_url, timeout=TIMEOUT, retries=RETRY,
+                            token=token, **kwargs)
 
     def test_public_read(self):
         # Disable this test defined in the base class because it involves creating
