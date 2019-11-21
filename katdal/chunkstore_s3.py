@@ -114,6 +114,7 @@ def read_array(fp):
 
 class _BearerAuth(requests.auth.AuthBase):
     """Add bearer token to authorisation request header."""
+
     def __init__(self, token):
         # Character set from RFC 6750
         if not re.match('^[A-Za-z0-9-._~+/]*$', token):
@@ -127,6 +128,7 @@ class _BearerAuth(requests.auth.AuthBase):
 
 class _AWSAuth(requests.auth.AuthBase):
     """Add AWS access + secret credentials to authorisation request header."""
+
     def __init__(self, credentials):
         credentials = botocore.credentials.ReadOnlyCredentials(
             credentials[0], credentials[1], None)
@@ -154,6 +156,8 @@ def _auth_factory(url, token=None, credentials=None):
         if not botocore:
             raise StoreUnavailable('Passing credentials requires botocore to be installed')
         return _AWSAuth(credentials)
+    else:
+        return None
 
 
 class _CacheSettingsSession(requests.Session):
@@ -288,14 +292,14 @@ class S3ChunkStore(ChunkStore):
         string type with UTF-8.
     timeout : int or float, optional
         Read / connect timeout, in seconds (set to None to leave unchanged)
-    token : str
+    token : str, optional
         Bearer token to authenticate
-    credentials: tuple of str
+    credentials: tuple of str, optional
         AWS access key and secret key to authenticate
-    public_read : bool
+    public_read : bool, optional
         If set to true, new buckets will be created with a policy that allows
         everyone (including unauthenticated users) to read the data.
-    expiry_days : int
+    expiry_days : int, optional
         If set to a value greater than 0 will set a future expiry time in days
         for any new buckets created.
     kwargs : dict
