@@ -14,23 +14,17 @@
 # limitations under the License.
 ################################################################################
 
-"""A store of chunks (i.e. N-dimensional arrays) based on the Amazon S3 API.
+"""A store of chunks (i.e. N-dimensional arrays) based on the Amazon S3 API."""
 
-It does not support S3 authentication/signatures, relying instead on external
-code to provide HTTP authentication.
-"""
 from __future__ import print_function, division, absolute_import
 from future import standard_library
 standard_library.install_aliases()  # noqa: E402
 from builtins import object
 import future.utils
-from future.utils import raise_, bytes_to_native_str
+from future.utils import bytes_to_native_str
 
 import contextlib
-import io
 import threading
-import queue
-import sys
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -118,23 +112,13 @@ def read_array(fp):
     return data
 
 
-class _TimeoutHTTPAdapter(_HTTPAdapter):
-    """Allow an HTTPAdapter to have a default timeout"""
-    def __init__(self, *args, **kwargs):
-        self._default_timeout = kwargs.pop('timeout', None)
-        super(_TimeoutHTTPAdapter, self).__init__(*args, **kwargs)
-
-    def send(self, request, stream=False, timeout=None, *args, **kwargs):
-        if timeout is None:
-            timeout = self._default_timeout
-        return super(_TimeoutHTTPAdapter, self).send(request, stream, timeout, *args, **kwargs)
-
-
 class _BearerAuth(requests.auth.AuthBase):
+    """Add bearer token to authorisation request header."""
+
     def __init__(self, token):
         # Character set from RFC 6750
         if not re.match('^[A-Za-z0-9-._~+/]*$', token):
-            raise ValueError('token contains invalid characters')
+            raise ValueError('Token contains invalid characters')
         self._token = token
 
     def __call__(self, r):
@@ -143,6 +127,8 @@ class _BearerAuth(requests.auth.AuthBase):
 
 
 class _AWSAuth(requests.auth.AuthBase):
+    """Add AWS access + secret credentials to authorisation request header."""
+
     def __init__(self, credentials):
         credentials = botocore.credentials.ReadOnlyCredentials(
             credentials[0], credentials[1], None)
@@ -156,24 +142,70 @@ class _AWSAuth(requests.auth.AuthBase):
         return r
 
 
-class _Multipart(object):
-    """Allow a sequence of bytes-like objects to be used as a request body.
+def _auth_factory(url, token=None, credentials=None):
+    """Turn either JWT token or AWS credentials into a requests auth handler."""
+    if token is not None and credentials is not None:
+        raise ValueError('Cannot specify both token and credentials')
+    if token is not None:
+        parsed = urllib.parse.urlparse(url)
+        # The exception for 127.0.0.1 lets the unit test work
+        if parsed.scheme != 'https' and parsed.hostname != '127.0.0.1':
+            raise StoreUnavailable('Auth token may only be used with https')
+        return _BearerAuth(token)
+    elif credentials is not None:
+        if not botocore:
+            raise StoreUnavailable('Passing credentials requires botocore to be installed')
+        return _AWSAuth(credentials)
+    else:
+        return None
 
-    This is intended to allow a zero-copy upload of bytes-like objects that
-    are not contiguous in memory. The requests library treats standard
-    iterable classes (list, tuple) specially, which is why a custom class is
-    needed.
+
+class _CacheSettingsSession(requests.Session):
+    """Session that caches the result of proxy lookup.
+
+    Normally requests spends a lot of time per request just to figure out what
+    proxy server to use if any. For our usage, all URLs will be going to the
+    same host and hence should always have the same proxy config, so we look
+    it up once on the root URL for the chunk store and save the result.
+
+    This has some limitations:
+    - Proxy settings can't be changed.
+    - Session settings (e.g. certificate-related) must not be changed after the
+      first request.
+    - All requests should be to the same host.
+    - It is not thread-safe.
     """
-    def __init__(self, items=()):
-        self.items = list(items)
 
-    def __iter__(self):
-        return iter(self.items)
+    def __init__(self, url):
+        super(_CacheSettingsSession, self).__init__()
+        self._cached_settings = super(_CacheSettingsSession, self).merge_environment_settings(
+            url, {}, True, None, None)
 
-    @property
-    def len(self):
-        """Total content length (retrieved by requests to set Content-Length)"""
-        return sum(memoryview(item).nbytes for item in self.items)
+    def merge_environment_settings(self, url, proxies, stream, verify, cert):
+        # Only cache for a specific combination of input settings (the
+        # combination used by get_chunk), rather than trying to cache all
+        # variants.
+        if (proxies, stream, verify, cert) == ({}, True, None, None):
+            if self._cached_settings is None:
+                self._cached_settings = \
+                    super(_CacheSettingsSession, self).merge_environment_settings(
+                        url, proxies, stream, verify, cert)
+            return self._cached_settings
+        else:
+            return super(_CacheSettingsSession, self).merge_environment_settings(
+                url, proxies, stream, verify, cert)
+
+
+class _TimeoutHTTPAdapter(_HTTPAdapter):
+    """Allow an HTTPAdapter to have a default timeout."""
+    def __init__(self, *args, **kwargs):
+        self._default_timeout = kwargs.pop('timeout', None)
+        super(_TimeoutHTTPAdapter, self).__init__(*args, **kwargs)
+
+    def send(self, request, stream=False, timeout=None, *args, **kwargs):
+        if timeout is None:
+            timeout = self._default_timeout
+        return super(_TimeoutHTTPAdapter, self).send(request, stream, timeout, *args, **kwargs)
 
 
 def _raise_for_status(response):
@@ -215,40 +247,24 @@ class _Pool(object):
         self.put(item)
 
 
-class _CacheSettingsSession(requests.Session):
-    """Session that caches the result of proxy lookup.
+class _Multipart(object):
+    """Allow a sequence of bytes-like objects to be used as a request body.
 
-    Normally requests spends a lot of time per request just to figure out what
-    proxy server to use if any. For our usage, all URLs will be going to the
-    same host and hence should always have the same proxy config, so we look
-    it up once on the root URL for the chunk store and save the result.
-
-    This has some limitations:
-    - Proxy settings can't be changed.
-    - Session settings (e.g. certificate-related) must not be changed after the
-      first request.
-    - All requests should be to the same host.
-    - It is not thread-safe.
+    This is intended to allow a zero-copy upload of bytes-like objects that
+    are not contiguous in memory. The requests library treats standard
+    iterable classes (list, tuple) specially, which is why a custom class is
+    needed.
     """
+    def __init__(self, items=()):
+        self.items = list(items)
 
-    def __init__(self, url):
-        super(_CacheSettingsSession, self).__init__()
-        self._cached_settings = super(_CacheSettingsSession, self).merge_environment_settings(
-            url, {}, True, None, None)
+    def __iter__(self):
+        return iter(self.items)
 
-    def merge_environment_settings(self, url, proxies, stream, verify, cert):
-        # Only cache for a specific combination of input settings (the
-        # combination used by get_chunk), rather than trying to cache all
-        # variants.
-        if (proxies, stream, verify, cert) == ({}, True, None, None):
-            if self._cached_settings is None:
-                self._cached_settings = \
-                    super(_CacheSettingsSession, self).merge_environment_settings(
-                        url, proxies, stream, verify, cert)
-            return self._cached_settings
-        else:
-            return super(_CacheSettingsSession, self).merge_environment_settings(
-                url, proxies, stream, verify, cert)
+    @property
+    def len(self):
+        """Total content length (retrieved by requests to set Content-Length)"""
+        return sum(memoryview(item).nbytes for item in self.items)
 
 
 class S3ChunkStore(ChunkStore):
@@ -270,139 +286,60 @@ class S3ChunkStore(ChunkStore):
 
     Parameters
     ----------
-    session_factory : callable
-        A callable called with no arguments that returns an instance of
-        :class:`requests.Session`. The returned session is only used by
-        one thread at a time.
     url : str
-        Base URL for the S3 service. It can be specified as either bytes or
-        unicode, and is converted to the native string type with UTF-8.
-    public_read : bool
+        Endpoint of S3 service, e.g. 'http://127.0.0.1:9000'. It can be
+        specified as either bytes or unicode, and is converted to the native
+        string type with UTF-8.
+    timeout : int or float, optional
+        Read / connect timeout, in seconds (set to None to leave unchanged)
+    token : str, optional
+        Bearer token to authenticate
+    credentials: tuple of str, optional
+        AWS access key and secret key to authenticate
+    public_read : bool, optional
         If set to true, new buckets will be created with a policy that allows
         everyone (including unauthenticated users) to read the data.
-    expiry_days : int
+    expiry_days : int, optional
         If set to a value greater than 0 will set a future expiry time in days
         for any new buckets created.
-
+    kwargs : dict
+        Extra keyword arguments (unused)
 
     Raises
     ------
-    ImportError
-        If requests is not installed (it's an optional dependency otherwise)
+    :exc:`chunkstore.StoreUnavailable`
+        If S3 server interaction failed (it's down, no authentication, etc)
     """
 
-    def __init__(self, session_factory, url, public_read=False, expiry_days=0):
-        try:
-            # Quick smoke test to see if the S3 server is available, by listing
-            # buckets. Depending on the server in use, this may return a 403
-            # error if we do not have credentials (this occurs for minio, but
-            # Ceph RGW just returns an empty list).
-            with session_factory() as session:
+    def __init__(self, url, timeout=300, token=None, credentials=None,
+                 public_read=False, expiry_days=0, **kwargs):
+        error_map = {requests.exceptions.RequestException: StoreUnavailable,
+                     defusedxml.ElementTree.ParseError: StoreUnavailable}
+        super(S3ChunkStore, self).__init__(error_map)
+        auth = _auth_factory(url, token, credentials)
+
+        def session_factory(timeout=timeout, retries=2):
+            session = _CacheSettingsSession(url)
+            session.auth = auth
+            adapter = _TimeoutHTTPAdapter(max_retries=retries, timeout=timeout)
+            session.mount(url, adapter)
+            return session
+
+        # Quick smoke test to see if the S3 server is available, by listing
+        # buckets. Depending on the server in use, this may return a 403
+        # error if we do not have credentials (this occurs for minio, but
+        # Ceph RGW just returns an empty list).
+        with self._standard_errors():
+            with session_factory(min(30, timeout)) as session:
                 with session.get(url) as response:
                     if (response.status_code != 403
                             or 'Authorization' in response.request.headers):
                         _raise_for_status(response)
-        except requests.exceptions.RequestException as error:
-            raise StoreUnavailable(str(error))
 
-        error_map = {requests.exceptions.RequestException: StoreUnavailable,
-                     defusedxml.ElementTree.ParseError: StoreUnavailable}
-        super(S3ChunkStore, self).__init__(error_map)
         self._session_pool = _Pool(session_factory)
         self._url = to_str(url)
         self.public_read = public_read
         self.expiry_days = int(expiry_days)
-
-    @classmethod
-    def _from_url(cls, url, timeout, token, credentials, public_read, expiry_days):
-        """Construct S3 chunk store from endpoint URL (see :meth:`from_url`)."""
-        if token is not None:
-            parsed = urllib.parse.urlparse(url)
-            # The exception for 127.0.0.1 lets the unit test work
-            if parsed.scheme != 'https' and parsed.hostname != '127.0.0.1':
-                raise StoreUnavailable('auth token may only be used with https')
-            auth = _BearerAuth(token)
-        elif credentials is not None:
-            if not botocore:
-                raise StoreUnavailable('passing credentials requires botocore to be installed')
-            auth = _AWSAuth(credentials)
-        else:
-            auth = None
-
-        def session_factory():
-            session = _CacheSettingsSession(url)
-            session.auth = auth
-            adapter = _TimeoutHTTPAdapter(max_retries=2, timeout=timeout)
-            session.mount(url, adapter)
-            return session
-
-        return cls(session_factory, url, public_read, expiry_days)
-
-    @classmethod
-    def from_url(cls, url, timeout=300, extra_timeout=10,
-                 token=None, credentials=None, public_read=False,
-                 expiry_days=0, **kwargs):
-        """Construct S3 chunk store from endpoint URL.
-
-        Parameters
-        ----------
-        url : string
-            Endpoint of S3 service, e.g. 'http://127.0.0.1:9000'
-        timeout : int or float, optional
-            Read / connect timeout, in seconds (set to None to leave unchanged)
-        extra_timeout : int or float, optional
-            Additional timeout, useful to terminate e.g. slow DNS lookups
-            without masking read / connect errors (ignored if `timeout` is None)
-        token : str
-            Bearer token to authenticate
-        credentials: tuple of str
-            AWS access key and secret key to authenticate
-        public_read : bool
-            If set to true, new buckets will be created with a policy that allows
-            everyone (including unauthenticated users) to read the data.
-        expiry_days : int
-            If set to a value greater than 0 will set a future expiry time in days
-            for any new buckets created.
-        kwargs : dict
-            Extra keyword arguments (unused)
-
-        Raises
-        ------
-        :exc:`chunkstore.StoreUnavailable`
-            If S3 server interaction failed (it's down, no authentication, etc)
-        """
-        if token is not None and credentials is not None:
-            raise ValueError('Cannot specify both token and credentials')
-
-        # XXX This is a poor man's attempt at concurrent.futures functionality
-        # (avoiding extra dependency on Python 2, revisit when Python 3 only)
-        q = queue.Queue()
-
-        def _from_url(url, timeout, token, credentials, public_read, expiry_days):
-            """Construct chunk store and return it (or exception) via queue."""
-            try:
-                q.put(cls._from_url(url, timeout, token, credentials, public_read, expiry_days))
-            except BaseException:
-                q.put(sys.exc_info())
-
-        thread = threading.Thread(target=_from_url,
-                                  args=(url, timeout, token, credentials, public_read, expiry_days))
-        thread.daemon = True
-        thread.start()
-        if timeout is not None:
-            timeout += extra_timeout
-        try:
-            result = q.get(timeout=timeout)
-        except queue.Empty:
-            hostname = urllib.parse.urlparse(url).hostname
-            raise StoreUnavailable('Timed out, possibly due to DNS lookup '
-                                   'of {} stalling'.format(hostname))
-        else:
-            if isinstance(result, cls):
-                return result
-            else:
-                # Assume result is (exception type, exception value, traceback)
-                raise_(result[0], result[1], result[2])
 
     def _chunk_url(self, chunk_name):
         return urllib.parse.urljoin(self._url, to_str(urllib.parse.quote(chunk_name + '.npy')))

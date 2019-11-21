@@ -501,7 +501,7 @@ def infer_chunk_store(url_parts, telstate, npy_store_path=None,
     if npy_store_path:
         return NpyFileChunkStore(npy_store_path)
     if s3_endpoint_url:
-        return S3ChunkStore.from_url(s3_endpoint_url, **kwargs)
+        return S3ChunkStore(s3_endpoint_url, **kwargs)
     # NPY chunk store is an option if the dataset is an RDB file
     if url_parts.scheme == 'file':
         # Look for adjacent data directory (presumably containing NPY files)
@@ -513,7 +513,7 @@ def infer_chunk_store(url_parts, telstate, npy_store_path=None,
         data_path = os.path.join(store_path, vis_prefix)
         if os.path.isdir(data_path):
             return NpyFileChunkStore(store_path)
-    return S3ChunkStore.from_url(telstate['s3_endpoint_url'], **kwargs)
+    return S3ChunkStore(telstate['s3_endpoint_url'], **kwargs)
 
 
 def _upgrade_flags(chunk_info, telstate, capture_block_id, stream_name):
@@ -653,7 +653,7 @@ class TelstateDataSource(DataSource):
                 (url_parts.scheme, url_parts.netloc, url_parts.path, '', '', ''))
             telstate = katsdptelstate.TelescopeState()
             try:
-                rdb_store = S3ChunkStore.from_url(store_url, **kwargs)
+                rdb_store = S3ChunkStore(store_url, **kwargs)
                 with rdb_store.request('', 'GET', rdb_url) as response:
                     telstate.load_from_file(io.BytesIO(response.content))
             except ChunkStoreError as e:
