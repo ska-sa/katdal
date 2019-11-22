@@ -18,6 +18,7 @@
 
 from __future__ import print_function, division, absolute_import
 from builtins import next, zip, range, object
+from future.utils import raise_from
 
 import contextlib
 import functools
@@ -445,7 +446,7 @@ class ChunkStore(object):
                 FirstBase = next(c for c in self._error_map if isinstance(e, c))
                 StandardisedError = self._error_map[FirstBase]
             prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
-            raise StandardisedError(prefix + str(e))
+            raise_from(StandardisedError(prefix + str(e)), e)
 
     def get_dask_array(self, array_name, chunks, dtype, offset=()):
         """Get dask array from the store.
