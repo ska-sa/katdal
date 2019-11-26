@@ -29,6 +29,7 @@ an older version is detected, the test will be skipped.
 from __future__ import print_function, division, absolute_import
 from future import standard_library
 standard_library.install_aliases()     # noqa: E402
+from future.utils import bytes_to_native_str
 
 import tempfile
 import shutil
@@ -50,10 +51,11 @@ import numpy as np
 from nose import SkipTest
 from nose.tools import assert_raises, assert_equal, timed
 import requests
+import jwt
 
-from katdal.chunkstore_s3 import S3ChunkStore, _AWSAuth, read_array
+from katdal.chunkstore_s3 import (S3ChunkStore, _AWSAuth, read_array,
+                                  decode_jwt, InvalidToken)
 from katdal.chunkstore import StoreUnavailable, ChunkNotFound
-from katdal.token import encode_jwt, decode_jwt, InvalidToken
 from katdal.test.test_chunkstore import ChunkStoreTestBase
 
 
@@ -103,8 +105,8 @@ class TestReadArray(object):
 
     def testBadVersion(self):
         data = b'\x93NUMPY\x03\x04'     # Version 3.4
+        fp = io.BytesIO(data)
         with assert_raises(ValueError):
-            fp = io.BytesIO(data)
             read_array(fp)
 
     def testPickled(self):
@@ -124,6 +126,43 @@ class TestReadArray(object):
         fp.seek(0)
         with assert_raises(ValueError):
             read_array(fp)
+
+
+def encode_jwt(header, payload, signature=86 * 'x'):
+    """Generate JWT token with encoded signature (dummy ES256 one by default)."""
+    # Don't specify algorithm='ES256' here since that needs cryptography package
+    token_bytes = jwt.encode(payload, '', algorithm='none', headers=header)
+    return bytes_to_native_str(token_bytes) + signature
+
+
+class TestTokenUtils(object):
+    """Test token utility and validation functions."""
+
+    def test_jwt_broken_token(self):
+        header = {'alg': 'ES256', 'typ': 'JWT'}
+        payload = {'exp': 9234567890, 'iss': 'kat', 'prefix': ['123']}
+        token = encode_jwt(header, payload)
+        claims = decode_jwt(token)
+        assert_equal(payload, claims)
+        # Token has invalid characters
+        assert_raises(InvalidToken, decode_jwt, '** bad token **')
+        # Token has invalid structure
+        assert_raises(InvalidToken, decode_jwt, token.replace('.', ''))
+        # Token header failed to decode
+        assert_raises(InvalidToken, decode_jwt, token[1:])
+        # Token payload failed to decode
+        h, p, s = token.split('.')
+        assert_raises(InvalidToken, decode_jwt, '.'.join((h, p[:-1], s)))
+        # Token signature failed to decode or wrong length
+        assert_raises(InvalidToken, decode_jwt, token[:-1])
+        assert_raises(InvalidToken, decode_jwt, token[:-2])
+        assert_raises(InvalidToken, decode_jwt, token + token[-4:])
+
+    def test_jwt_expired_token(self):
+        header = {'alg': 'ES256', 'typ': 'JWT'}
+        payload = {'exp': 0, 'iss': 'kat', 'prefix': ['123']}
+        token = encode_jwt(header, payload)
+        assert_raises(InvalidToken, decode_jwt, token)
 
 
 class TestS3ChunkStore(ChunkStoreTestBase):
@@ -373,6 +412,5 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         elif url != cls.httpd.target:
             raise RuntimeError('Cannot use multiple target URLs with http proxy')
         # For now this token authorises all prefixes (with dud signature of expected length)
-        token = encode_jwt({'alg': 'ES256', 'typ': 'JWT'},
-                           {'prefix': ['']}, 64 * b'*')
+        token = encode_jwt({'alg': 'ES256', 'typ': 'JWT'}, {'prefix': ['']})
         return S3ChunkStore(cls.proxy_url, timeout=10, token=token, **kwargs)

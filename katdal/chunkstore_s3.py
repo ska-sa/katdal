@@ -39,6 +39,7 @@ import defusedxml.cElementTree
 import numpy as np
 import requests
 from requests.adapters import HTTPAdapter as _HTTPAdapter
+import jwt
 try:
     import botocore.credentials
     import botocore.auth
@@ -48,7 +49,6 @@ except ImportError:
 from .chunkstore import (ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk,
                          npy_header_and_body)
 from .sensordata import to_str
-from .token import decode_jwt, InvalidToken
 
 
 # Lifecycle policies unfortunately use XML encoding rather than JSON
@@ -116,16 +116,80 @@ class AuthorisationFailed(StoreUnavailable):
     """Authorisation failed, e.g. due to invalid, malformed or expired token."""
 
 
+class InvalidToken(AuthorisationFailed):
+    """Invalid JSON Web Token (JWT)."""
+
+    def __init__(self, token, message):
+        # Shorten token string but keep the ends so user can check for truncation
+        if len(token) > 17:
+            token = '{}[...]{}'.format(token[:6], token[-6:])
+        super(InvalidToken, self).__init__("'{}': {}".format(token, message))
+
+
+def decode_jwt(token):
+    """Decode JSON Web Token (JWT) string and extract claims.
+
+    The MeerKAT archive uses JWT bearer tokens for authorisation. Each token is
+    a JSON Web Signature (JWS) string with a payload of claims. This function
+    extracts the claims as a dict, while also doing basic checks on the token
+    (mostly to catch copy-n-paste errors). The signature is decoded but not
+    validated, since that would require the server secrets.
+
+    Parameters
+    ----------
+    token : str
+        JWS Compact Serialization as an ASCII string (native string, not bytes)
+
+    Returns
+    -------
+    claims : dict
+        The JWT Claims Set as a dict of key-value pairs
+
+    Raises
+    ------
+    :exc:`InvalidToken`
+        If the token is malformed or truncated, or has expired
+    """
+    # A valid JWS Compact Serialization has three segments
+    try:
+        encoded_header, encoded_payload, encoded_signature = token.split('.')
+    except ValueError:
+        raise InvalidToken(token, "Token does not have exactly two dots ('.') "
+                                  "as expected of JWS (maybe it's truncated?)")
+    # Remove signature to avoid cryptic PyJWT error message ("Invalid crypto padding")
+    token_without_sig = '{}.{}.'.format(encoded_header, encoded_payload)
+    try:
+        header = jwt.get_unverified_header(token_without_sig)
+    except jwt.exceptions.DecodeError as err:
+        raise_from(InvalidToken(token, "Could not decode token - maybe it's truncated "
+                                       "or corrupted? ({})".format(err)), err)
+    # Check signature length for typical MeerKAT signature algorithm
+    if header.get('alg') == 'ES256':
+        len_sig = len(encoded_signature)
+        if len_sig != 86:   # 64 bytes when decoded
+            msg = 'Encoded signature has {} bytes instead of 86 - token string ' \
+                  'is too {}'.format(len_sig, 'short' if len_sig < 86 else 'long')
+            raise InvalidToken(token, msg)
+    # Extract token claims and verify everything except signature and audience
+    options = {'verify_signature': False, 'verify_aud': False}
+    try:
+        claims = jwt.decode(token, options=options)
+    except jwt.exceptions.DecodeError as err:
+        # This covers e.g. bad characters in the signature or non-JSON-dict payload
+        raise_from(InvalidToken(token, "Could not decode token - maybe it's truncated "
+                                       "or corrupted? ({})".format(err)), err)
+    except jwt.exceptions.InvalidTokenError as err:
+        raise_from(InvalidToken(token, str(err)), err)
+    return claims
+
+
 class _BearerAuth(requests.auth.AuthBase):
     """Add bearer token to authorisation request header."""
 
     def __init__(self, token):
-        try:
-            self._claims = decode_jwt(token)
-        except InvalidToken as error:
-            raise_from(AuthorisationFailed(str(error)), error)
+        self._claims = decode_jwt(token)
         if 'prefix' not in self._claims:
-            raise AuthorisationFailed("Token has no 'prefix' claim")
+            raise InvalidToken(token, "Token has no 'prefix' claim")
         self._token = token
 
     def __call__(self, r):
@@ -134,8 +198,8 @@ class _BearerAuth(requests.auth.AuthBase):
         valid_prefixes = self._claims['prefix']
         if not any(path.startswith(prefix) for prefix in valid_prefixes):
             allowed = ', '.join(prefix + '*' for prefix in valid_prefixes)
-            raise AuthorisationFailed('Token does not grant permission for '
-                                      '{}, only for {}'.format(path, allowed))
+            raise InvalidToken(self._token, 'Token does not grant permission for '
+                                            '{}, only for {}'.format(path, allowed))
         r.headers['Authorization'] = 'Bearer ' + self._token
         return r
 
