@@ -278,8 +278,9 @@ class TestS3ChunkStore(ChunkStoreTestBase):
     @timed(0.1 + 0.05)
     def test_store_unavailable_invalid_url(self):
         # Ensure that timeouts work
-        assert_raises(StoreUnavailable, S3ChunkStore,
-                      'http://apparently.invalid/', timeout=0.1)
+        store = S3ChunkStore('http://apparently.invalid/', timeout=0.1)
+        with assert_raises(StoreUnavailable):
+            store.is_complete('irrelevant_since_store_is_nonexistent')
 
     def test_token_without_https(self):
         # Don't allow users to leak their tokens by accident

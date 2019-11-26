@@ -412,17 +412,6 @@ class S3ChunkStore(ChunkStore):
             session.mount(url, adapter)
             return session
 
-        # Quick smoke test to see if the S3 server is available, by listing
-        # buckets. Depending on the server in use, this may return a 403
-        # error if we do not have credentials (this occurs for minio, but
-        # Ceph RGW just returns an empty list).
-        with self._standard_errors():
-            with session_factory(min(30, timeout)) as session:
-                with session.get(url) as response:
-                    if (response.status_code != 403
-                            or 'Authorization' in response.request.headers):
-                        _raise_for_status(response)
-
         self._session_pool = _Pool(session_factory)
         self._url = to_str(url)
         self.public_read = public_read
