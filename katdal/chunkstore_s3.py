@@ -197,9 +197,9 @@ class _BearerAuth(requests.auth.AuthBase):
         path = urllib.parse.urlparse(r.url).path.lstrip('/')
         valid_prefixes = self._claims['prefix']
         if not any(path.startswith(prefix) for prefix in valid_prefixes):
-            allowed = ', '.join(prefix + '*' for prefix in valid_prefixes)
-            raise InvalidToken(self._token, 'Token does not grant permission for '
-                                            '{}, only for {}'.format(path, allowed))
+            allowed = ', '.join("'{}*'".format(prefix) for prefix in valid_prefixes)
+            raise InvalidToken(self._token, "Token does not grant access to '{}', "
+                                            'only to {}'.format(path, allowed))
         r.headers['Authorization'] = 'Bearer ' + self._token
         return r
 

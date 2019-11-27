@@ -315,8 +315,9 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
             prefixes = decode_jwt(token).get('prefix', [])
         except InvalidToken:
             prefixes = []
-        if not any(self.path.startswith(prefix) for prefix in prefixes):
-            self.send_response(401, 'Unauthorized')
+        if not any(self.path.lstrip('/').startswith(prefix) for prefix in prefixes):
+            self.send_response(401, 'Unauthorized (got: {}, allowed: {})'
+                                    .format(self.path, prefixes))
             self.end_headers()
             return
 
