@@ -59,6 +59,9 @@ from katdal.chunkstore import StoreUnavailable, ChunkNotFound
 from katdal.test.test_chunkstore import ChunkStoreTestBase
 
 
+BUCKET = 'katdal-unittest'
+
+
 @contextlib.contextmanager
 def get_free_port(host):
     """Get an unused port number.
@@ -252,8 +255,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         shutil.rmtree(cls.tempdir)
 
     def array_name(self, path):
-        bucket = 'katdal-unittest'
-        return self.store.join(bucket, path)
+        return self.store.join(BUCKET, path)
 
     def test_public_read(self):
         reader = self.from_url(self.url, authenticate=False)
@@ -413,6 +415,15 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
             cls.proxy_url = 'http://{}:{}'.format(proxy_host, proxy_port)
         elif url != cls.httpd.target:
             raise RuntimeError('Cannot use multiple target URLs with http proxy')
-        # For now this token authorises all prefixes (with dud signature of expected length)
-        token = encode_jwt({'alg': 'ES256', 'typ': 'JWT'}, {'prefix': ['']})
+        # The token only authorises the one known bucket
+        token = encode_jwt({'alg': 'ES256', 'typ': 'JWT'}, {'prefix': [BUCKET]})
         return S3ChunkStore(cls.proxy_url, timeout=10, token=token, **kwargs)
+
+    def test_public_read(self):
+        # Disable this test defined in the base class because it involves creating
+        # buckets, which is not done with tokens but rather with credentials.
+        pass
+
+    def test_unauthorised_bucket(self):
+        with assert_raises(InvalidToken):
+            self.store.is_complete('unauthorised_bucket')

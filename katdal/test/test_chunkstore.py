@@ -198,9 +198,10 @@ class ChunkStoreTestBase(object):
         assert_array_equal(results, np.full(divisions_per_dim, True))
 
     def test_chunk_non_existent(self):
+        array_name = self.array_name('haha')
         slices = (slice(0, 1),)
         dtype = np.dtype(np.float)
-        args = ('haha', slices, dtype)
+        args = (array_name, slices, dtype)
         shape = tuple(s.stop - s.start for s in slices)
         assert_raises(ChunkNotFound, self.store.get_chunk, *args)
         assert_false(self.store.has_chunk(*args))
