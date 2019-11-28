@@ -18,6 +18,7 @@ netifaces
 numba
 numpy
 pyephem
+pyjwt
 python-dateutil
 python-lzf
 rdbtools

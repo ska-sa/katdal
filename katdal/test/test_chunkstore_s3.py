@@ -29,6 +29,7 @@ an older version is detected, the test will be skipped.
 from __future__ import print_function, division, absolute_import
 from future import standard_library
 standard_library.install_aliases()     # noqa: E402
+from future.utils import bytes_to_native_str
 
 import tempfile
 import shutil
@@ -50,10 +51,15 @@ import numpy as np
 from nose import SkipTest
 from nose.tools import assert_raises, assert_equal, timed
 import requests
+import jwt
 
-from katdal.chunkstore_s3 import S3ChunkStore, _AWSAuth, read_array
-from katdal.chunkstore import StoreUnavailable
+from katdal.chunkstore_s3 import (S3ChunkStore, _AWSAuth, read_array,
+                                  decode_jwt, InvalidToken)
+from katdal.chunkstore import StoreUnavailable, ChunkNotFound
 from katdal.test.test_chunkstore import ChunkStoreTestBase
+
+
+BUCKET = 'katdal-unittest'
 
 
 @contextlib.contextmanager
@@ -102,8 +108,8 @@ class TestReadArray(object):
 
     def testBadVersion(self):
         data = b'\x93NUMPY\x03\x04'     # Version 3.4
+        fp = io.BytesIO(data)
         with assert_raises(ValueError):
-            fp = io.BytesIO(data)
             read_array(fp)
 
     def testPickled(self):
@@ -123,6 +129,43 @@ class TestReadArray(object):
         fp.seek(0)
         with assert_raises(ValueError):
             read_array(fp)
+
+
+def encode_jwt(header, payload, signature=86 * 'x'):
+    """Generate JWT token with encoded signature (dummy ES256 one by default)."""
+    # Don't specify algorithm='ES256' here since that needs cryptography package
+    token_bytes = jwt.encode(payload, '', algorithm='none', headers=header)
+    return bytes_to_native_str(token_bytes) + signature
+
+
+class TestTokenUtils(object):
+    """Test token utility and validation functions."""
+
+    def test_jwt_broken_token(self):
+        header = {'alg': 'ES256', 'typ': 'JWT'}
+        payload = {'exp': 9234567890, 'iss': 'kat', 'prefix': ['123']}
+        token = encode_jwt(header, payload)
+        claims = decode_jwt(token)
+        assert_equal(payload, claims)
+        # Token has invalid characters
+        assert_raises(InvalidToken, decode_jwt, '** bad token **')
+        # Token has invalid structure
+        assert_raises(InvalidToken, decode_jwt, token.replace('.', ''))
+        # Token header failed to decode
+        assert_raises(InvalidToken, decode_jwt, token[1:])
+        # Token payload failed to decode
+        h, p, s = token.split('.')
+        assert_raises(InvalidToken, decode_jwt, '.'.join((h, p[:-1], s)))
+        # Token signature failed to decode or wrong length
+        assert_raises(InvalidToken, decode_jwt, token[:-1])
+        assert_raises(InvalidToken, decode_jwt, token[:-2])
+        assert_raises(InvalidToken, decode_jwt, token + token[-4:])
+
+    def test_jwt_expired_token(self):
+        header = {'alg': 'ES256', 'typ': 'JWT'}
+        payload = {'exp': 0, 'iss': 'kat', 'prefix': ['123']}
+        token = encode_jwt(header, payload)
+        assert_raises(InvalidToken, decode_jwt, token)
 
 
 class TestS3ChunkStore(ChunkStoreTestBase):
@@ -212,8 +255,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         shutil.rmtree(cls.tempdir)
 
     def array_name(self, path):
-        bucket = 'katdal-unittest'
-        return self.store.join(bucket, path)
+        return self.store.join(BUCKET, path)
 
     def test_public_read(self):
         reader = self.from_url(self.url, authenticate=False)
@@ -224,7 +266,8 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         x = np.arange(5)
         self.store.create_array('private')
         self.store.put_chunk('private', slices, x)
-        with assert_raises(StoreUnavailable):
+        # Ceph RGW returns 403 for missing chunks too so we see ChunkNotFound
+        with assert_raises(ChunkNotFound):
             reader.get_chunk('private', slices, x.dtype)
 
         # Now a public-read array
@@ -237,8 +280,9 @@ class TestS3ChunkStore(ChunkStoreTestBase):
     @timed(0.1 + 0.05)
     def test_store_unavailable_invalid_url(self):
         # Ensure that timeouts work
-        assert_raises(StoreUnavailable, S3ChunkStore,
-                      'http://apparently.invalid/', timeout=0.1)
+        store = S3ChunkStore('http://apparently.invalid/', timeout=0.1)
+        with assert_raises(StoreUnavailable):
+            store.is_complete('irrelevant_since_store_is_nonexistent')
 
     def test_token_without_https(self):
         # Don't allow users to leak their tokens by accident
@@ -264,8 +308,18 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
         url = urllib.parse.urljoin(self.server.target, self.path)
         data_len = int(self.headers.get('Content-Length', 0))
         data = self.rfile.read(data_len)
-        if self.headers.get('Authorization') != 'Bearer mysecret':
-            self.send_response(401, 'Unauthorized')
+        auth_header = self.headers.get('Authorization').split()
+        if len(auth_header) == 2 and auth_header[0] == 'Bearer':
+            token = auth_header[1]
+        else:
+            token = ''
+        try:
+            prefixes = decode_jwt(token).get('prefix', [])
+        except InvalidToken:
+            prefixes = []
+        if not any(self.path.lstrip('/').startswith(prefix) for prefix in prefixes):
+            self.send_response(401, 'Unauthorized (got: {}, allowed: {})'
+                                    .format(self.path, prefixes))
             self.end_headers()
             return
 
@@ -361,4 +415,15 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
             cls.proxy_url = 'http://{}:{}'.format(proxy_host, proxy_port)
         elif url != cls.httpd.target:
             raise RuntimeError('Cannot use multiple target URLs with http proxy')
-        return S3ChunkStore(cls.proxy_url, timeout=10, token='mysecret', **kwargs)
+        # The token only authorises the one known bucket
+        token = encode_jwt({'alg': 'ES256', 'typ': 'JWT'}, {'prefix': [BUCKET]})
+        return S3ChunkStore(cls.proxy_url, timeout=10, token=token, **kwargs)
+
+    def test_public_read(self):
+        # Disable this test defined in the base class because it involves creating
+        # buckets, which is not done with tokens but rather with credentials.
+        pass
+
+    def test_unauthorised_bucket(self):
+        with assert_raises(InvalidToken):
+            self.store.is_complete('unauthorised_bucket')

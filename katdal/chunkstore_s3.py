@@ -21,7 +21,7 @@ from future import standard_library
 standard_library.install_aliases()  # noqa: E402
 from builtins import object
 import future.utils
-from future.utils import bytes_to_native_str
+from future.utils import bytes_to_native_str, raise_from
 
 import contextlib
 import threading
@@ -30,7 +30,6 @@ import urllib.request
 import urllib.error
 import hashlib
 import base64
-import re
 import warnings
 import copy
 import json
@@ -40,6 +39,7 @@ import defusedxml.cElementTree
 import numpy as np
 import requests
 from requests.adapters import HTTPAdapter as _HTTPAdapter
+import jwt
 try:
     import botocore.credentials
     import botocore.auth
@@ -112,16 +112,94 @@ def read_array(fp):
     return data
 
 
+class AuthorisationFailed(StoreUnavailable):
+    """Authorisation failed, e.g. due to invalid, malformed or expired token."""
+
+
+class InvalidToken(AuthorisationFailed):
+    """Invalid JSON Web Token (JWT)."""
+
+    def __init__(self, token, message):
+        # Shorten token string but keep the ends so user can check for truncation
+        if len(token) > 17:
+            token = '{}[...]{}'.format(token[:6], token[-6:])
+        super(InvalidToken, self).__init__("'{}': {}".format(token, message))
+
+
+def decode_jwt(token):
+    """Decode JSON Web Token (JWT) string and extract claims.
+
+    The MeerKAT archive uses JWT bearer tokens for authorisation. Each token is
+    a JSON Web Signature (JWS) string with a payload of claims. This function
+    extracts the claims as a dict, while also doing basic checks on the token
+    (mostly to catch copy-n-paste errors). The signature is decoded but not
+    validated, since that would require the server secrets.
+
+    Parameters
+    ----------
+    token : str
+        JWS Compact Serialization as an ASCII string (native string, not bytes)
+
+    Returns
+    -------
+    claims : dict
+        The JWT Claims Set as a dict of key-value pairs
+
+    Raises
+    ------
+    :exc:`InvalidToken`
+        If the token is malformed or truncated, or has expired
+    """
+    # A valid JWS Compact Serialization has three segments
+    try:
+        encoded_header, encoded_payload, encoded_signature = token.split('.')
+    except ValueError:
+        raise InvalidToken(token, "Token does not have exactly two dots ('.') "
+                                  "as expected of JWS (maybe it's truncated?)")
+    # Remove signature to avoid cryptic PyJWT error message ("Invalid crypto padding")
+    token_without_sig = '{}.{}.'.format(encoded_header, encoded_payload)
+    try:
+        header = jwt.get_unverified_header(token_without_sig)
+    except jwt.exceptions.DecodeError as err:
+        raise_from(InvalidToken(token, "Could not decode token - maybe it's truncated "
+                                       "or corrupted? ({})".format(err)), err)
+    # Check signature length for typical MeerKAT signature algorithm
+    if header.get('alg') == 'ES256':
+        len_sig = len(encoded_signature)
+        if len_sig != 86:   # 64 bytes when decoded
+            msg = 'Encoded signature has {} bytes instead of 86 - token string ' \
+                  'is too {}'.format(len_sig, 'short' if len_sig < 86 else 'long')
+            raise InvalidToken(token, msg)
+    # Extract token claims and verify everything except signature and audience
+    options = {'verify_signature': False, 'verify_aud': False}
+    try:
+        claims = jwt.decode(token, options=options)
+    except jwt.exceptions.DecodeError as err:
+        # This covers e.g. bad characters in the signature or non-JSON-dict payload
+        raise_from(InvalidToken(token, "Could not decode token - maybe it's truncated "
+                                       "or corrupted? ({})".format(err)), err)
+    except jwt.exceptions.InvalidTokenError as err:
+        raise_from(InvalidToken(token, str(err)), err)
+    return claims
+
+
 class _BearerAuth(requests.auth.AuthBase):
     """Add bearer token to authorisation request header."""
 
     def __init__(self, token):
-        # Character set from RFC 6750
-        if not re.match('^[A-Za-z0-9-._~+/]*$', token):
-            raise ValueError('Token contains invalid characters')
+        self._claims = decode_jwt(token)
+        if 'prefix' not in self._claims:
+            raise InvalidToken(token, "Token has no 'prefix' claim")
         self._token = token
 
     def __call__(self, r):
+        # Check if token authorises URL even before hitting server for better reporting
+        path = urllib.parse.urlparse(r.url).path.lstrip('/')
+        valid_prefixes = self._claims['prefix']
+        if not any(path.startswith(prefix) for prefix in valid_prefixes):
+            allowed = ', '.join("'{}*'".format(prefix) for prefix in valid_prefixes)
+            raise InvalidToken(self._token, "Token does not grant access to '{}', "
+                                            'only to {}'.format(path, allowed))
         r.headers['Authorization'] = 'Bearer ' + self._token
         return r
 
@@ -130,6 +208,8 @@ class _AWSAuth(requests.auth.AuthBase):
     """Add AWS access + secret credentials to authorisation request header."""
 
     def __init__(self, credentials):
+        if not botocore:
+            raise AuthorisationFailed('Passing credentials requires botocore to be installed')
         credentials = botocore.credentials.ReadOnlyCredentials(
             credentials[0], credentials[1], None)
         self._signer = botocore.auth.HmacV1Auth(credentials)
@@ -145,16 +225,14 @@ class _AWSAuth(requests.auth.AuthBase):
 def _auth_factory(url, token=None, credentials=None):
     """Turn either JWT token or AWS credentials into a requests auth handler."""
     if token is not None and credentials is not None:
-        raise ValueError('Cannot specify both token and credentials')
+        raise AuthorisationFailed('Cannot specify both token and credentials')
     if token is not None:
         parsed = urllib.parse.urlparse(url)
         # The exception for 127.0.0.1 lets the unit test work
         if parsed.scheme != 'https' and parsed.hostname != '127.0.0.1':
-            raise StoreUnavailable('Auth token may only be used with https')
+            raise AuthorisationFailed('Token may only be used with https')
         return _BearerAuth(token)
     elif credentials is not None:
-        if not botocore:
-            raise StoreUnavailable('Passing credentials requires botocore to be installed')
         return _AWSAuth(credentials)
     else:
         return None
@@ -213,10 +291,19 @@ def _raise_for_status(response):
     try:
         response.raise_for_status()
     except requests.HTTPError as error:
-        if response.status_code == 404:
-            raise ChunkNotFound(str(error))
+        # Missing buckets are worse than missing objects so distinguish them
+        path = urllib.parse.urlparse(response.url).path
+        parts = [part for part in S3ChunkStore.split(path) if part]
+        # This also includes top-level directory, which behaves like a bucket
+        is_bucket = len(parts) <= 1
+        if response.status_code == 401:
+            raise_from(AuthorisationFailed(str(error)), error)
+        elif response.status_code in (403, 404) and not is_bucket:
+            # Ceph RGW returns 403 for missing keys due to our bucket policy
+            # (see https://tracker.ceph.com/issues/38638 for discussion)
+            raise_from(ChunkNotFound(str(error)), error)
         else:
-            raise StoreUnavailable(str(error))
+            raise_from(StoreUnavailable(str(error)), error)
 
 
 class _Pool(object):
@@ -324,17 +411,6 @@ class S3ChunkStore(ChunkStore):
             adapter = _TimeoutHTTPAdapter(max_retries=retries, timeout=timeout)
             session.mount(url, adapter)
             return session
-
-        # Quick smoke test to see if the S3 server is available, by listing
-        # buckets. Depending on the server in use, this may return a 403
-        # error if we do not have credentials (this occurs for minio, but
-        # Ceph RGW just returns an empty list).
-        with self._standard_errors():
-            with session_factory(min(30, timeout)) as session:
-                with session.get(url) as response:
-                    if (response.status_code != 403
-                            or 'Authorization' in response.request.headers):
-                        _raise_for_status(response)
 
         self._session_pool = _Pool(session_factory)
         self._url = to_str(url)
