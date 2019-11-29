@@ -655,7 +655,7 @@ class TelstateDataSource(DataSource):
             telstate = katsdptelstate.TelescopeState()
             try:
                 rdb_store = S3ChunkStore(store_url, **kwargs)
-                with rdb_store.request('', 'GET', rdb_url) as response:
+                with rdb_store.request('GET', rdb_url) as response:
                     telstate.load_from_file(io.BytesIO(response.content))
             except ChunkStoreError as e:
                 raise_from(DataSourceNotFound(str(e)), e)

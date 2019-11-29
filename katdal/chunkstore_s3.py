@@ -444,7 +444,7 @@ class S3ChunkStore(ChunkStore):
         return urllib.parse.urljoin(self._url, to_str(urllib.parse.quote(chunk_name + '.npy')))
 
     @contextlib.contextmanager
-    def request(self, chunk_name, method, url, *args, **kwargs):
+    def request(self, method, url, chunk_name='', *args, **kwargs):
         """Run a request on a session from the pool, raising HTTP errors"""
         with self._standard_errors(chunk_name), self._session_pool() as session:
             with session.request(method, url, *args, **kwargs) as response:
@@ -459,7 +459,7 @@ class S3ChunkStore(ChunkStore):
         # Our hacky optimisation to speed up response reading doesn't
         # work with non-identity encodings.
         headers = {'Accept-Encoding': 'identity'}
-        with self.request(chunk_name, 'GET', url, headers=headers, stream=True) as response:
+        with self.request('GET', url, chunk_name, headers=headers, stream=True) as response:
             data = response.raw
             # Workaround for https://github.com/urllib3/urllib3/issues/1540
             # On Python 2, http.client.HTTPResponse doesn't implement
@@ -501,14 +501,14 @@ class S3ChunkStore(ChunkStore):
                 'arn:aws:s3:::{}/*'.format(bucket),
                 'arn:aws:s3:::{}'.format(bucket)
             ]
-            with self.request(None, 'PUT', policy_url, data=json.dumps(policy)):
+            with self.request('PUT', policy_url, data=json.dumps(policy)):
                 pass
 
         if self.expiry_days > 0:
             xml_payload = _BASE_LIFECYCLE_POLICY.format(self.expiry_days)
             b64_md5 = base64.b64encode(hashlib.md5(xml_payload.encode('utf-8')).digest()).decode('utf-8')
             lifecycle_headers = {'Content-Type': 'text/xml', 'Content-MD5': b64_md5}
-            with self.request(None, 'PUT', url, params='lifecycle', data=xml_payload, headers=lifecycle_headers):
+            with self.request('PUT', url, params='lifecycle', data=xml_payload, headers=lifecycle_headers):
                 pass
 
     def put_chunk(self, array_name, slices, chunk):
@@ -527,7 +527,7 @@ class S3ChunkStore(ChunkStore):
             data = npy_header + chunk.tobytes()
         else:
             data = _Multipart([npy_header, memoryview(chunk)])
-        with self.request(chunk_name, 'PUT', url, headers=headers, data=data):
+        with self.request('PUT', url, chunk_name, headers=headers, data=data):
             pass
 
     def has_chunk(self, array_name, slices, dtype):
@@ -536,7 +536,7 @@ class S3ChunkStore(ChunkStore):
         chunk_name, _ = self.chunk_metadata(array_name, slices, dtype=dtype)
         url = self._chunk_url(chunk_name)
         try:
-            with self.request(chunk_name, 'HEAD', url):
+            with self.request('HEAD', url, chunk_name):
                 pass
         except ChunkNotFound:
             return False
@@ -558,7 +558,7 @@ class S3ChunkStore(ChunkStore):
         keys = []
         more = True
         while more:
-            with self.request(None, 'GET', url, params=params) as response:
+            with self.request('GET', url, params=params) as response:
                 root = defusedxml.cElementTree.fromstring(response.content)
             keys.extend(child.text for child in root.iter(NS + 'Key'))
             truncated = root.find(NS + 'IsTruncated')
@@ -580,7 +580,7 @@ class S3ChunkStore(ChunkStore):
         self.create_array(array_name)
         obj_name = self.join(array_name, 'complete')
         url = urllib.parse.urljoin(self._url, obj_name)
-        with self.request(obj_name, 'PUT', url, data=b''):
+        with self.request('PUT', url, obj_name, data=b''):
             pass
 
     def is_complete(self, array_name):
@@ -588,7 +588,7 @@ class S3ChunkStore(ChunkStore):
         obj_name = self.join(array_name, 'complete')
         url = urllib.parse.urljoin(self._url, obj_name)
         try:
-            with self.request(obj_name, 'GET', url):
+            with self.request('GET', url, obj_name):
                 pass
         except ChunkNotFound:
             return False
