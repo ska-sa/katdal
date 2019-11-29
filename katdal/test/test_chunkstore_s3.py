@@ -290,14 +290,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         y = reader.get_chunk('public/x', slices, x.dtype)
         np.testing.assert_array_equal(x, y)
 
-    @timed(0.1 + 0.1)
-    def test_store_unavailable_invalid_url(self):
-        # Ensure that timeouts work
-        store = S3ChunkStore('http://apparently.invalid/', timeout=0.1, retries=0)
-        with assert_raises(StoreUnavailable):
-            store.is_complete('irrelevant_since_store_is_nonexistent')
-
-    @timed(0.4 + 0.1)
+    @timed(0.4 + 0.2)
     def test_store_unavailable_unresponsive_server(self):
         host = '127.0.0.1'
         with get_free_port(host) as port:
