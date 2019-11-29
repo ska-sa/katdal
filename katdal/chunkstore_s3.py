@@ -38,7 +38,6 @@ import defusedxml.ElementTree
 import defusedxml.cElementTree
 import numpy as np
 import requests
-from requests.adapters import HTTPAdapter as _HTTPAdapter
 from urllib3.util.retry import Retry
 import jwt
 try:
@@ -279,18 +278,6 @@ class _CacheSettingsSession(requests.Session):
                 url, proxies, stream, verify, cert)
 
 
-class _TimeoutHTTPAdapter(_HTTPAdapter):
-    """Allow an HTTPAdapter to have a default timeout."""
-    def __init__(self, *args, **kwargs):
-        self._default_timeout = kwargs.pop('timeout', None)
-        super(_TimeoutHTTPAdapter, self).__init__(*args, **kwargs)
-
-    def send(self, request, stream=False, timeout=None, *args, **kwargs):
-        if timeout is None:
-            timeout = self._default_timeout
-        return super(_TimeoutHTTPAdapter, self).send(request, stream, timeout, *args, **kwargs)
-
-
 class _Pool(object):
     """Thread-safe pool of objects constructed by a factory as needed."""
     def __init__(self, factory):
@@ -411,12 +398,13 @@ class S3ChunkStore(ChunkStore):
         def session_factory():
             session = _CacheSettingsSession(url)
             session.auth = auth
-            adapter = _TimeoutHTTPAdapter(max_retries=retry, timeout=timeout)
+            adapter = requests.adapters.HTTPAdapter(max_retries=retry)
             session.mount(url, adapter)
             return session
 
         self._session_pool = _Pool(session_factory)
         self._url = to_str(url)
+        self.timeout = timeout
         self.public_read = public_read
         self.expiry_days = int(expiry_days)
 
@@ -424,7 +412,8 @@ class S3ChunkStore(ChunkStore):
         return urllib.parse.urljoin(self._url, to_str(urllib.parse.quote(chunk_name + '.npy')))
 
     @contextlib.contextmanager
-    def request(self, method, url, chunk_name='', ignored_errors=(), *args, **kwargs):
+    def request(self, method, url, chunk_name='', ignored_errors=(), timeout=(),
+                *args, **kwargs):
         """Run a request on a session from the pool and handle error responses.
 
         Parameters
@@ -435,6 +424,8 @@ class S3ChunkStore(ChunkStore):
             Name of chunk, used for error reporting only
         ignored_errors : collection of int, optional
             HTTP status codes that are treated like 200 OK, not raising an error
+        timeout : tuple or float, optional
+            Override timeout for this request (use the store timeout by default)
         args, kwargs : optional
             These are passed on to :meth:`requests.Session.request`
 
@@ -447,6 +438,7 @@ class S3ChunkStore(ChunkStore):
         StoreUnavailable
             If a general HTTP error occurred that is not ignored
         """
+        kwargs['timeout'] = self.timeout if timeout is () else timeout
         # Use _standard_errors to filter errors emanating from within with-block
         with self._standard_errors(chunk_name), self._session_pool() as session:
             with session.request(method, url, *args, **kwargs) as response:
