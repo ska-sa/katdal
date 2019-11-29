@@ -277,17 +277,17 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         # several different buckets.
         slices = np.index_exp[0:5]
         x = np.arange(5)
-        self.store.create_array('private')
-        self.store.put_chunk('private', slices, x)
+        self.store.create_array('private/x')
+        self.store.put_chunk('private/x', slices, x)
         # Ceph RGW returns 403 for missing chunks too so we see ChunkNotFound
         with assert_raises(ChunkNotFound):
-            reader.get_chunk('private', slices, x.dtype)
+            reader.get_chunk('private/x', slices, x.dtype)
 
         # Now a public-read array
         store = self.from_url(self.url, public_read=True)
-        store.create_array('public')
-        store.put_chunk('public', slices, x)
-        y = reader.get_chunk('public', slices, x.dtype)
+        store.create_array('public/x')
+        store.put_chunk('public/x', slices, x)
+        y = reader.get_chunk('public/x', slices, x.dtype)
         np.testing.assert_array_equal(x, y)
 
     @timed(0.1 + 0.1)

@@ -497,8 +497,8 @@ class S3ChunkStore(ChunkStore):
 
     def create_array(self, array_name):
         """See the docstring of :meth:`ChunkStore.create_array`."""
-        # The array name is formatted as bucket/array, but we only need to create the bucket
-        bucket = array_name.split(self.NAME_SEP)[0]
+        # Array name is formatted as bucket/array but we only need to create bucket
+        bucket, _ = self.split(array_name, 1)
         url = urllib.parse.urljoin(self._url, to_str(urllib.parse.quote(bucket)))
         # Make bucket (409 indicates the bucket already exists, which is OK)
         with self.request('PUT', url, ignored_errors=(409,)):
