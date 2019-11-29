@@ -291,26 +291,6 @@ class _TimeoutHTTPAdapter(_HTTPAdapter):
         return super(_TimeoutHTTPAdapter, self).send(request, stream, timeout, *args, **kwargs)
 
 
-def _raise_for_status(response):
-    """Like :meth:`requests.Response.raise_for_status`, but uses ChunkStore exception types."""
-    try:
-        response.raise_for_status()
-    except requests.HTTPError as error:
-        # Missing buckets are worse than missing objects so distinguish them
-        path = urllib.parse.urlparse(response.url).path
-        parts = [part for part in S3ChunkStore.split(path) if part]
-        # This also includes top-level directory, which behaves like a bucket
-        is_bucket = len(parts) <= 1
-        if response.status_code == 401:
-            raise_from(AuthorisationFailed(str(error)), error)
-        elif response.status_code in (403, 404) + _TEMPORARY_SERVER_ERRORS and not is_bucket:
-            # Ceph RGW returns 403 for missing keys due to our bucket policy
-            # (see https://tracker.ceph.com/issues/38638 for discussion)
-            raise_from(ChunkNotFound(str(error)), error)
-        else:
-            raise_from(StoreUnavailable(str(error)), error)
-
-
 class _Pool(object):
     """Thread-safe pool of objects constructed by a factory as needed."""
     def __init__(self, factory):
@@ -444,12 +424,52 @@ class S3ChunkStore(ChunkStore):
         return urllib.parse.urljoin(self._url, to_str(urllib.parse.quote(chunk_name + '.npy')))
 
     @contextlib.contextmanager
-    def request(self, method, url, chunk_name='', *args, **kwargs):
-        """Run a request on a session from the pool, raising HTTP errors"""
+    def request(self, method, url, chunk_name='', ignored_errors=(), *args, **kwargs):
+        """Run a request on a session from the pool and handle error responses.
+
+        Parameters
+        ----------
+        method, url : str
+            The standard required parameters of :meth:`requests.Session.request`
+        chunk_name : str, optional
+            Name of chunk, used for error reporting only
+        ignored_errors : collection of int, optional
+            HTTP status codes that are treated like 200 OK, not raising an error
+        args, kwargs : optional
+            These are passed on to :meth:`requests.Session.request`
+
+        Raises
+        ------
+        AuthorisationFailed
+            If the request is not authorised by appropriate token or credentials
+        ChunkNotFound
+            If S3 object request fails because it does not exist or server glitches
+        StoreUnavailable
+            If a general HTTP error occurred that is not ignored
+        """
+        # Use _standard_errors to filter errors emanating from within with-block
         with self._standard_errors(chunk_name), self._session_pool() as session:
             with session.request(method, url, *args, **kwargs) as response:
-                _raise_for_status(response)
-                yield response
+                # Missing buckets are worse than missing objects so distinguish them
+                path = urllib.parse.urlparse(response.url).path
+                parts = [part for part in S3ChunkStore.split(path) if part]
+                # This also includes top-level directory, which behaves like a bucket
+                is_bucket = len(parts) <= 1
+                # Turn error responses into the appropriate exception, like raise_for_status
+                status = response.status_code
+                prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
+                msg = '{}Store responded with HTTP error {} ({}) to request: {} {}'.format(
+                    prefix, status, response.reason, response.request.method, response.url)
+                if status == 401:
+                    raise AuthorisationFailed(msg)
+                elif status in (403, 404) + _TEMPORARY_SERVER_ERRORS and not is_bucket:
+                    # Ceph RGW returns 403 for missing keys due to our bucket policy
+                    # (see https://tracker.ceph.com/issues/38638 for discussion)
+                    raise ChunkNotFound(msg)
+                elif 400 <= status < 600 and status not in ignored_errors:
+                    raise StoreUnavailable(msg)
+                else:
+                    yield response
 
     def get_chunk(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get_chunk`."""
@@ -488,11 +508,9 @@ class S3ChunkStore(ChunkStore):
         # The array name is formatted as bucket/array, but we only need to create the bucket
         bucket = array_name.split(self.NAME_SEP)[0]
         url = urllib.parse.urljoin(self._url, to_str(urllib.parse.quote(bucket)))
-        with self._standard_errors(), self._session_pool() as session:
-            with session.put(url) as response:
-                if response.status_code != 409:
-                    # 409 indicates the bucket already exists
-                    _raise_for_status(response)
+        # Make bucket (409 indicates the bucket already exists, which is OK)
+        with self.request('PUT', url, ignored_errors=(409,)):
+            pass
 
         if self.public_read:
             policy_url = urllib.parse.urljoin(url, '?policy')
