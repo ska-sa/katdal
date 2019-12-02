@@ -57,7 +57,7 @@ import jwt
 
 from katdal.chunkstore_s3 import (S3ChunkStore, _AWSAuth, read_array,
                                   decode_jwt, InvalidToken, TruncatedRead,
-                                  _TEMPORARY_SERVER_ERRORS)
+                                  _DEFAULT_SERVER_GLITCHES)
 from katdal.chunkstore import StoreUnavailable, ChunkNotFound
 from katdal.test.test_chunkstore import ChunkStoreTestBase
 
@@ -69,7 +69,7 @@ BUCKET = 'katdal-unittest'
 # The effective status timeout is 4 * 0.4 + 0.1 * (0 + 2 + 4) = 2.2 seconds
 TIMEOUT = (0.2, 0.4)
 RETRY = Retry(connect=1, read=1, status=3, backoff_factor=0.1,
-              raise_on_status=False, status_forcelist=_TEMPORARY_SERVER_ERRORS)
+              raise_on_status=False, status_forcelist=_DEFAULT_SERVER_GLITCHES)
 SUGGESTED_STATUS_DELAY = 0.1
 
 

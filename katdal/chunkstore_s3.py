@@ -33,19 +33,20 @@ import base64
 import warnings
 import copy
 import json
-import time
 
 import defusedxml.ElementTree
 import defusedxml.cElementTree
 import numpy as np
 import requests
-from urllib3.util.retry import Retry
 import jwt
 try:
     import botocore.credentials
     import botocore.auth
 except ImportError:
     botocore = None
+from urllib3.util.retry import Retry
+from urllib3.response import HTTPResponse
+from urllib3.exceptions import MaxRetryError
 
 from .chunkstore import (ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk,
                          npy_header_and_body)
@@ -76,9 +77,19 @@ _BUCKET_POLICY = {
     ]
 }
 
+# Fake HTTP status code associated with reset connections / truncated data
+_TRUNCATED_STATUS = 555
 # These HTTP responses typically indicate temporary S3 server / proxy overload,
 # which will trigger retries terminating in a missing data response if unsuccessful.
-_TEMPORARY_SERVER_ERRORS = (500, 502, 503, 504)
+_DEFAULT_SERVER_GLITCHES = (500, 502, 503, 504, _TRUNCATED_STATUS)
+
+
+class ServerGlitch(Exception):
+    """S3 chunk store responded with an HTTP error deemed to be temporary."""
+
+    def __init__(self, msg, response):
+        super(ServerGlitch, self).__init__(msg)
+        self.response = response
 
 
 class TruncatedRead(ValueError):
@@ -399,9 +410,7 @@ class S3ChunkStore(ChunkStore):
                      defusedxml.ElementTree.ParseError: StoreUnavailable}
         super(S3ChunkStore, self).__init__(error_map)
         auth = _auth_factory(url, token, credentials)
-        if isinstance(retries, Retry):
-            retry = retries
-        else:
+        if not isinstance(retries, Retry):
             try:
                 connect_retries, read_retries = retries
             except TypeError:
@@ -409,19 +418,22 @@ class S3ChunkStore(ChunkStore):
             # The backoff factor of 10 provides 5 minutes worth of retries
             # when the Ceph gateway is strained; with 5 retries you get
             # (0 + 2 + 4 + 8 + 16) * 10 = 300 seconds on top of read timeouts.
-            retry = Retry(connect=connect_retries, read=read_retries, status=5,
-                          backoff_factor=10., raise_on_status=False,
-                          status_forcelist=_TEMPORARY_SERVER_ERRORS)
+            retries = Retry(connect=connect_retries, read=read_retries,
+                            status=5, backoff_factor=10.,
+                            status_forcelist=_DEFAULT_SERVER_GLITCHES)
 
         def session_factory():
             session = _CacheSettingsSession(url)
             session.auth = auth
-            adapter = requests.adapters.HTTPAdapter(max_retries=retry)
+            # Don't let requests do status retries as we'll be doing it ourselves
+            max_retries = retries.new(status=0, raise_on_status=False)
+            adapter = requests.adapters.HTTPAdapter(max_retries=max_retries)
             session.mount(url, adapter)
             return session
 
         self._session_pool = _Pool(session_factory)
         self._url = to_str(url)
+        self._retries = retries
         self.timeout = timeout
         self.public_read = public_read
         self.expiry_days = int(expiry_days)
@@ -430,9 +442,12 @@ class S3ChunkStore(ChunkStore):
         return urllib.parse.urljoin(self._url, to_str(urllib.parse.quote(chunk_name + '.npy')))
 
     @contextlib.contextmanager
-    def request(self, method, url, chunk_name='', ignored_errors=(), timeout=(),
-                *args, **kwargs):
+    def request(self, method, url, chunk_name='', ignored_errors=(), timeout=(), **kwargs):
         """Run a request on a session from the pool and handle error responses.
+
+        This is a context manager like :meth:`requests.Session.request` that
+        either yields a successful response or raises the appropriate chunk
+        store exception.
 
         Parameters
         ----------
@@ -444,22 +459,29 @@ class S3ChunkStore(ChunkStore):
             HTTP status codes that are treated like 200 OK, not raising an error
         timeout : tuple or float, optional
             Override timeout for this request (use the store timeout by default)
-        args, kwargs : optional
+        kwargs : optional
             These are passed on to :meth:`requests.Session.request`
+
+        Yields
+        ------
+        response : `requests.Response`
+            HTTP response, considered successful
 
         Raises
         ------
         AuthorisationFailed
             If the request is not authorised by appropriate token or credentials
         ChunkNotFound
-            If S3 object request fails because it does not exist or server glitches
+            If S3 object request fails because it does not exist
+        ServerGlitch
+            If HTTP error has a retryable status code (i.e. temporary glitch)
         StoreUnavailable
             If a general HTTP error occurred that is not ignored
         """
         kwargs['timeout'] = self.timeout if timeout is () else timeout
         # Use _standard_errors to filter errors emanating from within with-block
         with self._standard_errors(chunk_name), self._session_pool() as session:
-            with session.request(method, url, *args, **kwargs) as response:
+            with session.request(method, url, **kwargs) as response:
                 # Missing buckets are worse than missing objects so distinguish them
                 path = urllib.parse.urlparse(response.url).path
                 parts = [part for part in S3ChunkStore.split(path) if part]
@@ -472,10 +494,12 @@ class S3ChunkStore(ChunkStore):
                     prefix, status, response.reason, response.request.method, response.url)
                 if status == 401:
                     raise AuthorisationFailed(msg)
-                elif status in (403, 404) + _TEMPORARY_SERVER_ERRORS and not is_bucket:
+                elif status in (403, 404) and not is_bucket:
                     # Ceph RGW returns 403 for missing keys due to our bucket policy
                     # (see https://tracker.ceph.com/issues/38638 for discussion)
                     raise ChunkNotFound(msg)
+                elif self._retries.is_retry(method, status):
+                    raise ServerGlitch(msg, response)
                 elif 400 <= status < 600 and status not in ignored_errors:
                     raise StoreUnavailable(msg)
                 else:
@@ -511,15 +535,19 @@ class S3ChunkStore(ChunkStore):
         dtype = np.dtype(dtype)
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         url = self._chunk_url(chunk_name)
-        reset_retries = 2
+        retries = self._retries.new()
         while True:
             try:
                 chunk = self._get_chunk(url, chunk_name)
-            except TruncatedChunk as e:
-                reset_retries -= 1
-                if reset_retries < 0:
+            except (ServerGlitch, TruncatedRead) as e:
+                response = getattr(e, 'response',
+                                   HTTPResponse(status=_TRUNCATED_STATUS))
+                try:
+                    retries = retries.increment('GET', url, response)
+                except MaxRetryError:
                     raise_from(ChunkNotFound(str(e)), e)
-                time.sleep(0.2)
+                else:
+                    retries.sleep(response)
             else:
                 break
         if chunk.shape != shape or chunk.dtype != dtype:
