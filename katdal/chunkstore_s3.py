@@ -80,13 +80,30 @@ _BUCKET_POLICY = {
 _TEMPORARY_SERVER_ERRORS = (500, 502, 503, 504)
 
 
+class TruncatedRead(ValueError):
+    """HTTP request to S3 chunk store responded with fewer bytes than expected."""
+
+
+def _read_bytes_raising_truncated_read(*args, **kwargs):
+    try:
+        return np.lib.format._read_bytes_original(*args, **kwargs)
+    except ValueError as e:
+        raise TruncatedRead(str(e))
+
+
+# Monkey-patch NumPy's _read_bytes to distinguish truncated bytes from other ValueErrors
+np.lib.format._read_bytes_original = np.lib.format._read_bytes
+np.lib.format._read_bytes = _read_bytes_raising_truncated_read
+
+
 def read_array(fp):
     """Read a numpy array in npy format from a file descriptor.
 
     This is the same concept as :func:`numpy.lib.format.read_array`, but
     optimised for the case of reading from :class:`http.client.HTTPResponse`.
     Using the numpy function reads pieces out then copies them into the
-    array, while this implementation uses `readinto`.
+    array, while this implementation uses `readinto`. Raise :class:`TruncatedRead`
+    if the response runs out of data before the array is complete.
 
     It does not allow pickled dtypes.
     """
@@ -106,8 +123,8 @@ def read_array(fp):
     # isn't expecting a numpy array
     bytes_read = fp.readinto(memoryview(data.view(np.uint8)))
     if bytes_read != data.nbytes:
-        raise ValueError('Error reading numpy array from S3: expected {} bytes, got {}'
-                         .format(data.nbytes, bytes_read))
+        raise TruncatedRead('Error reading numpy array from S3: expected {} '
+                            'bytes, got {}'.format(data.nbytes, bytes_read))
     if fortran_order:
         data.shape = shape[::-1]
         data = data.transpose()

@@ -55,8 +55,9 @@ from nose.tools import assert_raises, assert_equal, timed, assert_true, assert_f
 import requests
 import jwt
 
-from katdal.chunkstore_s3 import (S3ChunkStore, _AWSAuth, read_array, decode_jwt,
-                                  InvalidToken, _TEMPORARY_SERVER_ERRORS)
+from katdal.chunkstore_s3 import (S3ChunkStore, _AWSAuth, read_array,
+                                  decode_jwt, InvalidToken, TruncatedRead,
+                                  _TEMPORARY_SERVER_ERRORS)
 from katdal.chunkstore import StoreUnavailable, ChunkNotFound
 from katdal.test.test_chunkstore import ChunkStoreTestBase
 
@@ -130,15 +131,22 @@ class TestReadArray(object):
         with assert_raises(ValueError):
             read_array(fp)
 
-    def testShort(self):
+    def _truncate_and_fail_to_read(self, *args):
         fp = io.BytesIO()
         np.save(fp, np.arange(20))
-        # Chop off last byte
-        fp.seek(-1, 2)
+        fp.seek(*args)
         fp.truncate()
         fp.seek(0)
-        with assert_raises(ValueError):
+        with assert_raises(TruncatedRead):
             read_array(fp)
+
+    def testShort(self):
+        # Chop off everything past first byte (in magic part of bytes)
+        self._truncate_and_fail_to_read(1)
+        # Chop off everything past byte 20 (in header part of bytes)
+        self._truncate_and_fail_to_read(20)
+        # Chop off last byte (in array part of bytes)
+        self._truncate_and_fail_to_read(-1, 2)
 
 
 def encode_jwt(header, payload, signature=86 * 'x'):
