@@ -463,15 +463,13 @@ class S3ChunkStore(ChunkStore):
                 else:
                     yield response
 
-    def get_chunk(self, array_name, slices, dtype):
-        """See the docstring of :meth:`ChunkStore.get_chunk`."""
-        dtype = np.dtype(dtype)
-        chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
-        url = self._chunk_url(chunk_name)
+    def _get_chunk(self, url, chunk_name=''):
+        """Download a single chunk stored at `url` as a NumPy array."""
         # Our hacky optimisation to speed up response reading doesn't
         # work with non-identity encodings.
         headers = {'Accept-Encoding': 'identity'}
-        with self.request('GET', url, chunk_name, headers=headers, stream=True) as response:
+        with self.request('GET', url, chunk_name,
+                          headers=headers, stream=True) as response:
             data = response.raw
             # Workaround for https://github.com/urllib3/urllib3/issues/1540
             # On Python 2, http.client.HTTPResponse doesn't implement
@@ -488,6 +486,15 @@ class S3ChunkStore(ChunkStore):
             # aware that we've consumed all the data and hence it can
             # reuse the connection.
             response.content
+        return chunk
+
+    def get_chunk(self, array_name, slices, dtype):
+        """See the docstring of :meth:`ChunkStore.get_chunk`."""
+        dtype = np.dtype(dtype)
+        chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
+        url = self._chunk_url(chunk_name)
+
+        chunk = self._get_chunk(url, chunk_name)
         if chunk.shape != shape or chunk.dtype != dtype:
             raise BadChunk('Chunk {!r}: dtype {} and/or shape {} in store '
                            'differs from expected dtype {} and shape {}'
