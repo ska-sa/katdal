@@ -333,6 +333,7 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
         self.protocol_version = 'HTTP/1.1'
         data_len = int(self.headers.get('Content-Length', 0))
         data = self.rfile.read(data_len)
+        truncate = False
 
         # Extract a proxy suggestion prepended to the path
         suggestion = re.search(r'/please-([^/]+?)(?:-for-([\d\.]+)-seconds)*/',
@@ -357,6 +358,8 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
                     self.send_response(status_code, 'Suggested by unit test')
                     self.end_headers()
                     return
+                if command == 'truncate-chunks':
+                    truncate = True
             else:
                 del _proxy_request_timestamps[key]
 
@@ -408,7 +411,7 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
             if key.lower() not in HOP_HEADERS.union({'date', 'server'}):
                 self.send_header(key, value)
         self.end_headers()
-        self.wfile.write(content)
+        self.wfile.write(content[:-10] if truncate else content)
 
     def log_message(self, format, *args):
         # Print to stdout instead of stderr so that it doesn't spew all over
@@ -509,3 +512,21 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         # After 0.9 seconds the client gives up and returns with failure 0.1 s later
         array_name = self.array_name('x', 'please-respond-with-502-for-1.2-seconds')
         assert_false(self.store.has_chunk(array_name, s, self.x.dtype))
+
+    @timed(0.4 + 0.1)
+    def test_recover_from_truncated_chunks(self):
+        # First make sure some chunk is there
+        s = (slice(3, 5),)
+        self.put_has_get_chunk('x', s)
+        array_name = self.array_name('x', 'please-truncate-chunks-for-0.3-seconds')
+        self.store.get_chunk(array_name, s, self.x.dtype)
+
+    @timed(0.4 + 0.1)
+    def test_persistent_truncated_chunks(self):
+        # First make sure some chunk is there
+        s = (slice(3, 5),)
+        self.put_has_get_chunk('x', s)
+        # After 0.4 seconds the client gives up
+        array_name = self.array_name('x', 'please-truncate-chunks-for-0.5-seconds')
+        with assert_raises(ChunkNotFound):
+            self.store.get_chunk(array_name, s, self.x.dtype)

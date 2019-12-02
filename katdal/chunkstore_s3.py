@@ -33,6 +33,7 @@ import base64
 import warnings
 import copy
 import json
+import time
 
 import defusedxml.ElementTree
 import defusedxml.cElementTree
@@ -510,8 +511,17 @@ class S3ChunkStore(ChunkStore):
         dtype = np.dtype(dtype)
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
         url = self._chunk_url(chunk_name)
-
-        chunk = self._get_chunk(url, chunk_name)
+        reset_retries = 2
+        while True:
+            try:
+                chunk = self._get_chunk(url, chunk_name)
+            except TruncatedChunk as e:
+                reset_retries -= 1
+                if reset_retries < 0:
+                    raise_from(ChunkNotFound(str(e)), e)
+                time.sleep(0.2)
+            else:
+                break
         if chunk.shape != shape or chunk.dtype != dtype:
             raise BadChunk('Chunk {!r}: dtype {} and/or shape {} in store '
                            'differs from expected dtype {} and shape {}'
