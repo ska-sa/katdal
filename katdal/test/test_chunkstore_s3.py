@@ -513,20 +513,28 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         array_name = self.array_name('x', 'please-respond-with-502-for-1.2-seconds')
         assert_false(self.store.has_chunk(array_name, s, self.x.dtype))
 
-    @timed(0.4 + 0.1)
+    @timed(0.6 + 0.1)
     def test_recover_from_truncated_chunks(self):
         # First make sure some chunk is there
         s = (slice(3, 5),)
         self.put_has_get_chunk('x', s)
-        array_name = self.array_name('x', 'please-truncate-chunks-for-0.3-seconds')
+        # With the RETRY settings of 3 status retries and backoff factor of 0.1 s
+        # we get the following timeline (indexed by seconds):
+        # 0.0 - access chunk for the first time
+        # 0.0 - response is 200 but truncated, immediately try again (retry #1)
+        # 0.0 - response is 200 but truncated, back off for 2 * 0.1 seconds
+        # 0.2 - retry #2, response is 200 but truncated, back off for 4 * 0.1 seconds
+        # 0.6 - retry #3 (the final attempt) - server should now be fixed
+        # 0.6 - success!
+        array_name = self.array_name('x', 'please-truncate-chunks-for-0.4-seconds')
         self.store.get_chunk(array_name, s, self.x.dtype)
 
-    @timed(0.4 + 0.1)
+    @timed(0.6 + 0.1)
     def test_persistent_truncated_chunks(self):
         # First make sure some chunk is there
         s = (slice(3, 5),)
         self.put_has_get_chunk('x', s)
-        # After 0.4 seconds the client gives up
-        array_name = self.array_name('x', 'please-truncate-chunks-for-0.5-seconds')
+        # After 0.6 seconds the client gives up
+        array_name = self.array_name('x', 'please-truncate-chunks-for-0.7-seconds')
         with assert_raises(ChunkNotFound):
             self.store.get_chunk(array_name, s, self.x.dtype)
