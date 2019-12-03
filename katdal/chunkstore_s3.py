@@ -84,20 +84,20 @@ _TRUNCATED_HTTP_STATUS_CODE = 555
 _DEFAULT_SERVER_GLITCHES = (500, 502, 503, 504, _TRUNCATED_HTTP_STATUS_CODE)
 
 
-class ServerGlitch(Exception):
+class S3ObjectNotFound(ChunkNotFound):
+    """An object / bucket was not found in S3 object store."""
+
+
+class S3ServerGlitch(ChunkNotFound):
     """S3 chunk store responded with an HTTP error deemed to be temporary."""
 
     def __init__(self, msg, status_code):
-        super(ServerGlitch, self).__init__(msg)
+        super(S3ServerGlitch, self).__init__(msg)
         self.status_code = status_code
 
 
 class TruncatedRead(ValueError):
     """HTTP request to S3 chunk store responded with fewer bytes than expected."""
-
-    def __init__(self, *args):
-        super(TruncatedRead, self).__init__(*args)
-        self.status_code = _TRUNCATED_HTTP_STATUS_CODE
 
 
 def _read_bytes_raising_truncated_read(*args, **kwargs):
@@ -496,9 +496,9 @@ class S3ChunkStore(ChunkStore):
         ------
         AuthorisationFailed
             If the request is not authorised by appropriate token or credentials
-        ChunkNotFound
+        S3ObjectNotFound
             If S3 object request fails because it does not exist
-        ServerGlitch
+        S3ServerGlitch
             If HTTP error has a retryable status code (i.e. temporary glitch)
         StoreUnavailable
             If a general HTTP error occurred that is not ignored
@@ -507,11 +507,6 @@ class S3ChunkStore(ChunkStore):
         # Use _standard_errors to filter errors emanating from within with-block
         with self._standard_errors(chunk_name), self._session_pool() as session:
             with session.request(method, url, **kwargs) as response:
-                # Missing buckets are worse than missing objects so distinguish them
-                path = urllib.parse.urlparse(response.url).path
-                parts = [part for part in S3ChunkStore.split(path) if part]
-                # This also includes top-level directory, which behaves like a bucket
-                is_bucket = len(parts) <= 1
                 # Turn error responses into the appropriate exception, like raise_for_status
                 status = response.status_code
                 prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
@@ -519,16 +514,22 @@ class S3ChunkStore(ChunkStore):
                     prefix, status, response.reason, response.request.method, response.url)
                 if status == 401:
                     raise AuthorisationFailed(msg)
-                elif status in (403, 404) and not is_bucket:
+                elif status in (403, 404):
                     # Ceph RGW returns 403 for missing keys due to our bucket policy
                     # (see https://tracker.ceph.com/issues/38638 for discussion)
-                    raise ChunkNotFound(msg)
+                    raise S3ObjectNotFound(msg)
                 elif self._retries.is_retry(method, status):
-                    raise ServerGlitch(msg, status)
+                    raise S3ServerGlitch(msg, status)
                 elif 400 <= status < 600 and status not in ignored_errors:
                     raise StoreUnavailable(msg)
                 else:
-                    yield response
+                    try:
+                        yield response
+                    except TruncatedRead as trunc_error:
+                        # A truncated read is considered a glitch with custom status
+                        glitch_error = S3ServerGlitch(prefix + str(trunc_error),
+                                                      _TRUNCATED_HTTP_STATUS_CODE)
+                        raise_from(glitch_error, trunc_error)
 
     def complete_request(self, method, url, chunk_name='',
                          process=lambda response: None, **kwargs):
@@ -557,8 +558,10 @@ class S3ChunkStore(ChunkStore):
         ------
         AuthorisationFailed
             If the request is not authorised by appropriate token or credentials
-        ChunkNotFound
-            If S3 object request fails because it does not exist or server glitched
+        S3ObjectNotFound
+            If S3 object request fails because it does not exist
+        S3ServerGlitch
+            If S3 object request fails because server is temporarily overloaded
         StoreUnavailable
             If a general HTTP error occurred that is not ignored
         """
@@ -567,13 +570,14 @@ class S3ChunkStore(ChunkStore):
             try:
                 with self.request(method, url, chunk_name, **kwargs) as response:
                     result = process(response)
-            except (ServerGlitch, TruncatedRead) as e:
+            except S3ServerGlitch as e:
                 # Retry based on status of response until we run out of retries
                 response = HTTPResponse(status=e.status_code)
                 try:
                     retries = retries.increment(method, url, response)
                 except MaxRetryError:
-                    raise_from(ChunkNotFound(str(e)), e)
+                    # Raise the final straw that broke the retry camel's back
+                    raise e
                 else:
                     retries.sleep(response)
             else:
