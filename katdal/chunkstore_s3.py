@@ -100,16 +100,24 @@ class TruncatedRead(ValueError):
     """HTTP request to S3 chunk store responded with fewer bytes than expected."""
 
 
-def _read_bytes_raising_truncated_read(*args, **kwargs):
-    try:
-        return np.lib.format._read_bytes_original(*args, **kwargs)
-    except ValueError as e:
-        raise TruncatedRead(str(e))
+class _DetectTruncation(object):
+    """Raise :exc:`TruncatedRead` if wrapped `readable` runs out of data."""
 
+    def __init__(self, readable):
+        self._readable = readable
 
-# Monkey-patch NumPy's _read_bytes to distinguish truncated bytes from other ValueErrors
-np.lib.format._read_bytes_original = np.lib.format._read_bytes
-np.lib.format._read_bytes = _read_bytes_raising_truncated_read
+    def __getattr__(self, name):
+        """Proxy all attributes to underlying wrapped object."""
+        return getattr(self._readable, name)
+
+    def read(self, size, *args, **kwargs):
+        """Overload `read` method to detect truncated data source."""
+        data = self._readable.read(size, *args, **kwargs)
+        bytes_read = len(data)
+        if bytes_read != size:
+            raise TruncatedRead('Error reading from S3 HTTP response: expected '
+                                '{} bytes, got {}'.format(size, bytes_read))
+        return data
 
 
 def read_array(fp):
@@ -123,6 +131,9 @@ def read_array(fp):
 
     It does not allow pickled dtypes.
     """
+    # Wrap file object in _DetectTruncation since data can run out while
+    # within the bowels of NumPy (the alternative is monkey-patching NumPy...)
+    fp = _DetectTruncation(fp)
     version = np.lib.format.read_magic(fp)
     if version == (1, 0):
         shape, fortran_order, dtype = np.lib.format.read_array_header_1_0(fp)
@@ -139,7 +150,7 @@ def read_array(fp):
     # isn't expecting a numpy array
     bytes_read = fp.readinto(memoryview(data.view(np.uint8)))
     if bytes_read != data.nbytes:
-        raise TruncatedRead('Error reading numpy array from S3: expected {} '
+        raise TruncatedRead('Error reading from S3 HTTP response: expected {} '
                             'bytes, got {}'.format(data.nbytes, bytes_read))
     if fortran_order:
         data.shape = shape[::-1]
@@ -153,19 +164,17 @@ def _read_chunk(response):
     """Efficiently read NumPy array in NPY format from content of HTTP response."""
     data = response.raw
     # Workaround for https://github.com/urllib3/urllib3/issues/1540
-    # On Python 2, http.client.HTTPResponse doesn't implement
-    # readinto. We also can't use the workaround if the content is
-    # encoded (e.g. gzip compressed) because that's decoded in
-    # urllib3, not httplib.
+    # On Python 2, http.client.HTTPResponse doesn't implement readinto.
+    # We also can't use the workaround if the content is encoded (e.g.
+    # gzip compressed) because that's decoded in urllib3, not httplib.
     if ('Content-encoding' not in response.headers
             and hasattr(data, '_fp')
             and hasattr(data._fp, 'readinto')):
         chunk = read_array(data._fp)
     else:
         chunk = read_array(data)
-    # This shouldn't actually read any data, but will make requests
-    # aware that we've consumed all the data and hence it can
-    # reuse the connection.
+    # This shouldn't actually read any data, but will make requests aware that
+    # we've consumed all the data and hence it can reuse the connection.
     response.content
     return chunk
 
