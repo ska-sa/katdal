@@ -113,10 +113,9 @@ class _DetectTruncation(object):
     def read(self, size, *args, **kwargs):
         """Overload `read` method to detect truncated data source."""
         data = self._readable.read(size, *args, **kwargs)
-        bytes_read = len(data)
-        if bytes_read != size:
+        if data == b'' and size != 0:
             raise TruncatedRead('Error reading from S3 HTTP response: expected '
-                                '{} bytes, got {}'.format(size, bytes_read))
+                                '{} more byte(s), got EOF'.format(size))
         return data
 
 
@@ -450,7 +449,7 @@ class S3ChunkStore(ChunkStore):
             except TypeError:
                 connect_retries = read_retries = retries
             # The backoff factor of 10 provides 5 minutes worth of retries
-            # when the Ceph gateway is strained; with 5 retries you get
+            # when the S3 server is strained; with 5 retries you get
             # (0 + 2 + 4 + 8 + 16) * 10 = 300 seconds on top of read timeouts.
             retries = Retry(connect=connect_retries, read=read_retries,
                             status=5, backoff_factor=10.,
@@ -512,33 +511,38 @@ class S3ChunkStore(ChunkStore):
         StoreUnavailable
             If a general HTTP error occurred that is not ignored
         """
-        kwargs['timeout'] = self.timeout if timeout is () else timeout
+        kwargs['timeout'] = self.timeout if timeout == () else timeout
+
+        def _error_msg(chunk_name, response):
+            prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
+            return '{}Store responded with HTTP error {} ({}) to request: {} {}'.format(
+                prefix, response.status_code, response.reason,
+                response.request.method, response.url)
+
         # Use _standard_errors to filter errors emanating from within with-block
         with self._standard_errors(chunk_name), self._session_pool() as session:
             with session.request(method, url, **kwargs) as response:
                 # Turn error responses into the appropriate exception, like raise_for_status
                 status = response.status_code
-                prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
-                msg = '{}Store responded with HTTP error {} ({}) to request: {} {}'.format(
-                    prefix, status, response.reason, response.request.method, response.url)
-                if status == 401:
-                    raise AuthorisationFailed(msg)
-                elif status in (403, 404):
-                    # Ceph RGW returns 403 for missing keys due to our bucket policy
-                    # (see https://tracker.ceph.com/issues/38638 for discussion)
-                    raise S3ObjectNotFound(msg)
-                elif self._retries.is_retry(method, status):
-                    raise S3ServerGlitch(msg, status)
-                elif 400 <= status < 600 and status not in ignored_errors:
-                    raise StoreUnavailable(msg)
-                else:
-                    try:
-                        yield response
-                    except TruncatedRead as trunc_error:
-                        # A truncated read is considered a glitch with custom status
-                        glitch_error = S3ServerGlitch(prefix + str(trunc_error),
-                                                      _TRUNCATED_HTTP_STATUS_CODE)
-                        raise_from(glitch_error, trunc_error)
+                if status not in ignored_errors:
+                    if status == 401:
+                        raise AuthorisationFailed(_error_msg(chunk_name, response))
+                    elif status in (403, 404):
+                        # Ceph RGW returns 403 for missing keys due to our bucket policy
+                        # (see https://tracker.ceph.com/issues/38638 for discussion)
+                        raise S3ObjectNotFound(_error_msg(chunk_name, response))
+                    elif self._retries.is_retry(method, status):
+                        raise S3ServerGlitch(_error_msg(chunk_name, response), status)
+                    elif 400 <= status < 600:
+                        raise StoreUnavailable(_error_msg(chunk_name, response))
+                try:
+                    yield response
+                except TruncatedRead as trunc_error:
+                    # A truncated read is considered a glitch with custom status
+                    prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
+                    glitch_error = S3ServerGlitch(prefix + str(trunc_error),
+                                                  _TRUNCATED_HTTP_STATUS_CODE)
+                    raise_from(glitch_error, trunc_error)
 
     def complete_request(self, method, url, chunk_name='',
                          process=lambda response: None, **kwargs):
