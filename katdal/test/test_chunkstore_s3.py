@@ -318,6 +318,7 @@ _proxy_request_timestamps = {}
 
 class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
     """HTTP proxy that substitutes AWS credentials in place of a bearer token."""
+
     def __getattr__(self, name):
         """Handle all HTTP requests by the same method since this is a proxy."""
         if name.startswith('do_'):
@@ -339,10 +340,9 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
         suggestion = re.search(r'/please-([^/]+?)(?:-for-([\d\.]+)-seconds)*/',
                                self.path)
         if suggestion:
-            # Check when this command+path combo was first accessed
-            key = (self.command, self.path)
-            initial_time = _proxy_request_timestamps.get(key, time.time())
-            _proxy_request_timestamps[key] = initial_time
+            # Check when this exact request was last made
+            key = self.requestline
+            initial_time = _proxy_request_timestamps.setdefault(key, time.time())
             # Remove suggestion from path
             start, end = suggestion.span()
             self.path = self.path[:start] + '/' + self.path[end:]
@@ -414,9 +414,16 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(content[:-10] if truncate else content)
 
     def log_message(self, format, *args):
+        # Get time offset from first of these requests (useful for debugging)
+        # XXX Could also use args[0] instead of requestline, not sure which is best
+        key = self.requestline
+        now = time.time()
+        initial_time = _proxy_request_timestamps.get(key, now)
+        time_offset = now - initial_time
         # Print to stdout instead of stderr so that it doesn't spew all over
         # the screen in normal operation.
-        print(format % args)
+        print("%s (%.3f) %s" % (self.log_date_time_string(),
+                                time_offset, format % args))
 
 
 class _TokenHTTPProxyServer(http.server.HTTPServer):
