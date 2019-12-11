@@ -512,29 +512,25 @@ class S3ChunkStore(ChunkStore):
             If a general HTTP error occurred that is not ignored
         """
         kwargs['timeout'] = self.timeout if timeout == () else timeout
-
-        def _error_msg(chunk_name, response):
-            prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
-            return '{}Store responded with HTTP error {} ({}) to request: {} {}'.format(
-                prefix, response.status_code, response.reason,
-                response.request.method, response.url)
-
         # Use _standard_errors to filter errors emanating from within with-block
         with self._standard_errors(chunk_name), self._session_pool() as session:
             with session.request(method, url, **kwargs) as response:
                 # Turn error responses into the appropriate exception, like raise_for_status
                 status = response.status_code
-                if status not in ignored_errors:
+                if 400 <= status < 600 and status not in ignored_errors:
+                    prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
+                    msg = '{}Store responded with HTTP error {} ({}) to request: {} {}'.format(
+                        prefix, status, response.reason, response.request.method, response.url)
                     if status == 401:
-                        raise AuthorisationFailed(_error_msg(chunk_name, response))
+                        raise AuthorisationFailed(msg)
                     elif status in (403, 404):
                         # Ceph RGW returns 403 for missing keys due to our bucket policy
                         # (see https://tracker.ceph.com/issues/38638 for discussion)
-                        raise S3ObjectNotFound(_error_msg(chunk_name, response))
+                        raise S3ObjectNotFound(msg)
                     elif self._retries.is_retry(method, status):
-                        raise S3ServerGlitch(_error_msg(chunk_name, response), status)
-                    elif 400 <= status < 600:
-                        raise StoreUnavailable(_error_msg(chunk_name, response))
+                        raise S3ServerGlitch(msg, status)
+                    else:
+                        raise StoreUnavailable(msg)
                 try:
                     yield response
                 except TruncatedRead as trunc_error:
