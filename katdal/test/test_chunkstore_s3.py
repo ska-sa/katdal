@@ -313,9 +313,6 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             S3ChunkStore('http://apparently.invalid/', token='secrettoken')
 
 
-_proxy_request_timestamps = {}
-
-
 class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
     """HTTP proxy that substitutes AWS credentials in place of a bearer token."""
 
@@ -340,9 +337,9 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
         suggestion = re.search(r'/please-([^/]+?)(?:-for-([\d\.]+)-seconds)*/',
                                self.path)
         if suggestion:
-            # Check when this exact request was last made
+            # Check when this exact request (including suggestion) was first made
             key = self.requestline
-            initial_time = _proxy_request_timestamps.setdefault(key, time.time())
+            initial_time = self.server.initial_request_time.setdefault(key, time.time())
             # Remove suggestion from path
             start, end = suggestion.span()
             self.path = self.path[:start] + '/' + self.path[end:]
@@ -361,7 +358,8 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
                 if command == 'truncate-chunks':
                     truncate = True
             else:
-                del _proxy_request_timestamps[key]
+                # We're done with this suggestion since its time ran out
+                del self.server.initial_request_time[key]
 
         # Extract token, validate it and check if path is authorised by it
         auth_header = self.headers.get('Authorization').split()
@@ -418,7 +416,7 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
         # XXX Could also use args[0] instead of requestline, not sure which is best
         key = self.requestline
         now = time.time()
-        initial_time = _proxy_request_timestamps.get(key, now)
+        initial_time = self.server.initial_request_time.get(key, now)
         time_offset = now - initial_time
         # Print to stdout instead of stderr so that it doesn't spew all over
         # the screen in normal operation.
@@ -470,6 +468,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
             httpd.target = url
             httpd.session = requests.Session()
             httpd.auth = _AWSAuth(cls.credentials)
+            httpd.initial_request_time = {}
             cls.httpd_thread = threading.Thread(target=httpd.serve_forever)
             cls.httpd_thread.start()
             # We delay setting cls.httpd until we've launched serve_forever,
