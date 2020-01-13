@@ -50,6 +50,7 @@ import re
 from urllib3.util.retry import Retry
 
 import numpy as np
+from numpy.testing import assert_array_equal
 from nose import SkipTest
 from nose.tools import assert_raises, assert_equal, timed, assert_true, assert_false
 import requests
@@ -72,6 +73,7 @@ TIMEOUT = (0.2, 0.4)
 RETRY = Retry(connect=1, read=1, status=3, backoff_factor=0.1,
               raise_on_status=False, status_forcelist=_DEFAULT_SERVER_GLITCHES)
 SUGGESTED_STATUS_DELAY = 0.1
+READ_PAUSE = 0.1
 
 
 @contextlib.contextmanager
@@ -333,6 +335,7 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
         data_len = int(self.headers.get('Content-Length', 0))
         data = self.rfile.read(data_len)
         truncate = False
+        read_pause = 0.0
 
         # Extract a proxy suggestion prepended to the path
         suggestion = re.search(r'/please-([^/]+?)(?:-for-([\d\.]+)-seconds)?/',
@@ -358,6 +361,8 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
                     return
                 if command == 'truncate-chunks':
                     truncate = True
+                elif command == 'pause-read':
+                    read_pause = READ_PAUSE
                 else:
                     raise ValueError('Unknown command {} in proxy suggestion {}'
                                      .format(command, suggestion))
@@ -413,7 +418,13 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
             if key.lower() not in HOP_HEADERS.union({'date', 'server'}):
                 self.send_header(key, value)
         self.end_headers()
-        self.wfile.write(content[:-10] if truncate else content)
+        if read_pause:
+            halfway = len(content) // 2
+            self.wfile.write(content[:halfway])
+            time.sleep(read_pause)
+            self.wfile.write(content[halfway:])
+        else:
+            self.wfile.write(content[:-10] if truncate else content)
 
     def log_message(self, format, *args):
         # Get time offset from first of these requests (useful for debugging)
@@ -548,3 +559,13 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         array_name = self.array_name('x', 'please-truncate-chunks-for-0.8-seconds')
         with assert_raises(ChunkNotFound):
             self.store.get_chunk(array_name, s, self.x.dtype)
+
+    @timed(READ_PAUSE + 0.2)
+    def test_handle_read_pause(self):
+        # First make sure some chunk is there
+        s = (slice(3, 5),)
+        self.put_has_get_chunk('x', s)
+        array_name = self.array_name('x', 'please-pause-read')
+        chunk = self.x[s]
+        chunk_retrieved = self.store.get_chunk(array_name, s, self.x.dtype)
+        assert_array_equal(chunk_retrieved, chunk, 'Paused read failed')
