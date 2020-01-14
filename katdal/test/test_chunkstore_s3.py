@@ -335,7 +335,8 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
         data_len = int(self.headers.get('Content-Length', 0))
         data = self.rfile.read(data_len)
         truncate = False
-        read_pause = 0.0
+        pause = 0.0
+        glitch_location = 0
 
         # Extract a proxy suggestion prepended to the path
         suggestion = re.search(r'/please-([^/]+?)(?:-for-([\d\.]+)-seconds)?/',
@@ -359,12 +360,15 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
                     self.send_response(status_code, 'Suggested by unit test')
                     self.end_headers()
                     return
-                if command == 'truncate-chunks':
-                    truncate = True
-                elif command == 'pause-read':
-                    read_pause = READ_PAUSE
+                # Truncate or pause transmission of the payload after specified bytes
+                glitch = re.match(r'^(truncate|pause)-read-after-(\d+)-bytes$', command)
+                if glitch:
+                    flavour = glitch.group(1)
+                    truncate = (flavour == 'truncate')
+                    pause = READ_PAUSE if flavour == 'pause' else 0.0
+                    glitch_location = int(glitch.group(2))
                 else:
-                    raise ValueError('Unknown command {} in proxy suggestion {}'
+                    raise ValueError("Unknown command '{}' in proxy suggestion {}"
                                      .format(command, suggestion))
             else:
                 # We're done with this suggestion since its time ran out
@@ -418,13 +422,14 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
             if key.lower() not in HOP_HEADERS.union({'date', 'server'}):
                 self.send_header(key, value)
         self.end_headers()
-        if read_pause:
-            halfway = len(content) // 2
-            self.wfile.write(content[:halfway])
-            time.sleep(read_pause)
-            self.wfile.write(content[halfway:])
+        if pause:
+            self.wfile.write(content[:glitch_location])
+            # The wfile object should be an unbuffered _SocketWriter but flush anyway
+            self.wfile.flush()
+            time.sleep(pause)
+            self.wfile.write(content[glitch_location:])
         else:
-            self.wfile.write(content[:-10] if truncate else content)
+            self.wfile.write(content[:glitch_location] if truncate else content)
 
     def log_message(self, format, *args):
         # Get time offset from first of these requests (useful for debugging)
@@ -507,11 +512,20 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         with assert_raises(InvalidToken):
             self.store.is_complete('unauthorised_bucket')
 
+    def prepare(self, suggestion):
+        """Put a chunk into the store and form an array name containing suggestion."""
+        var_name = 'x'
+        slices = (slice(3, 5),)
+        array_name = self.array_name(var_name)
+        chunk = getattr(self, var_name)[slices]
+        self.store.create_array(array_name)
+        self.store.put_chunk(array_name, slices, chunk)
+        return chunk, slices, self.array_name(var_name, suggestion)
+
     @timed(0.9 + 0.2)
     def test_recover_from_server_errors(self):
-        # First make sure some chunk is there
-        s = (slice(3, 5),)
-        self.put_has_get_chunk('x', s)
+        chunk, slices, array_name = self.prepare(
+            'please-respond-with-500-for-0.8-seconds')
         # With the RETRY settings of 3 status retries, backoff factor of 0.1 s
         # and SUGGESTED_STATUS_DELAY of 0.1 s we get the following timeline
         # (indexed by seconds):
@@ -522,23 +536,19 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         # 0.5 - response is 500, back off for 4 * 0.1 seconds
         # 0.9 - retry #3 (the final attempt) - server should now be fixed
         # 0.9 - success!
-        array_name = self.array_name('x', 'please-respond-with-500-for-0.8-seconds')
-        assert_true(self.store.has_chunk(array_name, s, self.x.dtype))
+        assert_true(self.store.has_chunk(array_name, slices, chunk.dtype))
 
     @timed(1.0 + 0.2)
     def test_persistent_server_errors(self):
-        # First make sure some chunk is there
-        s = (slice(3, 5),)
-        self.put_has_get_chunk('x', s)
+        chunk, slices, array_name = self.prepare(
+            'please-respond-with-502-for-1.2-seconds')
         # After 0.9 seconds the client gives up and returns with failure 0.1 s later
-        array_name = self.array_name('x', 'please-respond-with-502-for-1.2-seconds')
-        assert_false(self.store.has_chunk(array_name, s, self.x.dtype))
+        assert_false(self.store.has_chunk(array_name, slices, chunk.dtype))
 
     @timed(0.6 + 0.2)
-    def test_recover_from_truncated_chunks(self):
-        # First make sure some chunk is there
-        s = (slice(3, 5),)
-        self.put_has_get_chunk('x', s)
+    def test_recover_from_read_truncated_within_npy_header(self):
+        chunk, slices, array_name = self.prepare(
+            'please-truncate-read-after-60-bytes-for-0.4-seconds')
         # With the RETRY settings of 3 status retries and backoff factor of 0.1 s
         # we get the following timeline (indexed by seconds):
         # 0.0 - access chunk for the first time
@@ -547,25 +557,32 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         # 0.2 - retry #2, response is 200 but truncated, back off for 4 * 0.1 seconds
         # 0.6 - retry #3 (the final attempt) - server should now be fixed
         # 0.6 - success!
-        array_name = self.array_name('x', 'please-truncate-chunks-for-0.4-seconds')
-        self.store.get_chunk(array_name, s, self.x.dtype)
+        chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
+        assert_array_equal(chunk_retrieved, chunk, 'Truncated read not recovered')
 
     @timed(0.6 + 0.2)
-    def test_persistent_truncated_chunks(self):
-        # First make sure some chunk is there
-        s = (slice(3, 5),)
-        self.put_has_get_chunk('x', s)
+    def test_recover_from_read_truncated_within_npy_array(self):
+        chunk, slices, array_name = self.prepare(
+            'please-truncate-read-after-129-bytes-for-0.4-seconds')
+        chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
+        assert_array_equal(chunk_retrieved, chunk, 'Truncated read not recovered')
+
+    @timed(0.6 + 0.2)
+    def test_persistent_truncated_reads(self):
+        chunk, slices, array_name = self.prepare(
+            'please-truncate-read-after-60-bytes-for-0.8-seconds')
         # After 0.6 seconds the client gives up
-        array_name = self.array_name('x', 'please-truncate-chunks-for-0.8-seconds')
         with assert_raises(ChunkNotFound):
-            self.store.get_chunk(array_name, s, self.x.dtype)
+            self.store.get_chunk(array_name, slices, chunk.dtype)
 
     @timed(READ_PAUSE + 0.2)
-    def test_handle_read_pause(self):
-        # First make sure some chunk is there
-        s = (slice(3, 5),)
-        self.put_has_get_chunk('x', s)
-        array_name = self.array_name('x', 'please-pause-read')
-        chunk = self.x[s]
-        chunk_retrieved = self.store.get_chunk(array_name, s, self.x.dtype)
+    def test_handle_read_paused_within_npy_header(self):
+        chunk, slices, array_name = self.prepare('please-pause-read-after-60-bytes')
+        chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
+        assert_array_equal(chunk_retrieved, chunk, 'Paused read failed')
+
+    @timed(READ_PAUSE + 0.2)
+    def test_handle_read_paused_within_npy_array(self):
+        chunk, slices, array_name = self.prepare('please-pause-read-after-129-bytes')
+        chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Paused read failed')
