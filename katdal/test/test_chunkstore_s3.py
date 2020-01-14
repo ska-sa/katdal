@@ -46,20 +46,34 @@ import urllib.parse
 import contextlib
 import io
 import warnings
+import re
+from urllib3.util.retry import Retry
 
 import numpy as np
+from numpy.testing import assert_array_equal
 from nose import SkipTest
-from nose.tools import assert_raises, assert_equal, timed
+from nose.tools import assert_raises, assert_equal, timed, assert_true, assert_false
 import requests
 import jwt
 
 from katdal.chunkstore_s3 import (S3ChunkStore, _AWSAuth, read_array,
-                                  decode_jwt, InvalidToken)
+                                  decode_jwt, InvalidToken, TruncatedRead,
+                                  _DEFAULT_SERVER_GLITCHES)
 from katdal.chunkstore import StoreUnavailable, ChunkNotFound
 from katdal.test.test_chunkstore import ChunkStoreTestBase
 
 
 BUCKET = 'katdal-unittest'
+# Pick quick but different timeouts and retries for unit tests:
+#  - The effective connect timeout is 0.2 (initial) + 0.2 (1 retry) = 0.4 seconds
+#  - The effective read timeout is 0.4 + 0.4 = 0.8 seconds
+#  - The effective status timeout is 0.1 * (0 + 2 + 4) = 0.6 seconds, or
+#    4 * 0.1 + 0.6 = 1.0 second if the suggestions use SUGGESTED_STATUS_DELAY
+TIMEOUT = (0.2, 0.4)
+RETRY = Retry(connect=1, read=1, status=3, backoff_factor=0.1,
+              raise_on_status=False, status_forcelist=_DEFAULT_SERVER_GLITCHES)
+SUGGESTED_STATUS_DELAY = 0.1
+READ_PAUSE = 0.1
 
 
 @contextlib.contextmanager
@@ -120,15 +134,22 @@ class TestReadArray(object):
         with assert_raises(ValueError):
             read_array(fp)
 
-    def testShort(self):
+    def _truncate_and_fail_to_read(self, *args):
         fp = io.BytesIO()
         np.save(fp, np.arange(20))
-        # Chop off last byte
-        fp.seek(-1, 2)
+        fp.seek(*args)
         fp.truncate()
         fp.seek(0)
-        with assert_raises(ValueError):
+        with assert_raises(TruncatedRead):
             read_array(fp)
+
+    def testShort(self):
+        # Chop off everything past first byte (in magic part of bytes)
+        self._truncate_and_fail_to_read(1)
+        # Chop off everything past byte 20 (in header part of bytes)
+        self._truncate_and_fail_to_read(20)
+        # Chop off last byte (in array part of bytes)
+        self._truncate_and_fail_to_read(-1, 2)
 
 
 def encode_jwt(header, payload, signature=86 * 'x'):
@@ -228,7 +249,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         """Create the chunk store"""
         if authenticate:
             kwargs['credentials'] = cls.credentials
-        return S3ChunkStore(url, timeout=10, **kwargs)
+        return S3ChunkStore(url, timeout=TIMEOUT, retries=RETRY, **kwargs)
 
     @classmethod
     def setup_class(cls):
@@ -254,8 +275,11 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             cls.minio.wait()
         shutil.rmtree(cls.tempdir)
 
-    def array_name(self, path):
-        return self.store.join(BUCKET, path)
+    def array_name(self, path, suggestion=None):
+        if suggestion:
+            return self.store.join(BUCKET, suggestion, path)
+        else:
+            return self.store.join(BUCKET, path)
 
     def test_public_read(self):
         reader = self.from_url(self.url, authenticate=False)
@@ -264,39 +288,42 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         # several different buckets.
         slices = np.index_exp[0:5]
         x = np.arange(5)
-        self.store.create_array('private')
-        self.store.put_chunk('private', slices, x)
+        self.store.create_array('private/x')
+        self.store.put_chunk('private/x', slices, x)
         # Ceph RGW returns 403 for missing chunks too so we see ChunkNotFound
         with assert_raises(ChunkNotFound):
-            reader.get_chunk('private', slices, x.dtype)
+            reader.get_chunk('private/x', slices, x.dtype)
 
         # Now a public-read array
         store = self.from_url(self.url, public_read=True)
-        store.create_array('public')
-        store.put_chunk('public', slices, x)
-        y = reader.get_chunk('public', slices, x.dtype)
+        store.create_array('public/x')
+        store.put_chunk('public/x', slices, x)
+        y = reader.get_chunk('public/x', slices, x.dtype)
         np.testing.assert_array_equal(x, y)
 
-    @timed(0.1 + 0.05)
-    def test_store_unavailable_invalid_url(self):
-        # Ensure that timeouts work
-        store = S3ChunkStore('http://apparently.invalid/', timeout=0.1)
-        with assert_raises(StoreUnavailable):
-            store.is_complete('irrelevant_since_store_is_nonexistent')
+    @timed(0.4 + 0.2)
+    def test_store_unavailable_unresponsive_server(self):
+        host = '127.0.0.1'
+        with get_free_port(host) as port:
+            url = 'http://{}:{}/'.format(host, port)
+            store = S3ChunkStore(url, timeout=TIMEOUT, retries=RETRY)
+            with assert_raises(StoreUnavailable):
+                store.is_complete('irrelevant_since_store_is_not_listening')
 
     def test_token_without_https(self):
         # Don't allow users to leak their tokens by accident
-        assert_raises(StoreUnavailable, S3ChunkStore,
-                      'http://apparently.invalid/', token='secrettoken')
+        with assert_raises(StoreUnavailable):
+            S3ChunkStore('http://apparently.invalid/', token='secrettoken')
 
 
 class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
-    """HTTP proxy that substitutes AWS credentials in place of a bearer token"""
+    """HTTP proxy that substitutes AWS credentials in place of a bearer token."""
+
     def __getattr__(self, name):
+        """Handle all HTTP requests by the same method since this is a proxy."""
         if name.startswith('do_'):
             return self.do_all
-        else:
-            return getattr(super(_TokenHTTPProxyHandler, self), name)
+        return self.__getattribute__(name)
 
     def do_all(self):
         # See https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Connection
@@ -305,9 +332,49 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
             'upgrade', 'proxy-authorization', 'proxy-authenticate'
         }
         self.protocol_version = 'HTTP/1.1'
-        url = urllib.parse.urljoin(self.server.target, self.path)
         data_len = int(self.headers.get('Content-Length', 0))
         data = self.rfile.read(data_len)
+        truncate = False
+        pause = 0.0
+        glitch_location = 0
+
+        # Extract a proxy suggestion prepended to the path
+        suggestion = re.search(r'/please-([^/]+?)(?:-for-([\d\.]+)-seconds)?/',
+                               self.path)
+        if suggestion:
+            # Check when this exact request (including suggestion) was first made
+            key = self.requestline
+            initial_time = self.server.initial_request_time.setdefault(key, time.time())
+            # Remove suggestion from path
+            start, end = suggestion.span()
+            self.path = self.path[:start] + '/' + self.path[end:]
+            command, duration = suggestion.groups()
+            duration = float(duration) if duration else np.inf
+            # If the suggestion is still active, go ahead with it
+            if time.time() < initial_time + duration:
+                # Respond with the suggested status code for a while
+                respond_with = re.match(r'^respond-with-(\d+)$', command)
+                if respond_with:
+                    status_code = int(respond_with.group(1))
+                    time.sleep(SUGGESTED_STATUS_DELAY)
+                    self.send_response(status_code, 'Suggested by unit test')
+                    self.end_headers()
+                    return
+                # Truncate or pause transmission of the payload after specified bytes
+                glitch = re.match(r'^(truncate|pause)-read-after-(\d+)-bytes$', command)
+                if glitch:
+                    flavour = glitch.group(1)
+                    truncate = (flavour == 'truncate')
+                    pause = READ_PAUSE if flavour == 'pause' else 0.0
+                    glitch_location = int(glitch.group(2))
+                else:
+                    raise ValueError("Unknown command '{}' in proxy suggestion {}"
+                                     .format(command, suggestion))
+            else:
+                # We're done with this suggestion since its time ran out
+                del self.server.initial_request_time[key]
+
+        # Extract token, validate it and check if path is authorised by it
         auth_header = self.headers.get('Authorization').split()
         if len(auth_header) == 2 and auth_header[0] == 'Bearer':
             token = auth_header[1]
@@ -323,12 +390,13 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        # Clear out hop-to-hop headers
+        # Clear out hop-by-hop headers
         request_headers = dict(self.headers.items())
         for header in self.headers:
             if header.lower() in HOP_HEADERS:
                 del request_headers[header]
 
+        url = urllib.parse.urljoin(self.server.target, self.path)
         try:
             with self.server.session.request(self.command, url,
                                              headers=request_headers, data=data,
@@ -354,12 +422,26 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
             if key.lower() not in HOP_HEADERS.union({'date', 'server'}):
                 self.send_header(key, value)
         self.end_headers()
-        self.wfile.write(content)
+        if pause:
+            self.wfile.write(content[:glitch_location])
+            # The wfile object should be an unbuffered _SocketWriter but flush anyway
+            self.wfile.flush()
+            time.sleep(pause)
+            self.wfile.write(content[glitch_location:])
+        else:
+            self.wfile.write(content[:glitch_location] if truncate else content)
 
     def log_message(self, format, *args):
+        # Get time offset from first of these requests (useful for debugging)
+        # XXX Could also use args[0] instead of requestline, not sure which is best
+        key = self.requestline
+        now = time.time()
+        initial_time = self.server.initial_request_time.get(key, now)
+        time_offset = now - initial_time
         # Print to stdout instead of stderr so that it doesn't spew all over
         # the screen in normal operation.
-        print(format % args)
+        print("%s (%.3f) %s" % (self.log_date_time_string(),
+                                time_offset, format % args))
 
 
 class _TokenHTTPProxyServer(http.server.HTTPServer):
@@ -397,7 +479,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
     def from_url(cls, url, authenticate=True, **kwargs):
         """Create the chunk store"""
         if not authenticate:
-            return S3ChunkStore(url, timeout=10, **kwargs)
+            return S3ChunkStore(url, timeout=TIMEOUT, retries=RETRY, **kwargs)
 
         if cls.httpd is None:
             proxy_host = '127.0.0.1'
@@ -406,6 +488,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
             httpd.target = url
             httpd.session = requests.Session()
             httpd.auth = _AWSAuth(cls.credentials)
+            httpd.initial_request_time = {}
             cls.httpd_thread = threading.Thread(target=httpd.serve_forever)
             cls.httpd_thread.start()
             # We delay setting cls.httpd until we've launched serve_forever,
@@ -417,7 +500,8 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
             raise RuntimeError('Cannot use multiple target URLs with http proxy')
         # The token only authorises the one known bucket
         token = encode_jwt({'alg': 'ES256', 'typ': 'JWT'}, {'prefix': [BUCKET]})
-        return S3ChunkStore(cls.proxy_url, timeout=10, token=token, **kwargs)
+        return S3ChunkStore(cls.proxy_url, timeout=TIMEOUT, retries=RETRY,
+                            token=token, **kwargs)
 
     def test_public_read(self):
         # Disable this test defined in the base class because it involves creating
@@ -427,3 +511,78 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
     def test_unauthorised_bucket(self):
         with assert_raises(InvalidToken):
             self.store.is_complete('unauthorised_bucket')
+
+    def prepare(self, suggestion):
+        """Put a chunk into the store and form an array name containing suggestion."""
+        var_name = 'x'
+        slices = (slice(3, 5),)
+        array_name = self.array_name(var_name)
+        chunk = getattr(self, var_name)[slices]
+        self.store.create_array(array_name)
+        self.store.put_chunk(array_name, slices, chunk)
+        return chunk, slices, self.array_name(var_name, suggestion)
+
+    @timed(0.9 + 0.2)
+    def test_recover_from_server_errors(self):
+        chunk, slices, array_name = self.prepare(
+            'please-respond-with-500-for-0.8-seconds')
+        # With the RETRY settings of 3 status retries, backoff factor of 0.1 s
+        # and SUGGESTED_STATUS_DELAY of 0.1 s we get the following timeline
+        # (indexed by seconds):
+        # 0.0 - access chunk for the first time
+        # 0.1 - response is 500, immediately try again (retry #1)
+        # 0.2 - response is 500, back off for 2 * 0.1 seconds
+        # 0.4 - retry #2
+        # 0.5 - response is 500, back off for 4 * 0.1 seconds
+        # 0.9 - retry #3 (the final attempt) - server should now be fixed
+        # 0.9 - success!
+        assert_true(self.store.has_chunk(array_name, slices, chunk.dtype))
+
+    @timed(1.0 + 0.2)
+    def test_persistent_server_errors(self):
+        chunk, slices, array_name = self.prepare(
+            'please-respond-with-502-for-1.2-seconds')
+        # After 0.9 seconds the client gives up and returns with failure 0.1 s later
+        assert_false(self.store.has_chunk(array_name, slices, chunk.dtype))
+
+    @timed(0.6 + 0.2)
+    def test_recover_from_read_truncated_within_npy_header(self):
+        chunk, slices, array_name = self.prepare(
+            'please-truncate-read-after-60-bytes-for-0.4-seconds')
+        # With the RETRY settings of 3 status retries and backoff factor of 0.1 s
+        # we get the following timeline (indexed by seconds):
+        # 0.0 - access chunk for the first time
+        # 0.0 - response is 200 but truncated, immediately try again (retry #1)
+        # 0.0 - response is 200 but truncated, back off for 2 * 0.1 seconds
+        # 0.2 - retry #2, response is 200 but truncated, back off for 4 * 0.1 seconds
+        # 0.6 - retry #3 (the final attempt) - server should now be fixed
+        # 0.6 - success!
+        chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
+        assert_array_equal(chunk_retrieved, chunk, 'Truncated read not recovered')
+
+    @timed(0.6 + 0.2)
+    def test_recover_from_read_truncated_within_npy_array(self):
+        chunk, slices, array_name = self.prepare(
+            'please-truncate-read-after-129-bytes-for-0.4-seconds')
+        chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
+        assert_array_equal(chunk_retrieved, chunk, 'Truncated read not recovered')
+
+    @timed(0.6 + 0.2)
+    def test_persistent_truncated_reads(self):
+        chunk, slices, array_name = self.prepare(
+            'please-truncate-read-after-60-bytes-for-0.8-seconds')
+        # After 0.6 seconds the client gives up
+        with assert_raises(ChunkNotFound):
+            self.store.get_chunk(array_name, slices, chunk.dtype)
+
+    @timed(READ_PAUSE + 0.2)
+    def test_handle_read_paused_within_npy_header(self):
+        chunk, slices, array_name = self.prepare('please-pause-read-after-60-bytes')
+        chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
+        assert_array_equal(chunk_retrieved, chunk, 'Paused read failed')
+
+    @timed(READ_PAUSE + 0.2)
+    def test_handle_read_paused_within_npy_array(self):
+        chunk, slices, array_name = self.prepare('please-pause-read-after-129-bytes')
+        chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
+        assert_array_equal(chunk_retrieved, chunk, 'Paused read failed')
