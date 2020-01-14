@@ -586,7 +586,7 @@ class S3ChunkStore(ChunkStore):
                     retries = retries.increment(method, url, response)
                 except MaxRetryError:
                     # Raise the final straw that broke the retry camel's back
-                    raise e
+                    raise_from(e, None)
                 else:
                     retries.sleep(response)
             else:
