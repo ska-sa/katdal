@@ -206,10 +206,12 @@ def calc_gain_correction(sensor, index, targets=None):
     series of gains for the input specified by `index` (in the form (pol, ant))
     and interpolates them over time to get the corresponding complex correction
     terms. The optional `targets` parameter is a :class:`CategoricalData` or
-    array of target indices, i.e. a sensor indicating the target associated with
-    each dump. If provided, interpolate solutions derived from one target only
-    at dumps associated with that target, which is what you want for
-    self-calibration solutions and flux calibration.
+    array of targets, i.e. a sensor indicating the target associated with each
+    dump. The targets can be actual :class:`katpoint.Target` objects or indices,
+    as long as they uniquely identify the target. If provided, interpolate
+    solutions derived from one target only at dumps associated with that target,
+    which is what you want for self-calibration solutions (but not for standard
+    calibration based on gain calibrator sources).
 
     Invalid solutions (NaNs) are replaced by linear interpolations over time
     (separately for magnitude and phase), as long as some dumps have valid
@@ -299,6 +301,7 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
         logger.warning("Disabling cal stream '%s' due to missing "
                        "spectral attributes", cal_stream)
         return
+    targets = cache.get('Observation/target')
 
     def indirect_cal_product(cache, name, product_type):
         # XXX The first underscore below is actually a telstate separator...
@@ -341,7 +344,6 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
         elif product_type == 'G':
             correction_sensor = calc_gain_correction(product_sensor, index)
         elif product_type in ('GPHASE', 'GAMP_PHASE'):
-            targets = cache.get('Observation/target_index')
             correction_sensor = calc_gain_correction(product_sensor, index, targets)
         else:
             raise KeyError("Unknown calibration product type '{}' - available "

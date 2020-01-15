@@ -19,6 +19,7 @@ from __future__ import print_function, division, absolute_import
 from builtins import object, range
 from functools import partial
 
+import katpoint
 import numpy as np
 from numpy.testing import assert_array_equal, assert_allclose
 from nose.tools import assert_raises, assert_equal
@@ -140,14 +141,16 @@ def create_categorical_sensor(timestamps, values, initial_value=None):
                                  1.0, initial_value=initial_value)
 
 
-TARGET_SENSOR = create_categorical_sensor(GAIN_EVENTS,
-                                          np.arange(len(GAIN_EVENTS)) % 2)
+TARGETS = np.array([katpoint.Target('gaincal1, radec, 0, -90'),
+                    katpoint.Target('other | gaincal2, radec, 0, -80')])
+TARGET_INDICES = np.arange(len(GAIN_EVENTS)) % 2
+TARGET_SENSOR = create_categorical_sensor(GAIN_EVENTS, TARGETS[TARGET_INDICES])
 
 
 def create_sensor_cache(bandpass_parts=BANDPASS_PARTS):
     """Create a SensorCache for testing applycal sensors."""
     cache = {}
-    cache['Observation/target_index'] = TARGET_SENSOR
+    cache['Observation/target'] = TARGET_SENSOR
     # Add delay product
     delays = create_product(create_delay)
     sensor = create_categorical_sensor([3., 10.], [np.zeros_like(delays), delays])
@@ -374,7 +377,7 @@ class TestCorrectionPerInput(object):
 
     def test_calc_selfcal_gain_correction(self):
         product_sensor = get_cal_product(self.cache, ATTRS, CAL_STREAM, 'GPHASE')
-        target_sensor = self.cache.get('Observation/target_index')
+        target_sensor = self.cache.get('Observation/target')
         for n in range(len(ANTS)):
             for m in range(len(POLS)):
                 sensor = calc_gain_correction(product_sensor, (m, n), target_sensor)
