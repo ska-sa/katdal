@@ -33,6 +33,7 @@ import base64
 import warnings
 import copy
 import json
+import time
 
 import defusedxml.ElementTree
 import defusedxml.cElementTree
@@ -244,6 +245,11 @@ def decode_jwt(token):
         # This covers e.g. bad characters in the signature or non-JSON-dict payload
         raise_from(InvalidToken(token, "Could not decode token - maybe it's truncated "
                                        "or corrupted? ({})".format(err)), err)
+    except jwt.exceptions.ExpiredSignatureError as err:
+        claims = jwt.decode(token, verify=False)
+        exp_time = time.strftime('%d-%b-%Y %H:%M:%S', time.gmtime(claims['exp']))
+        raise_from(InvalidToken(token, 'Token expired at {} UTC, please '
+                                'obtain a new one'.format(exp_time)), err)
     except jwt.exceptions.InvalidTokenError as err:
         raise_from(InvalidToken(token, str(err)), err)
     return claims
