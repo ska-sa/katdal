@@ -65,11 +65,11 @@ from katdal.test.test_chunkstore import ChunkStoreTestBase
 
 BUCKET = 'katdal-unittest'
 # Pick quick but different timeouts and retries for unit tests:
-#  - The effective connect timeout is 0.2 (initial) + 0.2 (1 retry) = 0.4 seconds
+#  - The effective connect timeout is 5.0 (initial) + 5.0 (1 retry) = 10 seconds
 #  - The effective read timeout is 0.4 + 0.4 = 0.8 seconds
 #  - The effective status timeout is 0.1 * (0 + 2 + 4) = 0.6 seconds, or
 #    4 * 0.1 + 0.6 = 1.0 second if the suggestions use SUGGESTED_STATUS_DELAY
-TIMEOUT = (0.2, 0.4)
+TIMEOUT = (5.0, 0.4)
 RETRY = Retry(connect=1, read=1, status=3, backoff_factor=0.1,
               raise_on_status=False, status_forcelist=_DEFAULT_SERVER_GLITCHES)
 SUGGESTED_STATUS_DELAY = 0.1
@@ -301,14 +301,14 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         y = reader.get_chunk('public/x', slices, x.dtype)
         np.testing.assert_array_equal(x, y)
 
-    @timed(0.4 + 0.2)
+    @timed(0.1 + 0.2)
     def test_store_unavailable_unresponsive_server(self):
         host = '127.0.0.1'
         with get_free_port(host) as port:
             url = 'http://{}:{}/'.format(host, port)
-            store = S3ChunkStore(url, timeout=TIMEOUT, retries=RETRY)
+            store = S3ChunkStore(url, timeout=0.1, retries=0)
             with assert_raises(StoreUnavailable):
-                store.is_complete('irrelevant_since_store_is_not_listening')
+                store.is_complete('store_is_not_listening_on_that_port')
 
     def test_token_without_https(self):
         # Don't allow users to leak their tokens by accident
