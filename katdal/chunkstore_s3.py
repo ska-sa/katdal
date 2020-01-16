@@ -248,7 +248,7 @@ def decode_jwt(token):
     except jwt.exceptions.ExpiredSignatureError as err:
         claims = jwt.decode(token, verify=False)
         exp_time = time.strftime('%d-%b-%Y %H:%M:%S', time.gmtime(claims['exp']))
-        raise_from(InvalidToken(token, 'Token has expired on {} UTC, please '
+        raise_from(InvalidToken(token, 'Token expired at {} UTC, please '
                                 'obtain a new one'.format(exp_time)), err)
     except jwt.exceptions.InvalidTokenError as err:
         raise_from(InvalidToken(token, str(err)), err)
