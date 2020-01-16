@@ -613,6 +613,9 @@ class S3ChunkStore(ChunkStore):
         """See the docstring of :meth:`ChunkStore.create_array`."""
         # Array name is formatted as bucket/array but we only need to create bucket
         bucket, _ = self.split(array_name, 1)
+        self._create_bucket(bucket)
+
+    def _create_bucket(self, bucket):
         url = urllib.parse.urljoin(self._url, to_str(urllib.parse.quote(bucket)))
         # Make bucket (409 indicates the bucket already exists, which is OK)
         self.complete_request('PUT', url, ignored_errors=(409,))
@@ -699,7 +702,8 @@ class S3ChunkStore(ChunkStore):
 
     def mark_complete(self, array_name):
         """See the docstring of :meth:`ChunkStore.mark_complete`."""
-        self.create_array(array_name)
+        bucket = self.split(array_name, 1)[0]
+        self._create_bucket(bucket)
         obj_name = self.join(array_name, 'complete')
         url = urllib.parse.urljoin(self._url, obj_name)
         self.complete_request('PUT', url, obj_name, data=b'')
