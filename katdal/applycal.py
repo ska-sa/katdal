@@ -246,7 +246,39 @@ def calc_gain_correction(sensor, index, targets=None):
     return np.reciprocal(smooth_gains)
 
 
-def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=None):
+def calibrate_flux(sensor, targets, gaincal_fluxes):
+    """Apply flux scale to calibrator gains (aka flux calibration).
+
+    Given the gain calibration solution `sensor`, this identifies the target
+    associated with each set of solutions by looking up the gain events in the
+    `targets` sensor, and then scales the gains by the square root of the
+    relevant flux if a valid match is found in the `gaincal_fluxes` dict. This
+    is equivalent to the final step of the AIPS GETJY and CASA fluxscale tasks.
+    """
+    # If no calibration info is available, do nothing
+    if not gaincal_fluxes:
+        return sensor
+    calibrated_gains = []
+    for segment, gains in sensor.segments():
+        # Ignore "invalid gain" placeholder (typically the initial value)
+        if gains is INVALID_GAIN:
+            calibrated_gains.append(ComparableArrayWrapper(gains))
+            continue
+        # Find the target at the time of the gain solution (i.e. gain calibrator)
+        target = targets[segment.start]
+        for name in [target.name] + target.aliases:
+            flux = gaincal_fluxes.get(name, np.nan)
+            # Scale the gains if a valid flux density was found for this target
+            if flux > 0.0:
+                calibrated_gains.append(ComparableArrayWrapper(gains * np.sqrt(flux)))
+                break
+        else:
+            calibrated_gains.append(ComparableArrayWrapper(gains))
+    return CategoricalData(calibrated_gains, sensor.events)
+
+
+def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=None,
+                         gaincal_fluxes=None):
     """Register virtual sensors for one calibration stream.
 
     This operates on a single calibration stream called `cal_stream` (possibly
@@ -276,6 +308,9 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
     cal_substreams : sequence of string, optional
         Names of actual underlying calibration streams (e.g. ["cal"]),
         defaults to [`cal_stream`] itself
+    gaincal_fluxes : dict mapping string to float, optional
+        Flux density per gaincal target name, used to flux calibrate the "G"
+        product, defaults to the measured flux stored in `attrs` (if available)
 
     Returns
     -------
@@ -302,6 +337,8 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
                        "spectral attributes", cal_stream)
         return
     targets = cache.get('Observation/target')
+    if gaincal_fluxes is None:
+        gaincal_fluxes = attrs.get('measured_flux', {})
 
     def indirect_cal_product(cache, name, product_type):
         # XXX The first underscore below is actually a telstate separator...
@@ -342,6 +379,7 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
             correction_sensor = calc_bandpass_correction(product_sensor, index,
                                                          data_freqs, cal_freqs)
         elif product_type == 'G':
+            product_sensor = calibrate_flux(product_sensor, targets, gaincal_fluxes)
             correction_sensor = calc_gain_correction(product_sensor, index)
         elif product_type in ('GPHASE', 'GAMP_PHASE'):
             correction_sensor = calc_gain_correction(product_sensor, index, targets)

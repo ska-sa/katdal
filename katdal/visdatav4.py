@@ -142,6 +142,10 @@ class VisibilityDataV4(DataSet):
         while the keyword 'all' means all available products will be applied.
         *NB* In future the default will probably change to 'all'.
         *NB* This is still very much an experimental feature...
+    gaincal_fluxes : dict mapping string to float, optional
+        Flux density (in Jy) per gaincal target name, used to flux calibrate
+        the "G" product, defaults to the measured flux produced by cal pipeline
+        (if available). An empty dict will disable flux calibration.
     sensor_store : string, optional
         Hostname / endpoint of katstore webserver to access additional sensors
     kwargs : dict, optional
@@ -149,7 +153,7 @@ class VisibilityDataV4(DataSet):
 
     """
     def __init__(self, source, ref_ant='', time_offset=0.0, applycal='',
-                 sensor_store=None, **kwargs):
+                 gaincal_fluxes=None, sensor_store=None, **kwargs):
         DataSet.__init__(self, source.name, ref_ant, time_offset)
         attrs = source.metadata.attrs
 
@@ -387,7 +391,7 @@ class VisibilityDataV4(DataSet):
 
         # ------ Register applycal virtual sensors and products ------
 
-        cal_freqs = self._register_standard_cal_streams()
+        cal_freqs = self._register_standard_cal_streams(gaincal_fluxes)
         normalised_cal_products, skip_missing_products = _normalise_cal_products(
             applycal, cal_freqs.keys())
         if not self.source.data or not normalised_cal_products:
@@ -421,7 +425,7 @@ class VisibilityDataV4(DataSet):
         # on selection in the process
         self.select(spw=0, subarray=0, ants=obs_ants)
 
-    def _register_standard_cal_streams(self):
+    def _register_standard_cal_streams(self, gaincal_fluxes):
         freqs = self.spectral_windows[0].channel_freqs
         attrs = self.source.metadata.attrs
         archived_streams = attrs.get('sdp_archived_streams', [])
@@ -442,7 +446,8 @@ class VisibilityDataV4(DataSet):
         # XXX This assumes that `attrs` is a telstate and not a dict-like
         l1_attrs = attrs.view(l1_stream, exclusive=True)
         l1_freqs = add_applycal_sensors(self.sensor, l1_attrs, freqs,
-                                        cal_stream='l1', cal_substreams=[l1_stream])
+                                        cal_stream='l1', cal_substreams=[l1_stream],
+                                        gaincal_fluxes=gaincal_fluxes)
         if l1_freqs is not None:
             cal_freqs['l1'] = l1_freqs
         if l2_streams:
@@ -451,7 +456,8 @@ class VisibilityDataV4(DataSet):
             for prefix in reversed(attrs.prefixes):
                 l2_attrs = l2_attrs.view(prefix + l2_streams[0])
             l2_freqs = add_applycal_sensors(self.sensor, l2_attrs, freqs,
-                                            cal_stream='l2', cal_substreams=l2_streams)
+                                            cal_stream='l2', cal_substreams=l2_streams,
+                                            gaincal_fluxes=gaincal_fluxes)
             if l2_freqs is not None:
                 cal_freqs['l2'] = l2_freqs
         return cal_freqs
