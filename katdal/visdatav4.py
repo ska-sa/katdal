@@ -456,8 +456,7 @@ class VisibilityDataV4(DataSet):
             for prefix in reversed(attrs.prefixes):
                 l2_attrs = l2_attrs.view(prefix + l2_streams[0])
             l2_freqs = add_applycal_sensors(self.sensor, l2_attrs, freqs,
-                                            cal_stream='l2', cal_substreams=l2_streams,
-                                            gaincal_fluxes=gaincal_fluxes)
+                                            cal_stream='l2', cal_substreams=l2_streams)
             if l2_freqs is not None:
                 cal_freqs['l2'] = l2_freqs
         return cal_freqs
