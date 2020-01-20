@@ -313,7 +313,7 @@ class TestCalProductAccess(object):
     """Test the :func:`~katdal.applycal.*_cal_product` functions."""
     def setup(self):
         self.cache = create_sensor_cache()
-        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM, gaincal_fluxes=None)
+        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM, gaincal_flux=None)
 
     def test_get_cal_product_basic(self):
         product_sensor = get_cal_product(self.cache, ATTRS, CAL_STREAM, 'K')
@@ -367,7 +367,7 @@ class TestCorrectionPerInput(object):
     """Test the :func:`~katdal.applycal.calc_*_correction` functions."""
     def setup(self):
         self.cache = create_sensor_cache()
-        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM, gaincal_fluxes=None)
+        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM, gaincal_flux=None)
 
     def test_calc_delay_correction(self):
         product_sensor = get_cal_product(self.cache, ATTRS, CAL_STREAM, 'K')
@@ -411,17 +411,17 @@ class TestVirtualCorrectionSensors(object):
     """Test :func:`~katdal.applycal.add_applycal_sensors` function."""
     def setup(self):
         self.cache = create_sensor_cache()
-        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM, gaincal_fluxes=None)
+        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM, gaincal_flux=None)
 
     def test_add_sensors_does_nothing_if_no_ants_pols_or_spw(self):
         cache = create_sensor_cache()
         n_virtuals_before = len(cache.virtual)
-        add_applycal_sensors(cache, {}, [], CAL_STREAM, gaincal_fluxes=None)
+        add_applycal_sensors(cache, {}, [], CAL_STREAM, gaincal_flux=None)
         n_virtuals_after = len(cache.virtual)
         assert_equal(n_virtuals_after, n_virtuals_before)
         attrs = ATTRS.copy()
         del attrs['center_freq']
-        add_applycal_sensors(self.cache, attrs, FREQS, CAL_STREAM, gaincal_fluxes=None)
+        add_applycal_sensors(self.cache, attrs, FREQS, CAL_STREAM, gaincal_flux=None)
         n_virtuals_after = len(cache.virtual)
         assert_equal(n_virtuals_after, n_virtuals_before)
 
@@ -473,7 +473,7 @@ class TestVirtualCorrectionSensors(object):
 
     def test_indirect_cal_product(self):
         add_applycal_sensors(self.cache, ATTRS, FREQS, 'my_cal', [CAL_STREAM],
-                             gaincal_fluxes=None)
+                             gaincal_flux=None)
         self.test_delay_sensors('my_cal')
         self.test_bandpass_sensors('my_cal')
         self.test_gain_sensors('my_cal')
@@ -514,7 +514,7 @@ class TestCalcCorrection(object):
         self.cache = create_sensor_cache()
         # Include fluxcal, which is also done in corrections_per_corrprod
         add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM,
-                             gaincal_fluxes=FLUX_OVERRIDES)
+                             gaincal_flux=FLUX_OVERRIDES)
 
     def test_calc_correction(self):
         dump = 15
@@ -565,7 +565,7 @@ class TestApplyCal(object):
     """Test :func:`~katdal.applycal.apply_vis_correction` and friends"""
     def setup(self):
         self.cache = create_sensor_cache()
-        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM, gaincal_fluxes=None)
+        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM, gaincal_flux=None)
 
     def _applycal(self, array, apply_correction):
         """Calibrate `array` with `apply_correction` and return all factors."""

@@ -142,7 +142,7 @@ class VisibilityDataV4(DataSet):
         while the keyword 'all' means all available products will be applied.
         *NB* In future the default will probably change to 'all'.
         *NB* This is still very much an experimental feature...
-    gaincal_fluxes : dict mapping string to float, optional
+    gaincal_flux : dict mapping string to float, optional
         Flux density (in Jy) per gaincal target name, used to flux calibrate
         the "G" product, overriding the measured flux produced by cal pipeline
         (if available). A value of None disables flux calibration.
@@ -153,7 +153,7 @@ class VisibilityDataV4(DataSet):
 
     """
     def __init__(self, source, ref_ant='', time_offset=0.0, applycal='',
-                 gaincal_fluxes={}, sensor_store=None, **kwargs):
+                 gaincal_flux={}, sensor_store=None, **kwargs):
         DataSet.__init__(self, source.name, ref_ant, time_offset)
         attrs = source.metadata.attrs
 
@@ -391,7 +391,7 @@ class VisibilityDataV4(DataSet):
 
         # ------ Register applycal virtual sensors and products ------
 
-        cal_freqs = self._register_standard_cal_streams(gaincal_fluxes)
+        cal_freqs = self._register_standard_cal_streams(gaincal_flux)
         normalised_cal_products, skip_missing_products = _normalise_cal_products(
             applycal, cal_freqs.keys())
         if not self.source.data or not normalised_cal_products:
@@ -425,7 +425,7 @@ class VisibilityDataV4(DataSet):
         # on selection in the process
         self.select(spw=0, subarray=0, ants=obs_ants)
 
-    def _register_standard_cal_streams(self, gaincal_fluxes):
+    def _register_standard_cal_streams(self, gaincal_flux):
         freqs = self.spectral_windows[0].channel_freqs
         attrs = self.source.metadata.attrs
         archived_streams = attrs.get('sdp_archived_streams', [])
@@ -447,7 +447,7 @@ class VisibilityDataV4(DataSet):
         l1_attrs = attrs.view(l1_stream, exclusive=True)
         l1_freqs = add_applycal_sensors(self.sensor, l1_attrs, freqs,
                                         cal_stream='l1', cal_substreams=[l1_stream],
-                                        gaincal_fluxes=gaincal_fluxes)
+                                        gaincal_flux=gaincal_flux)
         if l1_freqs is not None:
             cal_freqs['l1'] = l1_freqs
         if l2_streams:
