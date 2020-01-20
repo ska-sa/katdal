@@ -278,7 +278,7 @@ def calibrate_flux(sensor, targets, gaincal_fluxes):
 
 
 def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=None,
-                         gaincal_fluxes=None):
+                         gaincal_fluxes={}):
     """Register virtual sensors for one calibration stream.
 
     This operates on a single calibration stream called `cal_stream` (possibly
@@ -309,8 +309,9 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
         Names of actual underlying calibration streams (e.g. ["cal"]),
         defaults to [`cal_stream`] itself
     gaincal_fluxes : dict mapping string to float, optional
-        Flux density per gaincal target name, used to flux calibrate the "G"
-        product, defaults to the measured flux stored in `attrs` (if available)
+        Flux density (in Jy) per gaincal target name, used to flux calibrate
+        the "G" product, overriding the measured flux stored in `attrs`
+        (if available). A value of None disables flux calibration.
 
     Returns
     -------
@@ -337,8 +338,13 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
                        "spectral attributes", cal_stream)
         return
     targets = cache.get('Observation/target')
+    # Override pipeline fluxes (or disable flux calibration)
     if gaincal_fluxes is None:
-        gaincal_fluxes = attrs.get('measured_flux', {})
+        gaincal_fluxes = {}
+    else:
+        measured_flux = attrs.get('measured_flux', {}).copy()
+        measured_flux.update(gaincal_fluxes)
+        gaincal_fluxes = measured_flux
 
     def indirect_cal_product(cache, name, product_type):
         # XXX The first underscore below is actually a telstate separator...

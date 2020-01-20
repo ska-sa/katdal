@@ -144,8 +144,8 @@ class VisibilityDataV4(DataSet):
         *NB* This is still very much an experimental feature...
     gaincal_fluxes : dict mapping string to float, optional
         Flux density (in Jy) per gaincal target name, used to flux calibrate
-        the "G" product, defaults to the measured flux produced by cal pipeline
-        (if available). An empty dict will disable flux calibration.
+        the "G" product, overriding the measured flux produced by cal pipeline
+        (if available). A value of None disables flux calibration.
     sensor_store : string, optional
         Hostname / endpoint of katstore webserver to access additional sensors
     kwargs : dict, optional
@@ -153,7 +153,7 @@ class VisibilityDataV4(DataSet):
 
     """
     def __init__(self, source, ref_ant='', time_offset=0.0, applycal='',
-                 gaincal_fluxes=None, sensor_store=None, **kwargs):
+                 gaincal_fluxes={}, sensor_store=None, **kwargs):
         DataSet.__init__(self, source.name, ref_ant, time_offset)
         attrs = source.metadata.attrs
 
