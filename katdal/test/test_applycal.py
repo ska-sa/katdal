@@ -19,6 +19,7 @@ from __future__ import print_function, division, absolute_import
 from builtins import object, range
 from functools import partial
 
+import katpoint
 import numpy as np
 from numpy.testing import assert_array_equal, assert_allclose
 from nose.tools import assert_raises, assert_equal
@@ -32,7 +33,7 @@ from katdal.applycal import (complex_interp, get_cal_product, INVALID_GAIN,
                              calc_delay_correction, calc_bandpass_correction,
                              calc_gain_correction, apply_vis_correction,
                              apply_weights_correction, apply_flags_correction,
-                             add_applycal_sensors, calc_correction)
+                             add_applycal_sensors, calc_correction, calibrate_flux)
 from katdal.flags import POSTPROC
 
 
@@ -70,10 +71,23 @@ GAIN_EVENTS = list(range(10, N_DUMPS, 10))
 BAD_GAIN_ANT = 3
 BAD_GAIN_DUMPS = [20, 40]
 
+TARGETS = np.array([katpoint.Target('gaincal1, radec, 0, -90'),
+                    katpoint.Target('other | gaincal2, radec, 0, -80')])
+TARGET_INDICES = np.arange(len(GAIN_EVENTS)) % 2
+FLUX_VALUES = np.array([16.0, 4.0])
+FLUX_SCALE_FACTORS = np.sqrt(FLUX_VALUES[TARGET_INDICES])
+FLUXES = {'gaincal1': FLUX_VALUES[0], 'gaincal2': FLUX_VALUES[1]}
+# The measured flux for gaincal1 is wrong on purpose so that we have to
+# override it. There is also an extra unknown gain calibrator in the mix.
+PIPELINE_FLUXES = {'gaincal1': FLUX_VALUES[0] / 2, 'gaincal2': FLUX_VALUES[1],
+                   'unknown_gaincal': 10.0}
+FLUX_OVERRIDES = {'gaincal1': FLUX_VALUES[0]}
+
 CAL_STREAM = 'cal'
 ATTRS = {'antlist': ANTS, 'pol_ordering': POLS,
          'center_freq': CAL_CENTRE_FREQ, 'bandwidth': CAL_BANDWIDTH,
-         'n_chans': CAL_N_CHANS, 'product_B_parts': BANDPASS_PARTS}
+         'n_chans': CAL_N_CHANS, 'product_B_parts': BANDPASS_PARTS,
+         'measured_flux': PIPELINE_FLUXES}
 CAL_PRODUCT_TYPES = ('K', 'B', 'G', 'GPHASE')
 CAL_PRODUCTS = ['{}.{}'.format(CAL_STREAM, prod) for prod in CAL_PRODUCT_TYPES]
 
@@ -94,12 +108,13 @@ def create_bandpass(pol, ant):
     return bp.astype(np.complex64)
 
 
-def create_gain(pol, ant, multi_channel=False, targets=False):
+def create_gain(pol, ant, multi_channel=False, targets=False, fluxes=False):
     """Synthesise a gain time series from `pol`, `ant` indices and events.
 
     The gain can also vary with frequency a la GPHASE if `multi_channel` is
     True, in which case all valid gains are also normalised to magnitude 1 to
-    resemble GPHASE.
+    resemble GPHASE. Optionally tweak the gains to reflect the effect of flux
+    calibration and target-dependent gains.
     """
     events = np.array(GAIN_EVENTS)
     gains = np.ones_like(events, dtype=np.complex64)
@@ -108,6 +123,8 @@ def create_gain(pol, ant, multi_channel=False, targets=False):
     # The gain phase drifts as a function of time but over a limited range
     # so that the target index can be reflected in the sign of the gain
     gains *= factor * np.exp(2j * np.pi * events / N_DUMPS / 12)
+    if fluxes:
+        gains *= FLUX_SCALE_FACTORS
     if targets:
         gains *= (-1) ** np.arange(len(GAIN_EVENTS))
     if multi_channel:
@@ -140,14 +157,13 @@ def create_categorical_sensor(timestamps, values, initial_value=None):
                                  1.0, initial_value=initial_value)
 
 
-TARGET_SENSOR = create_categorical_sensor(GAIN_EVENTS,
-                                          np.arange(len(GAIN_EVENTS)) % 2)
+TARGET_SENSOR = create_categorical_sensor(GAIN_EVENTS, TARGETS[TARGET_INDICES])
 
 
 def create_sensor_cache(bandpass_parts=BANDPASS_PARTS):
     """Create a SensorCache for testing applycal sensors."""
     cache = {}
-    cache['Observation/target_index'] = TARGET_SENSOR
+    cache['Observation/target'] = TARGET_SENSOR
     # Add delay product
     delays = create_product(create_delay)
     sensor = create_categorical_sensor([3., 10.], [np.zeros_like(delays), delays])
@@ -189,11 +205,11 @@ def bandpass_corrections(pol, ant):
     return np.reciprocal(bp)
 
 
-def gain_corrections(pol, ant, multi_channel=False, targets=False):
+def gain_corrections(pol, ant, multi_channel=False, targets=False, fluxes=False):
     """Figure out N_DUMPS gain corrections given `pol` and `ant` indices."""
     dumps = np.arange(N_DUMPS)
     events = np.array(GAIN_EVENTS)
-    gains = create_gain(pol, ant, multi_channel, targets)
+    gains = create_gain(pol, ant, multi_channel, targets, fluxes)
     gains = np.atleast_2d(gains.T)
     targets = TARGET_SENSOR if targets else CategoricalData([0], [0, len(dumps)])
     smooth_gains = np.empty((N_DUMPS, gains.shape[0]), dtype=gains.dtype)
@@ -218,7 +234,8 @@ def corrections_per_corrprod(dumps, channels, cal_products):
                                      for inp in INPUTS]).T,
         CAL_STREAM + '.B': np.array([bandpass_corrections(*input_map[inp])
                                      for inp in INPUTS]).T,
-        CAL_STREAM + '.G': np.array([gain_corrections(*input_map[inp])[dumps]
+        CAL_STREAM + '.G': np.array([gain_corrections(*input_map[inp],
+                                                      fluxes=True)[dumps]
                                      for inp in INPUTS]).T,
         CAL_STREAM + '.GPHASE': np.array([gain_corrections(*input_map[inp],
                                                            multi_channel=True,
@@ -233,6 +250,14 @@ def corrections_per_corrprod(dumps, channels, cal_products):
     gain1 = gains_per_input[:, :, INDEX1]
     gain2 = gains_per_input[:, :, INDEX2]
     return gain1 * gain2.conj()
+
+
+def assert_categorical_data_equal(actual, desired):
+    """Assert that two :class:`CategoricalData` objects are equal."""
+    assert_array_equal(actual.events, desired.events)
+    assert_equal(len(actual.unique_values), len(desired.unique_values))
+    for a, d in zip(actual.unique_values, desired.unique_values):
+        assert_array_equal(a, d)
 
 
 class TestComplexInterp(object):
@@ -288,7 +313,7 @@ class TestCalProductAccess(object):
     """Test the :func:`~katdal.applycal.*_cal_product` functions."""
     def setup(self):
         self.cache = create_sensor_cache()
-        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM)
+        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM, gaincal_flux=None)
 
     def test_get_cal_product_basic(self):
         product_sensor = get_cal_product(self.cache, ATTRS, CAL_STREAM, 'K')
@@ -342,7 +367,7 @@ class TestCorrectionPerInput(object):
     """Test the :func:`~katdal.applycal.calc_*_correction` functions."""
     def setup(self):
         self.cache = create_sensor_cache()
-        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM)
+        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM, gaincal_flux=None)
 
     def test_calc_delay_correction(self):
         product_sensor = get_cal_product(self.cache, ATTRS, CAL_STREAM, 'K')
@@ -374,7 +399,7 @@ class TestCorrectionPerInput(object):
 
     def test_calc_selfcal_gain_correction(self):
         product_sensor = get_cal_product(self.cache, ATTRS, CAL_STREAM, 'GPHASE')
-        target_sensor = self.cache.get('Observation/target_index')
+        target_sensor = self.cache.get('Observation/target')
         for n in range(len(ANTS)):
             for m in range(len(POLS)):
                 sensor = calc_gain_correction(product_sensor, (m, n), target_sensor)
@@ -386,17 +411,17 @@ class TestVirtualCorrectionSensors(object):
     """Test :func:`~katdal.applycal.add_applycal_sensors` function."""
     def setup(self):
         self.cache = create_sensor_cache()
-        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM)
+        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM, gaincal_flux=None)
 
     def test_add_sensors_does_nothing_if_no_ants_pols_or_spw(self):
         cache = create_sensor_cache()
         n_virtuals_before = len(cache.virtual)
-        add_applycal_sensors(cache, {}, [], CAL_STREAM)
+        add_applycal_sensors(cache, {}, [], CAL_STREAM, gaincal_flux=None)
         n_virtuals_after = len(cache.virtual)
         assert_equal(n_virtuals_after, n_virtuals_before)
         attrs = ATTRS.copy()
         del attrs['center_freq']
-        add_applycal_sensors(self.cache, attrs, FREQS, CAL_STREAM)
+        add_applycal_sensors(self.cache, attrs, FREQS, CAL_STREAM, gaincal_flux=None)
         n_virtuals_after = len(cache.virtual)
         assert_equal(n_virtuals_after, n_virtuals_before)
 
@@ -447,17 +472,49 @@ class TestVirtualCorrectionSensors(object):
             self.cache.get('Calibration/Products/unknown/K')
 
     def test_indirect_cal_product(self):
-        add_applycal_sensors(self.cache, ATTRS, FREQS, 'my_cal', [CAL_STREAM])
+        add_applycal_sensors(self.cache, ATTRS, FREQS, 'my_cal', [CAL_STREAM],
+                             gaincal_flux=None)
         self.test_delay_sensors('my_cal')
         self.test_bandpass_sensors('my_cal')
         self.test_gain_sensors('my_cal')
+
+
+class TestCalibrateFlux(object):
+    """Test :func:`~katdal.applycal.calibrate_flux` function."""
+
+    def setup(self):
+        gains = create_product(create_gain)
+        self.sensor = create_categorical_sensor(GAIN_EVENTS, gains, INVALID_GAIN)
+        calibrated_gains = create_product(partial(create_gain, fluxes=True))
+        self.calibrated_sensor = create_categorical_sensor(
+            GAIN_EVENTS, calibrated_gains, INVALID_GAIN)
+
+    def test_basic(self):
+        fluxes = FLUXES.copy()
+        calibrated_sensor = calibrate_flux(self.sensor, TARGET_SENSOR, fluxes)
+        assert_categorical_data_equal(calibrated_sensor, self.calibrated_sensor)
+        fluxes.update(gaincal3=10.0)
+        calibrated_sensor = calibrate_flux(self.sensor, TARGET_SENSOR, fluxes)
+        assert_categorical_data_equal(calibrated_sensor, self.calibrated_sensor)
+
+    def test_missing_fluxes(self):
+        calibrated_sensor = calibrate_flux(self.sensor, TARGET_SENSOR, {})
+        assert_categorical_data_equal(calibrated_sensor, self.sensor)
+        calibrated_sensor = calibrate_flux(self.sensor, TARGET_SENSOR,
+                                           {'gaincal1': np.nan})
+        assert_categorical_data_equal(calibrated_sensor, self.sensor)
+        calibrated_sensor = calibrate_flux(self.sensor, TARGET_SENSOR,
+                                           {'gaincal1': 1.0})
+        assert_categorical_data_equal(calibrated_sensor, self.sensor)
 
 
 class TestCalcCorrection(object):
     """Test :func:`~katdal.applycal.calc_correction` function."""
     def setup(self):
         self.cache = create_sensor_cache()
-        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM)
+        # Include fluxcal, which is also done in corrections_per_corrprod
+        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM,
+                             gaincal_flux=FLUX_OVERRIDES)
 
     def test_calc_correction(self):
         dump = 15
@@ -508,7 +565,7 @@ class TestApplyCal(object):
     """Test :func:`~katdal.applycal.apply_vis_correction` and friends"""
     def setup(self):
         self.cache = create_sensor_cache()
-        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM)
+        add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM, gaincal_flux=None)
 
     def _applycal(self, array, apply_correction):
         """Calibrate `array` with `apply_correction` and return all factors."""
