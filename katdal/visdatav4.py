@@ -458,15 +458,14 @@ class VisibilityDataV4(DataSet):
         freqs = self.spectral_windows[0].channel_freqs
         cal_freqs = {}
         l1_attrs = _relative_view(attrs, l1_stream)
-        l1_freqs = add_applycal_sensors(self.sensor, l1_attrs, freqs,
-                                        cal_stream='l1', cal_substreams=[l1_stream],
-                                        gaincal_flux=gaincal_flux)
+        l1_freqs = add_applycal_sensors(self.sensor, l1_attrs, freqs, cal_stream='l1',
+                                        cal_substreams=[l1_stream], gaincal_flux=gaincal_flux)
         if l1_freqs is not None:
             cal_freqs['l1'] = l1_freqs
         if l2_streams:
             l2_attrs = _relative_view(attrs, l2_streams[0])
-            l2_freqs = add_applycal_sensors(self.sensor, l2_attrs, freqs,
-                                            cal_stream='l2', cal_substreams=l2_streams)
+            l2_freqs = add_applycal_sensors(self.sensor, l2_attrs, freqs, cal_stream='l2',
+                                            cal_substreams=l2_streams, gaincal_flux=None)
             if l2_freqs is not None:
                 cal_freqs['l2'] = l2_freqs
         return cal_freqs
