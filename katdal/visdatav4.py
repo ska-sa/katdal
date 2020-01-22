@@ -435,25 +435,28 @@ class VisibilityDataV4(DataSet):
         self.select(spw=0, subarray=0, ants=obs_ants)
 
     def _register_standard_cal_streams(self, gaincal_flux):
-        freqs = self.spectral_windows[0].channel_freqs
+        """Find L1 and L2 cal streams and register their virtual sensors."""
         # XXX This assumes that `attrs` is a telstate and not a dict-like
         attrs = self.source.metadata.attrs
-        archived_streams = attrs.get('sdp_archived_streams', [])
-        # The default L1 cal stream, useful for older files
-        l1_stream = 'cal'
-        for stream in archived_streams:
-            if attrs.view(stream).get('stream_type') == 'sdp.cal':
-                l1_stream = stream
-                break
+        # Find first L1 and L2 underlying cal streams by trawling through archived streams
+        l1_stream = ''
         l2_streams = []
+        archived_streams = attrs.get('sdp_archived_streams', [])
         for stream in archived_streams:
-            if attrs.view(stream).get('stream_type') == 'sdp.continuum_image':
-                targets = attrs.get(attrs.join(stream, 'targets'), {})
+            stream_attrs = _relative_view(attrs, stream)
+            stream_type = stream_attrs.get('stream_type')
+            if not l1_stream and stream_type == 'sdp.cal':
+                l1_stream = stream
+            elif not l2_streams and stream_type == 'sdp.continuum_image':
+                targets = stream_attrs.get('targets', {})
                 l2_streams = [attrs.join(stream, target + '_selfcal')
                               for target in targets.values()]
-                break
+        # The default L1 cal stream, useful for older files
+        if not l1_stream:
+            l1_stream = 'cal'
+        # Register virtual sensors for all streams, noting their channelisation
+        freqs = self.spectral_windows[0].channel_freqs
         cal_freqs = {}
-        # Add a relative view to the first L1 cal stream
         l1_attrs = _relative_view(attrs, l1_stream)
         l1_freqs = add_applycal_sensors(self.sensor, l1_attrs, freqs,
                                         cal_stream='l1', cal_substreams=[l1_stream],
@@ -461,7 +464,6 @@ class VisibilityDataV4(DataSet):
         if l1_freqs is not None:
             cal_freqs['l1'] = l1_freqs
         if l2_streams:
-            # Add a relative view to the first underlying L2 cal stream
             l2_attrs = _relative_view(attrs, l2_streams[0])
             l2_freqs = add_applycal_sensors(self.sensor, l2_attrs, freqs,
                                             cal_stream='l2', cal_substreams=l2_streams)
