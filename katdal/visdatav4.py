@@ -81,6 +81,15 @@ def _add_sensor_alias(cache, new_name, old_name):
         pass
 
 
+def _relative_view(telstate, name):
+    """Create a telstate view by appending `name` to all existing namespaces."""
+    prefix = telstate.prefixes[-1]
+    view = telstate.view(prefix + name, exclusive=True)
+    for prefix in reversed(telstate.prefixes[:-1]):
+        view = view.view(prefix + name)
+    return view
+
+
 def _normalise_cal_products(products, cal_streams):
     """"""
     requested_cal_products = _selection_to_list(products, all=cal_streams,
@@ -427,6 +436,7 @@ class VisibilityDataV4(DataSet):
 
     def _register_standard_cal_streams(self, gaincal_flux):
         freqs = self.spectral_windows[0].channel_freqs
+        # XXX This assumes that `attrs` is a telstate and not a dict-like
         attrs = self.source.metadata.attrs
         archived_streams = attrs.get('sdp_archived_streams', [])
         # The default L1 cal stream, useful for older files
@@ -443,8 +453,8 @@ class VisibilityDataV4(DataSet):
                               for target in targets.values()]
                 break
         cal_freqs = {}
-        # XXX This assumes that `attrs` is a telstate and not a dict-like
-        l1_attrs = attrs.view(l1_stream, exclusive=True)
+        # Add a relative view to the first L1 cal stream
+        l1_attrs = _relative_view(attrs, l1_stream)
         l1_freqs = add_applycal_sensors(self.sensor, l1_attrs, freqs,
                                         cal_stream='l1', cal_substreams=[l1_stream],
                                         gaincal_flux=gaincal_flux)
@@ -452,9 +462,7 @@ class VisibilityDataV4(DataSet):
             cal_freqs['l1'] = l1_freqs
         if l2_streams:
             # Add a relative view to the first underlying L2 cal stream
-            l2_attrs = attrs.root()
-            for prefix in reversed(attrs.prefixes):
-                l2_attrs = l2_attrs.view(prefix + l2_streams[0])
+            l2_attrs = _relative_view(attrs, l2_streams[0])
             l2_freqs = add_applycal_sensors(self.sensor, l2_attrs, freqs,
                                             cal_stream='l2', cal_substreams=l2_streams)
             if l2_freqs is not None:
