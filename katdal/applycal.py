@@ -251,8 +251,8 @@ def calibrate_flux(sensor, targets, gaincal_flux):
 
     Given the gain calibration solution `sensor`, this identifies the target
     associated with each set of solutions by looking up the gain events in the
-    `targets` sensor, and then scales the gains by the square root of the
-    relevant flux if a valid match is found in the `gaincal_flux` dict. This
+    `targets` sensor, and then scales the gains by the inverse square root of
+    the relevant flux if a valid match is found in the `gaincal_flux` dict. This
     is equivalent to the final step of the AIPS GETJY and CASA fluxscale tasks.
     """
     # If no calibration info is available, do nothing
@@ -270,7 +270,7 @@ def calibrate_flux(sensor, targets, gaincal_flux):
             flux = gaincal_flux.get(name, np.nan)
             # Scale the gains if a valid flux density was found for this target
             if flux > 0.0:
-                calibrated_gains.append(ComparableArrayWrapper(gains * np.sqrt(flux)))
+                calibrated_gains.append(ComparableArrayWrapper(gains / np.sqrt(flux)))
                 break
         else:
             calibrated_gains.append(ComparableArrayWrapper(gains))

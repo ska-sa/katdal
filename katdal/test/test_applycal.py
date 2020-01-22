@@ -75,7 +75,7 @@ TARGETS = np.array([katpoint.Target('gaincal1, radec, 0, -90'),
                     katpoint.Target('other | gaincal2, radec, 0, -80')])
 TARGET_INDICES = np.arange(len(GAIN_EVENTS)) % 2
 FLUX_VALUES = np.array([16.0, 4.0])
-FLUX_SCALE_FACTORS = np.sqrt(FLUX_VALUES[TARGET_INDICES])
+FLUX_SCALE_FACTORS = 1.0 / np.sqrt(FLUX_VALUES[TARGET_INDICES])
 FLUXES = {'gaincal1': FLUX_VALUES[0], 'gaincal2': FLUX_VALUES[1]}
 # The measured flux for gaincal1 is wrong on purpose so that we have to
 # override it. There is also an extra unknown gain calibrator in the mix.
