@@ -91,7 +91,7 @@ def _relative_view(telstate, name):
 
 
 def _normalise_cal_products(products, cal_streams):
-    """"""
+    """Expand user-supplied list of cal products into fully qualified versions."""
     requested_cal_products = _selection_to_list(products, all=cal_streams,
                                                 default=DEFAULT_CAL_PRODUCTS)
     skip_missing_products = products in ('all', 'default') or any(
