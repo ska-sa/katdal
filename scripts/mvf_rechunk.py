@@ -23,7 +23,6 @@ from katdal.chunkstore import ChunkStoreError
 from katdal.chunkstore_npy import NpyFileChunkStore
 from katdal.datasources import TelstateDataSource, view_capture_stream, infer_chunk_store
 from katdal.flags import DATA_LOST
-from katdal.applycal import from_block_function    # TODO: get from dask once available there
 
 
 class RechunkSpec(object):
@@ -51,14 +50,14 @@ class Array(object):
         dtype = chunk_info['dtype']
         self.data = store.get_dask_array(full_name, chunks, dtype)
         self.has_data = store.has_array(full_name, chunks, dtype)
-        self.lost_flags = from_block_function(
-            self._make_lost, shape=shape, chunks=chunks, dtype=np.uint8,
+        self.lost_flags = da.map_blocks(
+            self._make_lost, chunks=chunks, dtype=np.uint8,
             name='lost-flags-{}-{}'.format(self.stream_name, self.array_name))
 
     def _make_lost(self, block_info):
-        loc = block_info['array-location']
-        shape = [l[1] - l[0] for l in loc]
-        if self.has_data[block_info['chunk-location']]:
+        loc = block_info[None]['array-location']
+        shape = block_info[None]['chunk-shape']
+        if self.has_data[block_info[None]['chunk-location']]:
             return np.zeros(shape, np.uint8)
         else:
             return np.full(shape, DATA_LOST, np.uint8)
