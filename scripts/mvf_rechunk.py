@@ -74,7 +74,7 @@ def get_chunk_store(source, telstate, array):
 
 
 def comma_list(value):
-    return ','.split(value)
+    return value.split(',')
 
 
 def parse_args():
