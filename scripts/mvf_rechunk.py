@@ -216,7 +216,7 @@ def main():
     dest_file = os.path.join(args.dest, args.new_prefix or cbid, os.path.basename(url_parts.path))
     os.makedirs(os.path.dirname(dest_file), exist_ok=True)
     with RDBWriter(dest_file) as writer:
-        writer.save(telstate)
+        writer.save(telstate.backend)
 
 
 if __name__ == '__main__':
