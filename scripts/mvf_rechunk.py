@@ -23,7 +23,6 @@ from katdal.chunkstore import ChunkStoreError
 from katdal.chunkstore_npy import NpyFileChunkStore
 from katdal.datasources import TelstateDataSource, view_capture_stream, infer_chunk_store
 from katdal.flags import DATA_LOST
-from katdal.applycal import from_block_function    # TODO: get from dask once available there
 
 
 class RechunkSpec(object):
@@ -51,14 +50,14 @@ class Array(object):
         dtype = chunk_info['dtype']
         self.data = store.get_dask_array(full_name, chunks, dtype)
         self.has_data = store.has_array(full_name, chunks, dtype)
-        self.lost_flags = from_block_function(
-            self._make_lost, shape=shape, chunks=chunks, dtype=np.uint8,
+        self.lost_flags = da.map_blocks(
+            self._make_lost, chunks=chunks, dtype=np.uint8,
             name='lost-flags-{}-{}'.format(self.stream_name, self.array_name))
 
     def _make_lost(self, block_info):
-        loc = block_info['array-location']
-        shape = [l[1] - l[0] for l in loc]
-        if self.has_data[block_info['chunk-location']]:
+        loc = block_info[None]['array-location']
+        shape = block_info[None]['chunk-shape']
+        if self.has_data[block_info[None]['chunk-location']]:
             return np.zeros(shape, np.uint8)
         else:
             return np.full(shape, DATA_LOST, np.uint8)
@@ -75,7 +74,7 @@ def get_chunk_store(source, telstate, array):
 
 
 def comma_list(value):
-    return ','.split(value)
+    return value.split(',')
 
 
 def parse_args():
@@ -100,8 +99,11 @@ def parse_args():
 def get_streams(telstate, streams):
     """Determine streams to copy based on what the user asked for"""
     archived_streams = telstate.get('sdp_archived_streams', [])
+    archived_streams = [
+        stream for stream in archived_streams
+        if telstate.view(stream).get('stream_type') == 'sdp.vis']
     if not archived_streams:
-        raise RuntimeError('Source dataset does not contain any streams')
+        raise RuntimeError('Source dataset does not contain any visibility streams')
     if streams is None:
         streams = archived_streams
     else:
@@ -214,7 +216,7 @@ def main():
     dest_file = os.path.join(args.dest, args.new_prefix or cbid, os.path.basename(url_parts.path))
     os.makedirs(os.path.dirname(dest_file), exist_ok=True)
     with RDBWriter(dest_file) as writer:
-        writer.save(telstate)
+        writer.save(telstate.backend)
 
 
 if __name__ == '__main__':
