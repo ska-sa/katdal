@@ -101,7 +101,7 @@ def get_streams(telstate, streams):
     archived_streams = telstate.get('sdp_archived_streams', [])
     archived_streams = [
         stream for stream in archived_streams
-        if telstate.view(stream).get('stream_type') == 'sdp.vis']
+        if telstate.view(stream).get('stream_type') in {'sdp.vis', 'sdp.flags'}]
     if not archived_streams:
         raise RuntimeError('Source dataset does not contain any visibility streams')
     if streams is None:
