@@ -21,6 +21,7 @@ standard_library.install_aliases()  # noqa: 402
 from builtins import zip, object
 from future.utils import raise_from
 
+import itertools
 import urllib.parse
 import os.path
 import io
@@ -32,6 +33,8 @@ import numpy as np
 import dask.array as da
 from dask.array.rechunk import intersect_chunks
 from dask.core import literal
+from dask.highlevelgraph import HighLevelGraph
+import toolz
 import numba
 
 from .sensordata import TelstateSensorData, TelstateToStr
@@ -96,13 +99,22 @@ class VisFlagsWeights(object):
         return self.vis.shape
 
 
-def _apply_data_lost(orig_flags, lost, block_id):
-    mark = lost.data.get(block_id)
-    if not mark:
-        return orig_flags    # Common case - no data lost
-    flags = orig_flags.copy()
-    for idx in mark:
-        flags[idx] |= DATA_LOST
+def _default_zero(array, shape, dtype):
+    if array is None:
+        return np.zeros(shape, dtype)
+    else:
+        return array
+
+
+def _apply_data_lost(orig_flags, lost):
+    if not lost:
+        return orig_flags
+    flags = orig_flags
+    for chunk, slices in toolz.partition(2, lost):
+        if chunk is None:
+            if flags is orig_flags:
+                flags = orig_flags.copy()
+            flags[slices] |= DATA_LOST
     return flags
 
 
@@ -228,34 +240,78 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
         self.store = store
         self.vis_prefix = chunk_info['correlator_data']['prefix']
         darray = {}
-        has_arrays = []
         for array, info in chunk_info.items():
             array_name = store.join(info['prefix'], array)
             chunk_args = (array_name, info['chunks'], info['dtype'])
-            darray[array] = store.get_dask_array(*chunk_args)
-            # Find all missing chunks in array and convert to 'data_lost' flags
-            has_arrays.append((store.has_array(array_name, info['chunks'], info['dtype']),
-                               info['chunks']))
-        vis = darray['correlator_data']
+            errors = DATA_LOST if array == 'flags' else 'none'
+            darray[array] = store.get_dask_array(*chunk_args, errors=errors)
+        flags_orig_name = darray['flags'].name
         flags_raw_name = store.join(chunk_info['flags']['prefix'], 'flags_raw')
         # Combine original flags with data_lost indicating where values were lost from
         # other arrays.
-        lost = defaultdict(list)  # Maps chunk index to list of index expressions to mark as lost
-        for has_array, chunks in has_arrays:
+        lost_map = np.empty([len(c) for c in darray['flags'].chunks], dtype="O")
+        for index in np.ndindex(lost_map.shape):
+            lost_map[index] = []
+        for array_name, array in darray.items():
+            if array_name == 'flags':
+                continue
+            # Source keys may appear multiple times in the array, so to save
+            # memory we can pre-create the objects for the keys and reuse them
+            # (idea borrowed from dask.array.rechunk).
+            src_keys = np.empty([len(c) for c in array.chunks], dtype="O")
+            for index in np.ndindex(src_keys.shape):
+                src_keys[index] = (array.name,) + index
             # array may have fewer dimensions than flags
             # (specifically, for weights_channel).
-            if has_array.ndim < darray['flags'].ndim:
-                chunks += tuple((x,) for x in darray['flags'].shape[has_array.ndim:])
+            chunks = array.chunks
+            if array.ndim < darray['flags'].ndim:
+                chunks += tuple((x,) for x in darray['flags'].shape[array.ndim:])
             intersections = intersect_chunks(darray['flags'].chunks, chunks)
-            for has, pieces in zip(has_array.flat, intersections):
-                if not has:
-                    for piece in pieces:
-                        chunk_idx, slices = zip(*piece)
-                        lost[chunk_idx].append(slices)
-        # 'literal' is needed to prevent dask copying the dictionary for every
-        # chunk.
-        flags = da.map_blocks(_apply_data_lost, darray['flags'], dtype=np.uint8,
-                              name=flags_raw_name, lost=literal(lost))
+            src_indices = itertools.product(*(range(len(c)) for c in array.chunks))
+            for src_key, pieces in zip(src_keys.flat, intersections):
+                for piece in pieces:
+                    dst_index, slices = zip(*piece)
+                    # if src_index is missing, then the parts of dst_index
+                    # indicated by slices must be flagged.
+                    # TODO: fast path for when slices covers the whole chunk?
+                    lost_map[dst_index].extend([src_key, slices])
+        dsk = {
+            (flags_raw_name,) + key: (
+                _apply_data_lost,
+                (flags_orig_name,) + key,
+                value
+            ) for key, value in np.ndenumerate(lost_map)
+        }
+        dsk = HighLevelGraph.from_collections(
+            flags_raw_name, dsk, dependencies=list(darray.values())
+        )
+        flags = da.Array(dsk, flags_raw_name,
+                         chunks=darray['flags'].chunks,
+                         shape=darray['flags'].shape,
+                         dtype=darray['flags'].dtype)
+
+        # Turn missing blocks in the other arrays into zeros to make them
+        # valid dask arrays.
+        for array_name, array in darray.items():
+            if array_name == 'flags':
+                continue
+            new_name = 'filled-' + array.name
+            indices = itertools.product(*(range(len(c)) for c in array.chunks))
+            dsk = {
+                (new_name,) + index: (
+                    _default_zero,
+                    (array.name,) + index,
+                    shape,
+                    array.dtype
+                ) for index, shape in zip(indices, itertools.product(*array.chunks))
+            }
+            dsk = HighLevelGraph.from_collections(new_name, dsk, dependencies=[array])
+            darray[array_name] = da.Array(dsk, new_name,
+                                          chunks=array.chunks,
+                                          shape=array.shape,
+                                          dtype=array.dtype)
+
+        vis = darray['correlator_data']
         # Combine low-resolution weights and high-resolution weights_channel
         weights = darray['weights'] * darray['weights_channel'][..., np.newaxis]
         # Scale weights according to power

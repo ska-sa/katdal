@@ -237,13 +237,20 @@ class ChunkStore(object):
         """
         raise NotImplementedError
 
-    def get_chunk_or_zeros(self, array_name, slices, dtype):
-        """Get chunk from the store but return zeros if it is missing."""
+    def get_chunk_or_default(self, array_name, slices, dtype, fill_value=0):
+        """Get chunk from the store but return default value if it is missing."""
         try:
             return self.get_chunk(array_name, slices, dtype)
         except ChunkNotFound:
             chunk_name, shape = self.chunk_metadata(array_name, slices)
-            return np.zeros(shape, dtype)
+            return np.full(shape, fill_value, dtype)
+
+    def get_chunk_or_none(self, array_name, slices, dtype):
+        """Get chunk from the store but return ``None`` if it is missing."""
+        try:
+            return self.get_chunk(array_name, slices, dtype)
+        except ChunkNotFound:
+            return None
 
     def create_array(self, array_name):
         """Create a new array if it does not already exist.
@@ -448,7 +455,7 @@ class ChunkStore(object):
             prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
             raise_from(StandardisedError(prefix + str(e)), e)
 
-    def get_dask_array(self, array_name, chunks, dtype, offset=()):
+    def get_dask_array(self, array_name, chunks, dtype, offset=(), errors=0):
         """Get dask array from the store.
 
         Any missing chunks are replaced with zeros, suppressing any
@@ -464,13 +471,32 @@ class ChunkStore(object):
             Data type of array
         offset : tuple of int, optional
             Offset to add to each dimension when addressing chunks in store
+        errors : number or 'raise' or 'none', optional
+            Error handling. If 'raise', exceptions are passed through,
+            causing the evaluation to fail.
+
+            If 'none', returns ``None`` in
+            place of missing chunks. Note that such an array cannot be used
+            as-is, because an ndarray is expected, but it can be used as raw
+            material for building new graphs via functions like
+            :func:`da.map_blocks`.
+
+            If a numeric value, it is used as a default value.
 
         Returns
         -------
         array : :class:`dask.array.Array` object
             Dask array of given dtype
         """
-        getter = functools.partial(self.get_chunk_or_zeros, dtype=dtype)
+        kwargs = {'dtype': dtype}
+        if errors == 'none':
+            get_func = self.get_chunk_or_none
+        elif errors == 'raise':
+            get_func = self.get_chunk
+        else:
+            get_func = self.get_chunk_or_default
+            kwargs['fill_value'] = errors
+        getter = functools.partial(get_func, **kwargs)
         if offset:
             getter = _add_offset_to_slices(getter, offset)
         # Use dask utility function that forms the core of da.from_array

@@ -21,7 +21,7 @@ from builtins import object
 import numpy as np
 from numpy.testing import assert_array_equal
 from nose.tools import (assert_raises, assert_equal, assert_true, assert_false,
-                        assert_is_instance)
+                        assert_is_instance, assert_is_none)
 import dask.array as da
 
 from katdal.chunkstore import (ChunkStore, generate_chunks,
@@ -205,9 +205,12 @@ class ChunkStoreTestBase(object):
         shape = tuple(s.stop - s.start for s in slices)
         assert_raises(ChunkNotFound, self.store.get_chunk, *args)
         assert_false(self.store.has_chunk(*args))
-        zeros = self.store.get_chunk_or_zeros(*args)
+        zeros = self.store.get_chunk_or_default(*args)
         assert_array_equal(zeros, np.zeros(shape, dtype))
         assert_equal(zeros.dtype, dtype)
+        ones = self.store.get_chunk_or_default(*args, fill_value=1)
+        assert_array_equal(ones, np.ones(shape, dtype))
+        assert_is_none(self.store.get_chunk_or_none(*args))
 
     def test_chunk_bool_1dim_and_too_small(self):
         # Check basic put + get on 1-D bool
@@ -249,15 +252,15 @@ class ChunkStoreTestBase(object):
         self.put_dask_array('big_y2', np.s_[0:3,  0:30, 0:2])
         self.put_dask_array('big_y2', np.s_[3:8,  0:30, 0:2])
         self.put_dask_array('big_y2', np.s_[0:3, 30:60, 0:2])
-        # Before storing last quarter, check that get() replaces it with zeros
+        # Before storing last quarter, check that get() replaces it with default
         if not self.preloaded_chunks:
             array_name, dask_array, offset = self.make_dask_array('big_y2')
             pull = self.store.get_dask_array(array_name, dask_array.chunks,
-                                             dask_array.dtype, offset)
+                                             dask_array.dtype, offset, errors=17)
             array_retrieved = pull.compute()
             assert_equal(array_retrieved.shape, dask_array.shape)
             assert_equal(array_retrieved.dtype, dask_array.dtype)
-            assert_array_equal(array_retrieved[np.s_[3:8, 30:60, 0:2]], 0,
+            assert_array_equal(array_retrieved[np.s_[3:8, 30:60, 0:2]], 17,
                                "Missing chunk in {} not replaced by zeros"
                                .format(array_name))
         # Now store the last quarter and check that complete array is correct
