@@ -261,7 +261,7 @@ class ChunkStoreTestBase(object):
             assert_equal(array_retrieved.shape, dask_array.shape)
             assert_equal(array_retrieved.dtype, dask_array.dtype)
             assert_array_equal(array_retrieved[np.s_[3:8, 30:60, 0:2]], 17,
-                               "Missing chunk in {} not replaced by zeros"
+                               "Missing chunk in {} not replaced by default value"
                                .format(array_name))
         # Now store the last quarter and check that complete array is correct
         self.put_dask_array('big_y2', np.s_[3:8, 30:60, 0:2])

@@ -289,6 +289,7 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
                          chunks=darray['flags'].chunks,
                          shape=darray['flags'].shape,
                          dtype=darray['flags'].dtype)
+        darray['flags'] = flags
 
         # Turn missing blocks in the other arrays into zeros to make them
         # valid dask arrays.
