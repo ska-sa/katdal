@@ -536,14 +536,15 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         # 0.5 - response is 500, back off for 4 * 0.1 seconds
         # 0.9 - retry #3 (the final attempt) - server should now be fixed
         # 0.9 - success!
-        assert_true(self.store.has_chunk(array_name, slices, chunk.dtype))
+        self.store.get_chunk(array_name, slices, chunk.dtype)
 
     @timed(1.0 + 0.2)
     def test_persistent_server_errors(self):
         chunk, slices, array_name = self.prepare(
             'please-respond-with-502-for-1.2-seconds')
         # After 0.9 seconds the client gives up and returns with failure 0.1 s later
-        assert_false(self.store.has_chunk(array_name, slices, chunk.dtype))
+        with assert_raises(ChunkNotFound):
+            self.store.get_chunk(array_name, slices, chunk.dtype)
 
     @timed(0.6 + 0.2)
     def test_recover_from_read_truncated_within_npy_header(self):
