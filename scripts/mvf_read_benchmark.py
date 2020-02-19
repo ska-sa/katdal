@@ -40,6 +40,7 @@ if args.dumps:
 _ = (f.vis[0, 0, 0], f.weights[0, 0, 0], f.flags[0, 0, 0])
 logging.info('Selection complete')
 start = time.time()
+last_time = start
 for st in range(0, f.shape[0], args.time):
     et = st + args.time
     if args.joint:
@@ -48,7 +49,11 @@ for st in range(0, f.shape[0], args.time):
         vis = f.vis[st:et]
         weights = f.weights[st:et]
         flags = f.flags[st:et]
-    logging.info('Loaded %d dumps', vis.shape[0])
+    current_time = time.time()
+    elapsed = current_time - last_time
+    last_time = current_time
+    size = np.product(vis.shape) * 10
+    logging.info('Loaded %d dumps (%.3f MB/s)', vis.shape[0], size / elapsed / 1e6)
 size = np.product(f.shape) * 10
 elapsed = time.time() - start
 logging.info('Loaded %d bytes in %.3f s (%.3f MB/s)', size, elapsed, size / elapsed / 1e6)
