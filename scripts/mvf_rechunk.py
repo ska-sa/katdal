@@ -38,15 +38,16 @@ class RechunkSpec(object):
             raise ValueError('Chunk sizes must be positive')
 
 
-def _fill_missing(data, fill_value, block_info):
+def _fill_missing(data, default_value, block_info):
     if data is None:
         info = block_info[None]
-        return np.full(info['chunk-shape'], fill_value, info['dtype'])
+        return np.full(info['chunk-shape'], default_value, info['dtype'])
     else:
         return data
 
 
 def _make_lost(data, block_info):
+    info = block_info[None]
     if data is None:
         return np.full(info['chunk-shape'], DATA_LOST, np.uint8)
     else:
@@ -67,11 +68,9 @@ class Array(object):
         # raw_data has `None` objects instead of ndarrays for chunks with
         # missing data. That's not actually valid as a dask array, but we use
         # it to produce lost flags (similarly to datasources.py).
+        default_value = DATA_LOST if array_name == 'flags' else 0
+        self.data = da.map_blocks(_fill_missing, raw_data, default_value, dtype=raw_data.dtype)
         self.lost_flags = da.map_blocks(_make_lost, raw_data, dtype=np.uint8)
-        if array_name != 'flags':
-            self.data = da.map_blocks(_fill_missing, raw_data, fill_value, dtype=raw_data.dtype)
-        else:
-            self.data = self.lost_flags
 
 
 def get_chunk_store(source, telstate, array):
