@@ -237,13 +237,13 @@ class ChunkStore(object):
         """
         raise NotImplementedError
 
-    def get_chunk_or_default(self, array_name, slices, dtype, fill_value=0):
+    def get_chunk_or_default(self, array_name, slices, dtype, default_value=0):
         """Get chunk from the store but return default value if it is missing."""
         try:
             return self.get_chunk(array_name, slices, dtype)
         except ChunkNotFound:
             chunk_name, shape = self.chunk_metadata(array_name, slices)
-            return np.full(shape, fill_value, dtype)
+            return np.full(shape, default_value, dtype)
 
     def get_chunk_or_none(self, array_name, slices, dtype):
         """Get chunk from the store but return ``None`` if it is missing."""
@@ -495,7 +495,7 @@ class ChunkStore(object):
             get_func = self.get_chunk
         else:
             get_func = self.get_chunk_or_default
-            kwargs['fill_value'] = errors
+            kwargs['default_value'] = errors
         getter = functools.partial(get_func, **kwargs)
         if offset:
             getter = _add_offset_to_slices(getter, offset)
