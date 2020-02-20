@@ -208,9 +208,8 @@ class ChunkStoreTestBase(object):
         zeros = self.store.get_chunk_or_default(*args)
         assert_array_equal(zeros, np.zeros(shape, dtype))
         assert_equal(zeros.dtype, dtype)
-        ones = self.store.get_chunk_or_default(*args, fill_value=1)
+        ones = self.store.get_chunk_or_default(*args, default_value=1)
         assert_array_equal(ones, np.ones(shape, dtype))
-        assert_is_none(self.store.get_chunk_or_none(*args))
 
     def test_chunk_bool_1dim_and_too_small(self):
         # Check basic put + get on 1-D bool

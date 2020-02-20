@@ -99,19 +99,13 @@ class VisFlagsWeights(object):
         return self.vis.shape
 
 
-def _default_zero(array, shape, dtype):
-    if array is None:
-        return np.zeros(shape, dtype)
-    else:
-        return array
-
-
 def _apply_data_lost(orig_flags, lost):
     if not lost:
         return orig_flags
     flags = orig_flags
     for chunk, slices in toolz.partition(2, lost):
-        if chunk is None:
+        if all(stride == 0 for stride in chunk.strides):
+            # It's a singleton default value that's been broadcast
             if flags is orig_flags:
                 flags = orig_flags.copy()
             flags[slices] |= DATA_LOST
@@ -243,7 +237,7 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
         for array, info in chunk_info.items():
             array_name = store.join(info['prefix'], array)
             chunk_args = (array_name, info['chunks'], info['dtype'])
-            errors = DATA_LOST if array == 'flags' else 'none'
+            errors = DATA_LOST if array == 'flags' else 0
             darray[array] = store.get_dask_array(*chunk_args, errors=errors)
         flags_orig_name = darray['flags'].name
         flags_raw_name = store.join(chunk_info['flags']['prefix'], 'flags_raw')
@@ -290,27 +284,6 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
                          shape=darray['flags'].shape,
                          dtype=darray['flags'].dtype)
         darray['flags'] = flags
-
-        # Turn missing blocks in the other arrays into zeros to make them
-        # valid dask arrays.
-        for array_name, array in darray.items():
-            if array_name == 'flags':
-                continue
-            new_name = 'filled-' + array.name
-            indices = itertools.product(*(range(len(c)) for c in array.chunks))
-            dsk = {
-                (new_name,) + index: (
-                    _default_zero,
-                    (array.name,) + index,
-                    shape,
-                    array.dtype
-                ) for index, shape in zip(indices, itertools.product(*array.chunks))
-            }
-            dsk = HighLevelGraph.from_collections(new_name, dsk, dependencies=[array])
-            darray[array_name] = da.Array(dsk, new_name,
-                                          chunks=array.chunks,
-                                          shape=array.shape,
-                                          dtype=array.dtype)
 
         vis = darray['correlator_data']
         # Combine low-resolution weights and high-resolution weights_channel

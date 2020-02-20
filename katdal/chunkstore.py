@@ -237,20 +237,17 @@ class ChunkStore(object):
         """
         raise NotImplementedError
 
-    def get_chunk_or_default(self, array_name, slices, dtype, fill_value=0):
-        """Get chunk from the store but return default value if it is missing."""
+    def get_chunk_or_default(self, array_name, slices, dtype, default_value=0):
+        """Get chunk from the store but return default value if it is missing.
+
+        If a default value is returned, it is guaranteed to have all-zero
+        strides. This can be used to distinguish it from a real chunk.
+        """
         try:
             return self.get_chunk(array_name, slices, dtype)
         except ChunkNotFound:
             chunk_name, shape = self.chunk_metadata(array_name, slices)
-            return np.full(shape, fill_value, dtype)
-
-    def get_chunk_or_none(self, array_name, slices, dtype):
-        """Get chunk from the store but return ``None`` if it is missing."""
-        try:
-            return self.get_chunk(array_name, slices, dtype)
-        except ChunkNotFound:
-            return None
+            return np.broadcast_to(np.full((), default_value, dtype), shape)
 
     def create_array(self, array_name):
         """Create a new array if it does not already exist.
@@ -471,17 +468,10 @@ class ChunkStore(object):
             Data type of array
         offset : tuple of int, optional
             Offset to add to each dimension when addressing chunks in store
-        errors : number or 'raise' or 'none', optional
+        errors : number or 'raise', optional
             Error handling. If 'raise', exceptions are passed through,
-            causing the evaluation to fail.
-
-            If 'none', returns ``None`` in
-            place of missing chunks. Note that such an array cannot be used
-            as-is, because an ndarray is expected, but it can be used as raw
-            material for building new graphs via functions like
-            :func:`da.map_blocks`.
-
-            If a numeric value, it is used as a default value.
+            causing the evaluation to fail. Otherwise, it is used as a default
+            value (see :meth:`get_chunk_or_default`).
 
         Returns
         -------
@@ -489,13 +479,11 @@ class ChunkStore(object):
             Dask array of given dtype
         """
         kwargs = {'dtype': dtype}
-        if errors == 'none':
-            get_func = self.get_chunk_or_none
-        elif errors == 'raise':
+        if errors == 'raise':
             get_func = self.get_chunk
         else:
             get_func = self.get_chunk_or_default
-            kwargs['fill_value'] = errors
+            kwargs['default_value'] = errors
         getter = functools.partial(get_func, **kwargs)
         if offset:
             getter = _add_offset_to_slices(getter, offset)
