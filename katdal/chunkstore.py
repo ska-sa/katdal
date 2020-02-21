@@ -299,37 +299,6 @@ class ChunkStore(object):
         else:
             return None
 
-    def has_chunk(self, array_name, slices, dtype):
-        """Check if chunk is in the store.
-
-        Parameters
-        ----------
-        array_name : string
-            Identifier of parent array `x` of chunk
-        slices : sequence of unit-stride slice objects
-            Identifier of individual chunk, to be extracted as `x[slices]`
-        dtype : :class:`numpy.dtype` object or equivalent
-            Data type of array `x`
-
-        Returns
-        -------
-        success : bool
-            True if chunk was found in the store, with appropriate size / dtype
-
-        Raises
-        ------
-        :exc:`chunkstore.BadChunk`
-            If `slices` has wrong specification
-        :exc:`chunkstore.StoreUnavailable`
-            If interaction with chunk store failed (offline, bad auth, bad config)
-        """
-        try:
-            self.get_chunk(array_name, slices, dtype)
-        except ChunkNotFound:
-            return False
-        else:
-            return True
-
     def mark_complete(self, array_name):
         """Write a special object to indicate that `array_name` is finished.
 
@@ -537,65 +506,3 @@ class ChunkStore(object):
         # The success array has one element per chunk in the input array
         out_chunks = tuple(len(c) * (1,) for c in array.chunks)
         return da.Array(dask_graph, out_name, out_chunks, np.object)
-
-    def list_chunk_ids(self, array_name):
-        """List all chunk ID strings associated with given array in chunk store.
-
-        Parameters
-        ----------
-        array_name : string
-            Identifier of array in chunk store
-
-        Returns
-        -------
-        chunk_ids : list of string
-            List of chunk identifier strings (e.g. '00012_01024_00000')
-
-        Raises
-        ------
-        NotImplementedError
-            If the underlying store does not have an efficient implementation
-        """
-        raise NotImplementedError
-
-    def has_array(self, array_name, chunks, dtype, offset=()):
-        """Check which chunks of the array are in the store.
-
-        Parameters
-        ----------
-        array_name : string
-            Identifier of array in chunk store
-        chunks : tuple of tuples of ints
-            Chunk specification
-        dtype : :class:`numpy.dtype` object or equivalent
-            Data type of array
-        offset : tuple of int, optional
-            Offset to add to each dimension when addressing chunks in store
-
-        Returns
-        -------
-        success : :class:`numpy.ndarray` object
-            Array of bools indicating presence of each chunk
-
-        Notes
-        -----
-        If the underlying store implements :meth:`list_chunk_ids`, that is
-        preferred; otherwise :meth:`has_chunk` is called for each chunk.
-        """
-        slices = da.core.slices_from_chunks(chunks)
-        if offset:
-            slices = [tuple(slice(ss.start + i, ss.stop + i)
-                            for (ss, i) in zip(s, offset))
-                      for s in slices]
-        try:
-            # Obtain ID strings of all chunks in store associated with array_name
-            # This might not be implemented by underlying store
-            store_ids = set(self.list_chunk_ids(array_name))
-        except NotImplementedError:
-            success = [self.has_chunk(array_name, index, dtype) for index in slices]
-        else:
-            # Turn chunks + offset into list of expected chunk ID strings
-            chunk_ids = [self.chunk_id_str(s) for s in slices]
-            # Look up expected IDs in set of actual IDs in store
-            success = [cid in store_ids for cid in chunk_ids]
-        return np.array(success).reshape(tuple(len(c) for c in chunks))

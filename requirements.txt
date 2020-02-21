@@ -2,7 +2,6 @@ botocore
 certifi
 chardet
 dask
-defusedxml
 docutils
 enum34
 funcsigs
