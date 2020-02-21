@@ -21,6 +21,7 @@ from builtins import zip, range, object
 import collections
 
 import numpy as np
+from dask.base import tokenize
 
 
 class ComparableArrayWrapper(object):
@@ -180,11 +181,14 @@ def unique_in_order(elements, return_inverse=False):
         lookup = collections.OrderedDict(zip(elements, len(elements) * [0]))
     except TypeError:
         # Fall back to slower list-based lookup for unhashable object values
+        lookup = {}
         for element in elements:
+            token = tokenize(ComparableArrayWrapper.unwrap(element))
             try:
-                index = unique_elements.index(element)
-            except ValueError:
+                index = lookup[token]
+            except KeyError:
                 index = len(unique_elements)
+                lookup[token] = index
                 unique_elements.append(element)
             if return_inverse:
                 inverse.append(index)
