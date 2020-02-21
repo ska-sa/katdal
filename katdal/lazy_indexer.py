@@ -25,6 +25,7 @@ from functools import reduce, partial
 
 import numpy as np
 import dask.array as da
+import dask.highlevelgraph
 import dask.optimization
 
 # TODO support advanced integer indexing with non-strictly increasing indices (i.e. out-of-order and duplicates)
@@ -136,7 +137,9 @@ def dask_getitem(x, indices):
     # ensure_dict, which copies all the keys, presumably to speed up the
     # case where most keys are retained. A lazy indexer is normally used to
     # fetch a small part of the data.
-    out.dask = dask.optimization.cull(out.dask, out.__dask_keys__())[0]
+    if np.product(out.numblocks) < 0.5 * np.product(x.numblocks):
+        dsk = dask.optimization.cull(out.dask, out.__dask_keys__())[0]
+        out.dask = dask.highlevelgraph.HighLevelGraph.from_collections(out.name, dsk)
     return out
 
 
