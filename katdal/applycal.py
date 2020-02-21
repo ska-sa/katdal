@@ -236,9 +236,9 @@ def calc_gain_correction(sensor, index, targets=None):
         targets = CategoricalData([0], [0, len(dumps)])
     smooth_gains = np.full((len(dumps), gains.shape[0]), INVALID_GAIN)
     # Iterate over number of channels / "IFs" / subbands in gain product
-    for chan, gains_per_chan in enumerate(gains):
-        for target in set(targets):
-            on_target = (targets == target)
+    for target in set(targets):
+        on_target = (targets == target)
+        for chan, gains_per_chan in enumerate(gains):
             valid = np.isfinite(gains_per_chan) & on_target[events]
             if valid.any():
                 smooth_gains[on_target, chan] = complex_interp(
