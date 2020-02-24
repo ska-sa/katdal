@@ -205,13 +205,13 @@ def calc_gain_correction(sensor, index, targets=None):
     Given the gain calibration solution `sensor`, this extracts the time
     series of gains for the input specified by `index` (in the form (pol, ant))
     and interpolates them over time to get the corresponding complex correction
-    terms. The optional `targets` parameter is a :class:`CategoricalData` or
-    array of targets, i.e. a sensor indicating the target associated with each
-    dump. The targets can be actual :class:`katpoint.Target` objects or indices,
-    as long as they uniquely identify the target. If provided, interpolate
-    solutions derived from one target only at dumps associated with that target,
-    which is what you want for self-calibration solutions (but not for standard
-    calibration based on gain calibrator sources).
+    terms. The optional `targets` parameter is a :class:`CategoricalData` i.e.
+    a sensor indicating the target associated with each dump. The targets can
+    be actual :class:`katpoint.Target` objects or indices, as long as they
+    uniquely identify the target. If provided, interpolate solutions derived
+    from one target only at dumps associated with that target, which is what
+    you want for self-calibration solutions (but not for standard calibration
+    based on gain calibrator sources).
 
     Invalid solutions (NaNs) are replaced by linear interpolations over time
     (separately for magnitude and phase), as long as some dumps have valid
