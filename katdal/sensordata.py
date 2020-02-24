@@ -609,7 +609,7 @@ def remove_duplicates_and_invalid_values(sensor):
     # Determine the index of the x value chosen to represent each original x value (used to pick y values too)
     replacement = unique_ind[len(unique_ind) - np.cumsum(last_of_run[::-1])[::-1]]
     # All duplicates should have the same y and z values - complain otherwise, but continue
-    y_differs = [n for (r, n) in zip(replacement, range(len(y))) if y[r] != y[n]]
+    y_differs = [n for (r, n) in zip(replacement, range(len(y))) if r != n and y[r] != y[n]]
     if y_differs:
         logger.debug("Sensor %r has duplicate timestamps with different values",
                      sensor.name)
