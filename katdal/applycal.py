@@ -236,7 +236,7 @@ def calc_gain_correction(sensor, index, targets=None):
         targets = CategoricalData([0], [0, len(dumps)])
     smooth_gains = np.full((len(dumps), gains.shape[0]), INVALID_GAIN)
     # Iterate over number of channels / "IFs" / subbands in gain product
-    for target in set(targets):
+    for target in targets.unique_values:
         on_target = (targets == target)
         for chan, gains_per_chan in enumerate(gains):
             valid = np.isfinite(gains_per_chan) & on_target[events]
