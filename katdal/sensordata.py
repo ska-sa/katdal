@@ -692,7 +692,8 @@ class SensorCache(dict):
         (this can be disabled on data retrieval)
     props : dict, optional
         Default properties that govern how sensor data are interpreted and
-        interpolated (this can be overridden on data retrieval)
+        interpolated (this can be overridden on data retrieval). Can use ``*``
+        as a wildcard anywhere in the key.
     virtual : dict mapping string to function, optional
         Virtual sensors, specified as a pattern matching the virtual sensor name
         and a corresponding function that will create the sensor (together with
@@ -873,8 +874,10 @@ class SensorCache(dict):
                 self.props[name] = props = self.props.get(name, {})
                 # Look up properties associated with this class of sensor
                 for key, val in self.props.items():
-                    if key[0] == '*' and name.endswith(key[1:]):
-                        props.update(val)
+                    if '*' in key:
+                        regex = '.*'.join(re.escape(part) for part in key.split('*'))
+                        if re.match('^' + regex + '$', name):
+                            props.update(val)
                 # Any properties passed directly to this method takes precedence
                 props.update(kwargs)
                 # Clean up sensor data if non-empty
