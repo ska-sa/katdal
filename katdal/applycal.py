@@ -205,13 +205,13 @@ def calc_gain_correction(sensor, index, targets=None):
     Given the gain calibration solution `sensor`, this extracts the time
     series of gains for the input specified by `index` (in the form (pol, ant))
     and interpolates them over time to get the corresponding complex correction
-    terms. The optional `targets` parameter is a :class:`CategoricalData` or
-    array of targets, i.e. a sensor indicating the target associated with each
-    dump. The targets can be actual :class:`katpoint.Target` objects or indices,
-    as long as they uniquely identify the target. If provided, interpolate
-    solutions derived from one target only at dumps associated with that target,
-    which is what you want for self-calibration solutions (but not for standard
-    calibration based on gain calibrator sources).
+    terms. The optional `targets` parameter is a :class:`CategoricalData` i.e.
+    a sensor indicating the target associated with each dump. The targets can
+    be actual :class:`katpoint.Target` objects or indices, as long as they
+    uniquely identify the target. If provided, interpolate solutions derived
+    from one target only at dumps associated with that target, which is what
+    you want for self-calibration solutions (but not for standard calibration
+    based on gain calibrator sources).
 
     Invalid solutions (NaNs) are replaced by linear interpolations over time
     (separately for magnitude and phase), as long as some dumps have valid
@@ -236,7 +236,7 @@ def calc_gain_correction(sensor, index, targets=None):
         targets = CategoricalData([0], [0, len(dumps)])
     smooth_gains = np.full((len(dumps), gains.shape[0]), INVALID_GAIN)
     # Iterate over number of channels / "IFs" / subbands in gain product
-    for target in set(targets):
+    for target in targets.unique_values:
         on_target = (targets == target)
         for chan, gains_per_chan in enumerate(gains):
             valid = np.isfinite(gains_per_chan) & on_target[events]
