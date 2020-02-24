@@ -19,10 +19,12 @@
 from __future__ import print_function, division, absolute_import
 from future import standard_library
 standard_library.install_aliases()  # noqa: E402
+import future.utils
 from past.builtins import basestring
 
 import logging as _logging
 import urllib.parse
+import warnings
 
 from .datasources import open_data_source
 from .dataset import DataSet, WrongVersion
@@ -48,6 +50,14 @@ _no_config_handler.setFormatter(_logging.Formatter(_logging.BASIC_FORMAT))
 _no_config_handler.addFilter(_NoConfigFilter())
 logger = _logging.getLogger(__name__)
 logger.addHandler(_no_config_handler)
+
+if future.utils.PY2:
+    _PY2_WARNING = (
+        "Python 2 has reached End-of-Life, and a future version of katdal "
+        "will remove support for it. Please update your scripts to Python 3 "
+        "as soon as possible."
+    )
+    warnings.warn(_PY2_WARNING, FutureWarning)
 
 # BEGIN VERSION CHECK
 # Get package version when locally imported from repo or via -e develop install
