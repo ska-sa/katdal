@@ -180,7 +180,7 @@ def unique_in_order(elements, return_inverse=False):
         # Surprisingly, a zero generator like itertools.repeat does not buy you anything
         lookup = collections.OrderedDict(zip(elements, len(elements) * [0]))
     except TypeError:
-        # Fall back to slower list-based lookup for unhashable object values
+        # Fall back to slower lookup using dask's tokenizer
         lookup = {}
         for element in elements:
             token = tokenize(ComparableArrayWrapper.unwrap(element))
