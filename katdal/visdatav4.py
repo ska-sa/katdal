@@ -58,6 +58,9 @@ SENSOR_PROPS.update({
     '*_product_G': {'initial_value': INVALID_GAIN},
     '*_product_GPHASE': {'initial_value': INVALID_GAIN},
     '*_product_GAMP_PHASE': {'initial_value': INVALID_GAIN},
+    'Calibration/Products/*/G': {'initial_value': INVALID_GAIN},
+    'Calibration/Products/*/GPHASE': {'initial_value': INVALID_GAIN},
+    'Calibration/Products/*/GAMP_PHASE': {'initial_value': INVALID_GAIN}
 })
 
 SENSOR_ALIASES = {

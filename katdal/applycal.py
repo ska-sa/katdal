@@ -96,62 +96,20 @@ def _parse_cal_product(cal_product):
     return fields[0], fields[1]
 
 
-def get_cal_product(cache, attrs, cal_stream, product_type):
+def get_cal_product(cache, cal_stream, product_type):
     """Extract calibration solution from cache as a sensor.
-
-    This takes care of stitching together multiple parts of the product
-    if this is indicated in the `attrs` dict.
 
     Parameters
     ----------
     cache : :class:`~katdal.sensordata.SensorCache` object
         Sensor cache serving cal product sensors
-    attrs : dict-like
-        Calibration stream attributes (e.g. a "cal" telstate view)
     cal_stream : string
         Name of calibration stream (e.g. "l1")
     product_type : string
         Calibration product type (e.g. "G")
     """
     sensor_name = 'Calibration/Products/{}/{}'.format(cal_stream, product_type)
-    try:
-        n_parts = int(attrs['product_{}_parts'.format(product_type)])
-    except KeyError:
-        return cache.get(sensor_name)
-    # Handle multi-part cal product (as produced by "split cal")
-    # First collect all the parts as sensors (and mark missing ones as None)
-    parts = []
-    valid_part = None
-    for n in range(n_parts):
-        try:
-            valid_part = cache.get(sensor_name + str(n))
-        except KeyError:
-            parts.append(None)
-        else:
-            parts.append(valid_part)
-    if valid_part is None:
-        raise KeyError("No cal product '{}.{}' parts found (expected {})"
-                       .format(cal_stream, product_type, n_parts))
-    # Convert each part to its sensor values (filling missing ones with NaNs)
-    events = valid_part.events
-    invalid_part = None
-    for n in range(n_parts):
-        if parts[n] is None:
-            if invalid_part is None:
-                # This assumes that each part has the same array shape
-                invalid_part = [np.full_like(value, INVALID_GAIN)
-                                for segment, value in valid_part.segments()]
-            parts[n] = invalid_part
-        else:
-            if not np.array_equal(parts[n].events, events):
-                msg = ("Cal product '{}.{}' part {} does not align in time "
-                       "with the rest".format(cal_stream, product_type, n))
-                raise ValueError(msg)
-            parts[n] = [value for segment, value in parts[n].segments()]
-    # Stitch all the value arrays together and form a new combined sensor
-    values = np.concatenate(parts, axis=1)
-    values = [ComparableArrayWrapper(v) for v in values]
-    return CategoricalData(values, events)
+    return cache.get(sensor_name)
 
 
 def calc_delay_correction(sensor, index, data_freqs):
@@ -346,32 +304,86 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
         measured_flux.update(gaincal_flux)
         gaincal_flux = measured_flux
 
-    def indirect_cal_product(cache, name, product_type):
+    def indirect_cal_product_name(name, product_type):
+        # XXX The first underscore below is actually a telstate separator...
+        return name.split('/')[-2] + '_product_' + product_type
+
+    def indirect_cal_product_raw(cache, name, product_type):
         # XXX The first underscore below is actually a telstate separator...
         product_str = '_product_' + product_type
-        if len(cal_substreams) == 1:
-            return cache.get(cal_substreams[0] + product_str)
+        raw_products = []
+        for stream in cal_substreams:
+            sensor_name = stream + product_str
+            raw_product = cache.get(sensor_name, extract=False)
+            assert isinstance(raw_product, SensorData), \
+                sensor_name + ' is already extracted'
+            raw_products.append(raw_product)
+        if len(raw_products) == 1:
+            return raw_products[0]
         else:
-            timestamps = []
-            values = []
-            for stream in cal_substreams:
-                sensor_name = stream + product_str
-                raw_product = cache.get(sensor_name, extract=False)
-                assert isinstance(raw_product, SensorData), \
-                    sensor_name + ' is already extracted'
-                timestamps.append(raw_product['timestamp'])
-                values.append(raw_product['value'])
-            timestamps = np.concatenate(timestamps)
-            values = np.concatenate(values)
+            timestamps = np.concatenate([raw_product['timestamp'] for raw_product in raw_products])
+            values = np.concatenate([raw_product['value'] for raw_product in raw_products])
             ordered = timestamps.argsort()
             data = np.rec.fromarrays([timestamps[ordered], values[ordered]],
                                      names='timestamp,value')
             cal_stream = name.split('/')[-2]
-            return RecordSensorData(data, name=cal_stream + product_str)
+            return RecordSensorData(data, name=indirect_cal_product_name(name, product_type))
+
+    def indirect_cal_product(cache, name, product_type):
+        try:
+            n_parts = int(attrs['product_{}_parts'.format(product_type)])
+        except KeyError:
+            return indirect_cal_product_raw(cache, name, product_type)
+        # Handle multi-part cal product (as produced by "split cal")
+        # First collect all the parts as sensors (and mark missing ones as None)
+        parts = []
+        for n in range(n_parts):
+            try:
+                part = indirect_cal_product_raw(cache, name + str(n), product_type + str(n))
+            except KeyError:
+                data = np.rec.fromarrays([[], []], names='timestamp,value')
+                part = RecordSensorData(data)
+            parts.append(part)
+
+        # Stitch together values with the same timestamp
+        timestamps = []
+        values = []
+        part_indices = [0] * n_parts
+        part_timestamps = [
+            part['timestamp'][0] if len(part['timestamp']) else np.inf
+            for part in parts
+        ]
+        while True:
+            next_timestamp = min(part_timestamps)
+            if next_timestamp == np.inf:
+                break
+            pieces = []
+            for ts, ind, part in zip(part_timestamps, part_indices, parts):
+                if ts == next_timestamp:
+                    piece = ComparableArrayWrapper.unwrap(part['value'][ind])
+                    pieces.append(piece)
+                else:
+                    pieces.append(None)
+            if any(piece is None for piece in pieces):
+                invalid = np.full_like(piece, INVALID_GAIN)
+                pieces = [piece if piece is not None else invalid for piece in pieces]
+            timestamps.append(next_timestamp)
+            value = np.concatenate(pieces, axis=0)
+            values.append(ComparableArrayWrapper(value))
+            for i, part in enumerate(parts):
+                if part_timestamps[i] == next_timestamp:
+                    ts = part['timestamp']
+                    part_indices[i] += 1
+                    part_timestamps[i] = ts[part_indices[i]] if part_indices[i] < len(ts) else np.inf
+        if not timestamps:
+            raise KeyError("No cal product '{}' parts found (expected {})"
+                           .format(name, n_parts))
+        data = np.rec.fromarrays([timestamps, values], names='timestamp,value')
+        return RecordSensorData(data, name=indirect_cal_product_name(name, product_type))
 
     def calc_correction_per_input(cache, name, inp, product_type):
         """Calculate correction sensor for input `inp` from cal solutions."""
-        product_sensor = get_cal_product(cache, attrs, cal_stream, product_type)
+        product_sensor = get_cal_product(cache, cal_stream, product_type)
         try:
             index = cal_input_map[inp]
         except KeyError:
