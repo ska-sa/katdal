@@ -24,7 +24,7 @@ import dask.array as da
 import numba
 
 from .categorical import CategoricalData, ComparableArrayWrapper
-from .sensordata import SensorData, RecordSensorData
+from .sensordata import SensorData, SimpleSensorData, SensorValues
 from .spectral_window import SpectralWindow
 from .flags import POSTPROC
 
@@ -321,13 +321,15 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
         if len(raw_products) == 1:
             return raw_products[0]
         else:
-            timestamps = np.concatenate([raw_product['timestamp'] for raw_product in raw_products])
-            values = np.concatenate([raw_product['value'] for raw_product in raw_products])
+            raw_products = [raw.get() for raw in raw_products]
+            timestamps = np.concatenate([raw_product.timestamp for raw_product in raw_products])
+            values = np.concatenate([raw_product.value for raw_product in raw_products])
             ordered = timestamps.argsort()
-            data = np.rec.fromarrays([timestamps[ordered], values[ordered]],
-                                     names='timestamp,value')
+            timestamps = timestamps[ordered]
+            values = values[ordered]
             cal_stream = name.split('/')[-2]
-            return RecordSensorData(data, name=indirect_cal_product_name(name, product_type))
+            return SimpleSensorData(indirect_cal_product_name(name, product_type),
+                                    timestamps, values)
 
     def indirect_cal_product(cache, name, product_type):
         try:
@@ -342,15 +344,16 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
                 part = indirect_cal_product_raw(cache, name + str(n), product_type + str(n))
             except KeyError:
                 data = np.rec.fromarrays([[], []], names='timestamp,value')
-                part = RecordSensorData(data)
+                part = SimpleSensorData(name + str(n), np.array([]), np.array([]))
             parts.append(part)
 
         # Stitch together values with the same timestamp
+        parts = [part.get() for part in parts]
         timestamps = []
         values = []
         part_indices = [0] * n_parts
         part_timestamps = [
-            part['timestamp'][0] if len(part['timestamp']) else np.inf
+            part.timestamp[0] if len(part.timestamp) else np.inf
             for part in parts
         ]
         while True:
@@ -360,7 +363,7 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
             pieces = []
             for ts, ind, part in zip(part_timestamps, part_indices, parts):
                 if ts == next_timestamp:
-                    piece = ComparableArrayWrapper.unwrap(part['value'][ind])
+                    piece = ComparableArrayWrapper.unwrap(part.value[ind])
                     pieces.append(piece)
                 else:
                     pieces.append(None)
@@ -372,14 +375,14 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
             values.append(ComparableArrayWrapper(value))
             for i, part in enumerate(parts):
                 if part_timestamps[i] == next_timestamp:
-                    ts = part['timestamp']
+                    ts = part.timestamp
                     part_indices[i] += 1
                     part_timestamps[i] = ts[part_indices[i]] if part_indices[i] < len(ts) else np.inf
         if not timestamps:
             raise KeyError("No cal product '{}' parts found (expected {})"
                            .format(name, n_parts))
-        data = np.rec.fromarrays([timestamps, values], names='timestamp,value')
-        return RecordSensorData(data, name=indirect_cal_product_name(name, product_type))
+        return SimpleSensorData(indirect_cal_product_name(name, product_type),
+                                np.array(timestamps), np.array(values))
 
     def calc_correction_per_input(cache, name, inp, product_type):
         """Calculate correction sensor for input `inp` from cal solutions."""

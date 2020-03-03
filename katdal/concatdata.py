@@ -247,7 +247,7 @@ class ConcatenatedSensorData(SensorData):
 
     Parameters
     ----------
-    data : sequence of recarray-like with fields 'timestamp', 'value' and optionally 'status'
+    data : sequence of :class:`SensorData`
         Uncached sensor data as a list of record arrays or equivalent (such as
         an :class:`h5py.Dataset`)
 
@@ -269,10 +269,6 @@ class ConcatenatedSensorData(SensorData):
     def __getitem__(self, key):
         """Extract timestamp, value and status of each sensor data point."""
         return np.concatenate([sd[key] for sd in self._data])
-
-    def __bool__(self):
-        """True if sensor has at least one data point."""
-        return any(bool(sd) for sd in self._data)
 
 
 def _calc_dummy(cache, name):
@@ -449,7 +445,7 @@ class ConcatenatedSensorCache(SensorCache):
         ----------
         name : string
             Sensor name
-        data : array or :class:`CategoricalData` or :class:`SensorData` object
+        data : array or :class:`CategoricalData`
             Data to be assigned to sensor
 
         """

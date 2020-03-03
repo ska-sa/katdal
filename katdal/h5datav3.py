@@ -261,7 +261,7 @@ class H5DataV3(DataSet):
         # Pick first regular sensor with longer data record than data (hopefully straddling it)
         for sensor_name, sensor_data in cache.items():
             if sensor_name.endswith(regular_sensors) and sensor_data:
-                sensor_times = sensor_data['timestamp']
+                sensor_times = sensor_data.get().timestamp
                 proposed_sensor_start_time = sensor_times[0]
                 sensor_duration = sensor_times[-1] - proposed_sensor_start_time
                 if sensor_duration > data_duration:
@@ -361,7 +361,7 @@ class H5DataV3(DataSet):
             try:
                 # Replay obs_params sensor if available
                 obs_params = self.sensor.get('Observation/params',
-                                             extract=False)['value']
+                                             extract=False).get().value
             except KeyError:
                 obs_params = []
             for obs_param in obs_params:
@@ -374,7 +374,7 @@ class H5DataV3(DataSet):
         self.experiment_id = self.obs_params.get('experiment_id', '')
         # Extract script log data verbatim (it is not a standard sensor anyway)
         try:
-            self.obs_script_log = self.sensor.get('Observation/script_log', extract=False)['value'].tolist()
+            self.obs_script_log = self.sensor.get('Observation/script_log', extract=False).get().value.tolist()
         except KeyError:
             self.obs_script_log = []
 
