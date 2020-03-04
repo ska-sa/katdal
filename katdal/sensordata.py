@@ -383,7 +383,7 @@ class TelstateSensorData(SensorData):
 
     def get(self):
         values, times = zip(*self._telstate.get_range(self.name, st=0))
-        dtype = infer_dtype(self._values)
+        dtype = infer_dtype(values)
         if dtype == np.object:
             values = [ComparableArrayWrapper(v) for v in values]
         return SensorValues(self.name, np.asarray(times), np.asarray(values))

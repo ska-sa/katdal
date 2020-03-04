@@ -232,7 +232,7 @@ class VisibilityDataV4(DataSet):
         # Extract script log data verbatim (it is not a standard sensor anyway)
         try:
             self.obs_script_log = self.sensor.get('obs_script_log',
-                                                  extract=False)['value'].tolist()
+                                                  extract=False).get().value.tolist()
         except KeyError:
             self.obs_script_log = []
 
