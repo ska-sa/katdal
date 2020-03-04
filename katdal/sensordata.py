@@ -757,6 +757,68 @@ class SensorCache(dict):
         if keep is not None:
             self.keep = keep
 
+    @staticmethod
+    def _get_props(name, prop_map, **kwargs):
+        """TODO: document"""
+        # Look up properties associated with this specific sensor
+        props = prop_map.setdefault(name, {})
+        # Look up properties associated with this class of sensor
+        for key, val in prop_map.items():
+            if '*' in key:
+                regex = '.*'.join(re.escape(part) for part in key.split('*'))
+                if re.match('^' + regex + '$', name):
+                    props.update(val)
+        # Any properties passed directly to this method takes precedence
+        props.update(kwargs)
+        return props
+
+    @staticmethod
+    def _extract(sensor_data, timestamps, dump_period, **props):
+        sensor_data = sensor_data.get()
+        # Clean up sensor data if non-empty
+        if sensor_data:
+            # Sort sensor events in chronological order and discard duplicates and unreadable sensor values
+            sensor_data = remove_duplicates_and_invalid_values(sensor_data)
+        if not sensor_data:
+            sensor_data = dummy_sensor_data(sensor_data.name, value=props.get('initial_value'),
+                                            dtype=sensor_data.value.dtype)
+            logger.warning("No usable data found for sensor '%s' - replaced with dummy data (%r)" %
+                           (sensor_data.name, sensor_data.value[0]))
+        # Determine if sensor produces categorical or numerical data
+        # (float data are non-categorical, by default)
+        categ = props.get('categorical', not np.issubdtype(sensor_data.value.dtype, np.floating))
+        props['categorical'] = categ
+        if categ:
+            sensor_data = sensor_to_categorical(sensor_data.timestamp, sensor_data.value,
+                                                timestamps, dump_period, **props)
+        else:
+            # Interpolate numerical data onto data timestamps (fallback option is linear interpolation)
+            props['interp_degree'] = interp_degree = props.get('interp_degree', 1)
+            sensor_timestamps = sensor_data.timestamp
+            # Warn if sensor data will be extrapolated to start or end
+            # of data set with potentially bogus results
+            if interp_degree > 0 and len(sensor_timestamps) > 1:
+                if sensor_timestamps[0] > timestamps[0]:
+                    logger.warning(("First data point for sensor '%s' only arrives %g seconds into data set" %
+                                   (sensor_data.name, sensor_timestamps[0] - timestamps[0])) +
+                                   " - extrapolation may lead to ridiculous values")
+                if sensor_timestamps[-1] < timestamps[-1]:
+                    logger.warning(("Last data point for sensor '%s' arrives %g seconds "
+                                    "before end of data set" %
+                                   (sensor_data.name, timestamps[-1] - sensor_timestamps[-1])) +
+                                   " - extrapolation may lead to ridiculous values")
+            if PiecewisePolynomial1DFit is not None:
+                interp = PiecewisePolynomial1DFit(max_degree=interp_degree)
+                interp.fit(sensor_timestamps, sensor_data.value)
+                sensor_data = interp(timestamps)
+            else:
+                if interp_degree != 1:
+                    logger.warning('Requested sensor interpolation with polynomial degree ' +
+                                   str(interp_degree) +
+                                   ' but scikits.fitting not installed - falling back to linear interpolation')
+                sensor_data = _safe_linear_interp(sensor_timestamps, sensor_data.value, timestamps)
+        return sensor_data
+
     def add_aliases(self, alias, original):
         """Add alternate names / aliases for sensors.
 
@@ -849,60 +911,10 @@ class SensorCache(dict):
                                        "virtual template and no sensor store provided)" % (name,))
             # If this is the first time this sensor is accessed, extract its data and store it in cache, if enabled
             if isinstance(sensor_data, SensorData) and extract:
-                # Look up properties associated with this specific sensor
-                self.props[name] = props = self.props.get(name, {})
-                # Look up properties associated with this class of sensor
-                for key, val in self.props.items():
-                    if '*' in key:
-                        regex = '.*'.join(re.escape(part) for part in key.split('*'))
-                        if re.match('^' + regex + '$', name):
-                            props.update(val)
-                # Any properties passed directly to this method takes precedence
-                props.update(kwargs)
-                sensor_data = sensor_data.get()
-                # Clean up sensor data if non-empty
-                if sensor_data:
-                    # Sort sensor events in chronological order and discard duplicates and unreadable sensor values
-                    sensor_data = remove_duplicates_and_invalid_values(sensor_data)
-                if not sensor_data:
-                    sensor_data = dummy_sensor_data(name, value=props.get('initial_value'), dtype=sensor_data.value.dtype)
-                    logger.warning("No usable data found for sensor '%s' - replaced with dummy data (%r)" %
-                                   (name, sensor_data.value[0]))
+                props = self._get_props(name, self.props, **kwargs)
                 # If this is the first time any sensor is accessed, obtain all data timestamps via indexer
                 self.timestamps = self.timestamps[:] if not isinstance(self.timestamps, np.ndarray) else self.timestamps
-                # Determine if sensor produces categorical or numerical data
-                # (float data are non-categorical, by default)
-                categ = props.get('categorical', not np.issubdtype(sensor_data.value.dtype, np.floating))
-                props['categorical'] = categ
-                if categ:
-                    sensor_data = sensor_to_categorical(sensor_data.timestamp, sensor_data.value,
-                                                          self.timestamps, self.dump_period, **props)
-                else:
-                    # Interpolate numerical data onto data timestamps (fallback option is linear interpolation)
-                    props['interp_degree'] = interp_degree = props.get('interp_degree', 1)
-                    sensor_timestamps = sensor_data.timestamp
-                    # Warn if sensor data will be extrapolated to start or end
-                    # of data set with potentially bogus results
-                    if interp_degree > 0 and len(sensor_timestamps) > 1:
-                        if sensor_timestamps[0] > self.timestamps[0]:
-                            logger.warning(("First data point for sensor '%s' only arrives %g seconds into data set" %
-                                           (name, sensor_timestamps[0] - self.timestamps[0])) +
-                                           " - extrapolation may lead to ridiculous values")
-                        if sensor_timestamps[-1] < self.timestamps[-1]:
-                            logger.warning(("Last data point for sensor '%s' arrives %g seconds "
-                                            "before end of data set" %
-                                           (name, self.timestamps[-1] - sensor_timestamps[-1])) +
-                                           " - extrapolation may lead to ridiculous values")
-                    if PiecewisePolynomial1DFit is not None:
-                        interp = PiecewisePolynomial1DFit(max_degree=interp_degree)
-                        interp.fit(sensor_timestamps, sensor_data.value)
-                        sensor_data = interp(self.timestamps)
-                    else:
-                        if interp_degree != 1:
-                            logger.warning('Requested sensor interpolation with polynomial degree ' +
-                                           str(interp_degree) +
-                                           ' but scikits.fitting not installed - falling back to linear interpolation')
-                        sensor_data = _safe_linear_interp(sensor_timestamps, sensor_data.value, self.timestamps)
+                sensor_data = self._extract(sensor_data, self.timestamps, self.dump_period, **props)
                 self[name] = sensor_data
         return sensor_data[self.keep] if select else sensor_data
 
