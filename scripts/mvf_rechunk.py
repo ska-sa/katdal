@@ -61,7 +61,6 @@ class Array(object):
         self.chunk_info = chunk_info
         self.store = store
         full_name = store.join(chunk_info['prefix'], array_name)
-        shape = chunk_info['shape']
         chunks = chunk_info['chunks']
         dtype = chunk_info['dtype']
         raw_data = store.get_dask_array(full_name, chunks, dtype, errors='none')

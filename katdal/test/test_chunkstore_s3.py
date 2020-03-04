@@ -52,7 +52,7 @@ from urllib3.util.retry import Retry
 import numpy as np
 from numpy.testing import assert_array_equal
 from nose import SkipTest
-from nose.tools import assert_raises, assert_equal, timed, assert_true, assert_false
+from nose.tools import assert_raises, assert_equal, timed
 import requests
 import jwt
 

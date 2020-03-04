@@ -26,7 +26,7 @@ import numpy as np
 
 from .lazy_indexer import LazyIndexer
 from .sensordata import SensorData, SensorValues, SensorCache, dummy_sensor_data
-from .categorical import (CategoricalData, unique_in_order, infer_dtype,
+from .categorical import (CategoricalData, unique_in_order,
                           concatenate_categorical)
 from .dataset import DataSet
 

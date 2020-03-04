@@ -153,7 +153,6 @@ def create_product(func):
 def create_raw_sensor(timestamps, values):
     """Create a :class:`SimpleSensorData` from raw sensor data."""
     wrapped_values = [ComparableArrayWrapper(value) for value in values]
-    dump_midtimes = np.arange(N_DUMPS, dtype=float)
     return SimpleSensorData(None, np.array(timestamps), np.array(wrapped_values))
 
 
@@ -336,7 +335,6 @@ class TestCalProductAccess(object):
         assert_array_equal(product_sensor[12], product)
 
     def test_get_cal_product_single_multipart(self):
-        cache = create_sensor_cache(bandpass_parts=1)
         product_sensor = get_cal_product(self.cache, CAL_STREAM, 'B')
         product = create_product(create_bandpass)
         assert_array_equal(product_sensor[0], np.ones_like(product))

@@ -26,13 +26,11 @@ import urllib.parse
 import os.path
 import io
 import logging
-from collections import defaultdict
 
 import katsdptelstate
 import numpy as np
 import dask.array as da
 from dask.array.rechunk import intersect_chunks
-from dask.core import literal
 from dask.highlevelgraph import HighLevelGraph
 import toolz
 import numba
@@ -267,7 +265,6 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
             if array.ndim < darray['flags'].ndim:
                 chunks += tuple((x,) for x in darray['flags'].shape[array.ndim:])
             intersections = intersect_chunks(darray['flags'].chunks, chunks)
-            src_indices = itertools.product(*(range(len(c)) for c in array.chunks))
             for src_key, pieces in zip(src_keys.flat, intersections):
                 for piece in pieces:
                     dst_index, slices = zip(*piece)

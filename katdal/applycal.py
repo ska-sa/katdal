@@ -24,7 +24,7 @@ import dask.array as da
 import numba
 
 from .categorical import CategoricalData, ComparableArrayWrapper
-from .sensordata import SensorData, SimpleSensorData, SensorValues
+from .sensordata import SensorData, SimpleSensorData
 from .spectral_window import SpectralWindow
 from .flags import POSTPROC
 
@@ -327,7 +327,6 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
             ordered = timestamps.argsort()
             timestamps = timestamps[ordered]
             values = values[ordered]
-            cal_stream = name.split('/')[-2]
             return SimpleSensorData(indirect_cal_product_name(name, product_type),
                                     timestamps, values)
 
@@ -343,7 +342,6 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
             try:
                 part = indirect_cal_product_raw(cache, name + str(n), product_type + str(n))
             except KeyError:
-                data = np.rec.fromarrays([[], []], names='timestamp,value')
                 part = SimpleSensorData(name + str(n), np.array([]), np.array([]))
             parts.append(part)
 

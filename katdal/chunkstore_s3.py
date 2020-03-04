@@ -30,7 +30,6 @@ import urllib.request
 import urllib.error
 import hashlib
 import base64
-import warnings
 import copy
 import json
 import time
