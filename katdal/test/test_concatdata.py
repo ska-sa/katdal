@@ -23,6 +23,7 @@ from builtins import object
 import numpy as np
 from nose.tools import assert_equal, assert_raises
 
+from katdal.categorical import CategoricalData
 from katdal.sensordata import SensorCache, SimpleSensorData
 from katdal.concatdata import ConcatenatedSensorCache
 
@@ -111,4 +112,18 @@ class TestConcatenatedSensorCache(object):
     def test_partially_extract(self):
         self.cache1['foo']
         data = self.cache.get('foo', extract=False)
-        np.testing.assert_equal(data, self.cache.get('foo', extract=True))
+        np.testing.assert_array_equal(data, self.cache.get('foo', extract=True))
+
+    def test_setitem_categorical(self):
+        data = CategoricalData(['x', 'y', 'x'], [0, 2, 4, 8])
+        self.cache['dog'] = data
+        ans = self.cache.get('dog')
+        assert_equal(data.unique_values, ans.unique_values)
+        np.testing.assert_array_equal(data.events, ans.events)
+        np.testing.assert_array_equal(data.indices, ans.indices)
+
+    def test_setitem_array(self):
+        data = np.array([1.0, 2, 3, 5, 8, 13, 21, 34])
+        self.cache['fib'] = data
+        ans = self.cache.get('fib')
+        np.testing.assert_array_equal(data, ans)
