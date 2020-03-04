@@ -242,15 +242,13 @@ class ConcatenatedSensorData(SensorData):
 
     This is a convenient container for returning raw (uncached) sensor data sets
     from a :class:`ConcatenatedSensorCache` object. It only accesses the
-    underlying data sets when explicitly asked to via the __getitem__ interface,
-    but provides quick access to metadata such as sensor dtype and name.
+    underlying data sets when explicitly asked to via the :meth:`get` interface,
+    but provides quick access to metadata such as sensor name.
 
     Parameters
     ----------
     data : sequence of :class:`SensorData`
-        Uncached sensor data as a list of record arrays or equivalent (such as
-        an :class:`h5py.Dataset`)
-
+        Uncached sensor data
     """
 
     def __init__(self, data):
@@ -262,13 +260,26 @@ class ConcatenatedSensorData(SensorData):
             # different minor versions (even within the same version...).
             raise ConcatenationError('Cannot concatenate sensor with different '
                                      'underlying names: %s' % (names,))
-        super(ConcatenatedSensorData, self).__init__(names[0],
-                                                     common_dtype(data))
+        super(ConcatenatedSensorData, self).__init__(names[0])
         self._data = data
 
-    def __getitem__(self, key):
-        """Extract timestamp, value and status of each sensor data point."""
-        return np.concatenate([sd[key] for sd in self._data])
+    def get(self):
+        parts = [sd.get() for sd in self._data]
+        # Filter out empty sensors, because they may have a default dtype that
+        # will skew the dtype of the concatenation
+        parts = [part for part in parts if part]
+        if not parts:
+            timestamp = np.array([])
+            value = np.array([])
+            status = np.array([], dtype='S7')
+        else:
+            timestamp = np.concatenate([part.timestamp for part in parts])
+            value = np.concatenate([part.value for part in parts])
+            if all(part.status is not None for part in parts):
+                status = np.concatenate([part.status for part in parts])
+            else:
+                status = None
+        return SensorValues(self.name, timestamp, value, status)
 
 
 def _calc_dummy(cache, name):
