@@ -36,11 +36,6 @@ from .categorical import (ComparableArrayWrapper, infer_dtype,
 
 logger = logging.getLogger(__name__)
 
-# Optionally depend on scikits.fitting for higher-order sensor data interpolation
-try:
-    from scikits.fitting import PiecewisePolynomial1DFit
-except ImportError:
-    PiecewisePolynomial1DFit = None
 
 # -------------------------------------------------------------------------------------------------
 # -- CLASS :  SensorData
@@ -394,59 +389,6 @@ class TelstateSensorData(SensorData):
 # -------------------------------------------------------------------------------------------------
 
 
-def _safe_linear_interp(xi, yi, x):
-    """Linearly interpolate (xi, yi) values to x positions, safely.
-
-    Given a set of N ``(x, y)`` points, provided in the `xi` and `yi` arrays,
-    this will calculate ``y``-coordinate values for a set of M ``x``-coordinates
-    provided in the `x` array, using linear interpolation.
-
-    It is safe in the sense that if `xi` and `yi` only contain a single point
-    it will revert to zeroth-order interpolation. In addition, data will not
-    be extrapolated linearly past the edges of `xi`, but the closest value
-    will be used instead (i.e. also zeroth-order interpolation).
-
-    Parameters
-    ----------
-    xi : array, shape (N,)
-        Array of fixed x-coordinates, sorted in ascending order and with no
-        duplicate values
-    yi : array, shape (N,)
-        Corresponding array of fixed y-coordinates
-    x : float or array, shape (M,)
-        Array of x-coordinates at which to do interpolation of y-values
-
-    Returns
-    -------
-    y : float or array, shape (M,)
-        Array of interpolated y-values
-
-    Notes
-    -----
-    This is mostly lifted from scikits.fitting.poly as it is the only part of
-    the package that is typically required. This weens katdal off SciPy too.
-
-    """
-    # Do zeroth-order interpolation for a single fixed (x, y) coordinate
-    if len(xi) == 1:
-        # The simplest way to handle x of e.g. 3, np.array(3) and [1, 2, 3]
-        return yi[0] * np.ones_like(x)
-    # Find lowest xi value >= x (end of segment containing x)
-    end = np.atleast_1d(xi.searchsorted(x))
-    # Associate any x found outside xi range with closest segment (first or last one)
-    end[end == 0] += 1
-    end[end == len(xi)] -= 1
-    start = end - 1
-    # Ensure that output y has same shape as input x
-    # (especially, let scalar input result in scalar output)
-    start, end = np.reshape(start, np.shape(x)), np.reshape(end, np.shape(x))
-    # Set up weight such that xi[start] => 0 and xi[end] => 1
-    end_weight = (x - xi[start]) / (xi[end] - xi[start])
-    # Do zeroth-order interpolation beyond the range of xi
-    end_weight = np.clip(end_weight, 0.0, 1.0)
-    return (1.0 - end_weight) * yi[start] + end_weight * yi[end]
-
-
 def get_sensor_from_katstore(store, name, start_time, end_time):
     """Get raw sensor data from katstore (CAM's central sensor database).
 
@@ -792,12 +734,11 @@ class SensorCache(dict):
             sensor_data = sensor_to_categorical(sensor_data.timestamp, sensor_data.value,
                                                 timestamps, dump_period, **props)
         else:
-            # Interpolate numerical data onto data timestamps (fallback option is linear interpolation)
-            props['interp_degree'] = interp_degree = props.get('interp_degree', 1)
+            # Interpolate numerical data onto data timestamps
             sensor_timestamps = sensor_data.timestamp
             # Warn if sensor data will be extrapolated to start or end
             # of data set with potentially bogus results
-            if interp_degree > 0 and len(sensor_timestamps) > 1:
+            if len(sensor_timestamps) > 1:
                 if sensor_timestamps[0] > timestamps[0]:
                     logger.warning(("First data point for sensor '%s' only arrives %g seconds into data set" %
                                    (sensor_data.name, sensor_timestamps[0] - timestamps[0])) +
@@ -807,16 +748,7 @@ class SensorCache(dict):
                                     "before end of data set" %
                                    (sensor_data.name, timestamps[-1] - sensor_timestamps[-1])) +
                                    " - extrapolation may lead to ridiculous values")
-            if PiecewisePolynomial1DFit is not None:
-                interp = PiecewisePolynomial1DFit(max_degree=interp_degree)
-                interp.fit(sensor_timestamps, sensor_data.value)
-                sensor_data = interp(timestamps)
-            else:
-                if interp_degree != 1:
-                    logger.warning('Requested sensor interpolation with polynomial degree ' +
-                                   str(interp_degree) +
-                                   ' but scikits.fitting not installed - falling back to linear interpolation')
-                sensor_data = _safe_linear_interp(sensor_timestamps, sensor_data.value, timestamps)
+            sensor_data = np.interp(timestamps, sensor_timestamps, sensor_data.value)
         return sensor_data
 
     def add_aliases(self, alias, original):
@@ -858,8 +790,6 @@ class SensorCache(dict):
         categorical : {None, True, False}, optional
             Interpret sensor data as categorical or numerical (by default, data
             of type float is numerical and of any other type is categorical)
-        interp_degree : int, optional
-            Polynomial degree for interpolation of numerical data (default = 1)
         kwargs : dict, optional
             Additional parameters are passed to :func:`sensor_to_categorical`
 

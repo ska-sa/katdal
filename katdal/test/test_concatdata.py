@@ -63,7 +63,7 @@ class TestConcatenatedSensorCache(object):
 
     def test_float(self):
         data = self.cache.get('foo')
-        np.testing.assert_allclose(data, [-1.0, 1, 3, 5, 7, 15, 17, 19])
+        np.testing.assert_allclose(data, [3.0, 3, 3, 5, 6, 15, 17, 19])
 
     def test_categorical(self):
         data = self.cache.get('cat')
@@ -87,7 +87,7 @@ class TestConcatenatedSensorCache(object):
 
     def test_float_select(self):
         data = self.cache['foo']
-        np.testing.assert_allclose(data, [-1.0, 3, 15, 19])
+        np.testing.assert_allclose(data, [3.0, 3, 15, 19])
 
     def test_categorical_select(self):
         data = self.cache['cat']
