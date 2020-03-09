@@ -781,7 +781,7 @@ class SensorCache(dict):
             sensor_data = remove_duplicates_and_invalid_values(sensor_data)
         if not sensor_data:
             sensor_data = dummy_sensor_data(sensor_data.name, value=props.get('initial_value'),
-                                            dtype=sensor_data.value.dtype)
+                                            dtype=sensor_data.value.dtype).get()
             logger.warning("No usable data found for sensor '%s' - replaced with dummy data (%r)" %
                            (sensor_data.name, sensor_data.value[0]))
         # Determine if sensor produces categorical or numerical data
