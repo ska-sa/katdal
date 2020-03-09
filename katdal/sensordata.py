@@ -286,7 +286,7 @@ class H5TelstateSensorData(RecordSensorData):
         dtype = infer_dtype(values)
         if dtype == np.object:
             values = [ComparableArrayWrapper(value) for value in values]
-        return SensorValues(self.name, timestamp, np.asarray(values))
+        return SensorValues(self.name, timestamp, to_str(np.asarray(values)))
 
 
 class TelstateToStr(object):
