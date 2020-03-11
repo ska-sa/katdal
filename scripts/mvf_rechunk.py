@@ -27,7 +27,7 @@ from katdal.flags import DATA_LOST
 
 class RechunkSpec(object):
     def __init__(self, arg):
-        match = re.match(r'^([A-Za-z0-9_]+)/([A-Za-z0-9_]+):(\d+),(\d+)', arg)
+        match = re.match(r'^([A-Za-z0-9_.]+)/([A-Za-z0-9_]+):(\d+),(\d+)', arg)
         if not match:
             raise ValueError('Could not parse {!r}'.format(arg))
         self.stream = match.group(1)
@@ -106,12 +106,23 @@ def parse_args():
     return args
 
 
+def get_stream_type(telstate, stream):
+    try:
+        return telstate.view(stream)['stream_type']
+    except KeyError:
+        try:
+            base = telstate.view(stream)['inherit']
+            return get_stream_type(telstate, base)
+        except KeyError:
+            return None
+
+
 def get_streams(telstate, streams):
     """Determine streams to copy based on what the user asked for"""
     archived_streams = telstate.get('sdp_archived_streams', [])
     archived_streams = [
         stream for stream in archived_streams
-        if telstate.view(stream).get('stream_type') in {'sdp.vis', 'sdp.flags'}]
+        if get_stream_type(telstate, stream) in {'sdp.vis', 'sdp.flags'}]
     if not archived_streams:
         raise RuntimeError('Source dataset does not contain any visibility streams')
     if streams is None:
