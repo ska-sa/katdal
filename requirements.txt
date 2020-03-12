@@ -1,7 +1,7 @@
 botocore
 certifi
 chardet
-cityhash
+cityhash==0.2.3.post9
 dask
 docutils
 enum34
