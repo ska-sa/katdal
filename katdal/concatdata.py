@@ -213,7 +213,7 @@ def common_dtype(sensor_data_sequence):
     This extracts the dtypes of a sequence of sensor data objects and finds the
     minimal dtype to which all of them may be safely cast using NumPy type
     promotion rules (which will typically be the dtype of a concatenation of
-    the values). If all the objects have unknown dtype, return None instead.
+    the values).
 
     Parameters
     ----------
@@ -222,13 +222,11 @@ def common_dtype(sensor_data_sequence):
 
     Returns
     -------
-    dtype : :class:`numpy.dtype` object or None
-        The promoted dtype of the sequence, or None if dtype is unknown
+    dtype : :class:`numpy.dtype` object
+        The promoted dtype of the sequence, or None if `sensor_data_sequence` is empty
 
     """
     dtypes = [sd.dtype for sd in sensor_data_sequence]
-    # Ignore all unavailable dtypes for now
-    dtypes = [dt for dt in dtypes if dt is not None]
     # Find resulting dtype through type promotion or give up if nothing is known
     return np.result_type(*dtypes) if dtypes else None
 
