@@ -444,7 +444,7 @@ def get_sensor_from_katstore(store, name, start_time, end_time):
         return RecordSensorGetter(samples, name)
 
 
-def dummy_sensor_data(name, value=None, dtype=np.float64, timestamp=0.0):
+def dummy_sensor_getter(name, value=None, dtype=np.float64, timestamp=0.0):
     """Create a SensorGetter object with a single default value based on type.
 
     This creates a dummy :class:`SimpleSensorGetter` object based on a default
@@ -715,15 +715,15 @@ class SensorCache(dict):
         return props
 
     @staticmethod
-    def _extract(sensor_data, timestamps, dump_period, **props):
-        sensor_data = sensor_data.get()
+    def _extract(sensor_getter, timestamps, dump_period, **props):
+        sensor_data = sensor_getter.get()
         # Clean up sensor data if non-empty
         if sensor_data:
             # Sort sensor events in chronological order and discard duplicates and unreadable sensor values
             sensor_data = remove_duplicates_and_invalid_values(sensor_data)
         if not sensor_data:
-            sensor_data = dummy_sensor_data(sensor_data.name, value=props.get('initial_value'),
-                                            dtype=sensor_data.value.dtype).get()
+            sensor_data = dummy_sensor_getter(sensor_data.name, value=props.get('initial_value'),
+                                              dtype=sensor_data.value.dtype).get()
             logger.warning("No usable data found for sensor '%s' - replaced with dummy data (%r)" %
                            (sensor_data.name, sensor_data.value[0]))
         # Determine if sensor produces categorical or numerical data

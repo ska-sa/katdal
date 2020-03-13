@@ -25,7 +25,7 @@ from functools import reduce
 import numpy as np
 
 from .lazy_indexer import LazyIndexer
-from .sensordata import SensorGetter, SensorData, SensorCache, dummy_sensor_data
+from .sensordata import SensorGetter, SensorData, SensorCache, dummy_sensor_getter
 from .categorical import (CategoricalData, unique_in_order,
                           concatenate_categorical)
 from .dataset import DataSet
@@ -409,7 +409,7 @@ class ConcatenatedSensorCache(SensorCache):
                 split_data2 = split_data
             split_data2 = [sd for sd in split_data2 if sd is not None]
             dtype = common_dtype(split_data2)
-            dummy = dummy_sensor_data(name, value=props.get('initial_value'), dtype=dtype)
+            dummy = dummy_sensor_getter(name, value=props.get('initial_value'), dtype=dtype)
             for i, cache in enumerate(self.caches):
                 if split_data[i] is None:
                     cache[name] = self._extract(dummy, cache.timestamps, cache.dump_period, **props)
