@@ -35,7 +35,7 @@ from dask.highlevelgraph import HighLevelGraph
 import toolz
 import numba
 
-from .sensordata import TelstateSensorData, TelstateToStr
+from .sensordata import TelstateSensorGetter, TelstateToStr
 from .chunkstore_s3 import S3ChunkStore
 from .chunkstore_npy import NpyFileChunkStore
 from .chunkstore import ChunkStoreError
@@ -56,7 +56,7 @@ class AttrsSensors(object):
     ----------
     attrs : mapping from string to object
         Metadata attributes
-    sensors : mapping from string to :class:`SensorData` objects
+    sensors : mapping from string to :class:`SensorGetter` objects
         Metadata sensor cache mapping sensor names to raw sensor data
     name : string, optional
         Identifier that describes the origin of the metadata (backend-specific)
@@ -634,7 +634,7 @@ class TelstateDataSource(DataSource):
             if not telstate.is_immutable(key):
                 sensor_name = _shorten_key(telstate, key)
                 if sensor_name:
-                    sensors[sensor_name] = TelstateSensorData(telstate, key)
+                    sensors[sensor_name] = TelstateSensorGetter(telstate, key)
         metadata = AttrsSensors(telstate, sensors, name=source_name)
         if chunk_store is not None or timestamps is None:
             chunk_info = telstate['chunk_info']

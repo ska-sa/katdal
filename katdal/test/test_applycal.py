@@ -26,7 +26,7 @@ from nose.tools import assert_raises, assert_equal
 import dask.array as da
 
 from katdal.spectral_window import SpectralWindow
-from katdal.sensordata import SensorCache, SimpleSensorData
+from katdal.sensordata import SensorCache, SimpleSensorGetter
 from katdal.categorical import (ComparableArrayWrapper, CategoricalData,
                                 sensor_to_categorical)
 from katdal.applycal import (complex_interp, get_cal_product, INVALID_GAIN,
@@ -151,9 +151,9 @@ def create_product(func):
 
 
 def create_raw_sensor(timestamps, values):
-    """Create a :class:`SimpleSensorData` from raw sensor data."""
+    """Create a :class:`SimpleSensorGetter` from raw sensor data."""
     wrapped_values = [ComparableArrayWrapper(value) for value in values]
-    return SimpleSensorData(None, np.array(timestamps), np.array(wrapped_values))
+    return SimpleSensorGetter(None, np.array(timestamps), np.array(wrapped_values))
 
 
 def create_categorical_sensor(timestamps, values, initial_value=None):

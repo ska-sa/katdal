@@ -24,7 +24,7 @@ import dask.array as da
 import numba
 
 from .categorical import CategoricalData, ComparableArrayWrapper
-from .sensordata import SensorData, SimpleSensorData
+from .sensordata import SensorGetter, SimpleSensorGetter
 from .spectral_window import SpectralWindow
 from .flags import POSTPROC
 
@@ -315,7 +315,7 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
         for stream in cal_substreams:
             sensor_name = stream + product_str
             raw_product = cache.get(sensor_name, extract=False)
-            assert isinstance(raw_product, SensorData), \
+            assert isinstance(raw_product, SensorGetter), \
                 sensor_name + ' is already extracted'
             raw_products.append(raw_product)
         if len(raw_products) == 1:
@@ -327,7 +327,7 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
             ordered = timestamps.argsort()
             timestamps = timestamps[ordered]
             values = values[ordered]
-            return SimpleSensorData(indirect_cal_product_name(name, product_type),
+            return SimpleSensorGetter(indirect_cal_product_name(name, product_type),
                                     timestamps, values)
 
     def indirect_cal_product(cache, name, product_type):
@@ -342,7 +342,7 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
             try:
                 part = indirect_cal_product_raw(cache, name + str(n), product_type + str(n))
             except KeyError:
-                part = SimpleSensorData(name + str(n), np.array([]), np.array([]))
+                part = SimpleSensorGetter(name + str(n), np.array([]), np.array([]))
             parts.append(part)
 
         # Stitch together values with the same timestamp
@@ -379,7 +379,7 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
         if not timestamps:
             raise KeyError("No cal product '{}' parts found (expected {})"
                            .format(name, n_parts))
-        return SimpleSensorData(indirect_cal_product_name(name, product_type),
+        return SimpleSensorGetter(indirect_cal_product_name(name, product_type),
                                 np.array(timestamps), np.array(values))
 
     def calc_correction_per_input(cache, name, inp, product_type):

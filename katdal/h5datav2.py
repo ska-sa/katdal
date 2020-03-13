@@ -28,7 +28,7 @@ from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray,
                       DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
                       _robust_target, _selection_to_list)
 from .spectral_window import SpectralWindow
-from .sensordata import RecordSensorData, SensorCache, to_str
+from .sensordata import RecordSensorGetter, SensorCache, to_str
 from .categorical import CategoricalData, sensor_to_categorical
 from .lazy_indexer import LazyIndexer, LazyTransform
 from .flags import NAMES as FLAG_NAMES, DESCRIPTIONS as FLAG_DESCRIPTIONS
@@ -265,7 +265,7 @@ class H5DataV2(DataSet):
                obj.dtype.names == ('timestamp', 'value', 'status'):
                 # Rename pedestal sensors from the old regime to become sensors of the corresponding antenna
                 name = ('Antennas/ant' + name[13:]) if name.startswith('Pedestals/ped') else name
-                cache[name] = RecordSensorData(obj, name)
+                cache[name] = RecordSensorGetter(obj, name)
         sensors_group.visititems(register_sensor)
         # Use estimated data timestamps for now, to speed up data segmentation
         self.sensor = SensorCache(cache, data_timestamps, self.dump_period, keep=self._time_keep,

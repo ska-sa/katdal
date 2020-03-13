@@ -32,8 +32,8 @@ from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray,
                       DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
                       _robust_target, _selection_to_list)
 from .spectral_window import SpectralWindow
-from .sensordata import (SensorCache, RecordSensorData,
-                         H5TelstateSensorData, telstate_decode, to_str)
+from .sensordata import (SensorCache, RecordSensorGetter,
+                         H5TelstateSensorGetter, telstate_decode, to_str)
 from .categorical import CategoricalData
 from .lazy_indexer import LazyIndexer, LazyTransform
 from .flags import NAMES as FLAG_NAMES, DESCRIPTIONS as FLAG_DESCRIPTIONS
@@ -204,7 +204,7 @@ class H5DataV3(DataSet):
                 group_lookup = {'AntennaPositioner': 'Antennas/' + comp_name}
                 group_name = group_lookup.get(comp_type, comp_type) if comp_type else comp_name
                 name = '/'.join((group_name, sensor_name))
-                cache[name] = RecordSensorData(obj, name)
+                cache[name] = RecordSensorGetter(obj, name)
         tm_group.visititems(register_sensor)
         # Also load sensors from TelescopeState for what it's worth
         if 'TelescopeState' in f.file:
@@ -214,7 +214,7 @@ class H5DataV3(DataSet):
                 if isinstance(obj, h5py.Dataset) and obj.shape != () and \
                    set(obj.dtype.names) == {'timestamp', 'value'}:
                     name = 'TelescopeState/' + to_str(name)
-                    cache[name] = H5TelstateSensorData(obj, name)
+                    cache[name] = H5TelstateSensorGetter(obj, name)
             f.file['TelescopeState'].visititems(register_telstate_sensor)
 
         # ------ Extract vis and timestamps ------

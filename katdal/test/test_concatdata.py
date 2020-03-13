@@ -24,7 +24,7 @@ import numpy as np
 from nose.tools import assert_equal, assert_raises
 
 from katdal.categorical import CategoricalData
-from katdal.sensordata import SensorCache, SimpleSensorData
+from katdal.sensordata import SensorCache, SimpleSensorGetter
 from katdal.concatdata import ConcatenatedSensorCache
 
 
@@ -33,7 +33,7 @@ class TestConcatenatedSensorCache(object):
     def _make_cache(timestamps, sensors):
         cache_data = {}
         for name, ts, values in sensors:
-            sd = SimpleSensorData(name, np.asarray(ts), np.asarray(values))
+            sd = SimpleSensorGetter(name, np.asarray(ts), np.asarray(values))
             cache_data[name] = sd
         return SensorCache(cache_data, timestamps, 2.0)
 

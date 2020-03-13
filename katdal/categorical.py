@@ -36,7 +36,7 @@ class ComparableArrayWrapper(object):
       - It ensures that array-valued sensor values become properly comparable
         (avoiding array-valued booleans resulting from standard comparisons).
 
-    The former is needed because :class:`SensorData` is treated as a structured
+    The former is needed because :class:`SensorGetter` is treated as a structured
     array even if it contains object values. The latter is needed because the
     equality operator crops up in hard-to-reach places like inside list.index().
 
@@ -120,7 +120,7 @@ def infer_dtype(values):
     ----------
     values : sequence, or object with dtype
         Sequence of sensor values (typically a list), or a sensor data object
-        with a dtype attribute (like ndarray or :class:`SensorData`)
+        with a dtype attribute (like ndarray or :class:`SensorGetter`)
 
     Returns
     -------
@@ -137,7 +137,7 @@ def infer_dtype(values):
     as opposed to being unpacked across the argument list.
 
     """
-    # If values already has a dtype (because it is an ndarray, SensorData,
+    # If values already has a dtype (because it is an ndarray, SensorGetter,
     # CategoricalData, etc), return that instead
     if hasattr(values, 'dtype'):
         return values.dtype

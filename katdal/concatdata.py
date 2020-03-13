@@ -25,7 +25,7 @@ from functools import reduce
 import numpy as np
 
 from .lazy_indexer import LazyIndexer
-from .sensordata import SensorData, SensorValues, SensorCache, dummy_sensor_data
+from .sensordata import SensorGetter, SensorData, SensorCache, dummy_sensor_data
 from .categorical import (CategoricalData, unique_in_order,
                           concatenate_categorical)
 from .dataset import DataSet
@@ -203,7 +203,7 @@ class ConcatenatedLazyIndexer(LazyIndexer):
                                      (self.name, '\n'.join([repr(indexer) for indexer in self.indexers])))
 
 # -------------------------------------------------------------------------------------------------
-# -- CLASS :  ConcatenatedSensorData
+# -- CLASS :  ConcatenatedSensorGetter
 # -------------------------------------------------------------------------------------------------
 
 
@@ -231,7 +231,7 @@ def common_dtype(sensor_data_sequence):
     return np.result_type(*dtypes) if dtypes else None
 
 
-class ConcatenatedSensorData(SensorData):
+class ConcatenatedSensorGetter(SensorGetter):
     """The concatenation of multiple raw (uncached) sensor data sets.
 
     This is a convenient container for returning raw (uncached) sensor data sets
@@ -241,7 +241,7 @@ class ConcatenatedSensorData(SensorData):
 
     Parameters
     ----------
-    data : sequence of :class:`SensorData`
+    data : sequence of :class:`SensorGetter`
         Uncached sensor data
     """
 
@@ -254,7 +254,7 @@ class ConcatenatedSensorData(SensorData):
             # different minor versions (even within the same version...).
             raise ConcatenationError('Cannot concatenate sensor with different '
                                      'underlying names: %s' % (names,))
-        super(ConcatenatedSensorData, self).__init__(names[0])
+        super(ConcatenatedSensorGetter, self).__init__(names[0])
         self._data = data
 
     def get(self):
@@ -273,7 +273,7 @@ class ConcatenatedSensorData(SensorData):
                 status = np.concatenate([part.status for part in parts])
             else:
                 status = None
-        return SensorValues(self.name, timestamp, value, status)
+        return SensorData(self.name, timestamp, value, status)
 
 
 # -------------------------------------------------------------------------------------------------
@@ -337,8 +337,6 @@ class ConcatenatedSensorCache(SensorCache):
 
         This extracts a sequence of sensor data objects, one from each cache.
         For caches which do not contain the sensor it returns `None`.
-        in the process filling in any missing data if the relevant dtype
-        becomes available during extraction.
 
         """
         # First extract from all caches where the requested sensor is present
@@ -371,8 +369,8 @@ class ConcatenatedSensorCache(SensorCache):
 
         Returns
         -------
-        data : array or :class:`CategoricalData` or :class:`SensorData` object
-            If extraction is disabled, this will be a :class:`SensorData` object
+        data : array or :class:`CategoricalData` or :class:`SensorGetter` object
+            If extraction is disabled, this will be a :class:`SensorGetter` object
             for uncached sensors. If selection is enabled, this will be a 1-D
             array of values, one per selected timestamp. If selection is
             disabled, this will be a 1-D array of values (of the same length as
@@ -391,13 +389,13 @@ class ConcatenatedSensorCache(SensorCache):
             raise KeyError('Key %s not found in any of the concatenated datasets' % name)
         # If this sensor has already been partially extracted,
         # we are forced to extract it in rest of caches too
-        if not extract and not all(sd is None or isinstance(sd, SensorData) for sd in split_data):
+        if not extract and not all(sd is None or isinstance(sd, SensorGetter) for sd in split_data):
             extract = True
             split_data = self._get(name, select=select, extract=extract, **kwargs)
         if not extract:
             # Just discard pieces for which the sensor is missing.
             split_data = [sd for sd in split_data if sd is not None]
-            return ConcatenatedSensorData(split_data)
+            return ConcatenatedSensorGetter(split_data)
 
         props = self._get_props(name, self.props, **kwargs)
 
