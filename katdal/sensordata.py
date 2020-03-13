@@ -700,7 +700,21 @@ class SensorCache(dict):
 
     @staticmethod
     def _get_props(name, prop_map, **kwargs):
-        """TODO: document"""
+        """Retrieve properties for a sensor.
+
+        Sensor names in `prop_map` may contain ``*`` wildcard characters. All
+        matching entries are merged, and `prop_map` is updated in place with
+        the merged result.
+
+        Parameters
+        ----------
+        name : str
+            Sensor name
+        prop_map : dict
+            Maps sensor names to mappings of properties.
+        kwargs
+            Extra properties to apply, overriding those in `prop_map`.
+        """
         # Look up properties associated with this specific sensor
         props = prop_map.setdefault(name, {})
         # Look up properties associated with this class of sensor
