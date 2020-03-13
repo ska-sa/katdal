@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 class SensorData(object):
     """Raw (uninterpolated) sensor values.
 
-    This is a simple tuple that holds timestamps, values, and optionally
+    This is a simple struct that holds timestamps, values, and optionally
     status.
 
     Parameters
@@ -509,14 +509,13 @@ def remove_duplicates_and_invalid_values(sensor):
     Parameters
     ----------
     sensor : :class:`SensorData` object, length *N*
-        Raw sensor dataset, which acts like a record array with fields
-        'timestamp', 'value' and optionally 'status'
+        Raw sensor dataset.
 
     Returns
     -------
     clean_sensor : :class:`SensorData` object, length *M*
         Sensor data with duplicate timestamps and invalid values removed
-        (*M* <= *N*), and only 'timestamp' and 'value' fields left
+        (*M* <= *N*), and only 'timestamp' and 'value' attributes left.
 
     """
     x = sensor.timestamp
