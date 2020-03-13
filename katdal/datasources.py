@@ -268,7 +268,7 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
             for src_key, pieces in zip(src_keys.flat, intersections):
                 for piece in pieces:
                     dst_index, slices = zip(*piece)
-                    # if src_index is missing, then the parts of dst_index
+                    # if src_key is missing, then the parts of dst_index
                     # indicated by slices must be flagged.
                     # TODO: fast path for when slices covers the whole chunk?
                     lost_map[dst_index].extend([src_key, slices])
