@@ -1,6 +1,15 @@
 History
 =======
 
+0.15 (2020-03-13)
+-----------------
+* Improve S3 chunk store: check tokens, improve timeouts and retries (#272 - #277)
+* Retry truncated reads and 50x errors due to S3 server overload (#274)
+* Apply flux calibration if available (#278, #279)
+* Improve mvf_rechunk and mvf_read_benchmark scripts (#280, #281, #284)
+* Fix selection by target description (#271)
+* Mark Python 2 support as deprecated (#282)
+
 0.14 (2019-10-02)
 -----------------
 * Make L2 product by applying self-calibration corrections (#253 - #256)
