@@ -35,7 +35,9 @@ from .lazy_indexer import DaskLazyIndexer
 from .applycal import (add_applycal_sensors, calc_correction,
                        apply_vis_correction, apply_weights_correction,
                        apply_flags_correction, CAL_PRODUCT_TYPES, INVALID_GAIN)
-from .flags import NAMES as FLAG_NAMES
+# FLAG_DESCRIPTIONS isn't used, but it's kept here for compatibility with
+# external code that might get it from here
+from .flags import NAMES as FLAG_NAMES, DESCRIPTIONS as FLAG_DESCRIPTIONS   # noqa: F401
 
 
 logger = logging.getLogger(__name__)
