@@ -76,12 +76,10 @@ class SensorData(object):
 class SensorGetter(object):
     """Raw (uninterpolated) sensor data placeholder.
 
-    This is basically a placeholder for uninterpolated sensor data resembling
-    a structured array with fields 'timestamp', 'value' and optionally 'status'.
-
-    This is an abstract lazy interface that does not store values itself.
-    Subclasses must implement :meth:`get` to retrieve values from underlying
-    storage. They should *not* cache the results.
+    This is an abstract lazy interface that provides a :class:`SensorData`
+    object on request but does not store values itself. Subclasses must
+    implement :meth:`get` to retrieve values from underlying storage. They
+    should *not* cache the results.
 
     Where possible, object-valued sensors (including sensors with ndarrays as
     values) will have values wrapped by :class:`ComparableArrayWrapper`.
