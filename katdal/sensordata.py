@@ -753,14 +753,12 @@ class SensorCache(dict):
             # of data set with potentially bogus results
             if len(sensor_timestamps) > 1:
                 if sensor_timestamps[0] > timestamps[0]:
-                    logger.warning(("First data point for sensor '%s' only arrives %g seconds into data set" %
-                                   (sensor_data.name, sensor_timestamps[0] - timestamps[0])) +
-                                   " - extrapolation may lead to ridiculous values")
+                    logger.warning("First data point for sensor '%s' only arrives %g seconds into data set" %
+                                   (sensor_data.name, sensor_timestamps[0] - timestamps[0]))
                 if sensor_timestamps[-1] < timestamps[-1]:
-                    logger.warning(("Last data point for sensor '%s' arrives %g seconds "
-                                    "before end of data set" %
-                                   (sensor_data.name, timestamps[-1] - sensor_timestamps[-1])) +
-                                   " - extrapolation may lead to ridiculous values")
+                    logger.warning("Last data point for sensor '%s' arrives %g seconds "
+                                   "before end of data set" %
+                                   (sensor_data.name, timestamps[-1] - sensor_timestamps[-1]))
             sensor_data = np.interp(timestamps, sensor_timestamps, sensor_data.value)
         return sensor_data
 
