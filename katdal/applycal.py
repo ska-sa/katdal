@@ -328,7 +328,7 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
             timestamps = timestamps[ordered]
             values = values[ordered]
             return SimpleSensorGetter(indirect_cal_product_name(name, product_type),
-                                    timestamps, values)
+                                      timestamps, values)
 
     def indirect_cal_product(cache, name, product_type):
         try:
@@ -380,7 +380,7 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
             raise KeyError("No cal product '{}' parts found (expected {})"
                            .format(name, n_parts))
         return SimpleSensorGetter(indirect_cal_product_name(name, product_type),
-                                np.array(timestamps), np.array(values))
+                                  np.array(timestamps), np.array(values))
 
     def calc_correction_per_input(cache, name, inp, product_type):
         """Calculate correction sensor for input `inp` from cal solutions."""
