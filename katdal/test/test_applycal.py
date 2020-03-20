@@ -26,7 +26,7 @@ from nose.tools import assert_raises, assert_equal
 import dask.array as da
 
 from katdal.spectral_window import SpectralWindow
-from katdal.sensordata import SensorCache, RecordSensorData
+from katdal.sensordata import SensorCache, SimpleSensorGetter
 from katdal.categorical import (ComparableArrayWrapper, CategoricalData,
                                 sensor_to_categorical)
 from katdal.applycal import (complex_interp, get_cal_product, INVALID_GAIN,
@@ -151,11 +151,9 @@ def create_product(func):
 
 
 def create_raw_sensor(timestamps, values):
-    """Create a :class:`RecordSensorData` from raw sensor data."""
+    """Create a :class:`SimpleSensorGetter` from raw sensor data."""
     wrapped_values = [ComparableArrayWrapper(value) for value in values]
-    dump_midtimes = np.arange(N_DUMPS, dtype=float)
-    return RecordSensorData(np.rec.fromarrays([timestamps, wrapped_values],
-                            names='timestamp,value'))
+    return SimpleSensorGetter(None, np.array(timestamps), np.array(wrapped_values))
 
 
 def create_categorical_sensor(timestamps, values, initial_value=None):
@@ -337,7 +335,6 @@ class TestCalProductAccess(object):
         assert_array_equal(product_sensor[12], product)
 
     def test_get_cal_product_single_multipart(self):
-        cache = create_sensor_cache(bandpass_parts=1)
         product_sensor = get_cal_product(self.cache, CAL_STREAM, 'B')
         product = create_product(create_bandpass)
         assert_array_equal(product_sensor[0], np.ones_like(product))

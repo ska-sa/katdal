@@ -32,8 +32,8 @@ from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray,
                       DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
                       _robust_target, _selection_to_list)
 from .spectral_window import SpectralWindow
-from .sensordata import (SensorCache, RecordSensorData,
-                         H5TelstateSensorData, telstate_decode, to_str)
+from .sensordata import (SensorCache, RecordSensorGetter,
+                         H5TelstateSensorGetter, telstate_decode, to_str)
 from .categorical import CategoricalData
 from .lazy_indexer import LazyIndexer, LazyTransform
 from .flags import NAMES as FLAG_NAMES, DESCRIPTIONS as FLAG_DESCRIPTIONS
@@ -204,7 +204,7 @@ class H5DataV3(DataSet):
                 group_lookup = {'AntennaPositioner': 'Antennas/' + comp_name}
                 group_name = group_lookup.get(comp_type, comp_type) if comp_type else comp_name
                 name = '/'.join((group_name, sensor_name))
-                cache[name] = RecordSensorData(obj, name)
+                cache[name] = RecordSensorGetter(obj, name)
         tm_group.visititems(register_sensor)
         # Also load sensors from TelescopeState for what it's worth
         if 'TelescopeState' in f.file:
@@ -214,7 +214,7 @@ class H5DataV3(DataSet):
                 if isinstance(obj, h5py.Dataset) and obj.shape != () and \
                    set(obj.dtype.names) == {'timestamp', 'value'}:
                     name = 'TelescopeState/' + to_str(name)
-                    cache[name] = H5TelstateSensorData(obj, name)
+                    cache[name] = H5TelstateSensorGetter(obj, name)
             f.file['TelescopeState'].visititems(register_telstate_sensor)
 
         # ------ Extract vis and timestamps ------
@@ -261,7 +261,7 @@ class H5DataV3(DataSet):
         # Pick first regular sensor with longer data record than data (hopefully straddling it)
         for sensor_name, sensor_data in cache.items():
             if sensor_name.endswith(regular_sensors) and sensor_data:
-                sensor_times = sensor_data['timestamp']
+                sensor_times = sensor_data.get().timestamp
                 proposed_sensor_start_time = sensor_times[0]
                 sensor_duration = sensor_times[-1] - proposed_sensor_start_time
                 if sensor_duration > data_duration:
@@ -361,7 +361,7 @@ class H5DataV3(DataSet):
             try:
                 # Replay obs_params sensor if available
                 obs_params = self.sensor.get('Observation/params',
-                                             extract=False)['value']
+                                             extract=False).get().value
             except KeyError:
                 obs_params = []
             for obs_param in obs_params:
@@ -374,7 +374,7 @@ class H5DataV3(DataSet):
         self.experiment_id = self.obs_params.get('experiment_id', '')
         # Extract script log data verbatim (it is not a standard sensor anyway)
         try:
-            self.obs_script_log = self.sensor.get('Observation/script_log', extract=False)['value'].tolist()
+            self.obs_script_log = self.sensor.get('Observation/script_log', extract=False).get().value.tolist()
         except KeyError:
             self.obs_script_log = []
 

@@ -36,31 +36,50 @@ from .categorical import (ComparableArrayWrapper, infer_dtype,
 
 logger = logging.getLogger(__name__)
 
-# Optionally depend on scikits.fitting for higher-order sensor data interpolation
-try:
-    from scikits.fitting import PiecewisePolynomial1DFit
-except ImportError:
-    PiecewisePolynomial1DFit = None
 
 # -------------------------------------------------------------------------------------------------
-# -- CLASS :  SensorData
+# -- CLASS :  SensorGetter
 # -------------------------------------------------------------------------------------------------
 
 
 class SensorData(object):
+    """Raw (uninterpolated) sensor values.
+
+    This is a simple struct that holds timestamps, values, and optionally
+    status.
+
+    Parameters
+    ----------
+    name : string
+        Sensor name
+    timestamp : np.ndarray
+        Array of timestamps
+    value : np.ndarray
+        Array of values (wrapped in :class:`ComparableArrayWrapper` if necessary)
+    status : np.ndarray, optional
+        Array of sensor statuses
+    """
+
+    def __init__(self, name, timestamp, value, status=None):
+        assert value.shape == timestamp.shape
+        assert status is None or status.shape == timestamp.shape
+        self.name = name
+        self.timestamp = timestamp
+        self.value = value
+        self.status = status
+
+    def __bool__(self):
+        """True if sensor has at least one data point."""
+        return len(self.timestamp) > 0
+
+
+class SensorGetter(object):
     """Raw (uninterpolated) sensor data placeholder.
 
-    This is basically a placeholder for uninterpolated sensor data resembling
-    a structured array with fields 'timestamp', 'value' and optionally 'status'.
-
-    Its main advantage is that it exposes the sensor data dtype (from the
-    'value' field, if available) as a top-level attribute, making it compatible
-    with NumPy arrays and :class:`CategoricalData` objects when used together
-    in a sensor cache. It also exposes the sensor name, if available.
-
-    The idea is that the raw sensor data is not initially cached in this object,
-    making it a light-weight wrapper focussing on sensor metadata. All data
-    access should be via __getitem__ of the appropriate field.
+    This is an abstract lazy interface that provides a :class:`SensorData`
+    object on request but does not store values itself. Subclasses must
+    implement :meth:`get` to retrieve values from underlying storage. They
+    should *not* cache the results.
 
     Where possible, object-valued sensors (including sensors with ndarrays as
     values) will have values wrapped by :class:`ComparableArrayWrapper`.
@@ -69,49 +88,43 @@ class SensorData(object):
     ----------
     name : string
         Sensor name
-    dtype : :class:`numpy.dtype` object or equivalent or None
-        Sensor value type as NumPy dtype (None if not available yet)
-
     """
 
-    def __init__(self, name, dtype):
+    def __init__(self, name):
         self.name = name
-        self.dtype = dtype
 
-    def __getitem__(self, key):
-        """Extract timestamp and value (and status) of each sensor data point.
-
-        Parameters
-        ----------
-        key : {'timestamp', 'value', 'status'}
-            Name of field to access ('status' is optional and raises ValueError
-            if not supported)
+    def get(self):
+        """Retrieve the values from underlying storage.
 
         Returns
         -------
-        field : :class:`numpy.ndarray` object, shape (N,)
-            Requested field as 1-D array of appropriate dtype (float,
-            self.dtype or string, respectively, for timestamp / value / status)
-
-        Raises
-        ------
-        ValueError
-            If `key` is unsupported field name
-
+        values : :class:`SensorData`
+            Underlying data
         """
-        raise NotImplementedError
-
-    def __bool__(self):
-        """True if sensor has at least one data point."""
         raise NotImplementedError
 
     def __repr__(self):
         """Short human-friendly string representation of sensor data object."""
-        return "<katdal.%s '%s' type=%s at 0x%x>" % \
-               (self.__class__.__name__, self.name, self.dtype, id(self))
+        return "<katdal.%s '%s' at 0x%x>" % \
+               (self.__class__.__name__, self.name, id(self))
 
 
-class RecordSensorData(SensorData):
+class SimpleSensorGetter(SensorGetter):
+    """Raw sensor data held in memory.
+
+    This is a simple wrapper for :class:`SensorData` that implements the
+    :class:`SensorGetter` interface.
+    """
+
+    def __init__(self, name, timestamp, value, status=None):
+        super(SimpleSensorGetter, self).__init__(name)
+        self._data = SensorData(name, timestamp, value, status)
+
+    def get(self):
+        return self._data
+
+
+class RecordSensorGetter(SensorGetter):
     """Raw (uninterpolated) sensor data in record array form.
 
     This is a wrapper for uninterpolated sensor data which resembles a record
@@ -140,29 +153,27 @@ class RecordSensorData(SensorData):
 
     def __init__(self, data, name=None):
         name = name if name is not None else getattr(data, 'name', '')
-        dtype = data.dtype.fields['value'][0]
-        super(RecordSensorData, self).__init__(name, dtype)
+        super(RecordSensorGetter, self).__init__(name)
         self._data = data
 
-    def __getitem__(self, key):
+    def get(self):
         """Extract timestamp, value and status of each sensor data point.
 
         Values are passed through :func:`to_str`.
         """
-        values = np.asarray(self._data[key])
-        if key == 'value':
-            values = to_str(values)
-        return values
-
-    def __bool__(self):
-        """True if sensor has at least one data point."""
-        return len(self._data) > 0
+        timestamp = np.asarray(self._data['timestamp'])
+        value = to_str(np.asarray(self._data['value']))
+        try:
+            status = self._data['status']
+        except ValueError:
+            status = None
+        return SensorData(self.name, timestamp, value, status)
 
     def __repr__(self):
         """Short human-friendly string representation of sensor data object."""
         return "<katdal.%s '%s' len=%d type=%s at 0x%x>" % \
                (self.__class__.__name__, self.name,
-                len(self._data), self.dtype, id(self))
+                len(self._data), self._data['value'].dtype, id(self))
 
 
 def to_str(value):
@@ -233,7 +244,7 @@ def _h5_telstate_unpack(s):
             return s
 
 
-class H5TelstateSensorData(RecordSensorData):
+class H5TelstateSensorGetter(RecordSensorGetter):
     """Raw (uninterpolated) sensor data in HDF5 TelescopeState recarray form.
 
     This wraps the telstate sensors stored in recent HDF5 files. It differs
@@ -257,24 +268,18 @@ class H5TelstateSensorData(RecordSensorData):
     """
 
     def __init__(self, data, name=None):
-        super(H5TelstateSensorData, self).__init__(data, name)
-        # The dtype is not immediately available - need to decode data first
-        self.dtype = None
+        super(H5TelstateSensorGetter, self).__init__(data, name)
 
-    def __getitem__(self, key):
+    def get(self):
         """Extract timestamp and value of each sensor data point."""
-        if key == 'timestamp':
-            return np.asarray(self._data[key])
-        elif key == 'value':
-            # Unpack everything first, otherwise old files will be a mess
-            values = [_h5_telstate_unpack(s) for s in self._data[key]]
-            # Figure out dtype and wrap any objects
-            self.dtype = infer_dtype(values)
-            if self.dtype == np.object:
-                values = [ComparableArrayWrapper(value) for value in values]
-            return values
-        else:
-            raise ValueError("Sensor %r data has no key '%s'" % (self.name, key))
+        timestamp = np.asarray(self._data['timestamp'])
+        # Unpack everything first, otherwise old files will be a mess
+        values = [_h5_telstate_unpack(s) for s in self._data['value']]
+        # Figure out dtype and wrap any objects
+        dtype = infer_dtype(values)
+        if dtype == np.object:
+            values = [ComparableArrayWrapper(value) for value in values]
+        return SensorData(self.name, timestamp, to_str(np.asarray(values)))
 
 
 class TelstateToStr(object):
@@ -333,14 +338,14 @@ class TelstateToStr(object):
         return value
 
 
-class TelstateSensorData(SensorData):
+class TelstateSensorGetter(SensorGetter):
     """Raw (uninterpolated) sensor data stored in original TelescopeState.
 
     This wraps sensor data stored in a TelescopeState object. The data is
     only read out on item access.
 
     Object-valued sensors (including sensors with ndarrays as values) will have
-    its values wrapped by :class:`ComparableArrayWrapper`.
+    their values wrapped by :class:`ComparableArrayWrapper`.
 
     Parameters
     ----------
@@ -353,112 +358,33 @@ class TelstateSensorData(SensorData):
     ------
     KeyError
         If sensor name is not found in telstate or it is an attribute instead
-
-    Notes
-    -----
-    The sensor data is cached on the object after any item access to ensure
-    that requesting timestamps and then values only loads the data once instead
-    of twice. The caching should be fine as a SensorData object is typically
-    replaced by either a CategoricalData object or a NumPy array as part of
-    sensor extraction, right after the caching occurs.
-
     """
 
     def __init__(self, telstate, name):
-        self._lock = threading.Lock()
         self._telstate = TelstateToStr(telstate)
-        # This cache simplifies separate 'timestamp' / 'value' access pattern
-        self._values = self._times = None
         if name not in telstate:
             raise KeyError('No sensor named %r in telstate (key not found)' %
                            (name,))
         if telstate.is_immutable(name):
             raise KeyError("No sensor named %r in telstate (it's an attribute)" %
                            (name,))
-        # The dtype is not immediately available - need to decode data first
-        super(TelstateSensorData, self).__init__(name, None)
+        super(TelstateSensorGetter, self).__init__(name)
 
     def __bool__(self):
         """True if sensor has at least one data point (already checked in init)."""
         return True
 
-    def _cache_data(self):
-        with self._lock:
-            if not self._times:
-                value_times = self._telstate.get_range(self.name, st=0)
-                self._values = [v for v, t in value_times]
-                self.dtype = infer_dtype(self._values)
-                if self.dtype == np.object:
-                    self._values = [ComparableArrayWrapper(v) for v in self._values]
-                self._times = [t for v, t in value_times]
+    def get(self):
+        values, times = zip(*self._telstate.get_range(self.name, st=0))
+        dtype = infer_dtype(values)
+        if dtype == np.object:
+            values = [ComparableArrayWrapper(v) for v in values]
+        return SensorData(self.name, np.asarray(times), np.asarray(values))
 
-    def __getitem__(self, key):
-        """Extract timestamp and value of each sensor data point."""
-        if key == 'timestamp':
-            self._cache_data()
-            return np.array(self._times)
-        elif key == 'value':
-            self._cache_data()
-            return np.array(self._values)
-        else:
-            raise ValueError("Sensor %r data has no key '%s'" % (self.name, key))
 
 # -------------------------------------------------------------------------------------------------
 # -- Utility functions
 # -------------------------------------------------------------------------------------------------
-
-
-def _safe_linear_interp(xi, yi, x):
-    """Linearly interpolate (xi, yi) values to x positions, safely.
-
-    Given a set of N ``(x, y)`` points, provided in the `xi` and `yi` arrays,
-    this will calculate ``y``-coordinate values for a set of M ``x``-coordinates
-    provided in the `x` array, using linear interpolation.
-
-    It is safe in the sense that if `xi` and `yi` only contain a single point
-    it will revert to zeroth-order interpolation. In addition, data will not
-    be extrapolated linearly past the edges of `xi`, but the closest value
-    will be used instead (i.e. also zeroth-order interpolation).
-
-    Parameters
-    ----------
-    xi : array, shape (N,)
-        Array of fixed x-coordinates, sorted in ascending order and with no
-        duplicate values
-    yi : array, shape (N,)
-        Corresponding array of fixed y-coordinates
-    x : float or array, shape (M,)
-        Array of x-coordinates at which to do interpolation of y-values
-
-    Returns
-    -------
-    y : float or array, shape (M,)
-        Array of interpolated y-values
-
-    Notes
-    -----
-    This is mostly lifted from scikits.fitting.poly as it is the only part of
-    the package that is typically required. This weens katdal off SciPy too.
-
-    """
-    # Do zeroth-order interpolation for a single fixed (x, y) coordinate
-    if len(xi) == 1:
-        # The simplest way to handle x of e.g. 3, np.array(3) and [1, 2, 3]
-        return yi[0] * np.ones_like(x)
-    # Find lowest xi value >= x (end of segment containing x)
-    end = np.atleast_1d(xi.searchsorted(x))
-    # Associate any x found outside xi range with closest segment (first or last one)
-    end[end == 0] += 1
-    end[end == len(xi)] -= 1
-    start = end - 1
-    # Ensure that output y has same shape as input x
-    # (especially, let scalar input result in scalar output)
-    start, end = np.reshape(start, np.shape(x)), np.reshape(end, np.shape(x))
-    # Set up weight such that xi[start] => 0 and xi[end] => 1
-    end_weight = (x - xi[start]) / (xi[end] - xi[start])
-    # Do zeroth-order interpolation beyond the range of xi
-    end_weight = np.clip(end_weight, 0.0, 1.0)
-    return (1.0 - end_weight) * yi[start] + end_weight * yi[end]
 
 
 def get_sensor_from_katstore(store, name, start_time, end_time):
@@ -475,7 +401,7 @@ def get_sensor_from_katstore(store, name, start_time, end_time):
 
     Returns
     -------
-    data : :class:`RecordSensorData` object
+    data : :class:`RecordSensorGetter` object
         Retrieved sensor data with 'timestamp', 'value' and 'status' fields
 
     Raises
@@ -513,20 +439,20 @@ def get_sensor_from_katstore(store, name, start_time, end_time):
         if not samples:
             raise KeyError("Sensor store has no data for sensor '%s'" % (name,))
         samples = np.rec.fromrecords(samples, names='timestamp,value,status')
-        return RecordSensorData(samples, name)
+        return RecordSensorGetter(samples, name)
 
 
-def dummy_sensor_data(name, value=None, dtype=np.float64, timestamp=0.0):
-    """Create a SensorData object with a single default value based on type.
+def dummy_sensor_getter(name, value=None, dtype=np.float64, timestamp=0.0):
+    """Create a SensorGetter object with a single default value based on type.
 
-    This creates a dummy :class:`RecordSensorData` object based on a default
+    This creates a dummy :class:`SimpleSensorGetter` object based on a default
     value or a type, for use when no sensor data are available, but filler data
     is required (e.g. when concatenating sensors from different datasets and
     one dataset lacks the sensor). The dummy dataset contains a single data
     point with the filler value and a configurable timestamp (defaulting to
     way back). If the filler value is an object it will be wrapped in a
     :class:`ComparableArrayWrapper` to match the behaviour of other
-    :class:`SensorData` objects.
+    :class:`SensorGetter` objects.
 
     Parameters
     ----------
@@ -541,7 +467,7 @@ def dummy_sensor_data(name, value=None, dtype=np.float64, timestamp=0.0):
 
     Returns
     -------
-    data : :class:`RecordSensorData` object, shape (1,)
+    data : :class:`SimpleSensorGetter` object, shape (1,)
         Dummy sensor data object with 'timestamp' and 'value' fields
 
     """
@@ -560,9 +486,7 @@ def dummy_sensor_data(name, value=None, dtype=np.float64, timestamp=0.0):
         dtype = infer_dtype([value])
     if dtype == np.object:
         value = ComparableArrayWrapper(value)
-    data = np.array([(timestamp, value)],
-                    dtype=[('timestamp', np.float64), ('value', dtype)])
-    return RecordSensorData(data, name)
+    return SimpleSensorGetter(name, np.array([timestamp]), np.array([value]))
 
 
 def remove_duplicates_and_invalid_values(sensor):
@@ -583,22 +507,18 @@ def remove_duplicates_and_invalid_values(sensor):
     Parameters
     ----------
     sensor : :class:`SensorData` object, length *N*
-        Raw sensor dataset, which acts like a record array with fields
-        'timestamp', 'value' and optionally 'status'
+        Raw sensor dataset.
 
     Returns
     -------
-    clean_sensor : :class:`RecordSensorData` object, length *M*
+    clean_sensor : :class:`SensorData` object, length *M*
         Sensor data with duplicate timestamps and invalid values removed
-        (*M* <= *N*), and only 'timestamp' and 'value' fields left
+        (*M* <= *N*), and only 'timestamp' and 'value' attributes left.
 
     """
-    x = np.atleast_1d(sensor['timestamp'])
-    y = np.atleast_1d(sensor['value'])
-    try:
-        z = np.atleast_1d(sensor['status'])
-    except ValueError:
-        z = None
+    x = sensor.timestamp
+    y = sensor.value
+    z = sensor.status
     # Sort x via mergesort, as it is usually already sorted and stability is important
     sort_ind = np.argsort(x, kind='mergesort')
     x, y = x[sort_ind], y[sort_ind]
@@ -633,9 +553,7 @@ def remove_duplicates_and_invalid_values(sensor):
         unique_ind = unique_ind[(status == b'nominal') | (status == b'warn') |
                                 (status == b'error')]
     # Strip 'status' / z field from final output as its job is done
-    data = np.array(list(zip(x[unique_ind], y[unique_ind])),
-                    dtype=[('timestamp', x.dtype), ('value', y.dtype)])
-    return RecordSensorData(data, sensor.name)
+    return SensorData(sensor.name, x[unique_ind], y[unique_ind])
 
 # -------------------------------------------------------------------------------------------------
 # -- CLASS :  SensorCache
@@ -652,7 +570,7 @@ class SensorCache(dict):
     A *sensor cache* stores sensor data with dictionary-like lookup based on
     the sensor name. Since the extraction of sensor data from e.g. HDF5 files
     may be costly, the data is first represented in uncached (raw) form as
-    :class:`SensorData` objects, which typically wrap the underlying sensor
+    :class:`SensorGetter` objects, which typically wrap the underlying sensor
     HDF5 datasets. After extraction, the sensor data are stored either as
     a NumPy array (for numerical data) or as a :class:`CategoricalData` object
     (for non-numerical data).
@@ -680,7 +598,7 @@ class SensorCache(dict):
 
     Parameters
     ----------
-    cache : mapping from string to :class:`SensorData` objects
+    cache : mapping from string to :class:`SensorGetter` objects
         Initial sensor cache mapping sensor names to raw (uncached) sensor data
     timestamps : array of float
         Correlator data timestamps onto which sensor values will be interpolated,
@@ -745,7 +663,7 @@ class SensorCache(dict):
             sensors = [self.get(name, extract=False) for name in self.keys()]
         return "<katdal.%s sensors=%d cached=%d virtual=%d at 0x%x>" % \
                (self.__class__.__name__, len(sensors),
-                np.sum([not isinstance(s, SensorData) for s in sensors]),
+                np.sum([not isinstance(s, SensorGetter) for s in sensors]),
                 len(self.virtual), id(self))
 
     def __getitem__(self, name):
@@ -777,6 +695,70 @@ class SensorCache(dict):
         """Set time selection for sensor values."""
         if keep is not None:
             self.keep = keep
+
+    @staticmethod
+    def _get_props(name, prop_map, **kwargs):
+        """Retrieve properties for a sensor.
+
+        Sensor names in `prop_map` may contain ``*`` wildcard characters. All
+        matching entries are merged, and `prop_map` is updated in place with
+        the merged result.
+
+        Parameters
+        ----------
+        name : str
+            Sensor name
+        prop_map : dict
+            Maps sensor names to mappings of properties.
+        kwargs
+            Extra properties to apply, overriding those in `prop_map`.
+        """
+        # Look up properties associated with this specific sensor
+        props = prop_map.setdefault(name, {})
+        # Look up properties associated with this class of sensor
+        for key, val in prop_map.items():
+            if '*' in key:
+                regex = '.*'.join(re.escape(part) for part in key.split('*'))
+                if re.match('^' + regex + '$', name):
+                    props.update(val)
+        # Any properties passed directly to this method takes precedence
+        props.update(kwargs)
+        return props
+
+    @staticmethod
+    def _extract(sensor_getter, timestamps, dump_period, **props):
+        sensor_data = sensor_getter.get()
+        # Clean up sensor data if non-empty
+        if sensor_data:
+            # Sort sensor events in chronological order and discard duplicates and unreadable sensor values
+            sensor_data = remove_duplicates_and_invalid_values(sensor_data)
+        if not sensor_data:
+            sensor_data = dummy_sensor_getter(sensor_data.name, value=props.get('initial_value'),
+                                              dtype=sensor_data.value.dtype).get()
+            logger.warning("No usable data found for sensor '%s' - replaced with dummy data (%r)" %
+                           (sensor_data.name, sensor_data.value[0]))
+        # Determine if sensor produces categorical or numerical data
+        # (float data are non-categorical, by default)
+        categ = props.get('categorical', not np.issubdtype(sensor_data.value.dtype, np.floating))
+        props['categorical'] = categ
+        if categ:
+            sensor_data = sensor_to_categorical(sensor_data.timestamp, sensor_data.value,
+                                                timestamps, dump_period, **props)
+        else:
+            # Interpolate numerical data onto data timestamps
+            sensor_timestamps = sensor_data.timestamp
+            # Warn if sensor data will be extrapolated to start or end
+            # of data set with potentially bogus results
+            if len(sensor_timestamps) > 1:
+                if sensor_timestamps[0] > timestamps[0]:
+                    logger.warning("First data point for sensor '%s' only arrives %g seconds into data set" %
+                                   (sensor_data.name, sensor_timestamps[0] - timestamps[0]))
+                if sensor_timestamps[-1] < timestamps[-1]:
+                    logger.warning("Last data point for sensor '%s' arrives %g seconds "
+                                   "before end of data set" %
+                                   (sensor_data.name, timestamps[-1] - sensor_timestamps[-1]))
+            sensor_data = np.interp(timestamps, sensor_timestamps, sensor_data.value)
+        return sensor_data
 
     def add_aliases(self, alias, original):
         """Add alternate names / aliases for sensors.
@@ -817,15 +799,13 @@ class SensorCache(dict):
         categorical : {None, True, False}, optional
             Interpret sensor data as categorical or numerical (by default, data
             of type float is numerical and of any other type is categorical)
-        interp_degree : int, optional
-            Polynomial degree for interpolation of numerical data (default = 1)
         kwargs : dict, optional
             Additional parameters are passed to :func:`sensor_to_categorical`
 
         Returns
         -------
-        data : array or :class:`CategoricalData` or :class:`SensorData` object
-            If extraction is disabled, this will be a :class:`SensorData` object
+        data : array or :class:`CategoricalData` or :class:`SensorGetter` object
+            If extraction is disabled, this will be a :class:`SensorGetter` object
             for uncached sensors. If selection is enabled, this will be a 1-D
             array of values, one per selected timestamp. If selection is
             disabled, this will be a 1-D array of values (of the same length as
@@ -869,60 +849,11 @@ class SensorCache(dict):
                         raise KeyError("Unknown sensor '%s' (does not match actual name or "
                                        "virtual template and no sensor store provided)" % (name,))
             # If this is the first time this sensor is accessed, extract its data and store it in cache, if enabled
-            if isinstance(sensor_data, SensorData) and extract:
-                # Look up properties associated with this specific sensor
-                self.props[name] = props = self.props.get(name, {})
-                # Look up properties associated with this class of sensor
-                for key, val in self.props.items():
-                    if '*' in key:
-                        regex = '.*'.join(re.escape(part) for part in key.split('*'))
-                        if re.match('^' + regex + '$', name):
-                            props.update(val)
-                # Any properties passed directly to this method takes precedence
-                props.update(kwargs)
-                # Clean up sensor data if non-empty
-                if sensor_data:
-                    # Sort sensor events in chronological order and discard duplicates and unreadable sensor values
-                    sensor_data = remove_duplicates_and_invalid_values(sensor_data)
-                if not sensor_data:
-                    sensor_data = dummy_sensor_data(name, value=props.get('initial_value'), dtype=sensor_data.dtype)
-                    logger.warning("No usable data found for sensor '%s' - replaced with dummy data (%r)" %
-                                   (name, sensor_data['value'][0]))
+            if isinstance(sensor_data, SensorGetter) and extract:
+                props = self._get_props(name, self.props, **kwargs)
                 # If this is the first time any sensor is accessed, obtain all data timestamps via indexer
                 self.timestamps = self.timestamps[:] if not isinstance(self.timestamps, np.ndarray) else self.timestamps
-                # Determine if sensor produces categorical or numerical data
-                # (float data are non-categorical, by default)
-                categ = props.get('categorical', not np.issubdtype(sensor_data.dtype, np.floating))
-                props['categorical'] = categ
-                if categ:
-                    sensor_data = sensor_to_categorical(sensor_data['timestamp'], sensor_data['value'],
-                                                        self.timestamps, self.dump_period, **props)
-                else:
-                    # Interpolate numerical data onto data timestamps (fallback option is linear interpolation)
-                    props['interp_degree'] = interp_degree = props.get('interp_degree', 1)
-                    sensor_timestamps = sensor_data['timestamp']
-                    # Warn if sensor data will be extrapolated to start or end
-                    # of data set with potentially bogus results
-                    if interp_degree > 0 and len(sensor_timestamps) > 1:
-                        if sensor_timestamps[0] > self.timestamps[0]:
-                            logger.warning(("First data point for sensor '%s' only arrives %g seconds into data set" %
-                                           (name, sensor_timestamps[0] - self.timestamps[0])) +
-                                           " - extrapolation may lead to ridiculous values")
-                        if sensor_timestamps[-1] < self.timestamps[-1]:
-                            logger.warning(("Last data point for sensor '%s' arrives %g seconds "
-                                            "before end of data set" %
-                                           (name, self.timestamps[-1] - sensor_timestamps[-1])) +
-                                           " - extrapolation may lead to ridiculous values")
-                    if PiecewisePolynomial1DFit is not None:
-                        interp = PiecewisePolynomial1DFit(max_degree=interp_degree)
-                        interp.fit(sensor_timestamps, sensor_data['value'])
-                        sensor_data = interp(self.timestamps)
-                    else:
-                        if interp_degree != 1:
-                            logger.warning('Requested sensor interpolation with polynomial degree ' +
-                                           str(interp_degree) +
-                                           ' but scikits.fitting not installed - falling back to linear interpolation')
-                        sensor_data = _safe_linear_interp(sensor_timestamps, sensor_data['value'], self.timestamps)
+                sensor_data = self._extract(sensor_data, self.timestamps, self.dump_period, **props)
                 self[name] = sensor_data
         return sensor_data[self.keep] if select else sensor_data
 
