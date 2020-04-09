@@ -25,7 +25,10 @@ from past.builtins import unicode
 import logging
 import re
 import threading
-import collections.abc
+try:
+    from collections.abc import MutableMapping
+except ImportError:
+    from collections import MutableMapping
 
 import numpy as np
 import katpoint
@@ -561,7 +564,7 @@ def remove_duplicates_and_invalid_values(sensor):
 # -------------------------------------------------------------------------------------------------
 
 
-class SensorCache(collections.abc.MutableMapping):
+class SensorCache(MutableMapping):
     """Container for sensor data providing name lookup, interpolation and caching.
 
     *Sensor data* is defined as a one-dimensional time series of values. The
