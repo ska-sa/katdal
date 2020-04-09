@@ -473,7 +473,7 @@ class H5DataV3(DataSet):
                     rx_serial = self.sensor[rx_sensor][0]
                     break
             if band:
-                self.receivers[ant] = '%s.%d' % (band, rx_serial)
+                self.receivers[ant] = '%s.%s' % (band, rx_serial)
             nd_sensor = 'TelescopeState/%s_dig_%s_band_noise_diode' % (ant, band)
             if nd_sensor in self.sensor:
                 # A sensor alias would be ideal for this but it only deals with suffixes ATM
