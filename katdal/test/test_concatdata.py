@@ -21,7 +21,7 @@ from __future__ import print_function, division, absolute_import
 from builtins import object
 
 import numpy as np
-from nose.tools import assert_equal, assert_raises
+from nose.tools import assert_equal, assert_in, assert_not_in, assert_raises
 
 from katdal.categorical import CategoricalData
 from katdal.sensordata import SensorCache, SimpleSensorGetter
@@ -127,3 +127,16 @@ class TestConcatenatedSensorCache(object):
         self.cache['fib'] = data
         ans = self.cache.get('fib')
         np.testing.assert_array_equal(data, ans)
+
+    def test_len(self):
+        assert_equal(len(self.cache), 4)
+
+    def test_keys(self):
+        assert_equal(sorted(self.cache.keys()), ['cat', 'float_missing', 'foo', 'int_missing'])
+
+    def test_contains(self):
+        assert_in('cat', self.cache)
+        assert_in('float_missing', self.cache)
+        assert_in('int_missing', self.cache)
+        assert_not_in('dog', self.cache)
+        assert_not_in('', self.cache)

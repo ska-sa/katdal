@@ -23,10 +23,10 @@ from builtins import object
 from collections import OrderedDict
 
 import numpy as np
-from nose.tools import assert_equal, assert_raises
+from nose.tools import assert_equal, assert_in, assert_not_in, assert_raises
 import mock
 
-from katdal.sensordata import SensorCache, to_str
+from katdal.sensordata import SensorCache, SimpleSensorGetter, to_str
 
 
 def assert_equal_typed(a, b):
@@ -76,7 +76,45 @@ class TestToStr(object):
 
 class TestSensorCache(object):
     def setup(self):
-        self.cache = SensorCache({}, timestamps=np.arange(10.), dump_period=1.0)
+        sensors = [
+            ('foo', [4.0, 7.0], [3.0, 6.0]),
+            ('cat', [2.0, 6.0], ['hello', 'world'])
+        ]
+        cache_data = {}
+        for name, ts, values in sensors:
+            sd = SimpleSensorGetter(name, np.asarray(ts), np.asarray(values))
+            cache_data[name] = sd
+        self.cache = SensorCache(cache_data, timestamps=np.arange(10.), dump_period=1.0)
+
+    def test_extract_float(self):
+        data = self.cache.get('foo', extract=True)
+        np.testing.assert_array_equal(data, [3.0, 3.0, 3.0, 3.0, 3.0, 4.0, 5.0, 6.0, 6.0, 6.0])
+
+    def test_extract_categorical(self):
+        data = self.cache.get('cat', extract=True)
+        H = 'hello'
+        W = 'world'
+        np.testing.assert_array_equal(data[:], [H, H, H, H, H, H, W, W, W, W])
+
+    def test_len(self):
+        assert_equal(len(self.cache), 2)
+
+    def test_keys(self):
+        assert_equal(sorted(self.cache.keys()), ['cat', 'foo'])
+
+    def test_contains(self):
+        assert_in('cat', self.cache)
+        assert_in('foo', self.cache)
+        assert_not_in('dog', self.cache)
+        template = 'Antennas/{ant}/{param1}_{param2}'
+        self.cache.virtual[template] = lambda x: None
+        assert_not_in(template, self.cache)
+
+    def test_setitem_delitem(self):
+        self.cache['bar'] = SimpleSensorGetter('bar', np.array([1.0]), np.array([0.0]))
+        np.testing.assert_array_equal(self.cache['bar'], np.zeros(10))
+        del self.cache['bar']
+        assert_not_in('bar', self.cache)
 
     def test_virtual_sensors(self):
         calculate_value = mock.Mock()
@@ -112,3 +150,7 @@ class TestSensorCache(object):
         value = self.cache.get(template.format(**params))
         assert_equal(value, params['param2'])
         assert_equal(calculate_value.call_count, 2)
+
+    # TODO: more tests required:
+    # - extract=False
+    # - selection
