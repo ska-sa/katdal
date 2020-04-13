@@ -23,7 +23,7 @@ from builtins import object
 from collections import OrderedDict
 
 import numpy as np
-from nose.tools import assert_equal, assert_in, assert_not_in, assert_raises
+from nose.tools import assert_equal, assert_in, assert_not_in, assert_raises, assert_is_instance
 import mock
 
 from katdal.sensordata import SensorCache, SimpleSensorGetter, to_str
@@ -75,7 +75,7 @@ class TestToStr(object):
 
 
 class TestSensorCache(object):
-    def setup(self):
+    def _cache_data(self):
         sensors = [
             ('foo', [4.0, 7.0], [3.0, 6.0]),
             ('cat', [2.0, 6.0], ['hello', 'world'])
@@ -84,7 +84,10 @@ class TestSensorCache(object):
         for name, ts, values in sensors:
             sd = SimpleSensorGetter(name, np.asarray(ts), np.asarray(values))
             cache_data[name] = sd
-        self.cache = SensorCache(cache_data, timestamps=np.arange(10.), dump_period=1.0)
+        return cache_data
+
+    def setup(self):
+        self.cache = SensorCache(self._cache_data(), timestamps=np.arange(10.), dump_period=1.0)
 
     def test_extract_float(self):
         data = self.cache.get('foo', extract=True)
@@ -95,6 +98,14 @@ class TestSensorCache(object):
         H = 'hello'
         W = 'world'
         np.testing.assert_array_equal(data[:], [H, H, H, H, H, H, W, W, W, W])
+
+    def test_alias(self):
+        self.cache = SensorCache(
+            self._cache_data(), timestamps=np.arange(10.), dump_period=1.0,
+            aliases={'zz': 'at'})
+        # Check that adding the alias didn't lead to extraction
+        assert_is_instance(self.cache.get('czz', extract=False), SimpleSensorGetter)
+        np.testing.assert_array_equal(self.cache['czz'], self.cache['cat'])
 
     def test_len(self):
         assert_equal(len(self.cache), 2)
