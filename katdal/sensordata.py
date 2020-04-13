@@ -631,6 +631,10 @@ class SensorCache(MutableMapping):
     def __init__(self, cache, timestamps, dump_period, keep=slice(None),
                  props=None, virtual={}, aliases={}, store=None):
         super(SensorCache, self).__init__()
+        # This needs to be an RLock because instantiating a virtual sensor
+        # may require further sensor lookups (hopefully without a loop, which
+        # would really cause problems).
+        self._lock = threading.RLock()
         # Store internals of the cache in a regular dict
         self._raw = dict(cache)
         self.timestamps = timestamps
@@ -643,10 +647,6 @@ class SensorCache(MutableMapping):
         for alias, original in aliases.items():
             self.add_aliases(alias, original)
         self.store = store
-        # This needs to be an RLock because instantiating a virtual sensor
-        # may require further sensor lookups (hopefully without a loop, which
-        # would really cause problems).
-        self._lock = threading.RLock()
 
     def __str__(self):
         """Verbose human-friendly string representation of sensor cache object."""
@@ -780,9 +780,9 @@ class SensorCache(MutableMapping):
             Sensors with names that end in this will get aliases
 
         """
-        for name, data in list(self.items()):
+        for name, data in list(self._raw.items()):
             if name.endswith(original):
-                self[name.replace(original, alias)] = data
+                self._raw[name.replace(original, alias)] = data
 
     def get(self, name, select=False, extract=True, **kwargs):
         """Sensor values interpolated to correlator data timestamps.
