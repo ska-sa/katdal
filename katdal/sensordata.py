@@ -840,9 +840,10 @@ class SensorCache(dict):
                         break
                 else:
                     if self.store:
-                        # Katstore samples typically at least every 10 seconds
-                        start_time = self.timestamps[0] - self.dump_period - 10
-                        end_time = self.timestamps[-1] + self.dump_period + 10
+                        # Katstore samples sensors at least once every 10 minutes
+                        # Go that far back to support sporadic discrete sensors
+                        start_time = self.timestamps[0] - self.dump_period - 600
+                        end_time = self.timestamps[-1] + self.dump_period + 60
                         sensor_data = get_sensor_from_katstore(
                             self.store, name, start_time, end_time)
                     else:
