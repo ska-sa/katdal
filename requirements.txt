@@ -5,7 +5,6 @@ cityhash
 dask
 docutils
 ephem
-funcsigs
 jmespath
 future
 h5py
