@@ -451,7 +451,7 @@ class ConcatenatedSensorCache(SensorCache):
             except KeyError:
                 pass
         if not found:
-            raise KeyError
+            raise KeyError(name)
 
     def __contains__(self, name):
         return any(name in cache for cache in self.caches)
