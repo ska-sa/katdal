@@ -181,8 +181,12 @@ class VisibilityDataV4(DataSet):
         self.version = '4.0'
         self.dump_period = attrs['int_time']
         # The CBF dump period is not in the lite RDB version
-        self.cbf_dump_period = attrs.get(
-            'i0_baseline_correlation_products_int_time', None)
+        try:
+            src_stream = attrs['src_streams'][0]
+            # XXX: should use telstate.join if attrs is a telstate
+            self.cbf_dump_period = attrs[src_stream + '_int_time']
+        except (KeyError, IndexError):
+            self.cbf_dump_period = None
         num_dumps = len(source.timestamps)
         source.timestamps += self.time_offset
         if _before('2000-01-01'):
