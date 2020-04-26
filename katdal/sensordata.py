@@ -25,6 +25,10 @@ from past.builtins import unicode
 import logging
 import re
 import threading
+try:
+    from collections.abc import MutableMapping
+except ImportError:
+    from collections import MutableMapping
 
 import numpy as np
 import katpoint
@@ -560,7 +564,7 @@ def remove_duplicates_and_invalid_values(sensor):
 # -------------------------------------------------------------------------------------------------
 
 
-class SensorCache(dict):
+class SensorCache(MutableMapping):
     """Container for sensor data providing name lookup, interpolation and caching.
 
     *Sensor data* is defined as a one-dimensional time series of values. The
@@ -626,8 +630,13 @@ class SensorCache(dict):
 
     def __init__(self, cache, timestamps, dump_period, keep=slice(None),
                  props=None, virtual={}, aliases={}, store=None):
-        # Initialise cache via dict constructor
-        super(SensorCache, self).__init__(cache)
+        super(SensorCache, self).__init__()
+        # This needs to be an RLock because instantiating a virtual sensor
+        # may require further sensor lookups (hopefully without a loop, which
+        # would really cause problems).
+        self._lock = threading.RLock()
+        # Store internals of the cache in a regular dict
+        self._raw = dict(cache)
         self.timestamps = timestamps
         self.dump_period = dump_period
         self.keep = keep
@@ -638,10 +647,6 @@ class SensorCache(dict):
         for alias, original in aliases.items():
             self.add_aliases(alias, original)
         self.store = store
-        # This needs to be an RLock because instantiating a virtual sensor
-        # may require further sensor lookups (hopefully without a loop, which
-        # would really cause problems).
-        self._lock = threading.RLock()
 
     def __str__(self):
         """Verbose human-friendly string representation of sensor cache object."""
@@ -775,9 +780,9 @@ class SensorCache(dict):
             Sensors with names that end in this will get aliases
 
         """
-        for name, data in list(self.items()):
+        for name, data in list(self._raw.items()):
             if name.endswith(original):
-                self[name.replace(original, alias)] = data
+                self._raw[name.replace(original, alias)] = data
 
     def get(self, name, select=False, extract=True, **kwargs):
         """Sensor values interpolated to correlator data timestamps.
@@ -824,8 +829,8 @@ class SensorCache(dict):
             raise ValueError('Cannot apply selection on raw sensor data')
         with self._lock:
             try:
-                # First try to load the actual sensor data from cache (remember to call base class here!)
-                sensor_data = super(SensorCache, self).__getitem__(name)
+                # First try to load the actual sensor data from cache
+                sensor_data = self._raw[name]
             except KeyError:
                 # Otherwise, iterate through virtual sensor templates and look for a match
                 for pattern, create_sensor in self.virtual.items():
@@ -855,7 +860,7 @@ class SensorCache(dict):
                 # If this is the first time any sensor is accessed, obtain all data timestamps via indexer
                 self.timestamps = self.timestamps[:] if not isinstance(self.timestamps, np.ndarray) else self.timestamps
                 sensor_data = self._extract(sensor_data, self.timestamps, self.dump_period, **props)
-                self[name] = sensor_data
+                self._raw[name] = sensor_data
         return sensor_data[self.keep] if select else sensor_data
 
     def get_with_fallback(self, sensor_type, names):
@@ -888,3 +893,26 @@ class SensorCache(dict):
             except KeyError:
                 logger.debug('Could not find %s sensor with name %r, trying next option' % (sensor_type, name))
         raise KeyError('Could not find any %s sensor, tried %s' % (sensor_type, names))
+
+    # MutableMapping abstract methods
+
+    def __setitem__(self, key, item):
+        with self._lock:
+            self._raw[key] = item
+
+    def __delitem__(self, key):
+        with self._lock:
+            del self._raw[key]
+
+    def __iter__(self):
+        return iter(self._raw)
+
+    def __len__(self):
+        return len(self._raw)
+
+    def __contains__(self, key):
+        # __contains__ is implemented by MutableMapping via __getitem__, but
+        # that does unnecessary extraction. This approach is cheaper but only
+        # reflects keys that have been explicitly created or cached.
+        with self._lock:
+            return key in self._raw

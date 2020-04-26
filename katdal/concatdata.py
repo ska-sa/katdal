@@ -301,11 +301,9 @@ class ConcatenatedSensorCache(SensorCache):
 
     def __init__(self, caches, keep=None):
         self.caches = caches
-        # Collect all actual and virtual sensors in caches as well as properties
-        # The main point is to discover the name and dtype of each known sensor
-        actual, virtual, self.props = {}, {}, {}
+        # Collect all virtual sensors in caches as well as properties.
+        virtual, self.props = {}, {}
         for cache in caches:
-            actual.update(cache.items())
             virtual.update(cache.virtual)
             self.props.update(cache.props)
         self.virtual = virtual
@@ -444,10 +442,31 @@ class ConcatenatedSensorCache(SensorCache):
             for n, cache in enumerate(self.caches):
                 cache[name] = data[self._segments[n]:self._segments[n + 1]]
 
-    def iterkeys(self):
+    def __delitem__(self, name):
+        found = False
+        for cache in self.caches:
+            try:
+                del cache[name]
+                found = True
+            except KeyError:
+                pass
+        if not found:
+            raise KeyError(name)
+
+    def __contains__(self, name):
+        return any(name in cache for cache in self.caches)
+
+    def __len__(self):
+        return sum(1 for _ in self)
+
+    def __iter__(self):
         """Key iterator that iterates through sensor names."""
-        # Run through first cache's keys, as they should all be identical
-        return self.caches[0].iterkeys()
+        seen = set()
+        for cache in self.caches:
+            for key in cache:
+                if key not in seen:
+                    seen.add(key)
+                    yield key
 
 # -------------------------------------------------------------------------------------------------
 # -- CLASS :  ConcatenatedDataSet
