@@ -1,5 +1,4 @@
 coverage
-funcsigs
-mock
+mock==4.0.2
 nose
-pbr
+subprocess32==3.5.4

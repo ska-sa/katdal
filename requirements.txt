@@ -1,16 +1,14 @@
 botocore
 certifi
 chardet
-cityhash==0.2.3.post9
+cityhash
 dask
 docutils
-enum34
-funcsigs
+ephem
 jmespath
 future
 h5py
 idna
-ipaddress
 katversion
 llvmlite
 msgpack
@@ -24,9 +22,7 @@ python-lzf
 rdbtools
 redis
 requests
-singledispatch
 six
-subprocess32
 toolz
 urllib3
 
