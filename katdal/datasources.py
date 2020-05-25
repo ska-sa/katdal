@@ -631,7 +631,7 @@ class TelstateDataSource(DataSource):
         # Collect sensors
         sensors = {}
         for key in telstate.keys():
-            if not telstate.is_immutable(key):
+            if telstate.key_type(key) == katsdptelstate.KeyType.MUTABLE:
                 sensor_name = _shorten_key(telstate, key)
                 if sensor_name:
                     sensors[sensor_name] = TelstateSensorGetter(telstate, key)

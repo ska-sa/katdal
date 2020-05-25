@@ -341,6 +341,13 @@ class TelstateToStr(object):
             value = to_str(value)
         return value
 
+    def get_indexed(self, key, sub_key, default=None, return_encoded=False):
+        value = self._telstate.get_indexed(
+            key, sub_key, default=default, return_encoded=return_encoded)
+        if not return_encoded:
+            value = to_str(value)
+        return value
+
 
 class TelstateSensorGetter(SensorGetter):
     """Raw (uninterpolated) sensor data stored in original TelescopeState.
@@ -366,12 +373,13 @@ class TelstateSensorGetter(SensorGetter):
 
     def __init__(self, telstate, name):
         self._telstate = TelstateToStr(telstate)
-        if name not in telstate:
+        key_type = telstate.key_type(name)
+        if key_type is None:
             raise KeyError('No sensor named %r in telstate (key not found)' %
                            (name,))
-        if telstate.is_immutable(name):
-            raise KeyError("No sensor named %r in telstate (it's an attribute)" %
-                           (name,))
+        if key_type != katsdptelstate.KeyType.MUTABLE:
+            raise KeyError("No sensor named %r in telstate (it's %s)" %
+                           (name, key_type.name))
         super(TelstateSensorGetter, self).__init__(name)
 
     def __bool__(self):
