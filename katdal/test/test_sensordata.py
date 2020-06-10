@@ -26,7 +26,8 @@ import numpy as np
 from nose.tools import assert_equal, assert_in, assert_not_in, assert_raises, assert_is_instance
 import mock
 
-from katdal.sensordata import SensorCache, SimpleSensorGetter, to_str
+from katdal.sensordata import (SensorCache, SensorData, SimpleSensorGetter, to_str,
+                               remove_duplicates_and_invalid_values)
 
 
 def assert_equal_typed(a, b):
@@ -165,3 +166,17 @@ class TestSensorCache(object):
     # TODO: more tests required:
     # - extract=False
     # - selection
+
+
+def test_sensor_cleanup():
+    # The first sensor event has a status of "unknown" and is therefore invalid. It happened
+    # after the second (valid) event, though, and snuck through due to a bug (now fixed).
+    # This mirrors the behaviour of the cbf_1_wide_input_labelling sensor in CBID 1588667937.
+    timestamp = np.array([1.0, 0.0, 3.0, 3.0, 3.0, 3.0, 2.0])
+    value = np.array(['broke', 'a', 'c', 'c', 'c', 'd', 'b'])
+    status = np.array(['unknown', 'nominal', 'nominal', 'nominal', 'warn', 'error', 'nominal'])
+    dirty = SensorData('test', timestamp, value, status)
+    clean = remove_duplicates_and_invalid_values(dirty)
+    assert_equal(clean.status, None)
+    np.testing.assert_array_equal(clean.value, np.array(['a', 'b', 'd']))
+    np.testing.assert_array_equal(clean.timestamp, np.array([0.0, 2.0, 3.0]))
