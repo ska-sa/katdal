@@ -533,7 +533,10 @@ def remove_duplicates_and_invalid_values(sensor):
     z = sensor.status
     # Sort x via mergesort, as it is usually already sorted and stability is important
     sort_ind = np.argsort(x, kind='mergesort')
-    x, y = x[sort_ind], y[sort_ind]
+    x = x[sort_ind]
+    y = y[sort_ind]
+    if z is not None:
+        z = z[sort_ind]
     # Array contains True where an x value is unique or the last of a run of identical x values
     last_of_run = np.asarray(list(np.diff(x) != 0) + [True])
     # Discard the False values, as they represent duplicates - simultaneously keep last of each run of duplicates
