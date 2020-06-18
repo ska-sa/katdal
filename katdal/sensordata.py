@@ -735,7 +735,7 @@ class SensorCache(MutableMapping):
         sensor_data = sensor_getter.get()
         # Clean up sensor data if non-empty
         if sensor_data:
-            time_offset = props.get('time_offset', 0.0)
+            time_offset = props.get('time_offset', 0)
             sensor_data.timestamp += time_offset
             # Sort sensor events in chronological order and discard duplicates and unreadable sensor values
             sensor_data = remove_duplicates_and_invalid_values(sensor_data)
