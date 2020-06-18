@@ -128,6 +128,10 @@ class TestSensorCache(object):
         del self.cache['bar']
         assert_not_in('bar', self.cache)
 
+    def test_sensor_time_offset(self):
+        data = self.cache.get('foo', extract=True, time_offset=-1.0)
+        np.testing.assert_array_equal(data, [3.0, 3.0, 3.0, 3.0, 4.0, 5.0, 6.0, 6.0, 6.0, 6.0])
+
     def test_virtual_sensors(self):
         calculate_value = mock.Mock()
 
