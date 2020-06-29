@@ -99,13 +99,14 @@ class TestChunkStoreVisFlagsWeights(object):
         prefix = 'cb1'
         shape = (10, 64, 30)
         data, chunk_info = put_fake_dataset(store, prefix, shape)
-        vfw = ChunkStoreVisFlagsWeights(store, chunk_info, None)
+        vfw = ChunkStoreVisFlagsWeights(store, chunk_info)
         weights = data['weights'] * data['weights_channel'][..., np.newaxis]
         # Check that data is as expected when accessed via VisFlagsWeights
         assert_equal(vfw.shape, data['correlator_data'].shape)
         assert_array_equal(vfw.vis.compute(), data['correlator_data'])
         assert_array_equal(vfw.flags.compute(), data['flags'])
         assert_array_equal(vfw.weights.compute(), weights)
+        assert_equal(vfw.unscaled_weights, None)
 
     def test_weight_power_scale(self):
         ants = 7
@@ -133,17 +134,33 @@ class TestChunkStoreVisFlagsWeights(object):
         expected_scale[:, :, index2 == 1] /= 8
         expected_scale[4, 5, index1 == 0] = 2.0**-32
         expected_scale[4, 5, index2 == 0] = 2.0**-32
+        # The inverse scaling effectively multiplies by the relevant autocorrs
+        expected_inverse_scale = np.reciprocal(expected_scale)
+        # The tiny "bad" weights are not inverted but zeroed instead, a la pseudo-inverse
+        expected_inverse_scale[4, 5, index1 == 0] = 0
+        expected_inverse_scale[4, 5, index2 == 0] = 0
 
         data, chunk_info = put_fake_dataset(
             store, prefix, shape, array_overrides={'correlator_data': vis})
-        vfw = ChunkStoreVisFlagsWeights(store, chunk_info, corrprods)
-        weights = data['weights'] * data['weights_channel'][..., np.newaxis] * expected_scale
+        raw_weights = data['weights'] * data['weights_channel'][..., np.newaxis]
 
         # Check that data is as expected when accessed via VisFlagsWeights
+        vfw = ChunkStoreVisFlagsWeights(store, chunk_info, corrprods)
         assert_equal(vfw.shape, data['correlator_data'].shape)
         assert_array_equal(vfw.vis.compute(), data['correlator_data'])
         assert_array_equal(vfw.flags.compute(), data['flags'])
-        assert_array_equal(vfw.weights.compute(), weights)
+        assert_array_equal(vfw.weights.compute(), raw_weights * expected_scale)
+        assert_array_equal(vfw.unscaled_weights.compute(), raw_weights)
+
+        # Check that scaled raw weights are also accepted
+        vfw = ChunkStoreVisFlagsWeights(store, chunk_info, corrprods,
+                                        raw_weights_are_unscaled=False)
+        assert_equal(vfw.shape, data['correlator_data'].shape)
+        assert_array_equal(vfw.vis.compute(), data['correlator_data'])
+        assert_array_equal(vfw.flags.compute(), data['flags'])
+        assert_array_equal(vfw.weights.compute(), raw_weights)
+        assert_array_equal(vfw.unscaled_weights.compute(),
+                           raw_weights * expected_inverse_scale)
 
     def _test_missing_chunks(self, shape, chunk_overrides=None):
         # Put fake dataset into chunk store
@@ -161,7 +178,7 @@ class TestChunkStoreVisFlagsWeights(object):
             for culled_slice in culled_slices:
                 chunk_name, shape = store.chunk_metadata(array_name, culled_slice)
                 os.remove(os.path.join(store.path, chunk_name) + '.npy')
-        vfw = ChunkStoreVisFlagsWeights(store, chunk_info, None)
+        vfw = ChunkStoreVisFlagsWeights(store, chunk_info)
         assert_equal(vfw.store, store)
         assert_equal(vfw.vis_prefix, prefix)
         # Check that (only) missing chunks have been replaced by zeros

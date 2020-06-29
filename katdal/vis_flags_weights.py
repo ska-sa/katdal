@@ -39,25 +39,32 @@ logger = logging.getLogger(__name__)
 class VisFlagsWeights(object):
     """Correlator data in the form of visibilities, flags and weights.
 
+    This container stores the triplet of visibilities, flags and weights
+    as dask arrays to provide lazy / deferred access to the data.
+
     Parameters
     ----------
-    vis : array-like of complex64, shape (*T*, *F*, *B*)
+    vis : :class:`dask.array.Array` of complex64, shape (*T*, *F*, *B*)
         Complex visibility data as a function of time, frequency and baseline
-    flags : array-like of uint8, shape (*T*, *F*, *B*)
+    flags : :class:`dask.array.Array` of uint8, shape (*T*, *F*, *B*)
         Flags as a function of time, frequency and baseline
-    weights : array-like of float32, shape (*T*, *F*, *B*)
+    weights : :class:`dask.array.Array` of float32, shape (*T*, *F*, *B*)
         Visibility weights as a function of time, frequency and baseline
+    unscaled_weights : :class:`dask.array.Array` of float32, shape (*T*, *F*, *B*)
+        Weights that are not scaled by autocorrelations, thereby representing
+        the number of voltage samples that constitutes each visibility (optional)
     name : string, optional
         Identifier that describes the origin of the data (backend-specific)
 
     """
-    def __init__(self, vis, flags, weights, name='custom'):
+    def __init__(self, vis, flags, weights, unscaled_weights=None, name='custom'):
         if not (vis.shape == flags.shape == weights.shape):
             raise ValueError("Shapes of vis %s, flags %s and weights %s differ"
                              % (vis.shape, flags.shape, weights.shape))
         self.vis = vis
         self.flags = flags
         self.weights = weights
+        self.unscaled_weights = unscaled_weights
         self.name = name
 
     @property
@@ -146,7 +153,7 @@ def corrprod_to_autocorr(corrprods):
 
 
 @numba.jit(nopython=True, nogil=True)
-def weight_power_scale(vis, weights, auto_indices, index1, index2, out=None):
+def weight_power_scale(vis, weights, auto_indices, index1, index2, divide=True, out=None):
     """Compute scaled weights from visibility data.
 
     This function is designed to be usable with :func:`dask.array.blockwise`.
@@ -161,6 +168,8 @@ def weight_power_scale(vis, weights, auto_indices, index1, index2, out=None):
         Chunk of weight data, with the same shape as `vis`.
     auto_indices, index1, index2 : np.ndarray
         Arrays returned by :func:`corrprod_to_autocorr`
+    divide : bool, optional
+        True if weights are divided by autocorrelations; otherwise they are multiplied
     out : np.ndarray, optional
         If specified, the output array, with same shape as `vis` and dtype ``np.float32``
     """
@@ -170,7 +179,8 @@ def weight_power_scale(vis, weights, auto_indices, index1, index2, out=None):
     for i in range(vis.shape[0]):
         for j in range(vis.shape[1]):
             for k in range(len(auto_indices)):
-                auto_scale[k] = np.reciprocal(vis[i, j, auto_indices[k]].real)
+                autocorr = vis[i, j, auto_indices[k]].real
+                auto_scale[k] = np.reciprocal(autocorr) if divide else autocorr
             for k in range(vis.shape[2]):
                 p = auto_scale[index1[k]] * auto_scale[index2[k]]
                 # If either or both of the autocorrelations has zero power then
@@ -183,6 +193,20 @@ def weight_power_scale(vis, weights, auto_indices, index1, index2, out=None):
     return out
 
 
+def _scale_weights(vis, weights, corrprods, divide):
+    """Divide (or multiply) weights by corresponding autocorrelations."""
+    assert len(corrprods) == vis.shape[2]
+    # Ensure that we have only a single chunk on the baseline axis.
+    if len(vis.chunks[2]) > 1:
+        vis = vis.rechunk({2: vis.shape[2]})
+    if len(weights.chunks[2]) > 1:
+        weights = weights.rechunk({2: weights.shape[2]})
+    auto_indices, index1, index2 = corrprod_to_autocorr(corrprods)
+    return da.blockwise(weight_power_scale, 'ijk', vis, 'ijk', weights, 'ijk',
+                        dtype=np.float32, auto_indices=auto_indices,
+                        index1=index1, index2=index2, divide=divide)
+
+
 class ChunkStoreVisFlagsWeights(VisFlagsWeights):
     """Correlator data stored in a chunk store.
 
@@ -192,17 +216,21 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
         Chunk store
     chunk_info : dict mapping array name to info dict
         Dict specifying prefix, dtype, shape and chunks per array
-    corrprods : sequence of 2-tuples of input labels
-        Correlation products. If given, the weights for baseline (inp1, inp2)
-        will be divided by the square root of the product of the corresponding
-        autocorrelations vis[inp1,inp1] and vis[inp2,inp2].
+    corrprods : sequence of 2-tuples of input labels, optional
+        Correlation products. If given, the raw weights for baseline (inp1, inp2)
+        will be divided by the product of the corresponding autocorrelations
+        vis[inp1,inp1] and vis[inp2,inp2], and the raw weights will also
+        be exposed as `unscaled_weights`.
+    raw_weights_are_unscaled : bool, optional
+        False if raw weights are already scaled by autocorrelations, in which
+        case `unscaled_weights` are obtained by undoing the scaling
 
     Attributes
     ----------
     vis_prefix : string
         Prefix of correlator_data / visibility array, viz. its S3 bucket name
     """
-    def __init__(self, store, chunk_info, corrprods):
+    def __init__(self, store, chunk_info, corrprods=None, raw_weights_are_unscaled=True):
         self.store = store
         self.vis_prefix = chunk_info['correlator_data']['prefix']
         darray = {}
@@ -279,18 +307,17 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
 
         vis = darray['correlator_data']
         # Combine low-resolution weights and high-resolution weights_channel
-        weights = darray['weights'] * darray['weights_channel'][..., np.newaxis]
-        # Scale weights according to power
+        raw_weights = darray['weights'] * darray['weights_channel'][..., np.newaxis]
+        # Scale weights according to power (or remove scaling if already applied)
         if corrprods is not None:
-            assert len(corrprods) == vis.shape[2]
-            # Ensure that we have only a single chunk on the baseline axis.
-            if len(vis.chunks[2]) > 1:
-                vis = vis.rechunk({2: vis.shape[2]})
-            if len(weights.chunks[2]) > 1:
-                weights = weights.rechunk({2: weights.shape[2]})
-            auto_indices, index1, index2 = corrprod_to_autocorr(corrprods)
-            weights = da.blockwise(weight_power_scale, 'ijk', vis, 'ijk', weights, 'ijk',
-                                   dtype=np.float32,
-                                   auto_indices=auto_indices, index1=index1, index2=index2)
-
-        VisFlagsWeights.__init__(self, vis, flags, weights, self.vis_prefix)
+            if raw_weights_are_unscaled:
+                weights = _scale_weights(vis, raw_weights, corrprods, divide=True)
+                unscaled_weights = raw_weights
+            else:
+                weights = raw_weights
+                unscaled_weights = _scale_weights(vis, raw_weights, corrprods, divide=False)
+        else:
+            # Don't bother with unscaled weights (it's optional)
+            weights = raw_weights
+            unscaled_weights = None
+        VisFlagsWeights.__init__(self, vis, flags, weights, unscaled_weights, self.vis_prefix)
