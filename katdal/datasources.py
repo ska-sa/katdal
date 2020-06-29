@@ -18,10 +18,9 @@
 from __future__ import print_function, division, absolute_import
 from future import standard_library
 standard_library.install_aliases()  # noqa: 402
-from builtins import zip, object
+from builtins import object
 from future.utils import raise_from
 
-import itertools
 import urllib.parse
 import os.path
 import io
@@ -29,17 +28,12 @@ import logging
 
 import katsdptelstate
 import numpy as np
-import dask.array as da
-from dask.array.rechunk import intersect_chunks
-from dask.highlevelgraph import HighLevelGraph
-import toolz
-import numba
 
 from .sensordata import TelstateSensorGetter, TelstateToStr
 from .chunkstore_s3 import S3ChunkStore
 from .chunkstore_npy import NpyFileChunkStore
 from .chunkstore import ChunkStoreError
-from .flags import DATA_LOST
+from .vis_flags_weights import ChunkStoreVisFlagsWeights
 
 
 logger = logging.getLogger(__name__)
@@ -66,266 +60,6 @@ class AttrsSensors(object):
         self.attrs = attrs
         self.sensors = sensors
         self.name = name
-
-
-class VisFlagsWeights(object):
-    """Correlator data in the form of visibilities, flags and weights.
-
-    Parameters
-    ----------
-    vis : array-like of complex64, shape (*T*, *F*, *B*)
-        Complex visibility data as a function of time, frequency and baseline
-    flags : array-like of uint8, shape (*T*, *F*, *B*)
-        Flags as a function of time, frequency and baseline
-    weights : array-like of float32, shape (*T*, *F*, *B*)
-        Visibility weights as a function of time, frequency and baseline
-    name : string, optional
-        Identifier that describes the origin of the data (backend-specific)
-
-    """
-    def __init__(self, vis, flags, weights, name='custom'):
-        if not (vis.shape == flags.shape == weights.shape):
-            raise ValueError("Shapes of vis %s, flags %s and weights %s differ"
-                             % (vis.shape, flags.shape, weights.shape))
-        self.vis = vis
-        self.flags = flags
-        self.weights = weights
-        self.name = name
-
-    @property
-    def shape(self):
-        return self.vis.shape
-
-
-def _default_zero(array, shape, dtype):
-    if array is None:
-        return np.zeros(shape, dtype)
-    else:
-        return array
-
-
-def _apply_data_lost(orig_flags, lost):
-    if not lost:
-        return orig_flags
-    flags = orig_flags
-    for chunk, slices in toolz.partition(2, lost):
-        if chunk is None:
-            if flags is orig_flags:
-                flags = orig_flags.copy()
-            flags[slices] |= DATA_LOST
-    return flags
-
-
-def _narrow(array):
-    """Reduce an integer array to the narrowest type that can hold it.
-
-    It is specialised for unsigned types. It will not alter the dtype
-    if the array contains negative values.
-
-    If the type is not changed, a view is returned rather than a copy.
-    """
-    if array.dtype.kind not in ['u', 'i']:
-        raise ValueError('Array is not integral')
-    if not array.size:
-        dtype = np.uint8
-    else:
-        low = np.min(array)
-        high = np.max(array)
-        if low < 0:
-            dtype = array.dtype
-        elif high <= 0xFF:
-            dtype = np.uint8
-        elif high <= 0xFFFF:
-            dtype = np.uint16
-        elif high <= 0xFFFFFFFF:
-            dtype = np.uint32
-        else:
-            dtype = array.dtype
-    return array.astype(dtype, copy=False)
-
-
-def corrprod_to_autocorr(corrprods):
-    """Find the autocorrelation indices of correlation products.
-
-    Parameters
-    ----------
-    corrprods : sequence of 2-tuples or ndarray
-        Input labels of the correlation products
-
-    Returns
-    -------
-    auto_indices : np.ndarray
-        The indices in corrprods that correspond to auto-correlations
-    index1, index2 : np.ndarray
-        Lists of the same length as corrprods, containing the indices within
-        `auto_indices` referring to the first and second corresponding
-        autocorrelations.
-
-    Raises
-    ------
-    KeyError
-        If any of the autocorrelations are missing
-    """
-    auto_indices = []
-    auto_lookup = {}
-    for i, baseline in enumerate(corrprods):
-        if baseline[0] == baseline[1]:
-            auto_lookup[baseline[0]] = len(auto_indices)
-            auto_indices.append(i)
-    index1 = [auto_lookup[a] for (a, b) in corrprods]
-    index2 = [auto_lookup[b] for (a, b) in corrprods]
-    return _narrow(np.array(auto_indices)), _narrow(np.array(index1)), _narrow(np.array(index2))
-
-
-@numba.jit(nopython=True, nogil=True)
-def weight_power_scale(vis, weights, auto_indices, index1, index2, out=None):
-    """Compute scaled weights from visibility data.
-
-    This function is designed to be usable with :func:`dask.array.blockwise`.
-
-    Parameters
-    ----------
-    vis : np.ndarray
-        Chunk of visibility data, with dimensions time, frequency, baseline
-        (or any two dimensions then baseline). It must contain all the
-        baselines of a stream.
-    weights : np.ndarray
-        Chunk of weight data, with the same shape as `vis`.
-    auto_indices, index1, index2 : np.ndarray
-        Arrays returned by :func:`corrprod_to_autocorr`
-    out : np.ndarray, optional
-        If specified, the output array, with same shape as `vis` and dtype ``np.float32``
-    """
-    auto_scale = np.empty(len(auto_indices), np.float32)
-    out = np.empty(vis.shape, np.float32) if out is None else out
-    bad_weight = np.float32(2.0**-32)
-    for i in range(vis.shape[0]):
-        for j in range(vis.shape[1]):
-            for k in range(len(auto_indices)):
-                auto_scale[k] = np.reciprocal(vis[i, j, auto_indices[k]].real)
-            for k in range(vis.shape[2]):
-                p = auto_scale[index1[k]] * auto_scale[index2[k]]
-                # If either or both of the autocorrelations has zero power then
-                # there is likely something wrong with the system. Set the
-                # weight to very close to zero (not actually zero, since that
-                # can cause divide-by-zero problems downstream).
-                if not np.isfinite(p):
-                    p = bad_weight
-                out[i, j, k] = p * weights[i, j, k]
-    return out
-
-
-class ChunkStoreVisFlagsWeights(VisFlagsWeights):
-    """Correlator data stored in a chunk store.
-
-    Parameters
-    ----------
-    store : :class:`ChunkStore` object
-        Chunk store
-    chunk_info : dict mapping array name to info dict
-        Dict specifying prefix, dtype, shape and chunks per array
-    corrprods : sequence of 2-tuples of input labels
-        Correlation products. If given, the weights for baseline (inp1, inp2)
-        will be divided by the square root of the product of the corresponding
-        autocorrelations vis[inp1,inp1] and vis[inp2,inp2].
-
-    Attributes
-    ----------
-    vis_prefix : string
-        Prefix of correlator_data / visibility array, viz. its S3 bucket name
-    """
-    def __init__(self, store, chunk_info, corrprods):
-        self.store = store
-        self.vis_prefix = chunk_info['correlator_data']['prefix']
-        darray = {}
-        for array, info in chunk_info.items():
-            array_name = store.join(info['prefix'], array)
-            chunk_args = (array_name, info['chunks'], info['dtype'])
-            errors = DATA_LOST if array == 'flags' else 'none'
-            darray[array] = store.get_dask_array(*chunk_args, errors=errors)
-        flags_orig_name = darray['flags'].name
-        flags_raw_name = store.join(chunk_info['flags']['prefix'], 'flags_raw')
-        # Combine original flags with data_lost indicating where values were lost from
-        # other arrays.
-        lost_map = np.empty([len(c) for c in darray['flags'].chunks], dtype="O")
-        for index in np.ndindex(lost_map.shape):
-            lost_map[index] = []
-        for array_name, array in darray.items():
-            if array_name == 'flags':
-                continue
-            # Source keys may appear multiple times in the array, so to save
-            # memory we can pre-create the objects for the keys and reuse them
-            # (idea borrowed from dask.array.rechunk).
-            src_keys = np.empty([len(c) for c in array.chunks], dtype="O")
-            for index in np.ndindex(src_keys.shape):
-                src_keys[index] = (array.name,) + index
-            # array may have fewer dimensions than flags
-            # (specifically, for weights_channel).
-            chunks = array.chunks
-            if array.ndim < darray['flags'].ndim:
-                chunks += tuple((x,) for x in darray['flags'].shape[array.ndim:])
-            intersections = intersect_chunks(darray['flags'].chunks, chunks)
-            for src_key, pieces in zip(src_keys.flat, intersections):
-                for piece in pieces:
-                    dst_index, slices = zip(*piece)
-                    # if src_key is missing, then the parts of dst_index
-                    # indicated by slices must be flagged.
-                    # TODO: fast path for when slices covers the whole chunk?
-                    lost_map[dst_index].extend([src_key, slices])
-        dsk = {
-            (flags_raw_name,) + key: (
-                _apply_data_lost,
-                (flags_orig_name,) + key,
-                value
-            ) for key, value in np.ndenumerate(lost_map)
-        }
-        dsk = HighLevelGraph.from_collections(
-            flags_raw_name, dsk, dependencies=list(darray.values())
-        )
-        flags = da.Array(dsk, flags_raw_name,
-                         chunks=darray['flags'].chunks,
-                         shape=darray['flags'].shape,
-                         dtype=darray['flags'].dtype)
-        darray['flags'] = flags
-
-        # Turn missing blocks in the other arrays into zeros to make them
-        # valid dask arrays.
-        for array_name, array in darray.items():
-            if array_name == 'flags':
-                continue
-            new_name = 'filled-' + array.name
-            indices = itertools.product(*(range(len(c)) for c in array.chunks))
-            dsk = {
-                (new_name,) + index: (
-                    _default_zero,
-                    (array.name,) + index,
-                    shape,
-                    array.dtype
-                ) for index, shape in zip(indices, itertools.product(*array.chunks))
-            }
-            dsk = HighLevelGraph.from_collections(new_name, dsk, dependencies=[array])
-            darray[array_name] = da.Array(dsk, new_name,
-                                          chunks=array.chunks,
-                                          shape=array.shape,
-                                          dtype=array.dtype)
-
-        vis = darray['correlator_data']
-        # Combine low-resolution weights and high-resolution weights_channel
-        weights = darray['weights'] * darray['weights_channel'][..., np.newaxis]
-        # Scale weights according to power
-        if corrprods is not None:
-            assert len(corrprods) == vis.shape[2]
-            # Ensure that we have only a single chunk on the baseline axis.
-            if len(vis.chunks[2]) > 1:
-                vis = vis.rechunk({2: vis.shape[2]})
-            if len(weights.chunks[2]) > 1:
-                weights = weights.rechunk({2: weights.shape[2]})
-            auto_indices, index1, index2 = corrprod_to_autocorr(corrprods)
-            weights = da.blockwise(weight_power_scale, 'ijk', vis, 'ijk', weights, 'ijk',
-                                   dtype=np.float32,
-                                   auto_indices=auto_indices, index1=index1, index2=index2)
-
-        VisFlagsWeights.__init__(self, vis, flags, weights, self.vis_prefix)
 
 
 class DataSource(object):

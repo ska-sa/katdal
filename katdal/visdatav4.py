@@ -27,7 +27,7 @@ import dask.array as da
 from .dataset import (DataSet, BrokenFile, Subarray, DEFAULT_SENSOR_PROPS,
                       DEFAULT_VIRTUAL_SENSORS, _robust_target,
                       _selection_to_list)
-from .datasources import VisFlagsWeights
+from .vis_flags_weights import VisFlagsWeights
 from .spectral_window import SpectralWindow
 from .sensordata import SensorCache
 from .categorical import CategoricalData

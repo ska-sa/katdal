@@ -14,7 +14,7 @@
 # limitations under the License.
 ################################################################################
 
-"""Tests for :py:mod:`katdal.datasources`."""
+"""Tests for :py:mod:`katdal.vis_flags_weights`."""
 from __future__ import print_function, division, absolute_import
 from builtins import object
 
@@ -26,13 +26,12 @@ import itertools
 
 import numpy as np
 from numpy.testing import assert_array_equal
-from nose.tools import assert_equal, assert_raises
+from nose.tools import assert_equal
 import dask.array as da
-import katsdptelstate
 
 from katdal.chunkstore import generate_chunks
 from katdal.chunkstore_npy import NpyFileChunkStore
-from katdal.datasources import ChunkStoreVisFlagsWeights, TelstateDataSource, view_l0_capture_stream
+from katdal.vis_flags_weights import ChunkStoreVisFlagsWeights
 from katdal.flags import DATA_LOST
 
 
@@ -81,72 +80,6 @@ def put_fake_dataset(store, prefix, shape, chunk_overrides=None, array_overrides
             for k, darray in ddata.items()]
     da.compute(*push)
     return data, chunk_info
-
-
-def _make_fake_stream(telstate, store, cbid, stream, shape,
-                      chunk_overrides=None, array_overrides=None, flags_only=False):
-    telstate_prefix = telstate.join(cbid, stream)
-    store_prefix = telstate_prefix.replace('_', '-')
-    data, chunk_info = put_fake_dataset(store, store_prefix, shape,
-                                        chunk_overrides=chunk_overrides, array_overrides=array_overrides,
-                                        flags_only=flags_only)
-    cs_view = telstate.view(telstate_prefix)
-    s_view = telstate.view(stream)
-    cs_view['chunk_info'] = chunk_info
-    cs_view['first_timestamp'] = 123.0
-    s_view['sync_time'] = 123456789.0
-    s_view['int_time'] = 2.0
-    s_view['bandwidth'] = 856e6
-    s_view['center_freq'] = 1284e6
-    s_view['n_chans'] = shape[1]
-    s_view['n_bls'] = shape[2]
-    # This isn't particularly representative - may need refinement depending on
-    # what the test does
-    n_ant = 1
-    while n_ant * (n_ant + 1) * 2 < shape[2]:
-        n_ant += 1
-    if n_ant * (n_ant + 1) * 2 != shape[2]:
-        raise ValueError('n_bls is not consistent with an integer number of antennas')
-    bls_ordering = []
-    for i in range(n_ant):
-        for j in range(i, n_ant):
-            for x in 'hv':
-                for y in 'hv':
-                    bls_ordering.append(('m{:03}{}'.format(i, x),
-                                         'm{:03}{}'.format(j, y)))
-    s_view['bls_ordering'] = np.array(bls_ordering)
-    if not flags_only:
-        s_view['need_weights_power_scale'] = True
-        s_view['stream_type'] = 'sdp.vis'
-    else:
-        s_view['stream_type'] = 'sdp.flags'
-    return data, cs_view, s_view
-
-
-def make_fake_datasource(telstate, store, cbid, l0_shape, l1_flags_shape=None,
-                         l0_chunk_overrides=None, l1_flags_chunk_overrides=None,
-                         l0_array_overrides=None, l1_flags_array_overrides=None):
-    """Create a complete fake data source.
-
-    The resulting telstate and chunk store are suitable for constructing
-    a :class:`~.TelstateDataSource`, including upgrading of flags. However,
-    it adds about as little as possible to telstate for that, so may need
-    to be extended from time to time.
-    """
-    if l1_flags_shape is None:
-        l1_flags_shape = l0_shape
-    l0_data, l0_cs_view, l0_s_view = \
-        _make_fake_stream(telstate, store, cbid, 'sdp_l0', l0_shape,
-                          chunk_overrides=l0_chunk_overrides,
-                          array_overrides=l0_array_overrides)
-    l1_flags_data, l1_flags_cs_view, l1_flags_s_view = \
-        _make_fake_stream(telstate, store, cbid, 'sdp_l1_flags', l1_flags_shape,
-                          chunk_overrides=l1_flags_chunk_overrides,
-                          array_overrides=l1_flags_array_overrides,
-                          flags_only=True)
-    l1_flags_s_view['src_streams'] = ['sdp_l0']
-    telstate['sdp_archived_streams'] = ['sdp_l0', 'sdp_l1_flags']
-    return view_l0_capture_stream(telstate, cbid, 'sdp_l0') + (l0_data, l1_flags_data)
 
 
 class TestChunkStoreVisFlagsWeights(object):
@@ -260,105 +193,3 @@ class TestChunkStoreVisFlagsWeights(object):
                 'weights_channel': (1, 7),
                 'flags': (4, 15, 30)
             })
-
-
-class TestTelstateDataSource(object):
-    def setup(self):
-        self.tempdir = tempfile.mkdtemp()
-        self.store = NpyFileChunkStore(self.tempdir)
-        self.telstate = katsdptelstate.TelescopeState()
-        self.cbid = 'cb'
-
-    def teardown(self):
-        shutil.rmtree(self.tempdir)
-
-    def test_timestamps(self):
-        view, cbid, sn, l0_data, l1_flags_data = \
-            make_fake_datasource(self.telstate, self.store, self.cbid, (20, 64, 40))
-        data_source = TelstateDataSource(view, cbid, sn, self.store)
-        np.testing.assert_array_equal(
-            data_source.timestamps,
-            np.arange(20, dtype=np.float32) * 2 + 123456912)
-
-    def test_upgrade_flags(self):
-        shape = (20, 16, 40)
-        view, cbid, sn, l0_data, l1_flags_data = \
-            make_fake_datasource(self.telstate, self.store, self.cbid, shape)
-        data_source = TelstateDataSource(view, cbid, sn, self.store)
-        np.testing.assert_array_equal(data_source.data.vis.compute(), l0_data['correlator_data'])
-        np.testing.assert_array_equal(data_source.data.flags.compute(), l1_flags_data['flags'])
-        # Again, now explicitly disabling the upgrade
-        data_source = TelstateDataSource(view, cbid, sn, self.store, upgrade_flags=False)
-        np.testing.assert_array_equal(data_source.data.vis.compute(), l0_data['correlator_data'])
-        np.testing.assert_array_equal(data_source.data.flags.compute(), l0_data['flags'])
-
-    def test_upgrade_flags_extend_l1(self, l0_chunk_overrides=None, l1_flags_chunk_overrides=None):
-        """L1 flags has fewer dumps than L0"""
-        l0_shape = (20, 16, 40)
-        l1_flags_shape = (18, 16, 40)
-        view, cbid, sn, l0_data, l1_flags_data = \
-            make_fake_datasource(self.telstate, self.store, self.cbid, l0_shape, l1_flags_shape,
-                                 l0_chunk_overrides=l0_chunk_overrides,
-                                 l1_flags_chunk_overrides=l1_flags_chunk_overrides)
-        data_source = TelstateDataSource(view, cbid, sn, self.store)
-        np.testing.assert_array_equal(
-            data_source.timestamps,
-            np.arange(l0_shape[0], dtype=np.float32) * 2 + 123456912)
-        np.testing.assert_array_equal(data_source.data.vis.compute(), l0_data['correlator_data'])
-        expected_flags = np.zeros(l0_shape, np.uint8)
-        expected_flags[:l1_flags_shape[0]] = l1_flags_data['flags']
-        expected_flags[l1_flags_shape[0]:] = DATA_LOST
-        np.testing.assert_array_equal(data_source.data.flags.compute(), expected_flags)
-
-    def test_upgrade_flags_extend_l1_multi_dump(self):
-        """L1 flags has fewer dumps than L0, with multiple dumps per chunk"""
-        self.test_upgrade_flags_extend_l1(
-            l0_chunk_overrides={
-                'correlator_data': (4, 4, 40),
-                'weights': (4, 4, 40),
-                'weights_channel': (4, 4),
-                'flags': (4, 4, 40)
-            },
-            l1_flags_chunk_overrides={'flags': (9, 8, 40)}
-        )
-
-    def test_upgrade_flags_extend_l0(self, l0_chunk_overrides=None, l1_flags_chunk_overrides=None):
-        """L1 flags has more dumps than L0"""
-        l0_shape = (18, 16, 40)
-        l1_flags_shape = (20, 16, 40)
-        view, cbid, sn, l0_data, l1_flags_data = \
-            make_fake_datasource(self.telstate, self.store, self.cbid, l0_shape, l1_flags_shape,
-                                 l0_chunk_overrides=l0_chunk_overrides,
-                                 l1_flags_chunk_overrides=l1_flags_chunk_overrides)
-        data_source = TelstateDataSource(view, cbid, sn, self.store)
-        np.testing.assert_array_equal(
-            data_source.timestamps,
-            np.arange(l1_flags_shape[0], dtype=np.float32) * 2 + 123456912)
-        expected_vis = np.zeros(l1_flags_shape, l0_data['correlator_data'].dtype)
-        expected_vis[:18] = l0_data['correlator_data']
-        expected_flags = l1_flags_data['flags'].copy()
-        # The visibilities for this extension are lost, so the flags will mark it as such
-        expected_flags[18:20] |= DATA_LOST
-        np.testing.assert_array_equal(data_source.data.vis.compute(), expected_vis)
-        np.testing.assert_array_equal(data_source.data.flags.compute(), expected_flags)
-
-    def test_upgrade_flags_extend_l0_multi_dump(self):
-        """L1 flags has more dumps than L0, with multiple dumps per chunk"""
-        self.test_upgrade_flags_extend_l0(
-            l0_chunk_overrides={
-                'correlator_data': (9, 4, 40),
-                'weights': (9, 4, 40),
-                'weights_channel': (9, 4),
-                'flags': (9, 4, 40)
-            },
-            l1_flags_chunk_overrides={'flags': (5, 8, 40)}
-        )
-
-    def test_upgrade_flags_shape_mismatch(self):
-        """L1 flags shape is incompatible with L0"""
-        l0_shape = (18, 16, 40)
-        l1_flags_shape = (20, 8, 40)
-        view, cbid, sn, l0_data, l1_flags_data = \
-            make_fake_datasource(self.telstate, self.store, self.cbid, l0_shape, l1_flags_shape)
-        with assert_raises(ValueError):
-            TelstateDataSource(view, cbid, sn, self.store)
