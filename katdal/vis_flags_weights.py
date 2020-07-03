@@ -55,12 +55,15 @@ class VisFlagsWeights(object):
         the number of voltage samples that constitutes each visibility (optional)
     name : string, optional
         Identifier that describes the origin of the data (backend-specific)
-
     """
+
     def __init__(self, vis, flags, weights, unscaled_weights=None, name='custom'):
         if not (vis.shape == flags.shape == weights.shape):
             raise ValueError("Shapes of vis %s, flags %s and weights %s differ"
                              % (vis.shape, flags.shape, weights.shape))
+        if unscaled_weights is not None and (unscaled_weights.shape != vis.shape):
+            raise ValueError("Shapes of unscaled weights %s and vis %s differ"
+                             % (unscaled_weights.shape, vis.shape))
         self.vis = vis
         self.flags = flags
         self.weights = weights
@@ -153,8 +156,11 @@ def corrprod_to_autocorr(corrprods):
 
 
 @numba.jit(nopython=True, nogil=True)
-def weight_power_scale(vis, weights, auto_indices, index1, index2, divide=True, out=None):
-    """Compute scaled weights from visibility data.
+def weight_power_scale(vis, weights, auto_indices, index1, index2, out=None, divide=True):
+    """Divide (or multiply) weights by autocorrelations (ndarray version).
+
+    The weight associated with visibility (i,j) is divided (or multiplied) by
+    the corresponding real visibilities (i,i) and (j,j).
 
     This function is designed to be usable with :func:`dask.array.blockwise`.
 
@@ -163,15 +169,17 @@ def weight_power_scale(vis, weights, auto_indices, index1, index2, divide=True, 
     vis : np.ndarray
         Chunk of visibility data, with dimensions time, frequency, baseline
         (or any two dimensions then baseline). It must contain all the
-        baselines of a stream.
+        baselines of a stream, even though only the autocorrelations are used.
     weights : np.ndarray
-        Chunk of weight data, with the same shape as `vis`.
+        Chunk of weight data, with the same shape as `vis`
     auto_indices, index1, index2 : np.ndarray
         Arrays returned by :func:`corrprod_to_autocorr`
-    divide : bool, optional
-        True if weights are divided by autocorrelations; otherwise they are multiplied
     out : np.ndarray, optional
-        If specified, the output array, with same shape as `vis` and dtype ``np.float32``
+        If specified, the output array, with same shape as `vis` and
+        dtype ``np.float32``
+    divide : bool, optional
+        True if weights will be divided by autocorrelations, otherwise
+        they will be multiplied
     """
     auto_scale = np.empty(len(auto_indices), np.float32)
     out = np.empty(vis.shape, np.float32) if out is None else out
@@ -194,7 +202,7 @@ def weight_power_scale(vis, weights, auto_indices, index1, index2, divide=True, 
 
 
 def _scale_weights(vis, weights, corrprods, divide):
-    """Divide (or multiply) weights by corresponding autocorrelations."""
+    """Divide (or multiply) weights by autocorrelations (dask array version)."""
     assert len(corrprods) == vis.shape[2]
     # Ensure that we have only a single chunk on the baseline axis.
     if len(vis.chunks[2]) > 1:
@@ -217,20 +225,23 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
     chunk_info : dict mapping array name to info dict
         Dict specifying prefix, dtype, shape and chunks per array
     corrprods : sequence of 2-tuples of input labels, optional
-        Correlation products. If given, the raw weights for baseline (inp1, inp2)
-        will be divided by the product of the corresponding autocorrelations
-        vis[inp1,inp1] and vis[inp2,inp2], and the raw weights will also
-        be exposed as `unscaled_weights`.
-    raw_weights_are_unscaled : bool, optional
-        False if raw weights are already scaled by autocorrelations, in which
-        case `unscaled_weights` are obtained by undoing the scaling
+        Correlation products. If given, compute both (scaled) `weights` and
+        `unscaled_weights` by dividing or multiplying by the autocorrelations
+        as needed. If `None`, the stored weights become `weights` and
+        `unscaled_weights` is `None`, i.e. disabled (useful for testing).
+    stored_weights_are_scaled : bool, optional
+        True if the weights in the chunk store are already scaled by
+        the autocorrelations. This determines how (scaled) `weights`
+        and `unscaled_weights` are obtained from the stored weights.
+        Should be True if `corrprods` is `None`.
 
     Attributes
     ----------
     vis_prefix : string
         Prefix of correlator_data / visibility array, viz. its S3 bucket name
     """
-    def __init__(self, store, chunk_info, corrprods=None, raw_weights_are_unscaled=True):
+
+    def __init__(self, store, chunk_info, corrprods=None, stored_weights_are_scaled=True):
         self.store = store
         self.vis_prefix = chunk_info['correlator_data']['prefix']
         darray = {}
@@ -307,17 +318,19 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
 
         vis = darray['correlator_data']
         # Combine low-resolution weights and high-resolution weights_channel
-        raw_weights = darray['weights'] * darray['weights_channel'][..., np.newaxis]
+        stored_weights = darray['weights'] * darray['weights_channel'][..., np.newaxis]
         # Scale weights according to power (or remove scaling if already applied)
         if corrprods is not None:
-            if raw_weights_are_unscaled:
-                weights = _scale_weights(vis, raw_weights, corrprods, divide=True)
-                unscaled_weights = raw_weights
+            if stored_weights_are_scaled:
+                weights = stored_weights
+                unscaled_weights = _scale_weights(vis, stored_weights, corrprods, divide=False)
             else:
-                weights = raw_weights
-                unscaled_weights = _scale_weights(vis, raw_weights, corrprods, divide=False)
+                weights = _scale_weights(vis, stored_weights, corrprods, divide=True)
+                unscaled_weights = stored_weights
         else:
+            if not stored_weights_are_scaled:
+                raise ValueError('Stored weights are unscaled but no corrprods are provided')
+            weights = stored_weights
             # Don't bother with unscaled weights (it's optional)
-            weights = raw_weights
             unscaled_weights = None
         VisFlagsWeights.__init__(self, vis, flags, weights, unscaled_weights, self.vis_prefix)

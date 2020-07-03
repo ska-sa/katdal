@@ -383,7 +383,7 @@ class TelstateDataSource(DataSource):
             need_weights_power_scale = telstate.get('need_weights_power_scale', False)
             data = ChunkStoreVisFlagsWeights(chunk_store, chunk_info,
                                              corrprods=telstate['bls_ordering'],
-                                             raw_weights_are_unscaled=need_weights_power_scale)
+                                             stored_weights_are_scaled=not need_weights_power_scale)
 
         if timestamps is None:
             # Synthesise timestamps from the relevant telstate bits

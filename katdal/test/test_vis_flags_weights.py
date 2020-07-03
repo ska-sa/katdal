@@ -26,13 +26,20 @@ import itertools
 
 import numpy as np
 from numpy.testing import assert_array_equal
-from nose.tools import assert_equal
+from nose.tools import assert_equal, assert_raises
 import dask.array as da
 
 from katdal.chunkstore import generate_chunks
 from katdal.chunkstore_npy import NpyFileChunkStore
-from katdal.vis_flags_weights import ChunkStoreVisFlagsWeights
+from katdal.vis_flags_weights import VisFlagsWeights, ChunkStoreVisFlagsWeights
 from katdal.flags import DATA_LOST
+
+
+def test_vis_flags_weights():
+    with assert_raises(ValueError):
+        VisFlagsWeights(np.ones((1, 2, 3)), np.ones((1, 2, 3)), np.ones((1, 2, 4)))
+    with assert_raises(ValueError):
+        VisFlagsWeights(np.ones((1, 2, 3)), np.ones((1, 2, 3)), np.ones((1, 2, 3)), np.ones((1, 2, 4)))
 
 
 def ramp(shape, offset=1.0, slope=1.0, dtype=np.float_):
@@ -142,25 +149,26 @@ class TestChunkStoreVisFlagsWeights(object):
 
         data, chunk_info = put_fake_dataset(
             store, prefix, shape, array_overrides={'correlator_data': vis})
-        raw_weights = data['weights'] * data['weights_channel'][..., np.newaxis]
+        stored_weights = data['weights'] * data['weights_channel'][..., np.newaxis]
 
         # Check that data is as expected when accessed via VisFlagsWeights
-        vfw = ChunkStoreVisFlagsWeights(store, chunk_info, corrprods)
+        vfw = ChunkStoreVisFlagsWeights(store, chunk_info, corrprods,
+                                        stored_weights_are_scaled=False)
         assert_equal(vfw.shape, data['correlator_data'].shape)
         assert_array_equal(vfw.vis.compute(), data['correlator_data'])
         assert_array_equal(vfw.flags.compute(), data['flags'])
-        assert_array_equal(vfw.weights.compute(), raw_weights * expected_scale)
-        assert_array_equal(vfw.unscaled_weights.compute(), raw_weights)
+        assert_array_equal(vfw.weights.compute(), stored_weights * expected_scale)
+        assert_array_equal(vfw.unscaled_weights.compute(), stored_weights)
 
         # Check that scaled raw weights are also accepted
         vfw = ChunkStoreVisFlagsWeights(store, chunk_info, corrprods,
-                                        raw_weights_are_unscaled=False)
+                                        stored_weights_are_scaled=True)
         assert_equal(vfw.shape, data['correlator_data'].shape)
         assert_array_equal(vfw.vis.compute(), data['correlator_data'])
         assert_array_equal(vfw.flags.compute(), data['flags'])
-        assert_array_equal(vfw.weights.compute(), raw_weights)
+        assert_array_equal(vfw.weights.compute(), stored_weights)
         assert_array_equal(vfw.unscaled_weights.compute(),
-                           raw_weights * expected_inverse_scale)
+                           stored_weights * expected_inverse_scale)
 
     def _test_missing_chunks(self, shape, chunk_overrides=None):
         # Put fake dataset into chunk store
