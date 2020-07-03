@@ -189,7 +189,7 @@ class VisibilityDataV4(DataSet):
         except (KeyError, IndexError):
             self.cbf_dump_period = self.accumulations_per_dump = None
         else:
-            cbf_dumps_per_sdp_dump = int(round(self.dump_period / self.cbf_dump_period))
+            cbf_dumps_per_sdp_dump = round(self.dump_period / self.cbf_dump_period)
             self.accumulations_per_dump = cbf_n_accs * cbf_dumps_per_sdp_dump
         num_dumps = len(source.timestamps)
         source.timestamps += self.time_offset
@@ -564,14 +564,19 @@ class VisibilityDataV4(DataSet):
                 self._excision = None
             else:
                 # The maximum / expected number of CBF dumps per SDP dump
-                cbf_dumps_per_sdp_dump = int(round(self.dump_period / self.cbf_dump_period))
+                cbf_dumps_per_sdp_dump = round(self.dump_period / self.cbf_dump_period)
                 accs_per_sdp_dump = np.float32(self.accumulations_per_dump)
                 accs_per_cbf_dump = accs_per_sdp_dump / np.float32(cbf_dumps_per_sdp_dump)
                 # Each unscaled weight represents the actual number of accumulations per SDP dump.
                 # Correct most of the weight compression artefacts by forcing each weight to be
                 # an integer multiple of CBF n_accs, and then convert it to an excision fraction.
-                excision_transforms = [lambda w: da.round(w / accs_per_cbf_dump) * accs_per_cbf_dump,
-                                       lambda w: (accs_per_sdp_dump - w) / accs_per_sdp_dump]
+                def integer_cbf_dumps(w):
+                    return da.round(w / accs_per_cbf_dump) * accs_per_cbf_dump
+
+                def excision_fraction(w):
+                    return (accs_per_sdp_dump - w) / accs_per_sdp_dump
+
+                excision_transforms = [integer_cbf_dumps, excision_fraction]
                 self._excision = DaskLazyIndexer(unscaled_weights, stage1, excision_transforms)
 
     @property
