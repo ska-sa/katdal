@@ -27,7 +27,7 @@ import dask.array as da
 from .dataset import (DataSet, BrokenFile, Subarray, DEFAULT_SENSOR_PROPS,
                       DEFAULT_VIRTUAL_SENSORS, _robust_target,
                       _selection_to_list)
-from .datasources import VisFlagsWeights
+from .vis_flags_weights import VisFlagsWeights
 from .spectral_window import SpectralWindow
 from .sensordata import SensorCache
 from .categorical import CategoricalData
@@ -185,8 +185,12 @@ class VisibilityDataV4(DataSet):
             src_stream = attrs['src_streams'][0]
             # XXX: should use telstate.join if attrs is a telstate
             self.cbf_dump_period = attrs[src_stream + '_int_time']
+            cbf_n_accs = attrs[src_stream + '_n_accs']
         except (KeyError, IndexError):
-            self.cbf_dump_period = None
+            self.cbf_dump_period = self.accumulations_per_dump = None
+        else:
+            cbf_dumps_per_sdp_dump = round(self.dump_period / self.cbf_dump_period)
+            self.accumulations_per_dump = cbf_n_accs * cbf_dumps_per_sdp_dump
         num_dumps = len(source.timestamps)
         source.timestamps += self.time_offset
         if _before('2000-01-01'):
@@ -430,6 +434,7 @@ class VisibilityDataV4(DataSet):
                                                        self.source.data.flags)
                 corrected_weights = self._make_corrected(apply_weights_correction,
                                                          self.source.data.weights)
+                unscaled_weights = self.source.data.unscaled_weights
                 name = self.source.data.name
                 # Acknowledge that the applycal step is making the L1 product
                 if 'sdp_l0' in name:
@@ -437,7 +442,7 @@ class VisibilityDataV4(DataSet):
                 else:
                     name = name + ' (corrected)'
                 self._corrected = VisFlagsWeights(corrected_vis, corrected_flags,
-                                                  corrected_weights, name=name)
+                                                  corrected_weights, unscaled_weights, name=name)
 
         # Apply default selection and initialise all members that depend
         # on selection in the process
@@ -537,7 +542,7 @@ class VisibilityDataV4(DataSet):
         update_all = time_keep is not None or freq_keep is not None or corrprod_keep is not None
         update_flags = update_all or flags_keep is not None
         if not self.source.data:
-            self._vis = self._weights = self._flags = None
+            self._vis = self._weights = self._flags = self._excision = None
         elif update_flags:
             # Create first-stage index from dataset selectors. Note: use
             # the member variables, not the parameters, because the parameters
@@ -554,6 +559,25 @@ class VisibilityDataV4(DataSet):
                 flag_transforms.append(lambda flags: da.bitwise_and(select, flags))
             flag_transforms.append(lambda flags: flags.view(np.bool_))
             self._flags = DaskLazyIndexer(self._corrected.flags, stage1, flag_transforms)
+            unscaled_weights = self._corrected.unscaled_weights
+            if unscaled_weights is None or self.accumulations_per_dump is None:
+                self._excision = None
+            else:
+                # The maximum / expected number of CBF dumps per SDP dump
+                cbf_dumps_per_sdp_dump = round(self.dump_period / self.cbf_dump_period)
+                accs_per_sdp_dump = np.float32(self.accumulations_per_dump)
+                accs_per_cbf_dump = accs_per_sdp_dump / np.float32(cbf_dumps_per_sdp_dump)
+                # Each unscaled weight represents the actual number of accumulations per SDP dump.
+                # Correct most of the weight compression artefacts by forcing each weight to be
+                # an integer multiple of CBF n_accs, and then convert it to an excision fraction.
+                def integer_cbf_dumps(w):
+                    return da.round(w / accs_per_cbf_dump) * accs_per_cbf_dump
+
+                def excision_fraction(w):
+                    return (accs_per_sdp_dump - w) / accs_per_sdp_dump
+
+                excision_transforms = [integer_cbf_dumps, excision_fraction]
+                self._excision = DaskLazyIndexer(unscaled_weights, stage1, excision_transforms)
 
     @property
     def timestamps(self):
@@ -629,6 +653,27 @@ class VisibilityDataV4(DataSet):
             raise ValueError('Flags are not available since dataset '
                              'was opened with metadata only')
         return self._flags
+
+    @property
+    def excision(self):
+        """Excision as a function of time, frequency and baseline.
+
+        The fraction of each visibility that has been excised in the SDP ingest
+        pipeline is returned as an array indexer of bool, shape (*T*, *F*, *B*)
+        with time along the first dimension, frequency along the second dimension
+        and correlation product ("baseline") index along the third dimension.
+        The number of integrations *T* matches the length of :meth:`timestamps`,
+        the number of frequency channels *F* matches the length of :meth:`freqs`
+        and the number of correlation products *B* matches the length of
+        :meth:`corr_products`. To get the data array itself from the indexer `x`,
+        do `x[:]` or perform any other form of indexing on it. Only then will
+        data be loaded into memory.
+
+        """
+        if self._excision is None:
+            raise ValueError('Excision is not available (maybe lite dataset or '
+                             'dataset opened with metadata only?)')
+        return self._excision
 
     @property
     def temperature(self):
