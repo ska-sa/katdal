@@ -33,12 +33,7 @@ from future.utils import bytes_to_native_str
 
 import tempfile
 import shutil
-# Using subprocess32 is important (on 2.7) because it closes non-stdio file
-# descriptors in the child. Without that, OS X runs into problems with minio
-# failing to bind the socket.
-import subprocess32 as subprocess
 import threading
-import os
 import time
 import socket
 import http.server
@@ -62,7 +57,7 @@ from katdal.chunkstore_s3 import (S3ChunkStore, _AWSAuth, read_array,
                                   _DEFAULT_SERVER_GLITCHES)
 from katdal.chunkstore import StoreUnavailable, ChunkNotFound
 from katdal.test.test_chunkstore import ChunkStoreTestBase
-from katdal.test.s3_utils import S3User, S3Server, MissingProgram, ProgramFailed
+from katdal.test.s3_utils import S3User, S3Server, MissingProgram
 
 
 BUCKET = 'katdal-unittest'

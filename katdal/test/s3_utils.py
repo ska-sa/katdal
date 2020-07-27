@@ -200,5 +200,5 @@ class S3Server:
             )
         except OSError as exc:
             raise MissingProgram(f'mc could not be run: {exc}') from exc
-        except subprocess.CalledProcessError:
+        except subprocess.CalledProcessError as exc:
             raise ProgramFailed(exc.stderr) from exc
