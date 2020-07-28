@@ -33,12 +33,7 @@ from future.utils import bytes_to_native_str
 
 import tempfile
 import shutil
-# Using subprocess32 is important (on 2.7) because it closes non-stdio file
-# descriptors in the child. Without that, OS X runs into problems with minio
-# failing to bind the socket.
-import subprocess32 as subprocess
 import threading
-import os
 import time
 import socket
 import http.server
@@ -47,6 +42,7 @@ import contextlib
 import io
 import warnings
 import re
+import pathlib
 from urllib3.util.retry import Retry
 
 import numpy as np
@@ -61,6 +57,7 @@ from katdal.chunkstore_s3 import (S3ChunkStore, _AWSAuth, read_array,
                                   _DEFAULT_SERVER_GLITCHES)
 from katdal.chunkstore import StoreUnavailable, ChunkNotFound
 from katdal.test.test_chunkstore import ChunkStoreTestBase
+from katdal.test.s3_utils import S3User, S3Server, MissingProgram
 
 
 BUCKET = 'katdal-unittest'
@@ -195,54 +192,17 @@ class TestS3ChunkStore(ChunkStoreTestBase):
     @classmethod
     def start_minio(cls, host):
         """Start Fake S3 service on `host` and return its URL."""
-
-        # Check minio version
         try:
-            version_data = subprocess.check_output(['minio', 'version'])
-        except OSError as e:
-            raise SkipTest('Could not run minio (is it installed): {}'.format(e))
-        except subprocess.CalledProcessError:
-            raise SkipTest('Failed to get minio version (is it too old)?')
-
-        min_version = u'2018-08-25T01:56:38Z'
-        version = None
-        version_fields = version_data.decode('utf-8').splitlines()
-        for line in version_fields:
-            if line.startswith(u'Version: '):
-                version = line.split(u' ', 1)[1]
-        if version is None:
-            raise RuntimeError('Could not parse minio version')
-        elif version < min_version:
-            raise SkipTest(u'Minio version is {} but {} is required'.format(version, min_version))
-
-        with get_free_port(host) as port:
-            try:
-                env = os.environ.copy()
-                env['MINIO_BROWSER'] = 'off'
-                env['MINIO_ACCESS_KEY'] = cls.credentials[0]
-                env['MINIO_SECRET_KEY'] = cls.credentials[1]
-                cls.minio = subprocess.Popen(['minio', 'server',
-                                              '--quiet',
-                                              '--address', '{}:{}'.format(host, port),
-                                              '-C', os.path.join(cls.tempdir, 'config'),
-                                              os.path.join(cls.tempdir, 'data')],
-                                             stdout=subprocess.DEVNULL,
-                                             env=env)
-            except OSError:
-                raise SkipTest('Could not start minio server (is it installed?)')
-
-        # Wait for minio to be ready to service requests
-        url = 'http://%s:%s' % (host, port)
-        health_url = urllib.parse.urljoin(url, '/minio/health/live')
-        for i in range(100):
-            try:
-                with requests.get(health_url) as resp:
-                    if resp.status_code == 200:
-                        return url
-            except requests.ConnectionError:
+            host = '127.0.0.1'        # Unlike 'localhost', guarantees IPv4
+            with get_free_port(host) as port:
                 pass
-            time.sleep(0.1)
-        raise OSError('Timed out waiting for minio to be ready')
+            # The port is now closed, which makes it available for minio to
+            # bind to. While MinIO on Linux is able to bind to the same port
+            # as the socket held open by get_free_port, Mac OS is not.
+            cls.minio = S3Server(host, port, pathlib.Path(cls.tempdir), S3User(*cls.credentials))
+        except MissingProgram as exc:
+            raise SkipTest(str(exc))
+        return cls.minio.url
 
     @classmethod
     def from_url(cls, url, authenticate=True, **kwargs):
@@ -256,8 +216,6 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         """Start minio service running on temp dir, and ChunkStore on that."""
         cls.credentials = ('access*key', 'secret*key')
         cls.tempdir = tempfile.mkdtemp()
-        os.mkdir(os.path.join(cls.tempdir, 'config'))
-        os.mkdir(os.path.join(cls.tempdir, 'data'))
         cls.minio = None
         try:
             cls.url = cls.start_minio('127.0.0.1')
@@ -271,8 +229,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
     @classmethod
     def teardown_class(cls):
         if cls.minio:
-            cls.minio.terminate()
-            cls.minio.wait()
+            cls.minio.close()
         shutil.rmtree(cls.tempdir)
 
     def array_name(self, path, suggestion=None):
