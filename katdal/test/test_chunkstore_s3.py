@@ -193,7 +193,13 @@ class TestS3ChunkStore(ChunkStoreTestBase):
     def start_minio(cls, host):
         """Start Fake S3 service on `host` and return its URL."""
         try:
-            cls.minio = S3Server(pathlib.Path(cls.tempdir), S3User(*cls.credentials))
+            host = '127.0.0.1'        # Unlike 'localhost', guarantees IPv4
+            with get_free_port(host) as port:
+                pass
+            # The port is now closed, which makes it available for minio to
+            # bind to. While MinIO on Linux is able to bind to the same port
+            # as the socket held open by get_free_port, Mac OS is not.
+            cls.minio = S3Server(host, port, pathlib.Path(cls.tempdir), S3User(*cls.credentials))
         except MissingProgram as exc:
             raise SkipTest(str(exc))
         return cls.minio.url

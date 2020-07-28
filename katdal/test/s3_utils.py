@@ -62,6 +62,10 @@ class S3Server:
 
     Parameters
     ----------
+    host
+        Host to bind to
+    port
+        Port to bind to
     path
         Directory in which objects and config will be stored.
     user
@@ -90,42 +94,35 @@ class S3Server:
         if minio started but failed before it became healthy
     """
 
-    def __init__(self, path: pathlib.Path, user: S3User) -> None:
-        self.host = '127.0.0.1'      # Unlike 'localhost', ensures IPv4
+    def __init__(self, host: str, port: int, path: pathlib.Path, user: S3User) -> None:
+        self.host = host
+        self.port = port
         self.path = path
         self.user = user
+        self.url = f'http://{self.host}:{self.port}'
+        self.auth_url = f'http://{user.access_key}:{user.secret_key}@{self.host}:{self.port}'
         self._process = None
 
         env = os.environ.copy()
         env['MINIO_BROWSER'] = 'off'
         env['MINIO_ACCESS_KEY'] = self.user.access_key
         env['MINIO_SECRET_KEY'] = self.user.secret_key
-        with contextlib.ExitStack() as exit_stack:
-            sock = exit_stack.enter_context(socket.socket())
-            # Allows minio to bind to the same socket. Setting both
-            # SO_REUSEPORT and SO_REUSEADDR might not be necessary, but
-            # could make this more portable.
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.bind(('127.0.0.1', 0))
-            self.port = sock.getsockname()[1]
-            try:
-                self._process = subprocess.Popen(
-                    [
-                        'minio', 'server', '--quiet',
-                        '--address', f'{self.host}:{self.port}',
-                        '-C', str(self.path / 'config'),
-                        str(self.path / 'data'),
-                    ],
-                    stdout=subprocess.DEVNULL,
-                    env=env
-                )
-            except OSError as exc:
-                raise MissingProgram(f'Could not run minio: {exc}') from exc
-            exit_stack.callback(self._process.terminate)
+        try:
+            self._process = subprocess.Popen(
+                [
+                    'minio', 'server', '--quiet',
+                    '--address', f'{self.host}:{self.port}',
+                    '-C', str(self.path / 'config'),
+                    str(self.path / 'data'),
+                ],
+                stdout=subprocess.DEVNULL,
+                env=env
+            )
+        except OSError as exc:
+            raise MissingProgram(f'Could not run minio: {exc}') from exc
 
-            self.url = f'http://{self.host}:{self.port}'
-            self.auth_url = f'http://{user.access_key}:{user.secret_key}@{self.host}:{self.port}'
+        with contextlib.ExitStack() as exit_stack:
+            exit_stack.callback(self._process.terminate)
             health_url = urllib.parse.urljoin(self.url, '/minio/health/live')
             for i in range(100):
                 try:
@@ -139,7 +136,6 @@ class S3Server:
                 time.sleep(0.1)
             else:
                 raise ProgramFailed('Timed out waiting for minio to be ready')
-            sock.close()
             exit_stack.pop_all()
 
     def wipe(self) -> None:
