@@ -9,7 +9,7 @@ History
 * Increase katstore search window by 600 seconds to find infrequent updates (#302)
 * Refactor SensorData to become a lazy abstract interface without caching (#292)
 * Refactor SensorCache to use MutableMapping (#300)
-* Fix rx_serial sensor use and file mode warning in HDF5v3 files (#298, #299)
+* Fix rx_serial sensor use and file mode warning in MVFv3 files (#298, #299)
 
 0.15 (2020-03-13)
 -----------------
