@@ -1,6 +1,16 @@
 History
 =======
 
+0.16 (2020-08-28)
+-----------------
+* This is the last release that will support Python 2 (python2 maintenance branch)
+* New 'time_offset' sensor property that adjusts timestamps of any sensor (#307)
+* Fix calculation of cbf_dump_period for 'wide' / 'narrowN' instruments (#301)
+* Increase katstore search window by 600 seconds to find infrequent updates (#302)
+* Refactor SensorData to become a lazy abstract interface without caching (#292)
+* Refactor SensorCache to use MutableMapping (#300)
+* Fix rx_serial sensor use and file mode warning in HDF5v3 files (#298, #299)
+
 0.15 (2020-03-13)
 -----------------
 * Improve S3 chunk store: check tokens, improve timeouts and retries (#272 - #277)
