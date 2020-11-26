@@ -22,18 +22,17 @@
 from __future__ import print_function, division, absolute_import
 from future import standard_library
 standard_library.install_aliases()    # noqa: E402
-from builtins import zip
-from builtins import range
-
-from collections import namedtuple
-import os
-import tarfile
+from builtins import zip, range
 
 import argparse
-import time
+from collections import namedtuple
 import multiprocessing
 import multiprocessing.sharedctypes
+import os
 import queue
+import re
+import tarfile
+import time
 import urllib.parse
 
 import numpy as np
@@ -42,17 +41,43 @@ import numba
 
 import katpoint
 import katdal
-from katdal import averager
-from katdal import ms_extra
-from katdal import ms_async
+from katdal import averager, ms_extra, ms_async
 from katdal.sensordata import telstate_decode
 from katdal.lazy_indexer import DaskLazyIndexer
 from katdal.flags import NAMES as FLAG_NAMES
 
-from argparse import ArgumentTypeError
-import re
 
 SLOTS = 4    # Controls overlap between loading and writing
+
+
+def casa_style_int_list(val, use_argparse=False, opt_unit="m"):
+    """Turn CASA style range string "[0-9]*~[0-9]*, ..." into a list of ints.
+
+    The range may contain unit strings such as 10~50m if the accepted unit is
+    specified in `opt_unit`. Returns None if no range is specified, otherwise
+    a list of range values.
+    """
+    RangeException = argparse.ArgumentTypeError if use_argparse else ValueError
+    if val.strip() == "" or val.strip() == "*":
+        return None
+    vals = []
+    for val in map(lambda x: x.strip(), val.strip().split(",")):
+        val = val.strip()
+        range_type = r"^((\d+)[{0}]?)?(~(\d+)[{0}]?)?$".format(opt_unit)
+        match = re.match(range_type, val)
+        if not match:
+            raise RangeException("Value must be CASA range, comma list or blank")
+        elif match.group(4):
+            # range
+            rmin = int(match.group(2))
+            rmax = int(match.group(4))
+            vals = vals + list(range(rmin, rmax + 1))
+        elif match.group(2):
+            # int
+            vals = vals + [int(match.group(2))]
+        else:
+            raise RangeException("Value must be CASA range, comma list or blank")
+    return vals
 
 
 def default_ms_name(args, centre_freq=None):
@@ -120,7 +145,7 @@ def permute_baselines(in_vis, in_weights, in_flags, cp_index, out_vis, out_weigh
     bstep = 128
     bblocks = (n_bls + bstep - 1) // bstep
     for t in range(n_time):
-        for bblock in numba.prange(bblocks):
+        for bblock in numba.prange(bblocks):  # noqa: E1133
             bstart = bblock * bstep
             bstop = min(n_bls, bstart + bstep)
             for c in range(n_chans):
@@ -145,36 +170,6 @@ def main():
     tag_to_intent = {'gaincal': 'CALIBRATE_PHASE,CALIBRATE_AMPLI',
                      'bpcal': 'CALIBRATE_BANDPASS,CALIBRATE_FLUX',
                      'target': 'TARGET'}
-
-    def casa_style_int_list(val, use_argparse=False, opt_unit="m"):
-        """ returns list of ints from a casa style range of the form
-            [0-9]*~[0-9]*, ...
-            the range may contain unit strings such as 10~50m if
-            the accepted unit is specified in opt_unit
-            return None if no range is specified,
-            list of range values otherwise
-        """
-        RangeException = ArgumentTypeError if use_argparse else ValueError
-        if val.strip() == "" or val.strip() == "*":
-            return None
-        vals = []
-        for val in map(lambda x: x.strip(), val.strip().split(",")):
-            val = val.strip()
-            range_type = r"^((\d+)[{0}]?)?(~(\d+)[{0}]?)?$".format(opt_unit)
-            match = re.match(range_type, val)
-            if not match:
-                raise RangeException("Value must be CASA range, comma list or blank")
-            elif match.group(4):
-                # range
-                rmin = int(match.group(2))
-                rmax = int(match.group(4))
-                vals = vals + list(range(rmin, rmax + 1))
-            elif match.group(2):
-                # int
-                vals = vals + [int(match.group(2))]
-            else:
-                raise RangeException("Value must be CASA range, comma list or blank")
-        return vals
 
     usage = "%(prog)s [options] <dataset> [<dataset2>]*"
     description = "Convert MVF dataset(s) to CASA MeasurementSet. The datasets may " \
@@ -921,9 +916,10 @@ def main():
                             cen_index = len(out_freqs) // 2
                             # the delay values in the cal pipeline are calculated relative to frequency 0
                             ref_freq = 0.0 if sol == 'K' else None
-                            spw_dict = {'SPECTRAL_WINDOW': ms_extra.populate_spectral_window_dict(
-                                            np.atleast_1d(out_freqs[cen_index]),
-                                            np.atleast_1d(channel_freq_width), ref_freq=ref_freq)}
+                            spw_dict = {'SPECTRAL_WINDOW':
+                                        ms_extra.populate_spectral_window_dict(np.atleast_1d(out_freqs[cen_index]),
+                                                                               np.atleast_1d(channel_freq_width),
+                                                                               ref_freq=ref_freq)}
                             ms_extra.write_dict(spw_dict, caltable.name(), verbose=options.verbose)
 
                         # done with this caltable
