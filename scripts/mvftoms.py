@@ -27,7 +27,6 @@ from builtins import range
 
 from collections import namedtuple
 import os
-import sys
 import tarfile
 
 import argparse
@@ -117,7 +116,7 @@ def permute_baselines(in_vis, in_weights, in_flags, cp_index, out_vis, out_weigh
     """
     # Workaround for https://github.com/numba/numba/issues/2921
     in_flags_u8 = in_flags.view(np.uint8)
-    n_time, n_bls, n_chans, n_pols = out_vis.shape
+    n_time, n_bls, n_chans, n_pols = out_vis.shape  # noqa: W0612
     bstep = 128
     bblocks = (n_bls + bstep - 1) // bstep
     for t in range(n_time):
@@ -147,21 +146,21 @@ def main():
                      'bpcal': 'CALIBRATE_BANDPASS,CALIBRATE_FLUX',
                      'target': 'TARGET'}
 
-    def casa_style_int_list(val, argparse=False, opt_unit="m"):
+    def casa_style_int_list(val, use_argparse=False, opt_unit="m"):
         """ returns list of ints from a casa style range of the form
             [0-9]*~[0-9]*, ...
-            the range may contain unit strings such as 10~50m if 
+            the range may contain unit strings such as 10~50m if
             the accepted unit is specified in opt_unit
             return None if no range is specified,
             list of range values otherwise
         """
-        RangeException = ArgumentTypeError if argparse else ValueError
+        RangeException = ArgumentTypeError if use_argparse else ValueError
         if val.strip() == "" or val.strip() == "*":
             return None
         vals = []
         for val in map(lambda x: x.strip(), val.strip().split(",")):
             val = val.strip()
-            range_type = r"^((\d+)[{}]?)?(~(\d+)[{}]?)?$".format(opt_unit, opt_unit)
+            range_type = r"^((\d+)[{0}]?)?(~(\d+)[{0}]?)?$".format(opt_unit)
             match = re.match(range_type, val)
             if not match:
                 raise RangeException("Value must be CASA range, comma list or blank")
@@ -189,22 +188,22 @@ def main():
                         help="Produce quad circular polarisation. (RR, RL, LR, LL) "
                              "*** Currently just relabels the linear pols ****")
     parser.add_argument("-r", "--ref-ant",
-                       help="Override the reference antenna used to pick targets "
-                            "and scans (default is the 'array' antenna in MVFv4 "
-                            "and the first antenna in older formats)")
+                        help="Override the reference antenna used to pick targets "
+                             "and scans (default is the 'array' antenna in MVFv4 "
+                             "and the first antenna in older formats)")
     parser.add_argument("-t", "--tar", action="store_true", default=False,
                         help="Tar-ball the MS")
     parser.add_argument("-f", "--full_pol", action="store_true", default=False,
-                       help="Produce a full polarisation MS in CASA canonical order "
-                            "(HH, HV, VH, VV). Default is to produce HH,VV only.")
+                        help="Produce a full polarisation MS in CASA canonical order "
+                             "(HH, HV, VH, VV). Default is to produce HH,VV only.")
     parser.add_argument("-v", "--verbose", action="store_true", default=False,
                         help="More verbose progress information")
     parser.add_argument("-w", "--stop-w", action="store_true", default=False,
                         help="Use W term to stop fringes for each baseline")
     parser.add_argument("-p", "--pols-to-use", default=None,
                         help="Select polarisation products to include in MS as "
-                            "comma-separated list (from: HH, HV, VH, VV). "
-                            "Default is all available from (HH, VV).")
+                             "comma-separated list (from: HH, HV, VH, VV). "
+                             "Default is all available from (HH, VV).")
     parser.add_argument("-u", "--uvfits", action="store_true", default=False,
                         help="Print command to convert MS to miriad uvfits in casapy")
     parser.add_argument("-a", "--no-auto", action="store_true", default=False,
@@ -255,7 +254,7 @@ def main():
                              "be specified multiple times if need be. Default is select "
                              "all antennas.")
     parser.add_argument("--scans", default="",
-                        type=lambda x: casa_style_int_list(x, argparse=True, opt_unit="m"),
+                        type=lambda x: casa_style_int_list(x, use_argparse=True, opt_unit="m"),
                         help="Only select a range of tracking scans. Default is select all "
                              "tracking scans. Accepts a comma list or a casa style range "
                              "such as 5~10.")
@@ -335,8 +334,7 @@ def main():
 
     # select a subset of antennas
     avail_ants = [a.name for a in dataset.ants]
-    dump_ants = options.ant if len(options.ant) != 0 else \
-                avail_ants
+    dump_ants = options.ant if len(options.ant) != 0 else avail_ants
     # some users may specify comma-separated lists although we said the switch should
     # be specified multiple times. Put in a guard to split comma separated lists as well
     split_ants = []
@@ -346,22 +344,21 @@ def main():
 
     if not set(dump_ants) <= set(avail_ants):
         raise RuntimeError("One or more antennas cannot be found in the dataset. "
-                           "You requested {0:s}, but only {1:s} are available.".format(
-                           ", ".join([repr(f) for f in dump_ants]),
-                           ", ".join([repr(f) for f in avail_ants])))
+                           "You requested {0:s}, but only {1:s} are available."
+                           .format(", ".join([repr(f) for f in dump_ants]),
+                                   ", ".join([repr(f) for f in avail_ants])))
 
     if len(dump_ants) == 0:
-       print('User antenna criterion resulted in empty database, nothing to be done. '
-             'Perhaps you wanted to select from the following: {}'.format(
-             ", ".join(["'{}'".format(f) for f in avail_ants])))
+        print('User antenna criterion resulted in empty database, nothing to be done. '
+              'Perhaps you wanted to select from the following: {}'
+              .format(", ".join(["'{}'".format(f) for f in avail_ants])))
 
     print('Per user request the following antennas will be selected: {}'.format(
         ", ".join(["'{}'".format(f) for f in dump_ants])))
 
     # select a subset of targets
     avail_fields = [f.name for f in dataset.catalogue.targets]
-    dump_fields = options.target if len(options.target) != 0 else \
-                  avail_fields
+    dump_fields = options.target if len(options.target) != 0 else avail_fields
 
     # some users may specify comma-separated lists although we said the switch should
     # be specified multiple times. Put in a guard to split comma separated lists as well
@@ -372,33 +369,32 @@ def main():
 
     if not set(dump_fields) <= set(avail_fields):
         raise RuntimeError("One or more fields cannot be found in the dataset. "
-                           "You requested {0:s}, but only {1:s} are available.".format(
-                           ", ".join(["'{}'".format(f) for f in dump_fields]),
-                           ", ".join(["'{}'".format(f) for f in avail_fields])))
+                           "You requested {0:s}, but only {1:s} are available."
+                           .format(", ".join(["'{}'".format(f) for f in dump_fields]),
+                                   ", ".join(["'{}'".format(f) for f in avail_fields])))
 
     if len(dump_fields) == 0:
-       print('User target field criterion resulted in empty database, nothing to be done. '
-             'Perhaps you wanted to select from the following: {}'.format(
-             ", ".join(["'{}'".format(f) for f in avail_fields])))
+        print('User target field criterion resulted in empty database, nothing to be done. '
+              'Perhaps you wanted to select from the following: {}'
+              .format(", ".join(["'{}'".format(f) for f in avail_fields])))
 
-    print('Per user request the following target fields will be selected: {}'.format(
-          ", ".join(["'{}'".format(f) for f in dump_fields])))
+    print('Per user request the following target fields will be selected: {}'
+          .format(", ".join(["'{}'".format(f) for f in dump_fields])))
 
     dataset.select(targets=dump_fields)
 
     # get a set of user selected available tracking scans, ignore slew scans
     avail_tracks = map(lambda x: x[0],
-                     filter(lambda x: x[1] == 'track',
-                            dataset.scans()))
+                       filter(lambda x: x[1] == 'track',
+                              dataset.scans()))
 
-    dump_scans = options.scans if options.scans else \
-                 avail_tracks
+    dump_scans = options.scans if options.scans else avail_tracks
     dump_scans = list(set(dump_scans).intersection(set(avail_tracks)))
     if len(dump_scans) == 0:
         raise RuntimeError('User scan criterion resulted in empty database, nothing to be done. '
-                           'Perhaps you wanted to select from the following: {}'.format(
-                           ", ".join(map(str, avail_tracks))))
-        
+                           'Perhaps you wanted to select from the following: {}'
+                           .format(", ".join(map(str, avail_tracks))))
+
     print('Per user request the following scans will be dumped: {}'.format(
           ", ".join(map(str, dump_scans))))
 
@@ -443,7 +439,7 @@ def main():
 
         # Discard first N dumps which are frequently incomplete
         dataset.select(spw=win,
-                       scans=dump_scans, # should already be filtered to target type only
+                       scans=dump_scans,  # should already be filtered to target type only
                        targets=dump_fields,
                        flags=options.flags,
                        ants=dump_ants,
@@ -853,7 +849,7 @@ def main():
                         else:
                             ntimes, npols, nants = solvals.shape
                             nchans = 1
-                            solvals = solvals.reshape(ntimes, nchans, npols, nants)
+                            solvals = solvals.reshape((ntimes, nchans, npols, nants))
 
                         # create calibration solution measurement set
                         caltable_desc = ms_extra.caltable_desc_float \
@@ -877,8 +873,8 @@ def main():
                                           'type': 'Calibration'})
 
                         # get the solution data to write to the main table
-                        solutions_to_write = solvals.transpose(0, 3, 1, 2).reshape(
-                            ntimes * nants, nchans, npols)
+                        solutions_to_write = solvals.transpose(0, 3, 1, 2).reshape((
+                            ntimes * nants, nchans, npols))
 
                         # MS's store delays in nanoseconds
                         if sol == 'K':
