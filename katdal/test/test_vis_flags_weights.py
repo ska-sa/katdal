@@ -31,7 +31,8 @@ import dask.array as da
 
 from katdal.chunkstore import generate_chunks
 from katdal.chunkstore_npy import NpyFileChunkStore
-from katdal.vis_flags_weights import VisFlagsWeights, ChunkStoreVisFlagsWeights
+from katdal.vis_flags_weights import (VisFlagsWeights, ChunkStoreVisFlagsWeights,
+                                      correct_autocorr_quantisation)
 from katdal.flags import DATA_LOST
 
 
@@ -114,6 +115,26 @@ class TestChunkStoreVisFlagsWeights(object):
         assert_array_equal(vfw.flags.compute(), data['flags'])
         assert_array_equal(vfw.weights.compute(), weights)
         assert_equal(vfw.unscaled_weights, None)
+
+    def test_van_vleck(self):
+        ants = 7
+        index1, index2 = np.triu_indices(ants)
+        inputs = ['m{:03}h'.format(i) for i in range(ants)]
+        corrprods = np.array([(inputs[a], inputs[b]) for (a, b) in zip(index1, index2)])
+        # Put fake dataset into chunk store
+        store = NpyFileChunkStore(self.tempdir)
+        prefix = 'cb1'
+        shape = (10, 256, len(index1))
+        _, chunk_info = put_fake_dataset(store, prefix, shape)
+        # Extract uncorrected visibilities and correct them manually
+        vfw = ChunkStoreVisFlagsWeights(store, chunk_info, corrprods, van_vleck='off')
+        vis = correct_autocorr_quantisation(vfw.vis, corrprods).compute()
+        # Now extract corrected visibilities via VisFlagsWeights and compare
+        corrected_vfw = ChunkStoreVisFlagsWeights(store, chunk_info, corrprods, van_vleck='autocorr')
+        assert_array_equal(corrected_vfw.vis.compute(), vis)
+        # Check parameter validation
+        with assert_raises(ValueError):
+            ChunkStoreVisFlagsWeights(store, chunk_info, corrprods, van_vleck='blah')
 
     def test_weight_power_scale(self):
         ants = 7
