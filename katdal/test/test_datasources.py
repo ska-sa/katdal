@@ -28,6 +28,7 @@ import katsdptelstate
 from katdal.chunkstore_npy import NpyFileChunkStore
 from katdal.datasources import TelstateDataSource, view_l0_capture_stream
 from katdal.flags import DATA_LOST
+from katdal.vis_flags_weights import correct_autocorr_quantisation
 from katdal.test.test_vis_flags_weights import put_fake_dataset
 
 
@@ -197,3 +198,20 @@ class TestTelstateDataSource(object):
             make_fake_datasource(self.telstate, self.store, self.cbid, l0_shape, l1_flags_shape)
         with assert_raises(ValueError):
             TelstateDataSource(view, cbid, sn, self.store)
+
+    def test_van_vleck(self):
+        shape = (20, 16, 40)
+        view, cbid, sn, l0_data, _ = \
+            make_fake_datasource(self.telstate, self.store, self.cbid, shape)
+        # Uncorrected visibilities
+        data_source = TelstateDataSource(view, cbid, sn, self.store, van_vleck='off')
+        raw_vis = data_source.data.vis
+        np.testing.assert_array_equal(raw_vis.compute(), l0_data['correlator_data'])
+        # Corrected visibilities
+        data_source2 = TelstateDataSource(view, cbid, sn, self.store, van_vleck='autocorr')
+        corrected_vis = data_source2.data.vis
+        expected_vis = correct_autocorr_quantisation(raw_vis, view['bls_ordering'])
+        np.testing.assert_array_equal(corrected_vis.compute(), expected_vis.compute())
+        # Check parameter validation
+        with assert_raises(ValueError):
+            TelstateDataSource(view, cbid, sn, self.store, van_vleck='blah')
