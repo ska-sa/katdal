@@ -180,6 +180,9 @@ def correct_autocorr_quantisation(vis, corrprods, levels=None):
         Complex visibility data with autocorrelations corrected for quantisation
     """
     assert len(corrprods) == vis.shape[2]
+    # Ensure that we have only a single chunk on the baseline axis.
+    if len(vis.chunks[2]) > 1:
+        vis = vis.rechunk({2: vis.shape[2]})
     auto_indices, _, _ = corrprod_to_autocorr(corrprods)
     if levels is None:
         # 255-level "8-bit" output of MeerKAT F-engine requantiser

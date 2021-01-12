@@ -69,15 +69,19 @@ def autocorr_lookup_table(levels, size=4000):
     # x = Proper complex normal voltage signal (zero-mean)
     # rxx = Power (variance) *per* real/imag component of unquantised / true x
     # sxx = Power (variance) *per* real/imag component of quantised x
-    sxx_max = np.abs(levels).max() ** 2
+    abs_levels = np.abs(levels)
+    sxx_max = abs_levels.max() ** 2
     # Sweep across range of true power values, placing more table entries at tricky lower end
     rxx_grid = np.r_[np.logspace(-2.4, 0, size // 2, endpoint=False),
                      np.logspace(0, np.log10(sxx_max) + 8, size - 2 - size // 2)]
+    # Shift the table to place inflection point at minimum non-zero sxx
+    sxx_min_nonzero = abs_levels[abs_levels > 0].min() ** 2
+    rxx_grid *= sxx_min_nonzero
     # Map true power to expected quantised power
     sxx_mean = _squared_quant_norm0_mean(levels, rxx_grid)
     # Extend quantised power values to its maximum range
     sxx_table = np.r_[0., sxx_mean, sxx_max]
     # Replace asymptotic with linear decay at bottom end, and clip unbounded growth at top end
-    rxx_table = np.r_[0., rxx_grid, rxx_grid.max()]
+    rxx_table = np.r_[0., rxx_grid, rxx_grid[-1]]
     # The factor 2 converts power per real/imag component to power/variance of complex signal
     return 2. * sxx_table, 2. * rxx_table
