@@ -70,12 +70,12 @@ def autocorr_lookup_table(levels, size=4000):
     # rxx = Power (variance) *per* real/imag component of unquantised / true x
     # sxx = Power (variance) *per* real/imag component of quantised x
     abs_levels = np.abs(levels)
+    sxx_min_nonzero = abs_levels[abs_levels > 0].min() ** 2
     sxx_max = abs_levels.max() ** 2
     # Sweep across range of true power values, placing more table entries at tricky lower end
     rxx_grid = np.r_[np.logspace(-2.4, 0, size // 2, endpoint=False),
-                     np.logspace(0, np.log10(sxx_max) + 8, size - 2 - size // 2)]
+                     np.logspace(0, np.log10(sxx_max / sxx_min_nonzero) + 8, size - 2 - size // 2)]
     # Shift the table to place inflection point at minimum non-zero sxx
-    sxx_min_nonzero = abs_levels[abs_levels > 0].min() ** 2
     rxx_grid *= sxx_min_nonzero
     # Map true power to expected quantised power
     sxx_mean = _squared_quant_norm0_mean(levels, rxx_grid)
