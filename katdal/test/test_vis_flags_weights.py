@@ -127,7 +127,8 @@ class TestChunkStoreVisFlagsWeights(object):
         store = NpyFileChunkStore(self.tempdir)
         prefix = 'cb1'
         shape = (10, 256, len(index1))
-        _, chunk_info = put_fake_dataset(store, prefix, shape)
+        _, chunk_info = put_fake_dataset(store, prefix, shape,
+                                         chunk_overrides={'correlator_data': (1, 4, shape[2] // 2)})
         # Extract uncorrected visibilities and correct them manually
         vfw = ChunkStoreVisFlagsWeights(store, chunk_info, corrprods, van_vleck='off')
         raw_vis = vfw.vis.compute()
@@ -242,7 +243,7 @@ class TestChunkStoreVisFlagsWeights(object):
         self._test_missing_chunks(
             (20, 210, 30),
             {
-                'vis': (1, 6, 30),
+                'correlator_data': (1, 6, 30),
                 'weights': (5, 10, 15),
                 'weights_channel': (1, 7),
                 'flags': (4, 15, 30)
