@@ -63,7 +63,7 @@ def autocorr_lookup_table(levels, size=4000):
     -------
     quantised_autocorr_table, true_autocorr_table : array of float, shape (`size`,)
         Lookup table associating quantised autocorrelations and unquantised
-        autocorrelations (ie power/variance of complex signals)
+        autocorrelations (i.e. power/variance of complex signals)
     """
     # Terminology:
     # x = Proper complex normal voltage signal (zero-mean)
