@@ -352,6 +352,10 @@ class TelstateDataSource(DataSource):
         Name of telstate source (used for metadata name)
     upgrade_flags : bool, optional
         Look for associated flag streams and use them if True (default)
+    van_vleck : {'off', 'autocorr'}, optional
+        Type of Van Vleck (quantisation) correction to perform
+    kwargs : dict, optional
+        Extra keyword arguments, typically meant for other methods and ignored
 
     Raises
     ------
@@ -359,8 +363,8 @@ class TelstateDataSource(DataSource):
         If telstate lacks critical keys
     """
     def __init__(self, telstate, capture_block_id, stream_name,
-                 chunk_store=None, timestamps=None,
-                 source_name='telstate', upgrade_flags=True):
+                 chunk_store=None, timestamps=None, source_name='telstate',
+                 upgrade_flags=True, van_vleck='off', **kwargs):
         self.telstate = TelstateToStr(telstate)
         # Collect sensors
         sensors = {}
@@ -383,7 +387,8 @@ class TelstateDataSource(DataSource):
             need_weights_power_scale = telstate.get('need_weights_power_scale', False)
             data = ChunkStoreVisFlagsWeights(chunk_store, chunk_info,
                                              corrprods=telstate['bls_ordering'],
-                                             stored_weights_are_scaled=not need_weights_power_scale)
+                                             stored_weights_are_scaled=not need_weights_power_scale,
+                                             van_vleck=van_vleck)
 
         if timestamps is None:
             # Synthesise timestamps from the relevant telstate bits
@@ -397,7 +402,7 @@ class TelstateDataSource(DataSource):
         self.stream_name = stream_name
 
     @classmethod
-    def from_url(cls, url, chunk_store='auto', upgrade_flags=True, **kwargs):
+    def from_url(cls, url, chunk_store='auto', **kwargs):
         """Construct TelstateDataSource from URL (RDB file / REDIS server).
 
         Parameters
@@ -407,10 +412,8 @@ class TelstateDataSource(DataSource):
         chunk_store : :class:`katdal.ChunkStore` object, optional
             Chunk store for visibility data (obtained automatically by default,
             or set to None for metadata-only dataset)
-        upgrade_flags : bool, optional
-            Look for associated flag streams and use them if True (default)
         kwargs : dict, optional
-            Extra keyword arguments passed to telstate view and chunk store init
+            Extra keyword arguments passed to init, telstate view, chunk store init
         """
         url_parts = urllib.parse.urlparse(url, scheme='file')
         # Merge key-value pairs from URL query with keyword arguments
@@ -457,7 +460,7 @@ class TelstateDataSource(DataSource):
         if chunk_store == 'auto':
             chunk_store = infer_chunk_store(url_parts, telstate, **kwargs)
         return cls(telstate, capture_block_id, stream_name, chunk_store,
-                   source_name=url_parts.geturl(), upgrade_flags=upgrade_flags)
+                   source_name=url_parts.geturl(), **kwargs)
 
 
 def open_data_source(url, **kwargs):

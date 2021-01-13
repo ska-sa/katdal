@@ -31,6 +31,7 @@ import toolz
 import numba
 
 from .flags import DATA_LOST
+from .van_vleck import autocorr_lookup_table
 
 
 logger = logging.getLogger(__name__)
@@ -155,6 +156,49 @@ def corrprod_to_autocorr(corrprods):
     return _narrow(np.array(auto_indices)), _narrow(np.array(index1)), _narrow(np.array(index2))
 
 
+def correct_autocorr_quantisation(vis, corrprods, levels=None):
+    """Correct autocorrelations for quantisation effects (Van Vleck correction).
+
+    This is a first-order correction that only adjusts the mean autocorrelations,
+    which in turn affects the autocorrelation and crosscorrelation weights.
+    A complete correction would also adjust the mean crosscorrelations, and
+    further improve the weight estimates based on Bayesian statistics.
+
+    Parameters
+    ----------
+    vis : :class:`dask.array.Array` of complex64, shape (*T*, *F*, *B*)
+        Complex visibility data as function of time, frequency, correlation product
+    corrprods : sequence of 2-tuples or ndarray, containing str
+        Input labels of the correlation products, used to find autocorrelations
+    levels : sequence of float, optional
+        Quantisation levels of real/imag components of complex digital signal
+        entering correlator (defaults to MeerKAT F-engine output levels)
+
+    Returns
+    -------
+    corrected_vis : :class:`dask.array.Array` of complex64, shape (*T*, *F*, *B*)
+        Complex visibility data with autocorrelations corrected for quantisation
+    """
+    assert len(corrprods) == vis.shape[2]
+    # Ensure that we have only a single chunk on the baseline axis.
+    if len(vis.chunks[2]) > 1:
+        vis = vis.rechunk({2: vis.shape[2]})
+    auto_indices, _, _ = corrprod_to_autocorr(corrprods)
+    if levels is None:
+        # 255-level "8-bit" output of MeerKAT F-engine requantiser
+        levels = np.arange(-127., 128.)
+    quantised_autocorr_table, true_autocorr_table = autocorr_lookup_table(levels)
+
+    def _correct_autocorr_quant(vis):
+        out = vis.copy()
+        out[..., auto_indices] = np.interp(vis[..., auto_indices].real,
+                                           quantised_autocorr_table, true_autocorr_table)
+        return out
+
+    return da.blockwise(_correct_autocorr_quant, 'ijk', vis, 'ijk', dtype=np.complex64,
+                        name='van-vleck-autocorr-' + vis.name)
+
+
 @numba.jit(nopython=True, nogil=True)
 def weight_power_scale(vis, weights, auto_indices, index1, index2, out=None, divide=True):
     """Divide (or multiply) weights by autocorrelations (ndarray version).
@@ -234,6 +278,8 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
         the autocorrelations. This determines how (scaled) `weights`
         and `unscaled_weights` are obtained from the stored weights.
         Should be True if `corrprods` is `None`.
+    van_vleck : {'off', 'autocorr'}, optional
+        Type of Van Vleck (quantisation) correction to perform
 
     Attributes
     ----------
@@ -241,7 +287,8 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
         Prefix of correlator_data / visibility array, viz. its S3 bucket name
     """
 
-    def __init__(self, store, chunk_info, corrprods=None, stored_weights_are_scaled=True):
+    def __init__(self, store, chunk_info, corrprods=None,
+                 stored_weights_are_scaled=True, van_vleck='off'):
         self.store = store
         self.vis_prefix = chunk_info['correlator_data']['prefix']
         darray = {}
@@ -316,7 +363,14 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
                                           shape=array.shape,
                                           dtype=array.dtype)
 
+        # Optionally correct visibilities for quantisation effects
         vis = darray['correlator_data']
+        if van_vleck == 'autocorr':
+            vis = correct_autocorr_quantisation(vis, corrprods)
+        elif van_vleck != 'off':
+            raise ValueError("The van_vleck parameter should be one of ['off', 'autocorr'], "
+                             "got '{}' instead".format(van_vleck))
+
         # Combine low-resolution weights and high-resolution weights_channel
         stored_weights = darray['weights'] * darray['weights_channel'][..., np.newaxis]
         # Scale weights according to power (or remove scaling if already applied)
