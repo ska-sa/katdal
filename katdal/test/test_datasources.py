@@ -29,7 +29,8 @@ import katsdptelstate
 from katsdptelstate.rdb_writer import RDBWriter
 
 from katdal.chunkstore_npy import NpyFileChunkStore
-from katdal.datasources import TelstateDataSource, view_l0_capture_stream, open_data_source
+from katdal.datasources import (TelstateDataSource, view_l0_capture_stream, open_data_source,
+                                DataSourceNotFound)
 from katdal.flags import DATA_LOST
 from katdal.vis_flags_weights import correct_autocorr_quantisation
 from katdal.test.test_vis_flags_weights import put_fake_dataset
@@ -104,7 +105,7 @@ def make_fake_datasource(telstate, store, l0_shape, cbid='cb', l1_flags_shape=No
 
 def assert_telstate_data_source_equal(source1, source2):
     """Assert that two :class:`~katdal.datasources.TelstateDataSource`s are equal."""
-    # Check attributes
+    # Check attributes (sensors left out for now)
     keys = source1.telstate.keys()
     assert set(source2.telstate.keys()) == set(keys)
     for key in keys:
@@ -127,9 +128,13 @@ class TestTelstateDataSource(object):
     def teardown(self):
         shutil.rmtree(self.tempdir)
 
-    def test_timestamps(self):
+    def test_basic_timestamps(self):
+        # Add a sensor to telstate to exercise the relevant code paths in TelstateDataSource
+        self.telstate.add('obs_script_log', 'Digitisers synced', ts=123456789., immutable=False)
         view, cbid, sn, _, _ = make_fake_datasource(self.telstate, self.store, (20, 64, 40))
-        data_source = TelstateDataSource(view, cbid, sn, self.store)
+        data_source = TelstateDataSource(view, cbid, sn, chunk_store=None, source_name='hello')
+        assert 'hello' in data_source.name
+        assert data_source.data is None
         expected_timestamps = np.arange(20, dtype=np.float32) * 2 + 123456789 + 123
         np.testing.assert_array_equal(data_source.timestamps, expected_timestamps)
 
@@ -245,7 +250,13 @@ class TestTelstateDataSource(object):
         # Check that we can open RDB file and automatically infer the chunk store
         source_from_file = open_data_source(rdb_filename)
         assert_telstate_data_source_equal(source_from_file, source_direct)
+        # Check that we can override the capture_block_id and stream name via query parameters
         query = urllib.parse.urlencode({'capture_block_id': cbid, 'stream_name': sn})
         url = urllib.parse.urlunparse(('file', '', rdb_filename, '', query, ''))
         source_from_url = TelstateDataSource.from_url(url, chunk_store=self.store)
         assert_telstate_data_source_equal(source_from_url, source_direct)
+        # Check invalid URLs
+        with assert_raises(DataSourceNotFound):
+            open_data_source('ftp://unsupported')
+        with assert_raises(DataSourceNotFound):
+            open_data_source(rdb_filename[:-4])
