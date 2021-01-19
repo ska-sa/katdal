@@ -33,6 +33,7 @@ import base64
 import copy
 import json
 import time
+import xml.dom.minidom
 
 import numpy as np
 import requests
@@ -520,9 +521,18 @@ class S3ChunkStore(ChunkStore):
                 # Turn error responses into the appropriate exception, like raise_for_status
                 status = response.status_code
                 if 400 <= status < 600 and status not in ignored_errors:
+                    # Construct error message, including detailed response content if sensible
                     prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
                     msg = '{}Store responded with HTTP error {} ({}) to request: {} {}'.format(
                         prefix, status, response.reason, response.request.method, response.url)
+                    content_type = response.headers.get('Content-Type')
+                    if content_type in ('application/xml', 'text/xml', 'text/plain'):
+                        msg += '\nDetails of server response:\n'
+                        if content_type.endswith('xml'):
+                            msg += xml.dom.minidom.parseString(response.content).toprettyxml()
+                        else:
+                            msg += response.text
+                    # Raise the appropriate exception
                     if status == 401:
                         raise AuthorisationFailed(msg)
                     elif status in (403, 404):

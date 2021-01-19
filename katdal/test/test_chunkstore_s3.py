@@ -397,8 +397,8 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
         time_offset = now - initial_time
         # Print to stdout instead of stderr so that it doesn't spew all over
         # the screen in normal operation.
-        print("%s (%.3f) %s" % (self.log_date_time_string(),
-                                time_offset, format % args))
+        print("Token proxy: %s (%.3f) %s" % (self.log_date_time_string(),
+                                             time_offset, format % args))
 
 
 class _TokenHTTPProxyServer(http.server.HTTPServer):

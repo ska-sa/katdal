@@ -42,6 +42,10 @@ class StoreUnavailable(OSError, ChunkStoreError):
 class ChunkNotFound(KeyError, ChunkStoreError):
     """The store was accessible but a chunk with the given name was not found."""
 
+    def __str__(self):
+        """Avoid the implicit repr() of KeyError since we'll have explanatory text."""
+        return ChunkStoreError.__str__(self)
+
 
 class BadChunk(ValueError, ChunkStoreError):
     """The chunk is malformed, e.g. bad dtype or slices, wrong buffer size."""
