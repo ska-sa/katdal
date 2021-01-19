@@ -18,6 +18,7 @@
 from __future__ import print_function, division, absolute_import
 from builtins import object
 
+import urllib.parse
 import tempfile
 import shutil
 import os
@@ -244,3 +245,7 @@ class TestTelstateDataSource(object):
         # Check that we can open RDB file and automatically infer the chunk store
         source_from_file = open_data_source(rdb_filename)
         assert_telstate_data_source_equal(source_from_file, source_direct)
+        query = urllib.parse.urlencode({'capture_block_id': cbid, 'stream_name': sn})
+        url = urllib.parse.urlunparse(('file', '', rdb_filename, '', query, ''))
+        source_from_url = TelstateDataSource.from_url(url, chunk_store=self.store)
+        assert_telstate_data_source_equal(source_from_url, source_direct)
