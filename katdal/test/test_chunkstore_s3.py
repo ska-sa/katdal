@@ -40,6 +40,7 @@ import http.server
 import urllib.parse
 import contextlib
 import io
+import os
 import warnings
 import re
 import pathlib
@@ -51,6 +52,8 @@ from nose import SkipTest
 from nose.tools import assert_raises, assert_equal, timed
 import requests
 import jwt
+import katsdptelstate
+from katsdptelstate.rdb_writer import RDBWriter
 
 from katdal.chunkstore_s3 import (S3ChunkStore, _AWSAuth, read_array,
                                   decode_jwt, InvalidToken, TruncatedRead,
@@ -58,6 +61,8 @@ from katdal.chunkstore_s3 import (S3ChunkStore, _AWSAuth, read_array,
 from katdal.chunkstore import StoreUnavailable, ChunkNotFound
 from katdal.test.test_chunkstore import ChunkStoreTestBase
 from katdal.test.s3_utils import S3User, S3Server, MissingProgram
+from katdal.datasources import TelstateDataSource
+from katdal.test.test_datasources import make_fake_datasource, assert_telstate_data_source_equal
 
 
 BUCKET = 'katdal-unittest'
@@ -205,11 +210,21 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         return cls.minio.url
 
     @classmethod
-    def from_url(cls, url, authenticate=True, **kwargs):
-        """Create the chunk store"""
+    def _tweak_store_args(cls, url, authenticate=True, **kwargs):
+        """Tweak the arguments used to construct the chunk store."""
         if authenticate:
             kwargs['credentials'] = cls.credentials
-        return S3ChunkStore(url, timeout=TIMEOUT, retries=RETRY, **kwargs)
+        kwargs.setdefault('timeout', TIMEOUT)
+        kwargs.setdefault('retries', RETRY)
+        # Incorporate the bucket path into the store URL
+        url = urllib.parse.urljoin(url, BUCKET + '/')
+        return url, kwargs
+
+    @classmethod
+    def from_url(cls, url, authenticate=True, **kwargs):
+        """Create the chunk store."""
+        url, kwargs = cls._tweak_store_args(url, authenticate, **kwargs)
+        return S3ChunkStore(url, **kwargs)
 
     @classmethod
     def setup_class(cls):
@@ -218,8 +233,9 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         cls.tempdir = tempfile.mkdtemp()
         cls.minio = None
         try:
-            cls.url = cls.start_minio('127.0.0.1')
-            cls.store = cls.from_url(cls.url)
+            cls.s3_url = cls.start_minio('127.0.0.1')
+            cls.store_url, cls.store_kwargs = cls._tweak_store_args(cls.s3_url)
+            cls.store = S3ChunkStore(cls.store_url, **cls.store_kwargs)
             # Ensure that pagination is tested
             cls.store.list_max_keys = 3
         except Exception:
@@ -232,14 +248,8 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             cls.minio.close()
         shutil.rmtree(cls.tempdir)
 
-    def array_name(self, path, suggestion=None):
-        if suggestion:
-            return self.store.join(BUCKET, suggestion, path)
-        else:
-            return self.store.join(BUCKET, path)
-
     def test_public_read(self):
-        reader = self.from_url(self.url, authenticate=False)
+        reader = self.from_url(self.s3_url, authenticate=False)
         # Create a non-public-read array.
         # This test deliberately doesn't use array_name so that it can create
         # several different buckets.
@@ -252,7 +262,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             reader.get_chunk('private/x', slices, x.dtype)
 
         # Now a public-read array
-        store = self.from_url(self.url, public_read=True)
+        store = self.from_url(self.s3_url, public_read=True)
         store.create_array('public/x')
         store.put_chunk('public/x', slices, x)
         y = reader.get_chunk('public/x', slices, x.dtype)
@@ -271,6 +281,26 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         # Don't allow users to leak their tokens by accident
         with assert_raises(StoreUnavailable):
             S3ChunkStore('http://apparently.invalid/', token='secrettoken')
+
+    def test_rdb_support(self):
+        telstate = katsdptelstate.TelescopeState()
+        view, cbid, sn, _, _ = make_fake_datasource(telstate, self.store, (5, 16, 40))
+        telstate['capture_block_id'] = cbid
+        telstate['stream_name'] = sn
+        # Save telstate to temp RDB file since RDBWriter needs a filename and not a handle
+        rdb_filename = '{}_{}.rdb'.format(cbid, sn)
+        temp_filename = os.path.join(self.tempdir, rdb_filename)
+        with RDBWriter(temp_filename) as rdbw:
+            rdbw.save(telstate)
+        # Read the file back in and upload it to S3
+        with open(temp_filename, mode='rb') as rdb_file:
+            rdb_data = rdb_file.read()
+        rdb_url = urllib.parse.urljoin(self.store_url, self.store.join(cbid, rdb_filename))
+        self.store.complete_request('PUT', rdb_url, data=rdb_data)
+        # Check that data source can be constructed from URL (with auto chunk store)
+        source_from_url = TelstateDataSource.from_url(rdb_url, **self.store_kwargs)
+        source_direct = TelstateDataSource(view, cbid, sn, self.store)
+        assert_telstate_data_source_equal(source_from_url, source_direct)
 
 
 class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
@@ -433,10 +463,13 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         super(TestS3ChunkStoreToken, cls).teardown_class()
 
     @classmethod
-    def from_url(cls, url, authenticate=True, **kwargs):
-        """Create the chunk store"""
+    def _tweak_store_args(cls, url, authenticate=True, **kwargs):
+        """Tweak the arguments used to construct the chunk store."""
+        kwargs.setdefault('timeout', TIMEOUT)
+        kwargs.setdefault('retries', RETRY)
         if not authenticate:
-            return S3ChunkStore(url, timeout=TIMEOUT, retries=RETRY, **kwargs)
+            url = urllib.parse.urljoin(url, BUCKET + '/')
+            return url, kwargs
 
         if cls.httpd is None:
             proxy_host = '127.0.0.1'
@@ -455,10 +488,11 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
             cls.proxy_url = 'http://{}:{}'.format(proxy_host, proxy_port)
         elif url != cls.httpd.target:
             raise RuntimeError('Cannot use multiple target URLs with http proxy')
+        url = urllib.parse.urljoin(cls.proxy_url, BUCKET + '/')
         # The token only authorises the one known bucket
         token = encode_jwt({'alg': 'ES256', 'typ': 'JWT'}, {'prefix': [BUCKET]})
-        return S3ChunkStore(cls.proxy_url, timeout=TIMEOUT, retries=RETRY,
-                            token=token, **kwargs)
+        kwargs.setdefault('token', token)
+        return url, kwargs
 
     def test_public_read(self):
         # Disable this test defined in the base class because it involves creating
@@ -467,7 +501,8 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
 
     def test_unauthorised_bucket(self):
         with assert_raises(InvalidToken):
-            self.store.is_complete('unauthorised_bucket')
+            # Attempt to put a new bucket alongside BUCKET, but without permission
+            self.store.is_complete('../unauthorised_bucket')
 
     def prepare(self, suggestion):
         """Put a chunk into the store and form an array name containing suggestion."""
@@ -477,7 +512,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         chunk = getattr(self, var_name)[slices]
         self.store.create_array(array_name)
         self.store.put_chunk(array_name, slices, chunk)
-        return chunk, slices, self.array_name(var_name, suggestion)
+        return chunk, slices, self.store.join(suggestion, array_name)
 
     @timed(0.9 + 0.2)
     def test_recover_from_server_errors(self):
