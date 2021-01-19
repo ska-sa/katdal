@@ -414,7 +414,9 @@ class S3ChunkStore(ChunkStore):
     url : str
         Endpoint of S3 service, e.g. 'http://127.0.0.1:9000'. It can be
         specified as either bytes or unicode, and is converted to the native
-        string type with UTF-8.
+        string type with UTF-8. The URL may also contain a path if this store is
+        relative to an existing bucket, in which case the chunk name is a relative
+        path (useful for unit tests).
     timeout : float or tuple of 2 floats, optional
         Connect / read timeout, in seconds, either a single value for both or
         custom values as (connect, read) tuple (set to None to leave unchanged)
@@ -474,8 +476,9 @@ class S3ChunkStore(ChunkStore):
         self.public_read = public_read
         self.expiry_days = int(expiry_days)
 
-    def _chunk_url(self, chunk_name):
-        return urllib.parse.urljoin(self._url, to_str(urllib.parse.quote(chunk_name + '.npy')))
+    def _chunk_url(self, chunk_name, extension='.npy'):
+        """Assemble URL corresponding to chunk (or array) name."""
+        return urllib.parse.urljoin(self._url, to_str(urllib.parse.quote(chunk_name + extension)))
 
     @contextlib.contextmanager
     def request(self, method, url, chunk_name='', ignored_errors=(), timeout=(), **kwargs):
@@ -624,11 +627,15 @@ class S3ChunkStore(ChunkStore):
     def create_array(self, array_name):
         """See the docstring of :meth:`ChunkStore.create_array`."""
         # Array name is formatted as bucket/array but we only need to create bucket
-        bucket, _ = self.split(array_name, 1)
-        self._create_bucket(bucket)
+        url = self._chunk_url(array_name, extension='')
+        split_url = urllib.parse.urlsplit(url)
+        # Only keep first path component as this references S3 bucket (may be part of store URL)
+        bucket_name = split_url.path.lstrip('/').split('/')[0]
+        # Note to self: namedtuple._replace is not a private method, despite the underscore!
+        bucket_url = split_url._replace(path=bucket_name).geturl()
+        self._create_bucket(bucket_name, bucket_url)
 
-    def _create_bucket(self, bucket):
-        url = urllib.parse.urljoin(self._url, to_str(urllib.parse.quote(bucket)))
+    def _create_bucket(self, bucket, url):
         # Make bucket (409 indicates the bucket already exists, which is OK)
         self.complete_request('PUT', url, ignored_errors=(409,))
 
@@ -668,8 +675,7 @@ class S3ChunkStore(ChunkStore):
 
     def mark_complete(self, array_name):
         """See the docstring of :meth:`ChunkStore.mark_complete`."""
-        bucket = self.split(array_name, 1)[0]
-        self._create_bucket(bucket)
+        self.create_array(array_name)
         obj_name = self.join(array_name, 'complete')
         url = urllib.parse.urljoin(self._url, obj_name)
         self.complete_request('PUT', url, obj_name, data=b'')
