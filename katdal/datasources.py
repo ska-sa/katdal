@@ -459,6 +459,9 @@ class TelstateDataSource(DataSource):
         telstate, capture_block_id, stream_name = view_l0_capture_stream(telstate, **kwargs)
         if chunk_store == 'auto':
             chunk_store = infer_chunk_store(url_parts, telstate, **kwargs)
+        # Remove these from kwargs since they have already been extracted by view_l0_capture_stream
+        kwargs.pop('capture_block_id', None)
+        kwargs.pop('stream_name', None)
         return cls(telstate, capture_block_id, stream_name, chunk_store,
                    source_name=url_parts.geturl(), **kwargs)
 
