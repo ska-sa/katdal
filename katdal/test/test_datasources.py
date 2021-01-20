@@ -77,7 +77,7 @@ def _make_fake_stream(telstate, store, cbid, stream, shape,
     return data, cs_view, s_view
 
 
-def make_fake_datasource(telstate, store, l0_shape, cbid='cb', l1_flags_shape=None,
+def make_fake_data_source(telstate, store, l0_shape, cbid='cb', l1_flags_shape=None,
                          l0_chunk_overrides=None, l1_flags_chunk_overrides=None,
                          l0_array_overrides=None, l1_flags_array_overrides=None):
     """Create a complete fake data source.
@@ -131,7 +131,7 @@ class TestTelstateDataSource(object):
     def test_basic_timestamps(self):
         # Add a sensor to telstate to exercise the relevant code paths in TelstateDataSource
         self.telstate.add('obs_script_log', 'Digitisers synced', ts=123456789., immutable=False)
-        view, cbid, sn, _, _ = make_fake_datasource(self.telstate, self.store, (20, 64, 40))
+        view, cbid, sn, _, _ = make_fake_data_source(self.telstate, self.store, (20, 64, 40))
         data_source = TelstateDataSource(view, cbid, sn, chunk_store=None, source_name='hello')
         assert 'hello' in data_source.name
         assert data_source.data is None
@@ -140,7 +140,7 @@ class TestTelstateDataSource(object):
 
     def test_upgrade_flags(self):
         shape = (20, 16, 40)
-        view, cbid, sn, l0_data, l1_flags_data = make_fake_datasource(
+        view, cbid, sn, l0_data, l1_flags_data = make_fake_data_source(
             self.telstate, self.store, shape)
         data_source = TelstateDataSource(view, cbid, sn, self.store)
         np.testing.assert_array_equal(data_source.data.vis.compute(), l0_data['correlator_data'])
@@ -154,7 +154,7 @@ class TestTelstateDataSource(object):
         """L1 flags has fewer dumps than L0"""
         l0_shape = (20, 16, 40)
         l1_flags_shape = (18, 16, 40)
-        view, cbid, sn, l0_data, l1_flags_data = make_fake_datasource(
+        view, cbid, sn, l0_data, l1_flags_data = make_fake_data_source(
             self.telstate, self.store, l0_shape, l1_flags_shape=l1_flags_shape,
             l0_chunk_overrides=l0_chunk_overrides,
             l1_flags_chunk_overrides=l1_flags_chunk_overrides)
@@ -183,7 +183,7 @@ class TestTelstateDataSource(object):
         """L1 flags has more dumps than L0"""
         l0_shape = (18, 16, 40)
         l1_flags_shape = (20, 16, 40)
-        view, cbid, sn, l0_data, l1_flags_data = make_fake_datasource(
+        view, cbid, sn, l0_data, l1_flags_data = make_fake_data_source(
             self.telstate, self.store, l0_shape, l1_flags_shape=l1_flags_shape,
             l0_chunk_overrides=l0_chunk_overrides,
             l1_flags_chunk_overrides=l1_flags_chunk_overrides)
@@ -214,14 +214,14 @@ class TestTelstateDataSource(object):
         """L1 flags shape is incompatible with L0"""
         l0_shape = (18, 16, 40)
         l1_flags_shape = (20, 8, 40)
-        view, cbid, sn, _, _ = make_fake_datasource(self.telstate, self.store, l0_shape,
+        view, cbid, sn, _, _ = make_fake_data_source(self.telstate, self.store, l0_shape,
                                                     l1_flags_shape=l1_flags_shape)
         with assert_raises(ValueError):
             TelstateDataSource(view, cbid, sn, self.store)
 
     def test_van_vleck(self):
         shape = (20, 16, 40)
-        view, cbid, sn, l0_data, _ = make_fake_datasource(self.telstate, self.store, shape)
+        view, cbid, sn, l0_data, _ = make_fake_data_source(self.telstate, self.store, shape)
         # Uncorrected visibilities
         data_source = TelstateDataSource(view, cbid, sn, self.store, van_vleck='off')
         raw_vis = data_source.data.vis
@@ -236,7 +236,7 @@ class TestTelstateDataSource(object):
             TelstateDataSource(view, cbid, sn, self.store, van_vleck='blah')
 
     def test_construction_from_url(self):
-        view, cbid, sn, _, _ = make_fake_datasource(self.telstate, self.store, (20, 16, 40))
+        view, cbid, sn, _, _ = make_fake_data_source(self.telstate, self.store, (20, 16, 40))
         source_direct = TelstateDataSource(view, cbid, sn, self.store)
         # Save RDB file to e.g. 'tempdir/cb/cb_sdp_l0.rdb', as if 'tempdir' is a real S3 bucket
         rdb_dir = os.path.join(self.tempdir, cbid)

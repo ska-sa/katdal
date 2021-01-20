@@ -62,7 +62,7 @@ from katdal.chunkstore import StoreUnavailable, ChunkNotFound
 from katdal.test.test_chunkstore import ChunkStoreTestBase
 from katdal.test.s3_utils import S3User, S3Server, MissingProgram
 from katdal.datasources import TelstateDataSource
-from katdal.test.test_datasources import make_fake_datasource, assert_telstate_data_source_equal
+from katdal.test.test_datasources import make_fake_data_source, assert_telstate_data_source_equal
 
 
 BUCKET = 'katdal-unittest'
@@ -284,7 +284,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
 
     def test_rdb_support(self):
         telstate = katsdptelstate.TelescopeState()
-        view, cbid, sn, _, _ = make_fake_datasource(telstate, self.store, (5, 16, 40))
+        view, cbid, sn, _, _ = make_fake_data_source(telstate, self.store, (5, 16, 40))
         telstate['capture_block_id'] = cbid
         telstate['stream_name'] = sn
         # Save telstate to temp RDB file since RDBWriter needs a filename and not a handle
