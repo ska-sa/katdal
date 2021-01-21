@@ -210,21 +210,14 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         return cls.minio.url
 
     @classmethod
-    def _tweak_store_args(cls, url, authenticate=True, **kwargs):
-        """Tweak the arguments used to construct the chunk store."""
-        if authenticate:
-            kwargs['credentials'] = cls.credentials
+    def prepare_store_args(cls, url, **kwargs):
+        """Prepare the arguments used to construct `S3ChunkStore`."""
         kwargs.setdefault('timeout', TIMEOUT)
         kwargs.setdefault('retries', RETRY)
+        kwargs.setdefault('credentials', cls.credentials)
         # Incorporate the bucket path into the store URL
         url = urllib.parse.urljoin(url, BUCKET + '/')
         return url, kwargs
-
-    @classmethod
-    def from_url(cls, url, authenticate=True, **kwargs):
-        """Create the chunk store."""
-        url, kwargs = cls._tweak_store_args(url, authenticate, **kwargs)
-        return S3ChunkStore(url, **kwargs)
 
     @classmethod
     def setup_class(cls):
@@ -234,7 +227,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         cls.minio = None
         try:
             cls.s3_url = cls.start_minio('127.0.0.1')
-            cls.store_url, cls.store_kwargs = cls._tweak_store_args(cls.s3_url)
+            cls.store_url, cls.store_kwargs = cls.prepare_store_args(cls.s3_url)
             cls.store = S3ChunkStore(cls.store_url, **cls.store_kwargs)
             # Ensure that pagination is tested
             cls.store.list_max_keys = 3
@@ -249,7 +242,8 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         shutil.rmtree(cls.tempdir)
 
     def test_public_read(self):
-        reader = self.from_url(self.s3_url, authenticate=False)
+        url, kwargs = self.prepare_store_args(self.s3_url, credentials=None)
+        reader = S3ChunkStore(url, **kwargs)
         # Create a non-public-read array.
         # This test deliberately doesn't use array_name so that it can create
         # several different buckets.
@@ -262,7 +256,8 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             reader.get_chunk('private/x', slices, x.dtype)
 
         # Now a public-read array
-        store = self.from_url(self.s3_url, public_read=True)
+        url, kwargs = self.prepare_store_args(self.s3_url, public_read=True)
+        store = S3ChunkStore(url, **kwargs)
         store.create_array('public/x')
         store.put_chunk('public/x', slices, x)
         y = reader.get_chunk('public/x', slices, x.dtype)
@@ -463,14 +458,8 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         super(TestS3ChunkStoreToken, cls).teardown_class()
 
     @classmethod
-    def _tweak_store_args(cls, url, authenticate=True, **kwargs):
-        """Tweak the arguments used to construct the chunk store."""
-        kwargs.setdefault('timeout', TIMEOUT)
-        kwargs.setdefault('retries', RETRY)
-        if not authenticate:
-            url = urllib.parse.urljoin(url, BUCKET + '/')
-            return url, kwargs
-
+    def prepare_store_args(cls, url, **kwargs):
+        """Prepare the arguments used to construct `S3ChunkStore`."""
         if cls.httpd is None:
             proxy_host = '127.0.0.1'
             with get_free_port(proxy_host) as proxy_port:
@@ -488,11 +477,10 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
             cls.proxy_url = 'http://{}:{}'.format(proxy_host, proxy_port)
         elif url != cls.httpd.target:
             raise RuntimeError('Cannot use multiple target URLs with http proxy')
-        url = urllib.parse.urljoin(cls.proxy_url, BUCKET + '/')
         # The token only authorises the one known bucket
         token = encode_jwt({'alg': 'ES256', 'typ': 'JWT'}, {'prefix': [BUCKET]})
         kwargs.setdefault('token', token)
-        return url, kwargs
+        return super().prepare_store_args(cls.proxy_url, credentials=None, **kwargs)
 
     def test_public_read(self):
         # Disable this test defined in the base class because it involves creating
