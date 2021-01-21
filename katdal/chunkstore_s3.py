@@ -33,7 +33,6 @@ import base64
 import copy
 import json
 import time
-import xml.dom.minidom
 
 import numpy as np
 import requests
@@ -530,11 +529,7 @@ class S3ChunkStore(ChunkStore):
                         prefix, status, response.reason, response.request.method, response.url)
                     content_type = response.headers.get('Content-Type')
                     if content_type in ('application/xml', 'text/xml', 'text/plain'):
-                        msg += '\nDetails of server response:\n'
-                        if content_type.endswith('xml'):
-                            msg += xml.dom.minidom.parseString(response.content).toprettyxml()
-                        else:
-                            msg += response.text
+                        msg += '\nDetails of server response: {}'.format(response.text)
                     # Raise the appropriate exception
                     if status == 401:
                         raise AuthorisationFailed(msg)
