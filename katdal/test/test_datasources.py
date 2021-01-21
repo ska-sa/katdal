@@ -130,7 +130,7 @@ class TestTelstateDataSource(object):
 
     def test_basic_timestamps(self):
         # Add a sensor to telstate to exercise the relevant code paths in TelstateDataSource
-        self.telstate.add('obs_script_log', 'Digitisers synced', ts=123456789., immutable=False)
+        self.telstate.add('obs_script_log', 'Digitisers synced', ts=123456789.)
         view, cbid, sn, _, _ = make_fake_data_source(self.telstate, self.store, (20, 64, 40))
         data_source = TelstateDataSource(view, cbid, sn, chunk_store=None, source_name='hello')
         assert 'hello' in data_source.name
