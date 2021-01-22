@@ -503,7 +503,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         with assert_raises(InvalidToken):
             self.store.is_complete('unauthorised_bucket')
 
-    def prepare(self, suggestion):
+    def _put_chunk(self, suggestion):
         """Put a chunk into the store and form an array name containing suggestion."""
         var_name = 'x'
         slices = (slice(3, 5),)
@@ -515,7 +515,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
 
     @timed(0.9 + 0.2)
     def test_recover_from_server_errors(self):
-        chunk, slices, array_name = self.prepare(
+        chunk, slices, array_name = self._put_chunk(
             'please-respond-with-500-for-0.8-seconds')
         # With the RETRY settings of 3 status retries, backoff factor of 0.1 s
         # and SUGGESTED_STATUS_DELAY of 0.1 s we get the following timeline
@@ -529,9 +529,9 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         # 0.9 - success!
         self.store.get_chunk(array_name, slices, chunk.dtype)
 
-    @timed(1.0 + 0.2)
+    @timed(0.9 + 0.4)
     def test_persistent_server_errors(self):
-        chunk, slices, array_name = self.prepare(
+        chunk, slices, array_name = self._put_chunk(
             'please-respond-with-502-for-1.2-seconds')
         # After 0.9 seconds the client gives up and returns with failure 0.1 s later
         with assert_raises(ChunkNotFound):
@@ -539,7 +539,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
 
     @timed(0.6 + 0.2)
     def test_recover_from_read_truncated_within_npy_header(self):
-        chunk, slices, array_name = self.prepare(
+        chunk, slices, array_name = self._put_chunk(
             'please-truncate-read-after-60-bytes-for-0.4-seconds')
         # With the RETRY settings of 3 status retries and backoff factor of 0.1 s
         # we get the following timeline (indexed by seconds):
@@ -554,27 +554,27 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
 
     @timed(0.6 + 0.2)
     def test_recover_from_read_truncated_within_npy_array(self):
-        chunk, slices, array_name = self.prepare(
+        chunk, slices, array_name = self._put_chunk(
             'please-truncate-read-after-129-bytes-for-0.4-seconds')
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Truncated read not recovered')
 
     @timed(0.6 + 0.4)
     def test_persistent_truncated_reads(self):
-        chunk, slices, array_name = self.prepare(
-            'please-truncate-read-after-60-bytes-for-1.0-seconds')
+        chunk, slices, array_name = self._put_chunk(
+            'please-truncate-read-after-60-bytes-for-0.8-seconds')
         # After 0.6 seconds the client gives up
         with assert_raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
 
     @timed(READ_PAUSE + 0.2)
     def test_handle_read_paused_within_npy_header(self):
-        chunk, slices, array_name = self.prepare('please-pause-read-after-60-bytes')
+        chunk, slices, array_name = self._put_chunk('please-pause-read-after-60-bytes')
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Paused read failed')
 
     @timed(READ_PAUSE + 0.2)
     def test_handle_read_paused_within_npy_array(self):
-        chunk, slices, array_name = self.prepare('please-pause-read-after-129-bytes')
+        chunk, slices, array_name = self._put_chunk('please-pause-read-after-129-bytes')
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Paused read failed')
