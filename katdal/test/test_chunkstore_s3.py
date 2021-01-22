@@ -284,6 +284,9 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         with assert_raises(StoreUnavailable):
             S3ChunkStore('http://apparently.invalid/', token='secrettoken')
 
+    def test_mark_complete_top_level(self):
+        self._test_mark_complete(PREFIX + '-completetest')
+
     def test_rdb_support(self):
         telstate = katsdptelstate.TelescopeState()
         view, cbid, sn, _, _ = make_fake_data_source(telstate, self.store, (5, 16, 40), PREFIX)
