@@ -429,7 +429,8 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
         # XXX Could also use args[0] instead of requestline, not sure which is best
         key = self.requestline
         now = time.time()
-        initial_time = self.server.initial_request_time.get(key, now)
+        # Print 0.0 for a fresh suggestion and -1.0 for a stale / absent suggestion (no key found)
+        initial_time = self.server.initial_request_time.get(key, now + 1.0)
         time_offset = now - initial_time
         # Print to stdout instead of stderr so that it doesn't spew all over
         # the screen in normal operation.
@@ -558,10 +559,10 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Truncated read not recovered')
 
-    @timed(0.6 + 0.2)
+    @timed(0.6 + 0.4)
     def test_persistent_truncated_reads(self):
         chunk, slices, array_name = self.prepare(
-            'please-truncate-read-after-60-bytes-for-0.8-seconds')
+            'please-truncate-read-after-60-bytes-for-1.0-seconds')
         # After 0.6 seconds the client gives up
         with assert_raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
