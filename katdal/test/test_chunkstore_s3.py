@@ -65,7 +65,10 @@ from katdal.datasources import TelstateDataSource
 from katdal.test.test_datasources import make_fake_data_source, assert_telstate_data_source_equal
 
 
+# Use a standard bucket for most tests to ensure valid bucket name (regex '^[0-9a-z.-]{3,63}$')
 BUCKET = 'katdal-unittest'
+# Also authorise this prefix for tests that will make their own buckets
+PREFIX = '1234567890'
 # Pick quick but different timeouts and retries for unit tests:
 #  - The effective connect timeout is 5.0 (initial) + 5.0 (1 retry) = 10 seconds
 #  - The effective read timeout is 0.4 + 0.4 = 0.8 seconds
@@ -215,8 +218,6 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         kwargs.setdefault('timeout', TIMEOUT)
         kwargs.setdefault('retries', RETRY)
         kwargs.setdefault('credentials', cls.credentials)
-        # Incorporate the bucket path into the store URL
-        url = urllib.parse.urljoin(url, BUCKET + '/')
         return url, kwargs
 
     @classmethod
@@ -240,6 +241,12 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         if cls.minio:
             cls.minio.close()
         shutil.rmtree(cls.tempdir)
+
+    def array_name(self, name):
+        """Ensure that bucket is authorised and has valid name."""
+        if name.startswith(PREFIX):
+            return name
+        return self.store.join(BUCKET, name)
 
     def test_public_read(self):
         url, kwargs = self.prepare_store_args(self.s3_url, credentials=None)
@@ -279,7 +286,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
 
     def test_rdb_support(self):
         telstate = katsdptelstate.TelescopeState()
-        view, cbid, sn, _, _ = make_fake_data_source(telstate, self.store, (5, 16, 40))
+        view, cbid, sn, _, _ = make_fake_data_source(telstate, self.store, (5, 16, 40), PREFIX)
         telstate['capture_block_id'] = cbid
         telstate['stream_name'] = sn
         # Save telstate to temp RDB file since RDBWriter needs a filename and not a handle
@@ -291,6 +298,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         with open(temp_filename, mode='rb') as rdb_file:
             rdb_data = rdb_file.read()
         rdb_url = urllib.parse.urljoin(self.store_url, self.store.join(cbid, rdb_filename))
+        self.store.create_array(cbid)
         self.store.complete_request('PUT', rdb_url, data=rdb_data)
         # Check that data source can be constructed from URL (with auto chunk store)
         source_from_url = TelstateDataSource.from_url(rdb_url, **self.store_kwargs)
@@ -477,8 +485,8 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
             cls.proxy_url = 'http://{}:{}'.format(proxy_host, proxy_port)
         elif url != cls.httpd.target:
             raise RuntimeError('Cannot use multiple target URLs with http proxy')
-        # The token only authorises the one known bucket
-        token = encode_jwt({'alg': 'ES256', 'typ': 'JWT'}, {'prefix': [BUCKET]})
+        # The token authorises the standard bucket and anything starting with PREFIX
+        token = encode_jwt({'alg': 'ES256', 'typ': 'JWT'}, {'prefix': [BUCKET, PREFIX]})
         kwargs.setdefault('token', token)
         return super().prepare_store_args(cls.proxy_url, credentials=None, **kwargs)
 
@@ -489,8 +497,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
 
     def test_unauthorised_bucket(self):
         with assert_raises(InvalidToken):
-            # Attempt to put a new bucket alongside BUCKET, but without permission
-            self.store.is_complete('../unauthorised_bucket')
+            self.store.is_complete('unauthorised_bucket')
 
     def prepare(self, suggestion):
         """Put a chunk into the store and form an array name containing suggestion."""
@@ -500,7 +507,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         chunk = getattr(self, var_name)[slices]
         self.store.create_array(array_name)
         self.store.put_chunk(array_name, slices, chunk)
-        return chunk, slices, self.store.join(suggestion, array_name)
+        return chunk, slices, self.store.join(array_name, suggestion)
 
     @timed(0.9 + 0.2)
     def test_recover_from_server_errors(self):
