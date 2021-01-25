@@ -18,15 +18,19 @@
 from __future__ import print_function, division, absolute_import
 from builtins import object
 
+import urllib.parse
 import tempfile
 import shutil
+import os
 
 import numpy as np
 from nose.tools import assert_raises
 import katsdptelstate
+from katsdptelstate.rdb_writer import RDBWriter
 
 from katdal.chunkstore_npy import NpyFileChunkStore
-from katdal.datasources import TelstateDataSource, view_l0_capture_stream
+from katdal.datasources import (TelstateDataSource, view_l0_capture_stream, open_data_source,
+                                DataSourceNotFound)
 from katdal.flags import DATA_LOST
 from katdal.vis_flags_weights import correct_autocorr_quantisation
 from katdal.test.test_vis_flags_weights import put_fake_dataset
@@ -37,7 +41,8 @@ def _make_fake_stream(telstate, store, cbid, stream, shape,
     telstate_prefix = telstate.join(cbid, stream)
     store_prefix = telstate_prefix.replace('_', '-')
     data, chunk_info = put_fake_dataset(store, store_prefix, shape,
-                                        chunk_overrides=chunk_overrides, array_overrides=array_overrides,
+                                        chunk_overrides=chunk_overrides,
+                                        array_overrides=array_overrides,
                                         flags_only=flags_only)
     cs_view = telstate.view(telstate_prefix)
     s_view = telstate.view(stream)
@@ -72,7 +77,7 @@ def _make_fake_stream(telstate, store, cbid, stream, shape,
     return data, cs_view, s_view
 
 
-def make_fake_datasource(telstate, store, cbid, l0_shape, l1_flags_shape=None,
+def make_fake_data_source(telstate, store, l0_shape, cbid='cb', l1_flags_shape=None,
                          l0_chunk_overrides=None, l1_flags_chunk_overrides=None,
                          l0_array_overrides=None, l1_flags_array_overrides=None):
     """Create a complete fake data source.
@@ -98,28 +103,45 @@ def make_fake_datasource(telstate, store, cbid, l0_shape, l1_flags_shape=None,
     return view_l0_capture_stream(telstate, cbid, 'sdp_l0') + (l0_data, l1_flags_data)
 
 
+def assert_telstate_data_source_equal(source1, source2):
+    """Assert that two :class:`~katdal.datasources.TelstateDataSource`s are equal."""
+    # Check attributes (sensors left out for now)
+    keys = source1.telstate.keys()
+    assert set(source2.telstate.keys()) == set(keys)
+    for key in keys:
+        np.testing.assert_array_equal(source1.telstate[key], source2.telstate[key])
+    # Check that we also have the same telstate view in both sources
+    assert source1.telstate.prefixes == source2.telstate.prefixes
+    # Check data arrays
+    np.testing.assert_array_equal(source1.timestamps, source2.timestamps)
+    np.testing.assert_array_equal(source1.data.vis.compute(), source2.data.vis.compute())
+    np.testing.assert_array_equal(source1.data.flags.compute(), source2.data.flags.compute())
+    np.testing.assert_array_equal(source1.data.weights.compute(), source2.data.weights.compute())
+
+
 class TestTelstateDataSource(object):
     def setup(self):
         self.tempdir = tempfile.mkdtemp()
         self.store = NpyFileChunkStore(self.tempdir)
         self.telstate = katsdptelstate.TelescopeState()
-        self.cbid = 'cb'
 
     def teardown(self):
         shutil.rmtree(self.tempdir)
 
-    def test_timestamps(self):
-        view, cbid, sn, l0_data, l1_flags_data = \
-            make_fake_datasource(self.telstate, self.store, self.cbid, (20, 64, 40))
-        data_source = TelstateDataSource(view, cbid, sn, self.store)
-        np.testing.assert_array_equal(
-            data_source.timestamps,
-            np.arange(20, dtype=np.float32) * 2 + 123456912)
+    def test_basic_timestamps(self):
+        # Add a sensor to telstate to exercise the relevant code paths in TelstateDataSource
+        self.telstate.add('obs_script_log', 'Digitisers synced', ts=123456789.)
+        view, cbid, sn, _, _ = make_fake_data_source(self.telstate, self.store, (20, 64, 40))
+        data_source = TelstateDataSource(view, cbid, sn, chunk_store=None, source_name='hello')
+        assert 'hello' in data_source.name
+        assert data_source.data is None
+        expected_timestamps = np.arange(20, dtype=np.float32) * 2 + 123456789 + 123
+        np.testing.assert_array_equal(data_source.timestamps, expected_timestamps)
 
     def test_upgrade_flags(self):
         shape = (20, 16, 40)
-        view, cbid, sn, l0_data, l1_flags_data = \
-            make_fake_datasource(self.telstate, self.store, self.cbid, shape)
+        view, cbid, sn, l0_data, l1_flags_data = make_fake_data_source(
+            self.telstate, self.store, shape)
         data_source = TelstateDataSource(view, cbid, sn, self.store)
         np.testing.assert_array_equal(data_source.data.vis.compute(), l0_data['correlator_data'])
         np.testing.assert_array_equal(data_source.data.flags.compute(), l1_flags_data['flags'])
@@ -132,14 +154,13 @@ class TestTelstateDataSource(object):
         """L1 flags has fewer dumps than L0"""
         l0_shape = (20, 16, 40)
         l1_flags_shape = (18, 16, 40)
-        view, cbid, sn, l0_data, l1_flags_data = \
-            make_fake_datasource(self.telstate, self.store, self.cbid, l0_shape, l1_flags_shape,
-                                 l0_chunk_overrides=l0_chunk_overrides,
-                                 l1_flags_chunk_overrides=l1_flags_chunk_overrides)
+        view, cbid, sn, l0_data, l1_flags_data = make_fake_data_source(
+            self.telstate, self.store, l0_shape, l1_flags_shape=l1_flags_shape,
+            l0_chunk_overrides=l0_chunk_overrides,
+            l1_flags_chunk_overrides=l1_flags_chunk_overrides)
         data_source = TelstateDataSource(view, cbid, sn, self.store)
-        np.testing.assert_array_equal(
-            data_source.timestamps,
-            np.arange(l0_shape[0], dtype=np.float32) * 2 + 123456912)
+        expected_timestamps = np.arange(l0_shape[0], dtype=np.float32) * 2 + 123456789 + 123
+        np.testing.assert_array_equal(data_source.timestamps, expected_timestamps)
         np.testing.assert_array_equal(data_source.data.vis.compute(), l0_data['correlator_data'])
         expected_flags = np.zeros(l0_shape, np.uint8)
         expected_flags[:l1_flags_shape[0]] = l1_flags_data['flags']
@@ -162,14 +183,13 @@ class TestTelstateDataSource(object):
         """L1 flags has more dumps than L0"""
         l0_shape = (18, 16, 40)
         l1_flags_shape = (20, 16, 40)
-        view, cbid, sn, l0_data, l1_flags_data = \
-            make_fake_datasource(self.telstate, self.store, self.cbid, l0_shape, l1_flags_shape,
-                                 l0_chunk_overrides=l0_chunk_overrides,
-                                 l1_flags_chunk_overrides=l1_flags_chunk_overrides)
+        view, cbid, sn, l0_data, l1_flags_data = make_fake_data_source(
+            self.telstate, self.store, l0_shape, l1_flags_shape=l1_flags_shape,
+            l0_chunk_overrides=l0_chunk_overrides,
+            l1_flags_chunk_overrides=l1_flags_chunk_overrides)
         data_source = TelstateDataSource(view, cbid, sn, self.store)
-        np.testing.assert_array_equal(
-            data_source.timestamps,
-            np.arange(l1_flags_shape[0], dtype=np.float32) * 2 + 123456912)
+        expected_timestamps = np.arange(l1_flags_shape[0], dtype=np.float32) * 2 + 123456789 + 123
+        np.testing.assert_array_equal(data_source.timestamps, expected_timestamps)
         expected_vis = np.zeros(l1_flags_shape, l0_data['correlator_data'].dtype)
         expected_vis[:18] = l0_data['correlator_data']
         expected_flags = l1_flags_data['flags'].copy()
@@ -194,15 +214,14 @@ class TestTelstateDataSource(object):
         """L1 flags shape is incompatible with L0"""
         l0_shape = (18, 16, 40)
         l1_flags_shape = (20, 8, 40)
-        view, cbid, sn, l0_data, l1_flags_data = \
-            make_fake_datasource(self.telstate, self.store, self.cbid, l0_shape, l1_flags_shape)
+        view, cbid, sn, _, _ = make_fake_data_source(self.telstate, self.store, l0_shape,
+                                                    l1_flags_shape=l1_flags_shape)
         with assert_raises(ValueError):
             TelstateDataSource(view, cbid, sn, self.store)
 
     def test_van_vleck(self):
         shape = (20, 16, 40)
-        view, cbid, sn, l0_data, _ = \
-            make_fake_datasource(self.telstate, self.store, self.cbid, shape)
+        view, cbid, sn, l0_data, _ = make_fake_data_source(self.telstate, self.store, shape)
         # Uncorrected visibilities
         data_source = TelstateDataSource(view, cbid, sn, self.store, van_vleck='off')
         raw_vis = data_source.data.vis
@@ -215,3 +234,29 @@ class TestTelstateDataSource(object):
         # Check parameter validation
         with assert_raises(ValueError):
             TelstateDataSource(view, cbid, sn, self.store, van_vleck='blah')
+
+    def test_construction_from_url(self):
+        view, cbid, sn, _, _ = make_fake_data_source(self.telstate, self.store, (20, 16, 40))
+        source_direct = TelstateDataSource(view, cbid, sn, self.store)
+        # Save RDB file to e.g. 'tempdir/cb/cb_sdp_l0.rdb', as if 'tempdir' is a real S3 bucket
+        rdb_dir = os.path.join(self.tempdir, cbid)
+        os.mkdir(rdb_dir)
+        rdb_filename = os.path.join(rdb_dir, '{}_{}.rdb'.format(cbid, sn))
+        # Insert CBID and stream name at the top level, just like metawriter does
+        self.telstate['capture_block_id'] = cbid
+        self.telstate['stream_name'] = sn
+        with RDBWriter(rdb_filename) as rdbw:
+            rdbw.save(self.telstate)
+        # Check that we can open RDB file and automatically infer the chunk store
+        source_from_file = open_data_source(rdb_filename)
+        assert_telstate_data_source_equal(source_from_file, source_direct)
+        # Check that we can override the capture_block_id and stream name via query parameters
+        query = urllib.parse.urlencode({'capture_block_id': cbid, 'stream_name': sn})
+        url = urllib.parse.urlunparse(('file', '', rdb_filename, '', query, ''))
+        source_from_url = TelstateDataSource.from_url(url, chunk_store=self.store)
+        assert_telstate_data_source_equal(source_from_url, source_direct)
+        # Check invalid URLs
+        with assert_raises(DataSourceNotFound):
+            open_data_source('ftp://unsupported')
+        with assert_raises(DataSourceNotFound):
+            open_data_source(rdb_filename[:-4])

@@ -266,6 +266,3 @@ class ChunkStoreTestBase(object):
 
     def test_mark_complete_array(self):
         self._test_mark_complete(self.array_name('completetest'))
-
-    def test_mark_complete_top_level(self):
-        self._test_mark_complete('katdal-unittest-completetest')
