@@ -4,7 +4,7 @@ History
 0.17 (2021-01-27)
 -----------------
 * This is the last release that will support Python 3.5
-* Pin PyJWT version to 1.x to avoid breaking API changes and Python 3.6 (#320)
+* Pin PyJWT version to 1.x to avoid breaking API changes (#320)
 * Van Vleck correction! (autocorrelations only, though) (#316)
 * Expose excision, aka raw weights (#308)
 * Better unit testing of DataSource and S3ChunkStore in general (#319)
