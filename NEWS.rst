@@ -1,6 +1,16 @@
 History
 =======
 
+0.17 (2021-01-27)
+-----------------
+* This is the last release that will support Python 3.5
+* Van Vleck correction! (autocorrelations only, though) (#316)
+* Expose excision, aka raw weights (#308)
+* Better unit testing of DataSource and S3ChunkStore in general (#319)
+* Support indexed telstate keys (the 1000th cut that killed Python 2) (#304)
+* Split out separate utility classes for Minio (#310)
+* Fix filtering of sensor events with invalid status (#306)
+
 0.16 (2020-08-28)
 -----------------
 * This is the last release that will support Python 2 (python2 maintenance branch)
