@@ -16,8 +16,6 @@
 # limitations under the License.
 ################################################################################
 
-from __future__ import print_function, division, absolute_import
-
 import os.path
 
 from setuptools import setup, find_packages
@@ -58,8 +56,7 @@ setup(name='katdal',
       use_katversion=True,
       install_requires=['numpy >= 1.12.0', 'katpoint >= 0.9', 'h5py >= 2.3', 'numba',
                         'katsdptelstate[rdb] >= 0.10', 'dask[array] >= 1.2.1',
-                        'requests >= 2.18.0', 'pyjwt < 2', 'future',
-                        'cityhash >= 0.2.2'],
+                        'requests >= 2.18.0', 'pyjwt < 2', 'cityhash >= 0.2.2'],
       extras_require={
           'ms': ['python-casacore >= 2.2.1'],
           's3': [],

@@ -14,9 +14,6 @@
 # limitations under the License.
 ################################################################################
 
-from __future__ import print_function, division, absolute_import
-from builtins import zip
-
 import numpy as np
 
 from katdal.van_vleck import norm0_cdf, autocorr_lookup_table

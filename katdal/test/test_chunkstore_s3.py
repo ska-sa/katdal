@@ -26,10 +26,6 @@ an older version is detected, the test will be skipped.
 .. _minio: https://github.com/minio/minio
 .. _race condition: https://github.com/minio/minio/issues/6324
 """
-from __future__ import print_function, division, absolute_import
-from future import standard_library
-standard_library.install_aliases()     # noqa: E402
-from future.utils import bytes_to_native_str
 
 import tempfile
 import shutil
@@ -161,7 +157,7 @@ def encode_jwt(header, payload, signature=86 * 'x'):
     """Generate JWT token with encoded signature (dummy ES256 one by default)."""
     # Don't specify algorithm='ES256' here since that needs cryptography package
     token_bytes = jwt.encode(payload, '', algorithm='none', headers=header)
-    return bytes_to_native_str(token_bytes) + signature
+    return token_bytes.decode() + signature
 
 
 class TestTokenUtils(object):

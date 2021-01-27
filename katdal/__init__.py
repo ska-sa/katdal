@@ -16,15 +16,8 @@
 
 """Data access library for data sets in the MeerKAT Visibility Format (MVF)."""
 
-from __future__ import print_function, division, absolute_import
-from future import standard_library
-standard_library.install_aliases()  # noqa: E402
-import future.utils
-from past.builtins import basestring
-
 import logging as _logging
 import urllib.parse
-import warnings
 
 from .datasources import open_data_source
 from .dataset import DataSet, WrongVersion
@@ -50,14 +43,6 @@ _no_config_handler.setFormatter(_logging.Formatter(_logging.BASIC_FORMAT))
 _no_config_handler.addFilter(_NoConfigFilter())
 logger = _logging.getLogger(__name__)
 logger.addHandler(_no_config_handler)
-
-if future.utils.PY2:
-    _PY2_WARNING = (
-        "Python 2 has reached End-of-Life, and a future version of katdal "
-        "will remove support for it. Please update your scripts to Python 3 "
-        "as soon as possible."
-    )
-    warnings.warn(_PY2_WARNING, FutureWarning)
 
 # BEGIN VERSION CHECK
 # Get package version when locally imported from repo or via -e develop install
@@ -134,7 +119,7 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
         Object providing :class:`DataSet` interface to file(s)
 
     """
-    filenames = [filename] if isinstance(filename, basestring) else filename
+    filenames = [filename] if isinstance(filename, str) else filename
     datasets = []
     for f in filenames:
         # V4 RDB file or live telstate with optional URL-style query string
@@ -145,8 +130,7 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
         else:
             dataset = _file_action('__call__', f, ref_ant, time_offset, **kwargs)
         datasets.append(dataset)
-    return datasets[0] if isinstance(filename, basestring) else \
-        ConcatenatedDataSet(datasets)
+    return datasets[0] if isinstance(filename, str) else ConcatenatedDataSet(datasets)
 
 
 def get_ants(filename):

@@ -15,8 +15,7 @@
 ###############################################################################
 
 """Tests for :py:mod:`katdal.applycal`."""
-from __future__ import print_function, division, absolute_import
-from builtins import object, range
+
 from functools import partial
 
 import katpoint

@@ -15,7 +15,6 @@
 ################################################################################
 
 """Tests for :py:mod:`katdal.categorical`."""
-from __future__ import print_function, division, absolute_import
 
 import numpy as np
 from numpy.testing import assert_array_equal

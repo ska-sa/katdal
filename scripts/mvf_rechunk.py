@@ -2,11 +2,6 @@
 
 """Rechunk an existing MVF dataset"""
 
-from __future__ import print_function, division, absolute_import
-from future import standard_library
-standard_library.install_aliases()  # noqa: 402
-from builtins import object
-
 import sys
 import os
 import re

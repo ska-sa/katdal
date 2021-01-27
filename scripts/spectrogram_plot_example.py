@@ -24,10 +24,6 @@
 # 26 June 2012
 #
 
-from __future__ import print_function, division, absolute_import
-
-from builtins import range
-from builtins import object
 import optparse
 import time
 

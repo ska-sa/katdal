@@ -14,9 +14,6 @@
 # limitations under the License.
 ################################################################################
 
-from __future__ import print_function, division, absolute_import
-from builtins import object
-
 import threading
 
 import numpy as np

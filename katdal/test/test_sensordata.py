@@ -17,8 +17,6 @@
 ################################################################################
 
 """Tests for :py:mod:`katdal.sensordata`."""
-from __future__ import print_function, division, absolute_import
-from builtins import object
 
 from collections import OrderedDict
 

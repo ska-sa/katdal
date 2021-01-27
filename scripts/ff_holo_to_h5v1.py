@@ -24,8 +24,6 @@
 # 29 July 2013
 #
 
-from __future__ import print_function, division, absolute_import
-
 from optparse import OptionParser
 
 import h5py

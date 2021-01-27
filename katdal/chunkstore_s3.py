@@ -16,13 +16,6 @@
 
 """A store of chunks (i.e. N-dimensional arrays) based on the Amazon S3 API."""
 
-from __future__ import print_function, division, absolute_import
-from future import standard_library
-standard_library.install_aliases()  # noqa: E402
-from builtins import object
-import future.utils
-from future.utils import bytes_to_native_str, raise_from
-
 import contextlib
 import threading
 import urllib.parse
@@ -225,8 +218,8 @@ def decode_jwt(token):
     try:
         header = jwt.get_unverified_header(token_without_sig)
     except jwt.exceptions.DecodeError as err:
-        raise_from(InvalidToken(token, "Could not decode token - maybe it's truncated "
-                                       "or corrupted? ({})".format(err)), err)
+        raise InvalidToken(token, "Could not decode token - maybe it's truncated "
+                                  "or corrupted? ({})".format(err)) from err
     # Check signature length for typical MeerKAT signature algorithm
     if header.get('alg') == 'ES256':
         len_sig = len(encoded_signature)
@@ -240,15 +233,15 @@ def decode_jwt(token):
         claims = jwt.decode(token, options=options)
     except jwt.exceptions.DecodeError as err:
         # This covers e.g. bad characters in the signature or non-JSON-dict payload
-        raise_from(InvalidToken(token, "Could not decode token - maybe it's truncated "
-                                       "or corrupted? ({})".format(err)), err)
+        raise InvalidToken(token, "Could not decode token - maybe it's truncated "
+                                  "or corrupted? ({})".format(err)) from err
     except jwt.exceptions.ExpiredSignatureError as err:
         claims = jwt.decode(token, verify=False)
         exp_time = time.strftime('%d-%b-%Y %H:%M:%S', time.gmtime(claims['exp']))
-        raise_from(InvalidToken(token, 'Token expired at {} UTC, please '
-                                'obtain a new one'.format(exp_time)), err)
+        raise InvalidToken(token, 'Token expired at {} UTC, please '
+                                  'obtain a new one'.format(exp_time)) from err
     except jwt.exceptions.InvalidTokenError as err:
-        raise_from(InvalidToken(token, str(err)), err)
+        raise InvalidToken(token, str(err)) from err
     return claims
 
 
@@ -548,7 +541,7 @@ class S3ChunkStore(ChunkStore):
                     prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
                     glitch_error = S3ServerGlitch(prefix + str(trunc_error),
                                                   _TRUNCATED_HTTP_STATUS_CODE)
-                    raise_from(glitch_error, trunc_error)
+                    raise glitch_error from trunc_error
 
     def complete_request(self, method, url, chunk_name='',
                          process=lambda response: None, **kwargs):
@@ -596,7 +589,7 @@ class S3ChunkStore(ChunkStore):
                     retries = retries.increment(method, url, response)
                 except MaxRetryError:
                     # Raise the final straw that broke the retry camel's back
-                    raise_from(e, None)
+                    raise e from None
                 else:
                     retries.sleep(response)
             else:
@@ -660,12 +653,8 @@ class S3ChunkStore(ChunkStore):
         md5_gen = hashlib.md5(npy_header)
         md5_gen.update(chunk)
         md5 = base64.b64encode(md5_gen.digest())
-        headers = {'Content-MD5': bytes_to_native_str(md5)}
-        if future.utils.PY2:
-            # Python 2's httplib doesn't support a sequence of byte-likes.
-            data = npy_header + chunk.tobytes()
-        else:
-            data = _Multipart([npy_header, memoryview(chunk)])
+        headers = {'Content-MD5': md5.decode()}
+        data = _Multipart([npy_header, memoryview(chunk)])
         self.complete_request('PUT', url, chunk_name, headers=headers, data=data)
 
     def mark_complete(self, array_name):

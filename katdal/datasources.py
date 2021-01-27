@@ -15,11 +15,6 @@
 ################################################################################
 
 """Various sources of correlator data and metadata."""
-from __future__ import print_function, division, absolute_import
-from future import standard_library
-standard_library.install_aliases()  # noqa: 402
-from builtins import object
-from future.utils import raise_from
 
 import urllib.parse
 import os.path
@@ -170,15 +165,15 @@ def view_l0_capture_stream(telstate, capture_block_id=None, stream_name=None,
         try:
             capture_block_id = telstate['capture_block_id']
         except KeyError as e:
-            raise_from(ValueError('No capture block ID found in telstate - '
-                                  'please specify it manually'), e)
+            raise ValueError('No capture block ID found in telstate - '
+                             'please specify it manually') from e
     # Detect the captured stream
     if not stream_name:
         try:
             stream_name = telstate['stream_name']
         except KeyError as e:
-            raise_from(ValueError('No captured stream found in telstate - '
-                                  'please specify the stream manually'), e)
+            raise ValueError('No captured stream found in telstate - '
+                             'please specify the stream manually') from e
     # Build the view
     telstate = view_capture_stream(telstate, capture_block_id, stream_name)
     # Check the stream type
@@ -429,13 +424,13 @@ class TelstateDataSource(DataSource):
             try:
                 telstate.load_from_file(url_parts.path)
             except (OSError, katsdptelstate.RdbParseError) as e:
-                raise_from(DataSourceNotFound(str(e)), e)
+                raise DataSourceNotFound(str(e)) from e
         elif url_parts.scheme == 'redis':
             # Redis server
             try:
                 telstate = katsdptelstate.TelescopeState(url_parts.netloc, db)
             except katsdptelstate.ConnectionError as e:
-                raise_from(DataSourceNotFound(str(e)), e)
+                raise DataSourceNotFound(str(e)) from e
         elif url_parts.scheme in {'http', 'https'}:
             # Treat URL prefix as an S3 object store (with auth info in kwargs)
             store_url = urllib.parse.urljoin(url, '..')
@@ -448,7 +443,7 @@ class TelstateDataSource(DataSource):
                 with rdb_store.request('GET', rdb_url) as response:
                     telstate.load_from_file(io.BytesIO(response.content))
             except ChunkStoreError as e:
-                raise_from(DataSourceNotFound(str(e)), e)
+                raise DataSourceNotFound(str(e)) from e
             # If the RDB file is opened via archive URL, use that URL and
             # corresponding S3 credentials or token to access the chunk store
             if chunk_store == 'auto' and not kwargs.get('s3_endpoint_url'):
@@ -474,7 +469,6 @@ def open_data_source(url, **kwargs):
         # Amend the error message for the case of an IP address without scheme
         url_parts = urllib.parse.urlparse(url, scheme='file')
         if url_parts.scheme == 'file' and not os.path.isfile(url_parts.path):
-            raise_from(DataSourceNotFound(
-                '{} (add a URL scheme if {!r} is not meant to be a file)'
-                .format(e, url_parts.path)), e)
+            raise DataSourceNotFound('{} (add a URL scheme if {!r} is not meant to be a file)'
+                                     .format(e, url_parts.path)) from e
         raise

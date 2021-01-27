@@ -6,7 +6,6 @@ dask
 docutils
 ephem
 jmespath
-future
 h5py
 idna
 katversion
