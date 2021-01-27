@@ -442,8 +442,7 @@ class _TokenHTTPProxyServer(http.server.HTTPServer):
     """
     def server_bind(self):
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        # In Python 2.7 it's an old-style class, so super doesn't work
-        http.server.HTTPServer.server_bind(self)
+        super().server_bind()
 
 
 class TestS3ChunkStoreToken(TestS3ChunkStore):
