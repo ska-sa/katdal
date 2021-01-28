@@ -23,8 +23,6 @@
 # 19 December 2011
 #
 
-from __future__ import print_function, division, absolute_import
-
 import os
 import optparse
 import glob

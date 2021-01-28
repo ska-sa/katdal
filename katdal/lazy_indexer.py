@@ -15,8 +15,6 @@
 ################################################################################
 
 """Two-stage deferred indexer for objects with expensive __getitem__ calls."""
-from __future__ import print_function, division, absolute_import
-from builtins import zip, range, object
 
 import copy
 import threading

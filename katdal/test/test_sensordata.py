@@ -17,14 +17,12 @@
 ################################################################################
 
 """Tests for :py:mod:`katdal.sensordata`."""
-from __future__ import print_function, division, absolute_import
-from builtins import object
 
 from collections import OrderedDict
 
 import numpy as np
 from nose.tools import assert_equal, assert_in, assert_not_in, assert_raises, assert_is_instance
-import mock
+from unittest.mock import Mock
 
 from katdal.sensordata import (SensorCache, SensorData, SimpleSensorGetter, to_str,
                                remove_duplicates_and_invalid_values)
@@ -133,7 +131,7 @@ class TestSensorCache(object):
         np.testing.assert_array_equal(data, [3.0, 3.0, 3.0, 3.0, 4.0, 5.0, 6.0, 6.0, 6.0, 6.0])
 
     def test_virtual_sensors(self):
-        calculate_value = mock.Mock()
+        calculate_value = Mock()
 
         def _check_sensor(cache, name, **kwargs):
             """Check that virtual sensor function gets the expected parameters."""

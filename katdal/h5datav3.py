@@ -15,10 +15,6 @@
 ################################################################################
 
 """Data accessor class for HDF5 files produced by RTS correlator."""
-from __future__ import print_function, division, absolute_import
-from future import standard_library
-standard_library.install_aliases()    # noqa: E402
-from builtins import zip, range
 
 import logging
 from collections import Counter

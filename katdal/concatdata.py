@@ -15,8 +15,6 @@
 ################################################################################
 
 """Class for concatenating visibility data sets."""
-from __future__ import print_function, division, absolute_import
-from builtins import zip, range
 
 import os.path
 import itertools

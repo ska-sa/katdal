@@ -15,7 +15,6 @@
 ################################################################################
 
 """A store of chunks (i.e. N-dimensional arrays) based on a dict of arrays."""
-from __future__ import print_function, division, absolute_import
 
 from .chunkstore import ChunkStore, ChunkNotFound, BadChunk
 

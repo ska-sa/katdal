@@ -15,8 +15,6 @@
 ################################################################################
 
 """Tests for :py:mod:`katdal.vis_flags_weights`."""
-from __future__ import print_function, division, absolute_import
-from builtins import object
 
 import tempfile
 import shutil

@@ -15,8 +15,6 @@
 ################################################################################
 
 """Data accessor class for data and metadata from various sources in v4 format."""
-from __future__ import print_function, division, absolute_import
-from builtins import zip, range
 
 import logging
 

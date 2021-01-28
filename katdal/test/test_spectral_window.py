@@ -16,9 +16,6 @@
 
 """Tests for :py:mod:`katdal.spectral_window`."""
 
-from __future__ import print_function, division, absolute_import
-from builtins import object
-
 import numpy as np
 from numpy.testing import assert_array_equal, assert_array_almost_equal
 from nose.tools import assert_equal

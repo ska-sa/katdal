@@ -19,8 +19,6 @@
 # Ludwig Schwardt
 # 25 March 2008
 #
-from __future__ import print_function, division, absolute_import
-from builtins import range
 
 import os
 import os.path

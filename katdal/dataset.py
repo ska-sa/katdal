@@ -15,9 +15,6 @@
 ################################################################################
 
 """Base class for accessing a visibility data set."""
-from __future__ import print_function, division, absolute_import
-from builtins import zip, object
-from past.builtins import basestring
 
 import time
 import logging
@@ -135,7 +132,7 @@ def _selection_to_list(names, **groups):
     list : list of strings / objects
         List of names / objects
     """
-    if isinstance(names, basestring):
+    if isinstance(names, str):
         if not names:
             return []
         elif names in groups:
@@ -442,7 +439,7 @@ class DataSet(object):
         descr += ['-------------------------------------------------------------------------------',
                   'Data selected according to the following criteria:']
         for k, v in sorted(self._selection.items()):
-            descr.append('  %s=%s' % (k, ("'%s'" % (v,)) if isinstance(v, basestring) else v))
+            descr.append('  %s=%s' % (k, ("'%s'" % (v,)) if isinstance(v, str) else v))
         descr.append('-------------------------------------------------------------------------------')
         descr.append('Shape: (%d dumps, %d channels, %d correlation products) => Size: %s' %
                      tuple(list(self.shape) + ['%.3f %s' % ((self.size / 1e9, 'GB') if self.size > 1e9 else
@@ -749,7 +746,7 @@ class DataSet(object):
                     try:
                         if isinstance(t, numbers.Integral):
                             target_index = t
-                        elif isinstance(t, katpoint.Target) or isinstance(t, basestring) and ',' in t:
+                        elif isinstance(t, katpoint.Target) or isinstance(t, str) and ',' in t:
                             target_index = self.catalogue.targets.index(t)
                         else:
                             target_index = self.catalogue.targets.index(self.catalogue[t])

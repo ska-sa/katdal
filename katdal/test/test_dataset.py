@@ -16,8 +16,6 @@
 
 """Tests for :py:mod:`katdal.dataset`."""
 
-from __future__ import print_function, division, absolute_import
-
 from nose.tools import assert_equal
 import numpy as np
 from numpy.testing import assert_array_equal, assert_array_almost_equal

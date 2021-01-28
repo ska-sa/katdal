@@ -15,8 +15,6 @@
 ################################################################################
 
 """Data accessor class for HDF5 files produced by Fringe Finder correlator."""
-from __future__ import print_function, division, absolute_import
-from builtins import zip, range
 
 import logging
 import re

@@ -15,8 +15,6 @@
 ################################################################################
 
 """Tests for :py:mod:`katdal.lazy_indexer`."""
-from __future__ import print_function, division, absolute_import
-from builtins import object, range
 
 from numbers import Integral
 from functools import partial

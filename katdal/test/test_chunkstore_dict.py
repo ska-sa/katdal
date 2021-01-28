@@ -15,7 +15,6 @@
 ################################################################################
 
 """Tests for :py:mod:`katdal.chunkstore_dict`."""
-from __future__ import print_function, division, absolute_import
 
 from katdal.chunkstore_dict import DictChunkStore
 from katdal.test.test_chunkstore import ChunkStoreTestBase

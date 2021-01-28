@@ -15,12 +15,6 @@
 ################################################################################
 
 """Container that stores cached (interpolated) and uncached (raw) sensor data."""
-from __future__ import print_function, division, absolute_import
-from future import standard_library
-standard_library.install_aliases()  # noqa: E402
-from future.utils import raise_from, PY3, isidentifier
-from builtins import zip, range, object
-from past.builtins import unicode
 
 import logging
 import re
@@ -183,23 +177,16 @@ class RecordSensorGetter(SensorGetter):
 def to_str(value):
     """Convert string-likes to the native string type.
 
-    On Python 3, bytes are decoded to str, with surrogateencoding error
-    handler. On Python 2, unicode is encoded to str, with UTF-8 encoding.
+    Bytes are decoded to str, with surrogateencoding error handler.
 
     Tuples, lists, dicts and numpy arrays are processed recursively, with the
     exception that numpy structured types with string or object fields won't
     be handled.
     """
-    if PY3:
-        if isinstance(value, np.ndarray) and value.dtype.kind == 'S':
-            return np.char.decode(value, 'utf-8', 'surrogateescape')
-        elif isinstance(value, bytes):
-            return value.decode('utf-8', 'surrogateescape')
-    else:
-        if isinstance(value, np.ndarray) and value.dtype.kind == 'U':
-            return np.char.encode(value, 'utf-8')
-        elif isinstance(value, unicode):
-            return value.encode('utf-8')
+    if isinstance(value, np.ndarray) and value.dtype.kind == 'S':
+        return np.char.decode(value, 'utf-8', 'surrogateescape')
+    elif isinstance(value, bytes):
+        return value.decode('utf-8', 'surrogateescape')
 
     # We use type(value) so that subclasses are reconstructed correctly
     if isinstance(value, (list, tuple)):
@@ -426,7 +413,7 @@ def get_sensor_from_katstore(store, name, start_time, end_time):
         If the sensor was not found in the store or it has no data in time range
     """
     # The sensor name won't be in sensor store if it contains invalid characters
-    if not isidentifier(name):
+    if not str.isidentifier(name):
         raise KeyError("Sensor name '%s' is not valid Python identifier" % (name,))
     with requests.Session() as session:
         url = "http://%s/katstore/api/query" % (store,)
@@ -436,7 +423,7 @@ def get_sensor_from_katstore(store, name, start_time, end_time):
             response = session.get(url, params=params)
         except requests.exceptions.ConnectionError as exc:
             err = ConnectionError("Could not connect to sensor store '%s'" % (store,))
-            raise_from(err, exc)
+            raise err from exc
         with response:
             try:
                 response.raise_for_status()
@@ -447,7 +434,7 @@ def get_sensor_from_katstore(store, name, start_time, end_time):
                     requests.exceptions.RequestException) as exc:
                 err = RuntimeError("Could not retrieve samples from '%s' (%d: %s)" %
                                    (url, response.status_code, response.reason))
-                raise_from(err, exc)
+                raise err from exc
         if not samples:
             raise KeyError("Sensor store has no data for sensor '%s'" % (name,))
         samples = np.rec.fromrecords(samples, names='timestamp,value,status')
