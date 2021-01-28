@@ -214,6 +214,7 @@ def decode_jwt(token):
                                   "as expected of JWS (maybe it's truncated?)")
     # Remove signature to avoid cryptic PyJWT error message ("Invalid crypto padding")
     token_without_sig = '{}.{}.'.format(encoded_header, encoded_payload)
+    # Extract header without any validation or verification
     try:
         header = jwt.get_unverified_header(token_without_sig)
     except jwt.exceptions.DecodeError as err:
@@ -226,21 +227,20 @@ def decode_jwt(token):
             msg = 'Encoded signature has {} bytes instead of 86 - token string ' \
                   'is too {}'.format(len_sig, 'short' if len_sig < 86 else 'long')
             raise InvalidToken(token, msg)
-    # Extract token claims and verify everything except signature and audience
-    options = {'verify_signature': False, 'verify_aud': False}
+    # Extract token claims without any validation or verification
     try:
-        claims = jwt.decode(token, options=options)
+        claims = jwt.decode(token, options={'verify_signature': False})
     except jwt.exceptions.DecodeError as err:
         # This covers e.g. bad characters in the signature or non-JSON-dict payload
         raise InvalidToken(token, "Could not decode token - maybe it's truncated "
                                   "or corrupted? ({})".format(err)) from err
-    except jwt.exceptions.ExpiredSignatureError as err:
-        claims = jwt.decode(token, verify=False)
-        exp_time = time.strftime('%d-%b-%Y %H:%M:%S', time.gmtime(claims['exp']))
-        raise InvalidToken(token, 'Token expired at {} UTC, please '
-                                  'obtain a new one'.format(exp_time)) from err
     except jwt.exceptions.InvalidTokenError as err:
         raise InvalidToken(token, str(err)) from err
+    # Check if token has expired (PyJWT>=2 won't do this without signature verification)
+    if time.time() > claims.get('exp', np.inf):
+        exp_time = time.strftime('%d-%b-%Y %H:%M:%S', time.gmtime(claims['exp']))
+        raise InvalidToken(token, 'Token expired at {} UTC, please '
+                                  'obtain a new one'.format(exp_time))
     return claims
 
 
