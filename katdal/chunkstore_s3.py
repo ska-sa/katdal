@@ -157,7 +157,8 @@ def _read_chunk(response):
     # We also can't use the workaround if the content is encoded (e.g.
     # gzip compressed) because that's decoded in urllib3, not httplib.
     if ('Content-encoding' not in response.headers
-            and hasattr(data, '_fp')):
+            and hasattr(data, '_fp')
+            and hasattr(data._fp, 'readinto')):
         chunk = read_array(data._fp)
     else:
         chunk = read_array(data)
