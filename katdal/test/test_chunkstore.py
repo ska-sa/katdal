@@ -23,7 +23,8 @@ from nose.tools import (assert_raises, assert_equal, assert_true, assert_false,
 import dask.array as da
 
 from katdal.chunkstore import (ChunkStore, generate_chunks,
-                               StoreUnavailable, ChunkNotFound, BadChunk)
+                               StoreUnavailable, ChunkNotFound, BadChunk,
+                               PlaceholderChunk)
 
 
 class TestGenerateChunks(object):
@@ -198,7 +199,10 @@ class ChunkStoreTestBase(object):
         assert_equal(zeros.dtype, dtype)
         ones = self.store.get_chunk_or_default(*args, default_value=1)
         assert_array_equal(ones, np.ones(shape, dtype))
-        assert_is_none(self.store.get_chunk_or_none(*args))
+        placeholder = self.store.get_chunk_or_placeholder(*args)
+        assert_is_instance(placeholder, PlaceholderChunk)
+        assert_equal(placeholder.shape, shape)
+        assert_equal(placeholder.dtype, dtype)
 
     def test_chunk_bool_1dim_and_too_small(self):
         # Check basic put + get on 1-D bool

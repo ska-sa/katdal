@@ -26,6 +26,7 @@ from dask.highlevelgraph import HighLevelGraph
 import toolz
 import numba
 
+from .chunkstore import PlaceholderChunk
 from .flags import DATA_LOST
 from .van_vleck import autocorr_lookup_table
 
@@ -72,9 +73,9 @@ class VisFlagsWeights(object):
         return self.vis.shape
 
 
-def _default_zero(array, shape, dtype):
-    if array is None:
-        return np.zeros(shape, dtype)
+def _default_zero(array):
+    if isinstance(array, PlaceholderChunk):
+        return np.zeros(array.shape, array.dtype)
     else:
         return array
 
@@ -84,7 +85,7 @@ def _apply_data_lost(orig_flags, lost):
         return orig_flags
     flags = orig_flags
     for chunk, slices in toolz.partition(2, lost):
-        if chunk is None:
+        if isinstance(chunk, PlaceholderChunk):
             if flags is orig_flags:
                 flags = orig_flags.copy()
             flags[slices] |= DATA_LOST
@@ -291,7 +292,7 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
         for array, info in chunk_info.items():
             array_name = store.join(info['prefix'], array)
             chunk_args = (array_name, info['chunks'], info['dtype'])
-            errors = DATA_LOST if array == 'flags' else 'none'
+            errors = DATA_LOST if array == 'flags' else 'placeholder'
             darray[array] = store.get_dask_array(*chunk_args, errors=errors)
         flags_orig_name = darray['flags'].name
         flags_raw_name = store.join(chunk_info['flags']['prefix'], 'flags_raw')
@@ -348,9 +349,7 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
             dsk = {
                 (new_name,) + index: (
                     _default_zero,
-                    (array.name,) + index,
-                    shape,
-                    array.dtype
+                    (array.name,) + index
                 ) for index, shape in zip(indices, itertools.product(*array.chunks))
             }
             dsk = HighLevelGraph.from_collections(new_name, dsk, dependencies=[array])

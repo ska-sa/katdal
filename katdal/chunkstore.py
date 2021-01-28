@@ -47,6 +47,20 @@ class BadChunk(ValueError, ChunkStoreError):
     """The chunk is malformed, e.g. bad dtype or slices, wrong buffer size."""
 
 
+class PlaceholderChunk:
+    """Chunk returned to indicate missing data."""
+
+    def __init__(self, shape, dtype):
+        self.shape = shape
+        self.dtype = np.dtype(dtype)
+
+    def __getitem__(self, index):
+        # Create an array with a zero-sized dtype, so that it takes no memory
+        dummy = np.empty(self.shape, dtype=[])
+        new_shape = dummy[index].shape
+        return PlaceholderChunk(new_shape, self.dtype)
+
+
 def _floor_power_of_two(x):
     """The largest power of two smaller than or equal to `x`."""
     return 2 ** int(np.floor(np.log2(x)))
@@ -245,12 +259,13 @@ class ChunkStore(object):
             chunk_name, shape = self.chunk_metadata(array_name, slices)
             return np.full(shape, default_value, dtype)
 
-    def get_chunk_or_none(self, array_name, slices, dtype):
-        """Get chunk from the store but return ``None`` if it is missing."""
+    def get_chunk_or_placeholder(self, array_name, slices, dtype):
+        """Get chunk from the store but return a :class:`PlaceholderChunk` if it is missing."""
         try:
             return self.get_chunk(array_name, slices, dtype)
         except ChunkNotFound:
-            return None
+            shape = tuple(s.stop - s.start for s in slices)
+            return PlaceholderChunk(shape, dtype)
 
     def create_array(self, array_name):
         """Create a new array if it does not already exist.
@@ -427,8 +442,7 @@ class ChunkStore(object):
     def get_dask_array(self, array_name, chunks, dtype, offset=(), errors=0):
         """Get dask array from the store.
 
-        Any missing chunks are replaced with zeros, suppressing any
-        :exc:`ChunkNotFound` errors.
+        Handling of missing chunks is determined by the `errors` argument.
 
         Parameters
         ----------
@@ -440,12 +454,12 @@ class ChunkStore(object):
             Data type of array
         offset : tuple of int, optional
             Offset to add to each dimension when addressing chunks in store
-        errors : number or 'raise' or 'none', optional
+        errors : number or 'raise' or 'placeholder', optional
             Error handling. If 'raise', exceptions are passed through,
             causing the evaluation to fail.
 
-            If 'none', returns ``None`` in
-            place of missing chunks. Note that such an array cannot be used
+            If 'placeholder', returns instances of :class:`PlaceholderChunk`
+            in place of missing chunks. Note that such an array cannot be used
             as-is, because an ndarray is expected, but it can be used as raw
             material for building new graphs via functions like
             :func:`da.map_blocks`.
@@ -458,10 +472,12 @@ class ChunkStore(object):
             Dask array of given dtype
         """
         kwargs = {'dtype': dtype}
-        if errors == 'none':
-            get_func = self.get_chunk_or_none
+        if errors == 'placeholder':
+            get_func = self.get_chunk_or_placeholder
         elif errors == 'raise':
             get_func = self.get_chunk
+        elif isinstance(errors, str):
+            raise ValueError("Unexpected value for errors; expected 'placeholder', 'raise', or a number")
         else:
             get_func = self.get_chunk_or_default
             kwargs['default_value'] = errors
