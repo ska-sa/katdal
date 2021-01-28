@@ -38,7 +38,7 @@ class DataSourceNotFound(Exception):
     """File associated with DataSource not found or server not responding."""
 
 
-class AttrsSensors(object):
+class AttrsSensors:
     """Metadata in the form of attributes and sensors.
 
     Parameters
@@ -57,7 +57,7 @@ class AttrsSensors(object):
         self.name = name
 
 
-class DataSource(object):
+class DataSource:
     """A generic data source presenting both correlator data and metadata.
 
     Parameters

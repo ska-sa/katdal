@@ -86,9 +86,8 @@ def tiled_array(comment, valueType, ndim, dataManagerGroup, **kwargs):
 
 def define_hypercolumn(desc):
     """Add hypercolumn definitions to table description."""
-    desc['_define_hypercolumn_'] = dict([(v['dataManagerGroup'],
-                                          dict(HCdatanames=[k], HCndim=v['ndim'] + 1))
-                                         for k, v in desc.items() if v['dataManagerType'] == 'TiledShapeStMan'])
+    desc['_define_hypercolumn_'] = {v['dataManagerGroup']: dict(HCdatanames=[k], HCndim=v['ndim'] + 1)
+                                    for k, v in desc.items() if v['dataManagerType'] == 'TiledShapeStMan'}
 
 
 # Map MeasurementSet string types to numpy types
@@ -981,7 +980,7 @@ def write_rows(t, row_dict, verbose=True):
     for col_name, col_data in row_dict.items():
         if col_name not in t.colnames():
             if verbose:
-                print("  column '%s' not in table" % (col_name,))
+                print(f"  column '{col_name}' not in table")
             continue
         if col_data.dtype.kind == 'U':
             col_data = np.char.encode(col_data, encoding='utf-8')
@@ -1005,7 +1004,7 @@ def write_dict(ms_dict, ms_name, verbose=True):
         # Iterate through row groups that are separate dicts within the sub_dict array
         for row_dict in sub_dict:
             if verbose:
-                print("Table %s:" % (sub_table_name,))
+                print(f"Table {sub_table_name}:")
             # Open main table or sub-table
             if sub_table_name == 'MAIN':
                 t = open_table(ms_name, verbose=verbose)

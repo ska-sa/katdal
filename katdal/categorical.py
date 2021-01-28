@@ -22,7 +22,7 @@ import numpy as np
 from dask.base import tokenize
 
 
-class ComparableArrayWrapper(object):
+class ComparableArrayWrapper:
     """Wrapper that improves comparison of array objects.
 
     This wrapper class has two main benefits:
@@ -206,7 +206,7 @@ def unique_in_order(elements, return_inverse=False):
 # -------------------------------------------------------------------------------------------------
 
 
-class CategoricalData(object):
+class CategoricalData:
     """Container for categorical (i.e. non-numerical) sensor data.
 
     This container allows simple manipulation and interpolation of a time series

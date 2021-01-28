@@ -31,7 +31,7 @@ def slice_to_range(s, l):
     return range(*s.indices(l))
 
 
-class TestRangeToSlice(object):
+class TestRangeToSlice:
     """Test the :func:`~katdal.lazy_indexer._range_to_slice` function."""
     @staticmethod
     def _check_slice(start, stop, step):
@@ -63,7 +63,7 @@ class TestRangeToSlice(object):
             _range_to_slice([1, 1, 2, 3, 5, 8, 13])
 
 
-class TestSimplifyIndex(object):
+class TestSimplifyIndex:
     """Test the :func:`~katdal.lazy_indexer._simplify_index` function."""
     def setup(self):
         self.shape = (3, 4, 5)
@@ -173,7 +173,7 @@ def numpy_oindex_lite(x, keep):
 UNEVEN = [False, True, True, True, False, False, True, True, False, True]
 
 
-class TestDaskGetitem(object):
+class TestDaskGetitem:
     """Test the :func:`~katdal.lazy_indexer.dask_getitem` function."""
     def setup(self):
         shape = (10, 20, 30, 40)
@@ -243,7 +243,7 @@ class TestDaskGetitem(object):
                         np.s_[0, 2:5, 3 * UNEVEN, np.newaxis, [4, 6]])
 
 
-class TestDaskLazyIndexer(object):
+class TestDaskLazyIndexer:
     """Test the :class:`~katdal.lazy_indexer.DaskLazyIndexer` class."""
     def setup(self):
         shape = (10, 20, 30)
@@ -254,7 +254,7 @@ class TestDaskLazyIndexer(object):
         def transform1(x):
             return x
         transform2 = lambda x: x    # noqa: E731
-        class Transform3(object):   # noqa: E306
+        class Transform3:   # noqa: E306
             def __call__(self, x):
                 return x
         transform3 = Transform3()
@@ -262,7 +262,7 @@ class TestDaskLazyIndexer(object):
         transforms = [transform1, transform2, transform3, transform4]
         indexer = DaskLazyIndexer(self.data_dask, transforms=transforms)
         expected = 'x | transform1 | <lambda> | Transform3 | transform1'
-        expected += ' -> {} {}'.format(indexer.shape, indexer.dtype)
+        expected += f' -> {indexer.shape} {indexer.dtype}'
         assert_equal(str(indexer), expected)
         # Simply exercise repr - no need to check result
         repr(indexer)

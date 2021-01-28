@@ -83,7 +83,7 @@ class S3ServerGlitch(ChunkNotFound):
     """S3 chunk store responded with an HTTP error deemed to be temporary."""
 
     def __init__(self, msg, status_code):
-        super(S3ServerGlitch, self).__init__(msg)
+        super().__init__(msg)
         self.status_code = status_code
 
 
@@ -91,7 +91,7 @@ class TruncatedRead(ValueError):
     """HTTP request to S3 chunk store responded with fewer bytes than expected."""
 
 
-class _DetectTruncation(object):
+class _DetectTruncation:
     """Raise :exc:`TruncatedRead` if wrapped `readable` runs out of data."""
 
     def __init__(self, readable):
@@ -130,7 +130,7 @@ def read_array(fp):
     elif version == (2, 0):
         shape, fortran_order, dtype = np.lib.format.read_array_header_2_0(fp)
     else:
-        raise ValueError('Unsupported .npy version {}'.format(version))
+        raise ValueError(f'Unsupported .npy version {version}')
     if dtype.hasobject:
         raise ValueError('Object arrays are not supported')
     count = int(np.product(shape))
@@ -179,7 +179,7 @@ class InvalidToken(AuthorisationFailed):
         # Shorten token string but keep the ends so user can check for truncation
         if len(token) > 17:
             token = '{}[...]{}'.format(token[:6], token[-6:])
-        super(InvalidToken, self).__init__("'{}': {}".format(token, message))
+        super().__init__(f"'{token}': {message}")
 
 
 def decode_jwt(token):
@@ -213,7 +213,7 @@ def decode_jwt(token):
         raise InvalidToken(token, "Token does not have exactly two dots ('.') "
                                   "as expected of JWS (maybe it's truncated?)")
     # Remove signature to avoid cryptic PyJWT error message ("Invalid crypto padding")
-    token_without_sig = '{}.{}.'.format(encoded_header, encoded_payload)
+    token_without_sig = f'{encoded_header}.{encoded_payload}.'
     # Extract header without any validation or verification
     try:
         header = jwt.get_unverified_header(token_without_sig)
@@ -265,7 +265,7 @@ class _BearerAuth(requests.auth.AuthBase):
         path = urllib.parse.urlparse(r.url).path.lstrip('/')
         valid_prefixes = self._claims['prefix']
         if not any(path.startswith(prefix) for prefix in valid_prefixes):
-            allowed = ', '.join("'{}*'".format(prefix) for prefix in valid_prefixes)
+            allowed = ', '.join(f"'{prefix}*'" for prefix in valid_prefixes)
             raise InvalidToken(self._token, "Token does not grant access to '{}', "
                                             'only to {}'.format(path, allowed))
         r.headers['Authorization'] = 'Bearer ' + self._token
@@ -323,9 +323,8 @@ class _CacheSettingsSession(requests.Session):
     """
 
     def __init__(self, url):
-        super(_CacheSettingsSession, self).__init__()
-        self._cached_settings = super(_CacheSettingsSession, self).merge_environment_settings(
-            url, {}, True, None, None)
+        super().__init__()
+        self._cached_settings = super().merge_environment_settings(url, {}, True, None, None)
 
     def merge_environment_settings(self, url, proxies, stream, verify, cert):
         # Only cache for a specific combination of input settings (the
@@ -333,16 +332,14 @@ class _CacheSettingsSession(requests.Session):
         # variants.
         if (proxies, stream, verify, cert) == ({}, True, None, None):
             if self._cached_settings is None:
-                self._cached_settings = \
-                    super(_CacheSettingsSession, self).merge_environment_settings(
-                        url, proxies, stream, verify, cert)
+                self._cached_settings = super().merge_environment_settings(
+                    url, proxies, stream, verify, cert)
             return self._cached_settings
         else:
-            return super(_CacheSettingsSession, self).merge_environment_settings(
-                url, proxies, stream, verify, cert)
+            return super().merge_environment_settings(url, proxies, stream, verify, cert)
 
 
-class _Pool(object):
+class _Pool:
     """Thread-safe pool of objects constructed by a factory as needed."""
     def __init__(self, factory):
         self._factory = factory
@@ -370,7 +367,7 @@ class _Pool(object):
         self.put(item)
 
 
-class _Multipart(object):
+class _Multipart:
     """Allow a sequence of bytes-like objects to be used as a request body.
 
     This is intended to allow a zero-copy upload of bytes-like objects that
@@ -444,7 +441,7 @@ class S3ChunkStore(ChunkStore):
     def __init__(self, url, timeout=(30, 300), retries=2, token=None,
                  credentials=None, public_read=False, expiry_days=0, **kwargs):
         error_map = {requests.exceptions.RequestException: StoreUnavailable}
-        super(S3ChunkStore, self).__init__(error_map)
+        super().__init__(error_map)
         auth = _auth_factory(url, token, credentials)
         if not isinstance(retries, Retry):
             try:
@@ -523,12 +520,12 @@ class S3ChunkStore(ChunkStore):
                 status = response.status_code
                 if 400 <= status < 600 and status not in ignored_errors:
                     # Construct error message, including detailed response content if sensible
-                    prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
+                    prefix = f'Chunk {chunk_name!r}: ' if chunk_name else ''
                     msg = '{}Store responded with HTTP error {} ({}) to request: {} {}'.format(
                         prefix, status, response.reason, response.request.method, response.url)
                     content_type = response.headers.get('Content-Type')
                     if content_type in ('application/xml', 'text/xml', 'text/plain'):
-                        msg += '\nDetails of server response: {}'.format(response.text)
+                        msg += f'\nDetails of server response: {response.text}'
                     # Raise the appropriate exception
                     if status == 401:
                         raise AuthorisationFailed(msg)
@@ -544,7 +541,7 @@ class S3ChunkStore(ChunkStore):
                     yield response
                 except TruncatedRead as trunc_error:
                     # A truncated read is considered a glitch with custom status
-                    prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
+                    prefix = f'Chunk {chunk_name!r}: ' if chunk_name else ''
                     glitch_error = S3ServerGlitch(prefix + str(trunc_error),
                                                   _TRUNCATED_HTTP_STATUS_CODE)
                     raise glitch_error from trunc_error
@@ -637,8 +634,8 @@ class S3ChunkStore(ChunkStore):
             policy_url = urllib.parse.urljoin(url, '?policy')
             policy = copy.deepcopy(_BUCKET_POLICY)
             policy['Statement'][0]['Resource'] = [
-                'arn:aws:s3:::{}/*'.format(bucket),
-                'arn:aws:s3:::{}'.format(bucket)
+                f'arn:aws:s3:::{bucket}/*',
+                f'arn:aws:s3:::{bucket}'
             ]
             self.complete_request('PUT', policy_url, data=json.dumps(policy))
 

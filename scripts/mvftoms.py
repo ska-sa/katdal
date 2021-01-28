@@ -62,7 +62,7 @@ def default_ms_name(args, centre_freq=None):
     if centre_freq:
         dataset_basename += '_%dHz' % (int(centre_freq),)
     # Add ".et_al" as reminder that we concatenated multiple datasets
-    return '%s%s.ms' % (dataset_basename, "" if len(args) == 1 else ".et_al")
+    return '{}{}.ms'.format(dataset_basename, "" if len(args) == 1 else ".et_al")
 
 
 def load(dataset, indices, vis, weights, flags):
@@ -237,8 +237,8 @@ def main():
 
         def _cp_index(a1, a2, pol):
             """Create correlator product index from antenna pair and pol."""
-            a1 = "%s%s" % (a1.name, pol[0].lower())
-            a2 = "%s%s" % (a2.name, pol[1].lower())
+            a1 = a1.name + pol[0].lower()
+            a2 = a2.name + pol[1].lower()
             return corrprod_to_index.get((a1, a2), -1)
 
         # Generate baseline antenna pairs
@@ -292,7 +292,7 @@ def main():
                            % (','.join(pols_to_use), ','.join(pols_in_dataset)))
 
     # Set full_pol if this is selected via options.pols_to_use
-    if set(pols_to_use) == set(['HH', 'HV', 'VH', 'VV']) and not options.circular:
+    if set(pols_to_use) == {'HH', 'HV', 'VH', 'VV'} and not options.circular:
         options.full_pol = True
 
     # Extract one MS per spectral window in the dataset(s)
@@ -405,7 +405,7 @@ def main():
             average_data = True
             dump_av = int(np.round(options.dumptime / dataset.dump_period))
             time_av = dump_av * dataset.dump_period
-            print("Averaging %s second dumps to %s seconds." % (dataset.dump_period, time_av))
+            print(f"Averaging {dataset.dump_period} second dumps to {time_av} seconds.")
         else:
             # No averaging in time
             dump_av = 1
@@ -657,7 +657,7 @@ def main():
         # Finally we write the MS as per our created dicts
         ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
         if options.tar:
-            tar = tarfile.open('%s.tar' % (ms_name,), 'w')
+            tar = tarfile.open(f'{ms_name}.tar', 'w')
             tar.add(ms_name, arcname=os.path.basename(ms_name))
             tar.close()
 
@@ -697,11 +697,11 @@ def main():
 
                 # for each solution type in the file, create a table
                 for sol in solution_types:
-                    caltable_name = '{0}.{1}'.format(basename, sol)
-                    sol_name = 'cal_product_{0}'.format(sol,)
+                    caltable_name = f'{basename}.{sol}'
+                    sol_name = f'cal_product_{sol}'
 
                     if sol_name in first_dataset.file['TelescopeState'].keys():
-                        print(' - creating {0} solution table: {1}\n'.format(sol, caltable_name))
+                        print(f' - creating {sol} solution table: {caltable_name}\n')
 
                         # get solution values from the file
                         solutions = first_dataset.file['TelescopeState'][sol_name][()]
@@ -782,7 +782,7 @@ def main():
                             main_subtable = ms_extra.open_table(os.path.join(main_table.name(),
                                                                              subtable))
                             main_subtable.copy(subtable_location, deep=True)
-                            caltable.putkeyword(subtable, 'Table: {0}'.format(subtable_location))
+                            caltable.putkeyword(subtable, f'Table: {subtable_location}')
                             if subtable == 'ANTENNA':
                                 caltable.putkeyword('NAME', antlist)
                                 caltable.putkeyword('STATION', antlist)

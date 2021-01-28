@@ -166,7 +166,7 @@ def npy_header_and_body(chunk):
     return header, chunk
 
 
-class ChunkStore(object):
+class ChunkStore:
     r"""Base class for accessing a store of chunks (i.e. N-dimensional arrays).
 
     A *chunk* is a simple (i.e. unit-stride) slice of an N-dimensional array
@@ -421,7 +421,7 @@ class ChunkStore(object):
                 # keys, so pick the first one found
                 FirstBase = next(c for c in self._error_map if isinstance(e, c))
                 StandardisedError = self._error_map[FirstBase]
-            prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
+            prefix = f'Chunk {chunk_name!r}: ' if chunk_name else ''
             raise StandardisedError(prefix + str(e)) from e
 
     def get_dask_array(self, array_name, chunks, dtype, offset=(), errors=0):
@@ -494,7 +494,7 @@ class ChunkStore(object):
         in_name = array.name
         out_name = array_name
         # Make out_name unique to avoid clashes and caches
-        out_name = 'store-{}-{}-{}'.format(out_name, offset, uuid.uuid4().hex)
+        out_name = f'store-{out_name}-{offset}-{uuid.uuid4().hex}'
         put = _scalar_to_chunk(self.put_chunk_noraise)
         if offset:
             put = _add_offset_to_slices(put, offset)

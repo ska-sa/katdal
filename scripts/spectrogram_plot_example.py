@@ -32,7 +32,7 @@ import numpy as np
 import katdal
 
 
-class ResampledImage(object):
+class ResampledImage:
     """Image that only loads enough data that will fit onto screen pixels.
 
     Parameters
@@ -131,5 +131,5 @@ else:
                         autoscale=opts.autoscale, ax=ax)
     ax.set_xlabel('Channel index')
     ax.set_ylabel('Dump index')
-    ax.set_title('Spectrogram %s %s %s' % (d.name, ant, opts.pol))
+    ax.set_title(f'Spectrogram {d.name} {ant} {opts.pol}')
     plt.show()

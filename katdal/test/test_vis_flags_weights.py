@@ -89,7 +89,7 @@ def put_fake_dataset(store, prefix, shape, chunk_overrides=None, array_overrides
     return data, chunk_info
 
 
-class TestChunkStoreVisFlagsWeights(object):
+class TestChunkStoreVisFlagsWeights:
     """Test the :class:`ChunkStoreVisFlagsWeights` dataset store."""
 
     @classmethod
@@ -118,7 +118,7 @@ class TestChunkStoreVisFlagsWeights(object):
     def test_van_vleck(self):
         ants = 7
         index1, index2 = np.triu_indices(ants)
-        inputs = ['m{:03}h'.format(i) for i in range(ants)]
+        inputs = [f'm{i:03}h' for i in range(ants)]
         corrprods = np.array([(inputs[a], inputs[b]) for (a, b) in zip(index1, index2)])
         auto_indices, _, _ = corrprod_to_autocorr(corrprods)
         # Put fake dataset into chunk store
@@ -146,7 +146,7 @@ class TestChunkStoreVisFlagsWeights(object):
     def test_weight_power_scale(self):
         ants = 7
         index1, index2 = np.triu_indices(ants)
-        inputs = ['m{:03}h'.format(i) for i in range(ants)]
+        inputs = [f'm{i:03}h' for i in range(ants)]
         corrprods = np.array([(inputs[a], inputs[b]) for (a, b) in zip(index1, index2)])
         # Put fake dataset into chunk store
         store = NpyFileChunkStore(self.tempdir)

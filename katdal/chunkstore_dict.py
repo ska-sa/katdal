@@ -32,7 +32,7 @@ class DictChunkStore(ChunkStore):
 
     def __init__(self, **kwargs):
         error_map = {KeyError: ChunkNotFound, IndexError: ChunkNotFound}
-        super(DictChunkStore, self).__init__(error_map)
+        super().__init__(error_map)
         self.arrays = kwargs
 
     def get_chunk(self, array_name, slices, dtype):

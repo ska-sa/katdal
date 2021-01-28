@@ -54,7 +54,8 @@ SENSOR_ALIASES = {
 
 def _calc_azel(cache, name, ant):
     """Calculate virtual (az, el) sensors from actual ones in sensor cache."""
-    real_sensor = 'Antennas/%s/%s' % (ant, 'pos_actual_scan_azim' if name.endswith('az') else 'pos_actual_scan_elev')
+    base_name = 'pos_actual_scan_azim' if name.endswith('az') else 'pos_actual_scan_elev'
+    real_sensor = f'Antennas/{ant}/{base_name}'
     cache[name] = sensor_data = katpoint.deg2rad(cache.get(real_sensor))
     return sensor_data
 
@@ -129,7 +130,7 @@ class H5DataV1(DataSet):
         self._time_keep = np.ones(num_dumps, dtype=np.bool)
         data_timestamps = self.timestamps
         if data_timestamps[0] < 1e9:
-            logger.warning("File '%s' has invalid first correlator timestamp (%f)" % (filename, data_timestamps[0],))
+            logger.warning("File '%s' has invalid first correlator timestamp (%f)", filename, data_timestamps[0])
         # Estimate timestamps by assuming they are uniformly spaced (much quicker than loading them from file).
         # This is useful for the purpose of segmenting data set, where accurate timestamps are not that crucial.
         # The real timestamps are still loaded when the user explicitly asks for them.
@@ -157,7 +158,7 @@ class H5DataV1(DataSet):
                obj.dtype.names == ('timestamp', 'value', 'status'):
                 # Assume sensor dataset name is AntennaN/Sensors/dataset and rename it to Antennas/{ant}/dataset
                 ant_name = to_str(obj.parent.parent.attrs['description']).split(',')[0]
-                standardised_name = 'Antennas/%s/%s' % (ant_name, name.split('/')[-1])
+                standardised_name = 'Antennas/{}/{}'.format(ant_name, name.split('/')[-1])
                 cache[standardised_name] = RecordSensorGetter(obj, standardised_name)
         ants_group.visititems(register_sensor)
         # Use estimated data timestamps for now, to speed up data segmentation
@@ -171,10 +172,10 @@ class H5DataV1(DataSet):
         ants = [katpoint.Antenna(to_str(ants_group[group].attrs['description'])) for group in ants_group]
         self.ref_ant = ants[0].name if not ref_ant else ref_ant
         # Map from (old-style) DBE input label (e.g. '0x') to the new antenna-based input label (e.g. 'ant1h')
-        input_label = dict([(to_str(ants_group[group]['H'].attrs['dbe_input']), ant.name + 'h')
-                            for ant, group in zip(ants, ants_group.keys()) if 'H' in ants_group[group]])
-        input_label.update(dict([(to_str(ants_group[group]['V'].attrs['dbe_input']), ant.name + 'v')
-                                 for ant, group in zip(ants, ants_group.keys()) if 'V' in ants_group[group]]))
+        input_label = {to_str(ants_group[group]['H'].attrs['dbe_input']): ant.name + 'h'
+                       for ant, group in zip(ants, ants_group.keys()) if 'H' in ants_group[group]}
+        input_label.update({to_str(ants_group[group]['V'].attrs['dbe_input']): ant.name + 'v'
+                            for ant, group in zip(ants, ants_group.keys()) if 'V' in ants_group[group]})
         # Split DBE input product string into its separate inputs
         split_product = re.compile(r'(\d+[xy])(\d+[xy])')
         # Iterate over map from correlation product index to DBE input product string and convert
@@ -184,7 +185,7 @@ class H5DataV1(DataSet):
             product = to_str(product)
             match = split_product.match(product)
             if match is None:
-                raise BrokenFile("Unknown DBE input product '%s' in input map (expected e.g. '0x1y')" % (product,))
+                raise BrokenFile(f"Unknown DBE input product '{product}' in input map (expected e.g. '0x1y')")
             corrprods.append(tuple([input_label[inp] for inp in match.groups()]))
         data_cp_len = len(self._scan_groups[0]['data'].dtype)
         if len(corrprods) != data_cp_len:
@@ -195,7 +196,7 @@ class H5DataV1(DataSet):
         self.sensor['Observation/subarray_index'] = CategoricalData([0], [0, len(data_timestamps)])
         # Store antenna objects in sensor cache too, for use in virtual sensor calculations
         for ant in ants:
-            self.sensor['Antennas/%s/antenna' % (ant.name,)] = CategoricalData([ant], [0, len(data_timestamps)])
+            self.sensor[f'Antennas/{ant.name}/antenna'] = CategoricalData([ant], [0, len(data_timestamps)])
         # Extract array reference from first antenna (first 5 fields of description)
         array_ant_fields = ['array'] + ants[0].description.split(',')[1:5]
         array_ant = katpoint.Antenna(','.join(array_ant_fields))
@@ -238,7 +239,7 @@ class H5DataV1(DataSet):
         self.sensor['Observation/target_index'] = CategoricalData(target.indices, target.events)
         # Set up catalogue containing all targets in file, with reference antenna as default antenna
         self.catalogue.add(target.unique_values)
-        self.catalogue.antenna = self.sensor['Antennas/%s/antenna' % (self.ref_ant,)][0]
+        self.catalogue.antenna = self.sensor[f'Antennas/{self.ref_ant}/antenna'][0]
         # Ensure that each target flux model spans all frequencies in data set if possible
         self._fix_flux_freq_range()
 
@@ -253,7 +254,7 @@ class H5DataV1(DataSet):
         f = h5py.File(filename, mode)
         version = to_str(f.attrs.get('version', '1.x'))
         if not version.startswith('1.'):
-            raise WrongVersion("Attempting to load version '%s' file with version 1 loader" % (version,))
+            raise WrongVersion(f"Attempting to load version '{version}' file with version 1 loader")
         if 'augment' not in f.attrs:
             raise BrokenFile('HDF5 file not augmented - please run '
                              'augment4.py (provided by k7augment package)')
@@ -421,24 +422,24 @@ class H5DataV1(DataSet):
     @property
     def temperature(self):
         """Air temperature in degrees Celsius."""
-        return self.sensor['Antennas/%s/enviro_air_temperature' % (self.ref_ant,)]
+        return self.sensor[f'Antennas/{self.ref_ant}/enviro_air_temperature']
 
     @property
     def pressure(self):
         """Barometric pressure in millibars."""
-        return self.sensor['Antennas/%s/enviro_air_pressure' % (self.ref_ant,)]
+        return self.sensor[f'Antennas/{self.ref_ant}/enviro_air_pressure']
 
     @property
     def humidity(self):
         """Relative humidity as a percentage."""
-        return self.sensor['Antennas/%s/enviro_air_relative_humidity' % (self.ref_ant,)]
+        return self.sensor[f'Antennas/{self.ref_ant}/enviro_air_relative_humidity']
 
     @property
     def wind_speed(self):
         """Wind speed in metres per second."""
-        return self.sensor['Antennas/%s/enviro_wind_speed' % (self.ref_ant,)]
+        return self.sensor[f'Antennas/{self.ref_ant}/enviro_wind_speed']
 
     @property
     def wind_direction(self):
         """Wind direction as an azimuth angle in degrees."""
-        return self.sensor['Antennas/%s/enviro_wind_direction' % (self.ref_ant,)]
+        return self.sensor[f'Antennas/{self.ref_ant}/enviro_wind_direction']

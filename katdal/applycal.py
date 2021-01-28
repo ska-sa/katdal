@@ -107,7 +107,7 @@ def get_cal_product(cache, cal_stream, product_type):
     product_type : string
         Calibration product type (e.g. "G")
     """
-    sensor_name = 'Calibration/Products/{}/{}'.format(cal_stream, product_type)
+    sensor_name = f'Calibration/Products/{cal_stream}/{product_type}'
     return cache.get(sensor_name)
 
 
@@ -331,7 +331,7 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
 
     def indirect_cal_product(cache, name, product_type):
         try:
-            n_parts = int(attrs['product_{}_parts'.format(product_type)])
+            n_parts = int(attrs[f'product_{product_type}_parts'])
         except KeyError:
             return indirect_cal_product_raw(cache, name, product_type)
         # Handle multi-part cal product (as produced by "split cal")
@@ -407,9 +407,9 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
         cache[name] = correction_sensor
         return correction_sensor
 
-    template = 'Calibration/Products/{}/{{product_type}}'.format(cal_stream)
+    template = f'Calibration/Products/{cal_stream}/{{product_type}}'
     cache.virtual[template] = indirect_cal_product
-    template = 'Calibration/Corrections/{}/{{product_type}}/{{inp}}'.format(cal_stream)
+    template = f'Calibration/Corrections/{cal_stream}/{{product_type}}/{{inp}}'
     cache.virtual[template] = calc_correction_per_input
     return cal_freqs
 
@@ -423,7 +423,7 @@ def _correction_inputs_to_corrprods(g_per_cp, g_per_input, input1_index, input2_
                               * np.conj(g_per_input[i, input2_index[j]]))
 
 
-class CorrectionParams(object):
+class CorrectionParams:
     """Data needed to compute corrections in :func:`calc_correction_per_corrprod`.
 
     Once constructed, the data in this class must not be modified, as it will
@@ -557,7 +557,7 @@ def calc_correction(chunks, cache, corrprods, cal_products, data_freqs,
     channel_maps = {}
     for cal_product in cal_products:
         cal_stream, product_type = _parse_cal_product(cal_product)
-        sensor_prefix = 'Calibration/Corrections/{}/{}/'.format(cal_stream, product_type)
+        sensor_prefix = f'Calibration/Corrections/{cal_stream}/{product_type}/'
         corrections_per_product = []
         for i, inp in enumerate(inputs):
             try:

@@ -160,7 +160,7 @@ class InvalidTransform(Exception):
     """Transform changes data shape in unallowed way."""
 
 
-class LazyTransform(object):
+class LazyTransform:
     """Transformation to be applied by LazyIndexer after final indexing.
 
     A :class:`LazyIndexer` potentially applies a chain of transforms to the
@@ -211,7 +211,7 @@ class LazyTransform(object):
 # -------------------------------------------------------------------------------------------------
 
 
-class LazyIndexer(object):
+class LazyIndexer:
     """Two-stage deferred indexer for objects with expensive __getitem__ calls.
 
     This class was originally designed to extend and speed up the indexing
@@ -317,7 +317,7 @@ class LazyIndexer(object):
     def _name_shape_dtype(self, name, shape, dtype):
         """Helper function to create strings for display (limits dtype length)."""
         dtype_str = (str(dtype)[:50] + '...') if len(str(dtype)) > 50 else str(dtype)
-        return "%s -> %s %s" % (name, shape, dtype_str)
+        return f"{name} -> {shape} {dtype_str}"
 
     def __str__(self):
         """Verbose human-friendly string representation of lazy indexer object."""
@@ -463,7 +463,7 @@ class LazyIndexer(object):
                       self.transforms, self._initial_dtype)
 
 
-class DaskLazyIndexer(object):
+class DaskLazyIndexer:
     """Turn a dask Array into a LazyIndexer by computing it upon indexing.
 
     The LazyIndexer wraps an underlying `dataset` in the form of a dask Array.
@@ -614,7 +614,7 @@ class DaskLazyIndexer(object):
         """Verbose human-friendly string representation of indexer object."""
         names = [self.name]
         names += [_callable_name(transform) for transform in self.transforms]
-        return ' | '.join(names) + ' -> {} {}'.format(self.shape, self.dtype)
+        return ' | '.join(names) + f' -> {self.shape} {self.dtype}'
 
     @property
     def shape(self):

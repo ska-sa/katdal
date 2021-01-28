@@ -19,7 +19,7 @@ import threading
 import numpy as np
 
 
-class SpectralWindow(object):
+class SpectralWindow:
     """Spectral window specification.
 
     A spectral window is determined by the number of frequency channels produced

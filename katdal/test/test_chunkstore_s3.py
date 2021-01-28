@@ -94,7 +94,7 @@ def get_free_port(host):
         yield port
 
 
-class TestReadArray(object):
+class TestReadArray:
     def _test(self, array):
         fp = io.BytesIO()
         np.save(fp, array)
@@ -162,7 +162,7 @@ def encode_jwt(header, payload, signature=86 * 'x'):
     return header_payload + signature
 
 
-class TestTokenUtils(object):
+class TestTokenUtils:
     """Test token utility and validation functions."""
 
     def test_jwt_broken_token(self):
@@ -281,7 +281,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
     def test_store_unavailable_unresponsive_server(self):
         host = '127.0.0.1'
         with get_free_port(host) as port:
-            url = 'http://{}:{}/'.format(host, port)
+            url = f'http://{host}:{port}/'
             store = S3ChunkStore(url, timeout=0.1, retries=0)
             with assert_raises(StoreUnavailable):
                 store.is_complete('store_is_not_listening_on_that_port')
@@ -300,7 +300,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         telstate['capture_block_id'] = cbid
         telstate['stream_name'] = sn
         # Save telstate to temp RDB file since RDBWriter needs a filename and not a handle
-        rdb_filename = '{}_{}.rdb'.format(cbid, sn)
+        rdb_filename = f'{cbid}_{sn}.rdb'
         temp_filename = os.path.join(self.tempdir, rdb_filename)
         with RDBWriter(temp_filename) as rdbw:
             rdbw.save(telstate)
@@ -441,8 +441,8 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
         time_offset = now - initial_time
         # Print to stdout instead of stderr so that it doesn't spew all over
         # the screen in normal operation.
-        print("Token proxy: %s (%.3f) %s" % (self.log_date_time_string(),
-                                             time_offset, format % args))
+        print("Token proxy: {} ({:.3f}) {}".format(self.log_date_time_string(),
+                                                   time_offset, format % args))
 
 
 class _TokenHTTPProxyServer(http.server.HTTPServer):
@@ -463,7 +463,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
     def setup_class(cls):
         cls.proxy_url = None
         cls.httpd = None
-        super(TestS3ChunkStoreToken, cls).setup_class()
+        super().setup_class()
 
     @classmethod
     def teardown_class(cls):
@@ -473,7 +473,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
             cls.httpd = None
             cls.httpd_thread.join()
             cls.httpd_thread = None
-        super(TestS3ChunkStoreToken, cls).teardown_class()
+        super().teardown_class()
 
     @classmethod
     def prepare_store_args(cls, url, **kwargs):
@@ -492,7 +492,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
             # because teardown calls httpd.shutdown and that hangs if
             # serve_forever wasn't called.
             cls.httpd = httpd
-            cls.proxy_url = 'http://{}:{}'.format(proxy_host, proxy_port)
+            cls.proxy_url = f'http://{proxy_host}:{proxy_port}'
         elif url != cls.httpd.target:
             raise RuntimeError('Cannot use multiple target URLs with http proxy')
         # The token authorises the standard bucket and anything starting with PREFIX

@@ -33,7 +33,7 @@ from .van_vleck import autocorr_lookup_table
 logger = logging.getLogger(__name__)
 
 
-class VisFlagsWeights(object):
+class VisFlagsWeights:
     """Correlator data in the form of visibilities, flags and weights.
 
     This container stores the triplet of visibilities, flags and weights

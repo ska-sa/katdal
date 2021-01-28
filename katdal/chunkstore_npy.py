@@ -81,10 +81,9 @@ class NpyFileChunkStore(ChunkStore):
     """
 
     def __init__(self, path, direct_write=False):
-        super(NpyFileChunkStore, self).__init__({IOError: ChunkNotFound,
-                                                 ValueError: ChunkNotFound})
+        super().__init__({IOError: ChunkNotFound, ValueError: ChunkNotFound})
         if not os.path.isdir(path):
-            raise StoreUnavailable('Directory {!r} does not exist'.format(path))
+            raise StoreUnavailable(f'Directory {path!r} does not exist')
         self.path = path
         self.direct_write = direct_write
         if direct_write and not hasattr(os, 'O_DIRECT'):

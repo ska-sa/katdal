@@ -36,7 +36,7 @@ import katpoint
 from . import ms_extra
 
 
-class RawArray(object):
+class RawArray:
     """Shared memory array, in representation that can be passed through multiprocessing queue"""
     def __init__(self, shape, dtype):
         self.shape = shape
