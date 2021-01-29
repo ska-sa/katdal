@@ -439,7 +439,7 @@ class ChunkStore(object):
             prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
             raise StandardisedError(prefix + str(e)) from e
 
-    def get_dask_array(self, array_name, chunks, dtype, offset=(), errors=0):
+    def get_dask_array(self, array_name, chunks, dtype, offset=(), index=(), errors=0):
         """Get dask array from the store.
 
         Handling of missing chunks is determined by the `errors` argument.
@@ -482,11 +482,52 @@ class ChunkStore(object):
             get_func = self.get_chunk_or_default
             kwargs['default_value'] = errors
         getter = functools.partial(get_func, **kwargs)
-        if offset:
+
+        if index:
+            chunks = [list(c) for c in chunks]   # Make mutable
+            shape = [sum(c) for c in chunks]
+            index = list(da.slicing.normalize_index(index, shape))
+            if not all(isinstance(idx, slice) and idx.step is None
+                       for idx in index):
+                raise IndexError('Only slices with unit step are valid indices in get_dask_array')
+            if not offset:
+                offset = [0] * len(shape)
+            else:
+                offset = list(offset)
+            for axis in range(len(shape)):
+                if index[axis] == slice(None):
+                    continue
+                start, stop, step = index[axis].indices(shape[axis])
+                assert step == 1
+                # Remove unneeded chunks from the ends
+                start_chunk = 0
+                while start_chunk < len(chunks[axis]) and chunks[axis][start_chunk] <= start:
+                    c = chunks[axis][start_chunk]
+                    offset[axis] += c
+                    start -= c
+                    stop -= c
+                    shape[axis] -= c
+                    start_chunk += 1
+                stop_chunk = len(chunks[axis])
+                while stop_chunk > start_chunk and chunks[axis][stop_chunk - 1] <= shape[axis] - stop:
+                    stop_chunk -= 1
+                    c = chunks[axis][stop_chunk]
+                    shape[axis] -= c
+                chunks[axis] = chunks[axis][start_chunk : stop_chunk]
+                if not chunks[axis]:
+                    chunks[axis] = (0,)   # Dask doesn't allow empty chunk lists
+                index[axis] = slice(start, stop)
+            # Go back to tuples
+            chunks = tuple(tuple(c) for c in chunks)
+            index = tuple(index)
+            offset = tuple(offset)
+
+        if any(offset):
             getter = _add_offset_to_slices(getter, offset)
         # Use dask utility function that forms the core of da.from_array
         dask_graph = da.core.getem(array_name, chunks, getter)
-        return da.Array(dask_graph, array_name, chunks, dtype)
+        array = da.Array(dask_graph, array_name, chunks, dtype)
+        return array[index]
 
     def put_dask_array(self, array_name, array, offset=()):
         """Put dask array into the store.

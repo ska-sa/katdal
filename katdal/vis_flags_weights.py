@@ -297,7 +297,7 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
             array_name = store.join(info['prefix'], array)
             chunk_args = (array_name, info['chunks'], info['dtype'])
             errors = DATA_LOST if array == 'flags' else 'placeholder'
-            darray[array] = store.get_dask_array(*chunk_args, errors=errors)[index]
+            darray[array] = store.get_dask_array(*chunk_args, index=index, errors=errors)
         flags_orig_name = darray['flags'].name
         flags_raw_name = store.join(chunk_info['flags']['prefix'], 'flags_raw')
         # Combine original flags with data_lost indicating where values were lost from

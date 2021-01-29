@@ -147,11 +147,11 @@ class TestTelstateDataSource(object):
     def test_bad_index(self):
         view, cbid, sn, l0_data, l1_flags_data = \
             make_fake_data_source(self.telstate, self.store, (20, 64, 40))
-        with assert_raises(TypeError):
+        with assert_raises(IndexError):
             data_source = TelstateDataSource(view, cbid, sn, self.store, index=[])
-        with assert_raises(TypeError):
+        with assert_raises(IndexError):
             data_source = TelstateDataSource(view, cbid, sn, self.store, index=np.s_[[1, 2]])
-        with assert_raises(TypeError):
+        with assert_raises(IndexError):
             data_source = TelstateDataSource(view, cbid, sn, self.store, index=np.s_[5:0:-1])
         with assert_raises(IndexError):
             data_source = TelstateDataSource(view, cbid, sn, self.store, index=np.s_[:, :, :])

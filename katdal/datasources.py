@@ -360,7 +360,7 @@ class TelstateDataSource(DataSource):
     ------
     KeyError
         If telstate lacks critical keys
-    TypeError
+    IndexError
         If `index` does not meet the criteria above.
     """
     def __init__(self, telstate, capture_block_id, stream_name,
@@ -369,7 +369,7 @@ class TelstateDataSource(DataSource):
         if not isinstance(index, tuple) or not all(
                 isinstance(idx, slice) or idx.step not in {None, 1}
                 for idx in index):
-            raise TypeError('index must be a tuple of slices with unit step')
+            raise IndexError('index must be a tuple of slices with unit step')
         self.telstate = TelstateToStr(telstate)
         # Collect sensors
         sensors = {}
