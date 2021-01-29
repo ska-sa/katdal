@@ -16,7 +16,7 @@ netifaces
 numba
 numpy
 pyephem
-pyjwt==2.0.1
+pyjwt
 python-dateutil
 python-lzf
 rdbtools
