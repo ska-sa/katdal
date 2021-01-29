@@ -90,8 +90,8 @@ def _parse_cal_product(cal_product):
     """Split `cal_product` into `cal_stream` and `product_type` parts."""
     fields = cal_product.rsplit('.', 1)
     if len(fields) != 2:
-        raise ValueError('Calibration product {} is not in the format '
-                         '<cal_stream>.<product_type>'.format(cal_product))
+        raise ValueError(f'Calibration product {cal_product} is not in the format '
+                         '<cal_stream>.<product_type>')
     return fields[0], fields[1]
 
 
@@ -376,8 +376,7 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
                     part_indices[i] += 1
                     part_timestamps[i] = ts[part_indices[i]] if part_indices[i] < len(ts) else np.inf
         if not timestamps:
-            raise KeyError("No cal product '{}' parts found (expected {})"
-                           .format(name, n_parts))
+            raise KeyError(f"No cal product '{name}' parts found (expected {n_parts})")
         return SimpleSensorGetter(indirect_cal_product_name(name, product_type),
                                   np.array(timestamps), np.array(values))
 
@@ -387,9 +386,8 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
         try:
             index = cal_input_map[inp]
         except KeyError:
-            raise KeyError("No calibration solutions available for input "
-                           "'{}' - available ones are {}"
-                           .format(inp, sorted(cal_input_map.keys())))
+            raise KeyError(f"No calibration solutions available for input '{inp}' - "
+                           f'available ones are {sorted(cal_input_map.keys())}')
         if product_type == 'K':
             correction_sensor = calc_delay_correction(product_sensor, index,
                                                       data_freqs)
@@ -402,8 +400,8 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
         elif product_type in ('GPHASE', 'GAMP_PHASE'):
             correction_sensor = calc_gain_correction(product_sensor, index, targets)
         else:
-            raise KeyError("Unknown calibration product type '{}' - available "
-                           "ones are {}".format(product_type, CAL_PRODUCT_TYPES))
+            raise KeyError(f"Unknown calibration product type '{product_type}' - "
+                           f'available ones are {CAL_PRODUCT_TYPES}')
         cache[name] = correction_sensor
         return correction_sensor
 

@@ -85,7 +85,7 @@ class ConcatenatedLazyIndexer(LazyIndexer):
         descr = [self._name_shape_dtype(self.name, shape, dtype)]
         for n, indexer in enumerate(self.indexers):
             indexer_descr = str(indexer).split('\n')
-            descr += [('- Indexer %03d: ' % (n,)) + indexer_descr[0]]
+            descr += [f'- Indexer {n:03d}: ' + indexer_descr[0]]
             descr += ['               ' + indescr for indescr in indexer_descr[1:]]
         for transform in self.transforms:
             shape, dtype = transform.new_shape(shape), transform.dtype if transform.dtype is not None else dtype
@@ -195,10 +195,10 @@ class ConcatenatedLazyIndexer(LazyIndexer):
             return dtypes.pop()
         elif np.all([np.issubdtype(dtype, np.string_) for dtype in dtypes]):
             # Strings of different lengths have different dtypes (e.g. '|S1' vs '|S10') but can be safely concatenated
-            return np.dtype('|S%d' % (max([dt.itemsize for dt in dtypes]),))
+            return np.dtype('|S{}'.format(max([dt.itemsize for dt in dtypes])))
         else:
-            raise ConcatenationError("Incompatible dtypes among sub-indexers making up indexer '%s':\n%s" %
-                                     (self.name, '\n'.join([repr(indexer) for indexer in self.indexers])))
+            raise ConcatenationError(f"Incompatible dtypes among sub-indexers making up indexer '{self.name}':\n"
+                                     + '\n'.join([repr(indexer) for indexer in self.indexers]))
 
 # -------------------------------------------------------------------------------------------------
 # -- CLASS :  ConcatenatedSensorGetter
@@ -251,7 +251,7 @@ class ConcatenatedSensorGetter(SensorGetter):
             # but underlying names may legitimately differ for datasets of
             # different minor versions (even within the same version...).
             raise ConcatenationError('Cannot concatenate sensor with different '
-                                     'underlying names: %s' % (names,))
+                                     f'underlying names: {names}')
         super().__init__(names[0])
         self._data = data
 
@@ -382,7 +382,7 @@ class ConcatenatedSensorCache(SensorCache):
         # Get array, categorical data or raw sensor data from each cache
         split_data = self._get(name, select=select, extract=extract, **kwargs)
         if all(sd is None for sd in split_data):
-            raise KeyError('Key %s not found in any of the concatenated datasets' % name)
+            raise KeyError(f'Key {name} not found in any of the concatenated datasets')
         # If this sensor has already been partially extracted,
         # we are forced to extract it in rest of caches too
         if not extract and not all(sd is None or isinstance(sd, SensorGetter) for sd in split_data):

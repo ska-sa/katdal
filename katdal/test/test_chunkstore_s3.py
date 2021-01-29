@@ -368,8 +368,8 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
                     pause = READ_PAUSE if flavour == 'pause' else 0.0
                     glitch_location = int(glitch.group(2))
                 else:
-                    raise ValueError("Unknown command '{}' in proxy suggestion {}"
-                                     .format(command, suggestion))
+                    raise ValueError(f"Unknown command '{command}' "
+                                     f'in proxy suggestion {suggestion}')
             else:
                 # We're done with this suggestion since its time ran out
                 del self.server.initial_request_time[key]
@@ -385,8 +385,7 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
         except InvalidToken:
             prefixes = []
         if not any(self.path.lstrip('/').startswith(prefix) for prefix in prefixes):
-            self.send_response(401, 'Unauthorized (got: {}, allowed: {})'
-                                    .format(self.path, prefixes))
+            self.send_response(401, f'Unauthorized (got: {self.path}, allowed: {prefixes})')
             self.end_headers()
             return
 

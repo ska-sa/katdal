@@ -103,8 +103,8 @@ class SensorGetter:
 
     def __repr__(self):
         """Short human-friendly string representation of sensor data object."""
-        return "<katdal.%s '%s' at 0x%x>" % \
-               (self.__class__.__name__, self.name, id(self))
+        class_name = self.__class__.__name__
+        return f"<katdal.{class_name} '{self.name}' at 0x{id(self):x}>"
 
 
 class SimpleSensorGetter(SensorGetter):
@@ -169,9 +169,9 @@ class RecordSensorGetter(SensorGetter):
 
     def __repr__(self):
         """Short human-friendly string representation of sensor data object."""
-        return "<katdal.%s '%s' len=%d type=%s at 0x%x>" % \
-               (self.__class__.__name__, self.name,
-                len(self._data), self._data['value'].dtype, id(self))
+        return "<katdal.{} '{}' len={} type={} at 0x{:x}>".format(
+               self.__class__.__name__, self.name,
+               len(self._data), self._data['value'].dtype, id(self))
 
 
 def to_str(value):
@@ -652,10 +652,12 @@ class SensorCache(MutableMapping):
             names = sorted([key for key in self.keys()])
             maxlen = max([len(name) for name in names])
             objects = [self.get(name, extract=False) for name in names]
-        obj_reprs = [(("<numpy.ndarray shape={} type={} at 0x{:x}>".format(obj.shape, obj.dtype, id(obj)))
-                     if isinstance(obj, np.ndarray) else repr(obj)) for obj in objects]
-        actual = ['{} : {}'.format(str(name).ljust(maxlen), obj_repr) for name, obj_repr in zip(names, obj_reprs)]
-        virtual = ['{} : <function {}.{}>'.format(str(pat).ljust(maxlen), func.__module__, func.__name__)
+        obj_reprs = [(f"<numpy.ndarray shape={obj.shape} type={obj.dtype} at 0x{id(obj):x}>"
+                      if isinstance(obj, np.ndarray) else repr(obj)) for obj in objects]
+        actual = ['{} : {}'.format(str(name).ljust(maxlen), obj_repr)
+                  for name, obj_repr in zip(names, obj_reprs)]
+        virtual = ['{} : <function {}.{}>'
+                   .format(str(pat).ljust(maxlen), func.__module__, func.__name__)
                    for pat, func in self.virtual.items()]
         return '\n'.join(['Actual sensors', '--------------'] + actual +
                          ['\nVirtual sensors', '---------------'] + virtual)
@@ -664,10 +666,10 @@ class SensorCache(MutableMapping):
         """Short human-friendly string representation of sensor cache object."""
         with self._lock:
             sensors = [self.get(name, extract=False) for name in self.keys()]
-        return "<katdal.%s sensors=%d cached=%d virtual=%d at 0x%x>" % \
-               (self.__class__.__name__, len(sensors),
-                np.sum([not isinstance(s, SensorGetter) for s in sensors]),
-                len(self.virtual), id(self))
+        return "<katdal.{} sensors={} cached={} virtual={} at 0x{:x}>".format(
+               self.__class__.__name__, len(sensors),
+               np.sum([not isinstance(s, SensorGetter) for s in sensors]),
+               len(self.virtual), id(self))
 
     def __getitem__(self, name):
         """Sensor values interpolated to correlator data timestamps.
@@ -852,8 +854,8 @@ class SensorCache(MutableMapping):
                         sensor_data = get_sensor_from_katstore(
                             self.store, name, start_time, end_time)
                     else:
-                        raise KeyError("Unknown sensor '%s' (does not match actual name or "
-                                       "virtual template and no sensor store provided)" % (name,))
+                        raise KeyError(f"Unknown sensor '{name}' (does not match actual name or "
+                                       "virtual template and no sensor store provided)")
             # If this is the first time this sensor is accessed, extract its data and store it in cache, if enabled
             if isinstance(sensor_data, SensorGetter) and extract:
                 props = self._get_props(name, self.props, **kwargs)

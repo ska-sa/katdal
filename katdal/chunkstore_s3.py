@@ -44,7 +44,7 @@ from .chunkstore import (ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk,
 from .sensordata import to_str
 
 
-# Lifecycle policies unfortunately use XML encoding rather than JSON
+# Lifecycle policies unfortunately use XML encoding rather than JSON.
 # Following path of least resistance we simply .format() this string
 # with the number of days for the expiry (and produced a sanitised
 # ID at the same time).
@@ -106,7 +106,7 @@ class _DetectTruncation:
         data = self._readable.read(size, *args, **kwargs)
         if data == b'' and size != 0:
             raise TruncatedRead('Error reading from S3 HTTP response: expected '
-                                '{} more byte(s), got EOF'.format(size))
+                                f'{size} more byte(s), got EOF')
         return data
 
 
@@ -140,8 +140,8 @@ def read_array(fp):
     # isn't expecting a numpy array
     bytes_read = fp.readinto(memoryview(data.view(np.uint8)))
     if bytes_read != data.nbytes:
-        raise TruncatedRead('Error reading from S3 HTTP response: expected {} '
-                            'bytes, got {}'.format(data.nbytes, bytes_read))
+        raise TruncatedRead('Error reading from S3 HTTP response: '
+                            f'expected {data.nbytes} bytes, got {bytes_read}')
     if fortran_order:
         data.shape = shape[::-1]
         data = data.transpose()
@@ -178,7 +178,7 @@ class InvalidToken(AuthorisationFailed):
     def __init__(self, token, message):
         # Shorten token string but keep the ends so user can check for truncation
         if len(token) > 17:
-            token = '{}[...]{}'.format(token[:6], token[-6:])
+            token = f'{token[:6]}[...]{token[-6:]}'
         super().__init__(f"'{token}': {message}")
 
 
@@ -219,13 +219,13 @@ def decode_jwt(token):
         header = jwt.get_unverified_header(token_without_sig)
     except jwt.exceptions.DecodeError as err:
         raise InvalidToken(token, "Could not decode token - maybe it's truncated "
-                                  "or corrupted? ({})".format(err)) from err
+                                  f'or corrupted? ({err})') from err
     # Check signature length for typical MeerKAT signature algorithm
     if header.get('alg') == 'ES256':
         len_sig = len(encoded_signature)
         if len_sig != 86:   # 64 bytes when decoded
-            msg = 'Encoded signature has {} bytes instead of 86 - token string ' \
-                  'is too {}'.format(len_sig, 'short' if len_sig < 86 else 'long')
+            msg = f'Encoded signature has {len_sig} bytes instead of 86 - ' \
+                  f"token string is too {'short' if len_sig < 86 else 'long'}"
             raise InvalidToken(token, msg)
     # Extract token claims without any validation or verification
     try:
@@ -233,7 +233,7 @@ def decode_jwt(token):
     except jwt.exceptions.DecodeError as err:
         # This covers e.g. bad characters in the signature or non-JSON-dict payload
         raise InvalidToken(token, "Could not decode token - maybe it's truncated "
-                                  "or corrupted? ({})".format(err)) from err
+                                  f'or corrupted? ({err})') from err
     except jwt.exceptions.InvalidTokenError as err:
         raise InvalidToken(token, str(err)) from err
     # Check if token has expired (PyJWT>=2 won't do this without signature verification)
@@ -266,9 +266,9 @@ class _BearerAuth(requests.auth.AuthBase):
         valid_prefixes = self._claims['prefix']
         if not any(path.startswith(prefix) for prefix in valid_prefixes):
             allowed = ', '.join(f"'{prefix}*'" for prefix in valid_prefixes)
-            raise InvalidToken(self._token, "Token does not grant access to '{}', "
-                                            'only to {}'.format(path, allowed))
-        r.headers['Authorization'] = 'Bearer ' + self._token
+            raise InvalidToken(self._token,
+                               f"Token does not grant access to '{path}', only to {allowed}")
+        r.headers['Authorization'] = f'Bearer {self._token}'
         return r
 
 
@@ -283,10 +283,10 @@ class _AWSAuth(requests.auth.AuthBase):
         self._signer = botocore.auth.HmacV1Auth(credentials)
 
     def __call__(self, r):
+        access_key = self._signer.credentials.access_key
         split = urllib.parse.urlsplit(r.url)
         signature = self._signer.get_signature(r.method, split, r.headers)
-        r.headers['Authorization'] = 'AWS {}:{}'.format(
-            self._signer.credentials.access_key, signature)
+        r.headers['Authorization'] = f'AWS {access_key}:{signature}'
         return r
 
 
@@ -521,8 +521,8 @@ class S3ChunkStore(ChunkStore):
                 if 400 <= status < 600 and status not in ignored_errors:
                     # Construct error message, including detailed response content if sensible
                     prefix = f'Chunk {chunk_name!r}: ' if chunk_name else ''
-                    msg = '{}Store responded with HTTP error {} ({}) to request: {} {}'.format(
-                        prefix, status, response.reason, response.request.method, response.url)
+                    msg = (f'{prefix}Store responded with HTTP error {status} ({response.reason}) '
+                           f'to request: {response.request.method} {response.url}')
                     content_type = response.headers.get('Content-Type')
                     if content_type in ('application/xml', 'text/xml', 'text/plain'):
                         msg += f'\nDetails of server response: {response.text}'
@@ -609,10 +609,8 @@ class S3ChunkStore(ChunkStore):
         chunk = self.complete_request('GET', url, chunk_name, _read_chunk,
                                       headers=headers, stream=True)
         if chunk.shape != shape or chunk.dtype != dtype:
-            raise BadChunk('Chunk {!r}: dtype {} and/or shape {} in store '
-                           'differs from expected dtype {} and shape {}'
-                           .format(chunk_name, chunk.dtype, chunk.shape,
-                                   dtype, shape))
+            raise BadChunk(f'Chunk {chunk_name!r}: dtype {chunk.dtype} and/or shape {chunk.shape} '
+                           f'in store differs from expected dtype {dtype} and shape {shape}')
         return chunk
 
     def create_array(self, array_name):

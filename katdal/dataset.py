@@ -75,9 +75,8 @@ class Subarray:
 
     def __repr__(self):
         """Short human-friendly string representation of subarray object."""
-        return "<katdal.Subarray antennas=%d inputs=%d corrprods=%d at 0x%x>" % \
-               (len(self.ants), len(self.inputs), len(self.corr_products),
-                id(self))
+        return "<katdal.Subarray antennas={} inputs={} corrprods={} at 0x{:x}>".format(
+               len(self.ants), len(self.inputs), len(self.corr_products), id(self))
 
     @property
     def _description(self):
@@ -407,7 +406,8 @@ class DataSet:
 
     def __repr__(self):
         """Short human-friendly string representation of data set object."""
-        return "<katdal.{} '{}' shape {} at 0x{:x}>".format(self.__class__.__name__, self.name, self.shape, id(self))
+        class_name = self.__class__.__name__
+        return f"<katdal.{class_name} '{self.name}' shape {self.shape} at 0x{id(self):x}>"
 
     def __str__(self):
         """Verbose human-friendly string representation of data set."""
@@ -728,7 +728,7 @@ class DataSet:
                 scans = _selection_to_list(v)
                 scan_keep = np.zeros(len(self._time_keep), dtype=np.bool)
                 scan_sensor = self.sensor.get('Observation/scan_state' if k == 'scans' else 'Observation/label')
-                scan_index_sensor = self.sensor.get('Observation/{}_index'.format(k[:-1]))
+                scan_index_sensor = self.sensor.get(f'Observation/{k[:-1]}_index')
                 for scan in scans:
                     if isinstance(scan, numbers.Integral):
                         scan_keep |= (scan_index_sensor == scan)
@@ -1029,7 +1029,7 @@ class DataSet:
         The sidereal times are returned in an array of float, shape (*T*,).
 
         """
-        return self.sensor['Antennas/%s/lst' % self.ref_ant] * (12 / np.pi)
+        return self.sensor[f'Antennas/{self.ref_ant}/lst'] * (12 / np.pi)
 
     def _sensor_per_ant(self, base_name):
         """Extract a single sensor per antenna and safely stack the results."""

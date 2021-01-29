@@ -158,7 +158,8 @@ class H5DataV1(DataSet):
                obj.dtype.names == ('timestamp', 'value', 'status'):
                 # Assume sensor dataset name is AntennaN/Sensors/dataset and rename it to Antennas/{ant}/dataset
                 ant_name = to_str(obj.parent.parent.attrs['description']).split(',')[0]
-                standardised_name = 'Antennas/{}/{}'.format(ant_name, name.split('/')[-1])
+                dataset_name = name.split('/')[-1]
+                standardised_name = f"Antennas/{ant_name}/{dataset_name}"
                 cache[standardised_name] = RecordSensorGetter(obj, standardised_name)
         ants_group.visititems(register_sensor)
         # Use estimated data timestamps for now, to speed up data segmentation
@@ -189,8 +190,8 @@ class H5DataV1(DataSet):
             corrprods.append(tuple([input_label[inp] for inp in match.groups()]))
         data_cp_len = len(self._scan_groups[0]['data'].dtype)
         if len(corrprods) != data_cp_len:
-            raise BrokenFile('Number of baseline labels received from correlator '
-                             '(%d) differs from number of baselines in data (%d)' % (len(corrprods), data_cp_len))
+            raise BrokenFile(f'Number of baseline labels received from correlator ({len(corrprods)}) '
+                             f'differs from number of baselines in data ({data_cp_len})')
         self.subarrays = [Subarray(ants, corrprods)]
         self.sensor['Observation/subarray'] = CategoricalData(self.subarrays, [0, len(data_timestamps)])
         self.sensor['Observation/subarray_index'] = CategoricalData([0], [0, len(data_timestamps)])
@@ -208,8 +209,8 @@ class H5DataV1(DataSet):
         num_chans = corr_group.attrs['num_freq_channels']
         data_num_chans = self._scan_groups[0]['data'].shape[1]
         if num_chans != data_num_chans:
-            raise BrokenFile('Number of channels received from correlator '
-                             '(%d) differs from number of channels in data (%d)' % (num_chans, data_num_chans))
+            raise BrokenFile(f'Number of channels received from correlator ({num_chans}) '
+                             f'differs from number of channels in data ({data_num_chans})')
         channel_width = corr_group.attrs['channel_bandwidth_hz']
         self.spectral_windows = [SpectralWindow(centre_freq, channel_width, num_chans, 'poco')]
         self.sensor['Observation/spw'] = CategoricalData(self.spectral_windows, [0, len(data_timestamps)])

@@ -379,24 +379,22 @@ class ChunkStore:
         try:
             shape = tuple(s.stop - s.start for s in slices)
         except (TypeError, AttributeError):
-            raise BadChunk('Array {!r}: chunk ID should be a sequence of '
-                           'slice objects, not {}'.format(array_name, slices))
+            raise BadChunk(f'Array {array_name!r}: chunk ID should be '
+                           f'a sequence of slice objects, not {slices}')
         # Verify that all slice strides are unity (i.e. it's a "simple" slice)
         if not all([s.step in (1, None) for s in slices]):
-            raise BadChunk('Array {!r}: chunk ID {} contains non-unit strides'
-                           .format(array_name, slices))
+            raise BadChunk(f'Array {array_name!r}: chunk ID {slices} contains non-unit strides')
         # Construct chunk name from array_name + slices
         chunk_name = cls.join(array_name, cls.chunk_id_str(slices))
         if chunk is not None and chunk.shape != shape:
-            raise BadChunk('Chunk {!r}: shape {} implied by slices does not '
-                           'match actual shape {}'
-                           .format(chunk_name, shape, chunk.shape))
+            raise BadChunk(f'Chunk {chunk_name!r}: shape {shape} implied by slices '
+                           f'does not match actual shape {chunk.shape}')
         if chunk is not None and chunk.dtype.hasobject:
-            raise BadChunk('Chunk {!r}: actual dtype {} cannot contain '
-                           'objects'.format(chunk_name, chunk.dtype))
+            raise BadChunk(f'Chunk {chunk_name!r}: actual dtype {chunk.dtype} '
+                           'cannot contain objects')
         if dtype is not None and np.dtype(dtype).hasobject:
-            raise BadChunk('Chunk {!r}: Requested dtype {} cannot contain '
-                           'objects'.format(chunk_name, dtype))
+            raise BadChunk(f'Chunk {chunk_name!r}: Requested dtype {dtype} '
+                           'cannot contain objects')
         return chunk_name, shape
 
     @contextlib.contextmanager

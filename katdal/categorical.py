@@ -50,8 +50,8 @@ class ComparableArrayWrapper:
 
     def __repr__(self):
         """Short human-friendly string representation of wrapper object."""
-        return "<katdal.%s { %r } at 0x%x>" % \
-               (self.__class__.__name__, self.unwrapped, id(self))
+        class_name = self.__class__.__name__
+        return f"<katdal.{class_name} {self.unwrapped!r} at 0x{id(self):x}>"
 
     def __str__(self):
         """Longer human-friendly string representation of wrapped object."""
@@ -336,8 +336,8 @@ class CategoricalData:
 
     def __repr__(self):
         """Short human-friendly string representation of categorical data object."""
-        return "<katdal.CategoricalData events=%d values=%d type=%s at 0x%x>" % \
-               (len(self.indices), len(self.unique_values), self.dtype, id(self))
+        return "<katdal.CategoricalData events={} values={} type={} at 0x{:x}>".format(
+               len(self.indices), len(self.unique_values), self.dtype, id(self))
 
     def __str__(self):
         """Long human-friendly string representation of categorical data object."""

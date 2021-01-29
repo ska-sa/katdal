@@ -295,8 +295,8 @@ class H5DataV3(DataSet):
         # Check dimensions of timestamps vs those of visibility data
         num_dumps = len(self._timestamps)
         if num_dumps != self._vis.shape[0]:
-            raise BrokenFile('Number of timestamps received from ingest '
-                             '(%d) differs from number of dumps in data (%d)' % (num_dumps, self._vis.shape[0]))
+            raise BrokenFile(f'Number of timestamps received from ingest ({num_dumps}) '
+                             f'differs from number of dumps in data ({self._vis.shape[0]})')
         # Discard the last sample if the timestamp is a duplicate (caused by stop packet in k7_capture)
         num_dumps = (num_dumps - 1) if num_dumps > 1 and (self._timestamps[-1] == self._timestamps[-2]) else num_dumps
         self._timestamps = self._timestamps[:num_dumps]
@@ -308,9 +308,8 @@ class H5DataV3(DataSet):
             expected_dumps = (self._timestamps[-2] - self._timestamps[0]) / self.dump_period + 2
             if abs(expected_dumps - num_dumps) >= 0.01:
                 # Warn the user, as this is anomalous
-                logger.warning("Irregular timestamps detected in file '%s': "
-                               "expected %.3f dumps based on dump period and "
-                               "start/end times, got %d instead",
+                logger.warning("Irregular timestamps detected in file '%s': expected %.3f dumps "
+                               "based on dump period and start/end times, got %d instead",
                                filename, expected_dumps, num_dumps)
         # Ensure timestamps are aligned with the middle of each dump
         self._timestamps += offset_to_middle_of_dump + self.time_offset
@@ -866,9 +865,9 @@ class H5DataV3(DataSet):
             for proc in self.file['History']['process_log']:
                 # proc has a structured dtype and to_str doesn't work on it, so
                 # we have to to_str each element.
-                param_list = '%15s:' % to_str(proc[0])
+                param_list = '{:>15}:'.format(to_str(proc[0]))
                 for param in to_str(proc[1]).split(','):
-                    param_list += '  %s' % param
+                    param_list += f'  {param}'
                 descr.append(param_list)
         return '\n'.join(descr)
 
@@ -889,7 +888,7 @@ class H5DataV3(DataSet):
                 selection.append(known_weights.index(name))
             except ValueError:
                 logger.warning("%r is not a legitimate weight type for this file, "
-                               "supported ones are %s" % (name, known_weights))
+                               "supported ones are %s", name, known_weights)
         if known_weights and not selection:
             logger.warning('No valid weights were selected - setting all weights to 1.0 by default')
         self._weights_select = selection
@@ -902,7 +901,7 @@ class H5DataV3(DataSet):
         # Reverse flag indices as np.packbits has bit 0 as the MSB (we want LSB)
         selection = np.flipud(np.unpackbits(self._flags_select))
         assert len(known_flags) == len(selection), \
-            'Expected %d flag types in file, got %s' % (len(selection), self._flags_description)
+            f'Expected {len(selection)} flag types in file, got {self._flags_description}'
         return [name for name, bit in zip(known_flags, selection) if bit]
 
     @_flags_keep.setter
@@ -916,13 +915,13 @@ class H5DataV3(DataSet):
         # Create boolean list for desired flags
         selection = np.zeros(8, dtype=np.uint8)
         assert len(known_flags) == len(selection), \
-            'Expected %d flag types in file, got %d' % (len(selection), self._flags_description)
+            f'Expected {len(selection)} flag types in file, got {self._flags_description}'
         for name in names:
             try:
                 selection[known_flags.index(name)] = 1
             except ValueError:
                 logger.warning("%r is not a legitimate flag type for this file, "
-                               "supported ones are %s" % (name, known_flags))
+                               "supported ones are %s", name, known_flags)
         # Pack index list into bit mask
         # Reverse flag indices as np.packbits has bit 0 as the MSB (we want LSB)
         flagmask = np.packbits(np.flipud(selection))

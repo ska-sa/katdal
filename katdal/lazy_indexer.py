@@ -44,13 +44,13 @@ def _range_to_slice(index):
     if not len(index):
         return slice(None, 0, None)
     if any(i for i in index if i < 0):
-        raise ValueError('Could not convert {} to a slice (contains negative '
-                         'elements)'.format(index))
+        raise ValueError(f'Could not convert {index} to a slice '
+                         '(contains negative elements)')
     increments_left = set(np.diff(index))
     step = increments_left.pop() if increments_left else 1
     if step == 0 or increments_left:
-        raise ValueError('Could not convert {} to a slice (unevenly spaced or '
-                         'zero increments)'.format(index))
+        raise ValueError(f'Could not convert {index} to a slice '
+                         '(unevenly spaced or zero increments)')
     start = index[0]
     stop = index[-1] + step
     # Avoid descending below 0 and thereby wrapping back to the top
@@ -199,8 +199,9 @@ class LazyTransform:
 
     def __repr__(self):
         """Short human-friendly string representation of lazy transform object."""
-        return "<katdal.%s '%s': type '%s' at 0x%x>" % \
-               (self.__class__.__name__, self.name, 'unchanged' if self.dtype is None else self.dtype, id(self))
+        class_name = self.__class__.__name__
+        dtype = 'unchanged' if self.dtype is None else self.dtype
+        return f"<katdal.{class_name} '{self.name}': type '{dtype}' at 0x{id(self):x}>"
 
     def __call__(self, data, keep):
         """Transform data (`keep` is user-specified second-stage index)."""
@@ -311,8 +312,8 @@ class LazyIndexer:
 
     def __repr__(self):
         """Short human-friendly string representation of lazy indexer object."""
-        return "<katdal.%s '%s': shape %s, type %s at 0x%x>" % \
-               (self.__class__.__name__, self.name, self.shape, self.dtype, id(self))
+        return "<katdal.{} '{}': shape {}, type {} at 0x{:x}>".format(
+               self.__class__.__name__, self.name, self.shape, self.dtype, id(self))
 
     def _name_shape_dtype(self, name, shape, dtype):
         """Helper function to create strings for display (limits dtype length)."""
@@ -453,7 +454,7 @@ class LazyIndexer:
         allowed_shapes = [self._initial_shape[:(n + 1)] for n in range(len(self._initial_shape))]
         if new_shape[:len(self._initial_shape)] not in allowed_shapes:
             raise InvalidTransform('Transform chain may only add or drop dimensions at the end of data shape: '
-                                   'final shape is %s, expected one of %s' % (new_shape, allowed_shapes))
+                                   f'final shape is {new_shape}, expected one of {allowed_shapes}')
         return new_shape
 
     @property
@@ -607,8 +608,7 @@ class DaskLazyIndexer:
     def __repr__(self):
         """Short human-friendly string representation of indexer object."""
         return "<katdal.{} '{}': shape {}, type {} at 0x{:x}>".format(
-            self.__class__.__name__, self.name, self.shape, self.dtype,
-            id(self))
+            self.__class__.__name__, self.name, self.shape, self.dtype, id(self))
 
     def __str__(self):
         """Verbose human-friendly string representation of indexer object."""

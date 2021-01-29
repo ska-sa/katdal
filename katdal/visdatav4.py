@@ -70,8 +70,8 @@ SENSOR_ALIASES = {
 
 def _calc_azel(cache, name, ant):
     """Calculate virtual (az, el) sensors from actual ones in sensor cache."""
-    real_sensor = '%s_pos_actual_scan_%s' % \
-                  (ant, 'azim' if name.endswith('az') else 'elev')
+    suffix = 'azim' if name.endswith('az') else 'elev'
+    real_sensor = f'{ant}_pos_actual_scan_{suffix}'
     cache[name] = sensor_data = katpoint.deg2rad(cache.get(real_sensor))
     return sensor_data
 
@@ -112,10 +112,10 @@ def _normalise_cal_products(products, cal_streams):
         else:
             streams = ','.join(cal_streams)
             streams = f' (one of {streams})' if streams else ' (none found)'
-            msg = ("Unknown calibration product '{}': it should be a stream{}, "
-                   "product type (one of {}) or <stream>.<product_type>"
-                   .format(product, streams, ','.join(CAL_PRODUCT_TYPES)))
-            raise ValueError(msg)
+            product_types = ','.join(CAL_PRODUCT_TYPES)
+            raise ValueError(f"Unknown calibration product '{product}': it should be a "
+                             f'stream{streams}, product type (one of {product_types}) '
+                             'or <stream>.<product_type>')
     return normalised_cal_products, skip_missing_products
 
 
@@ -275,8 +275,7 @@ class VisibilityDataV4(DataSet):
         self.ref_ant = 'array' if not ref_ant else ref_ant
         valid_ref_ants = cam_ants | {'array'}
         if self.ref_ant not in valid_ref_ants:
-            raise KeyError("Unknown ref_ant '%s', should be one of %s"
-                           % (self.ref_ant, valid_ref_ants))
+            raise KeyError(f"Unknown ref_ant '{self.ref_ant}', should be one of {valid_ref_ants}")
 
         self.subarrays = subs = [Subarray(ants, corrprods)]
         self.sensor['Observation/subarray'] = CategoricalData(subs, all_dumps)
@@ -305,7 +304,7 @@ class VisibilityDataV4(DataSet):
         for ant in cam_ants:
             # Try sanitised version of RX serial number first
             rx_serial = attrs.get(f'{ant}_rsc_rx{band}_serial_number', 0)
-            self.receivers[ant] = '%s.%d' % (band, rx_serial)
+            self.receivers[ant] = f'{band}.{rx_serial:d}'
             nd_sensor = f'{ant}_dig_{band}_band_noise_diode'
             if nd_sensor in self.sensor:
                 # A sensor alias would be ideal for this but it only deals with suffixes ATM
@@ -490,7 +489,7 @@ class VisibilityDataV4(DataSet):
         # Reverse flag indices as np.packbits has bit 0 as the MSB (we want LSB)
         selection = np.flipud(np.unpackbits(self._flags_select))
         assert len(FLAG_NAMES) == len(selection), \
-            'Expected %d flag types, got %s' % (len(selection), FLAG_NAMES)
+            f'Expected {len(selection)} flag types, got {FLAG_NAMES}'
         return [name for name, bit in zip(FLAG_NAMES, selection) if bit]
 
     @_flags_keep.setter
@@ -500,7 +499,7 @@ class VisibilityDataV4(DataSet):
         # Create boolean list for desired flags
         selection = np.zeros(8, dtype=np.uint8)
         assert len(FLAG_NAMES) == len(selection), \
-            'Expected %d flag types, got %d' % (len(selection), FLAG_NAMES)
+            f'Expected {len(selection)} flag types, got {FLAG_NAMES}'
         for name in names:
             try:
                 selection[FLAG_NAMES.index(name)] = 1

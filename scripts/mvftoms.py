@@ -60,7 +60,7 @@ def default_ms_name(args, centre_freq=None):
         dataset_basename = os.path.splitext(dataset_filename)[0]
     # Add frequency to name to disambiguate multiple spectral windows
     if centre_freq:
-        dataset_basename += '_%dHz' % (int(centre_freq),)
+        dataset_basename += f'_{int(centre_freq)}Hz'
     # Add ".et_al" as reminder that we concatenated multiple datasets
     return '{}{}.ms'.format(dataset_basename, "" if len(args) == 1 else ".et_al")
 
@@ -287,9 +287,8 @@ def main():
 
     # Check we have the chosen polarisations
     if np.any([pol not in pols_in_dataset for pol in pols_to_use]):
-        raise RuntimeError("Selected polarisation(s): %s not available. "
-                           "Available polarisation(s): %s"
-                           % (','.join(pols_to_use), ','.join(pols_in_dataset)))
+        raise RuntimeError(f"Selected polarisation(s): {', '.join(pols_to_use)} not available. "
+                           f"Available polarisation(s): {','.join(pols_in_dataset)}")
 
     # Set full_pol if this is selected via options.pols_to_use
     if set(pols_to_use) == {'HH', 'HV', 'VH', 'VV'} and not options.circular:
@@ -300,8 +299,7 @@ def main():
         dataset.select(reset='T')
 
         centre_freq = dataset.spectral_windows[win].centre_freq
-        print('Extract MS for spw %d: centre frequency %d Hz'
-              % (win, int(centre_freq)))
+        print(f'Extract MS for spw {win}: centre frequency {int(centre_freq)} Hz')
 
         # If no output MS directory name supplied, infer it from dataset(s)
         if options.output_ms is None:
@@ -320,8 +318,8 @@ def main():
         # The first step is to copy the blank template MS to our desired output
         # (making sure it's not already there)
         if os.path.exists(ms_name):
-            raise RuntimeError("MS '%s' already exists - please remove it "
-                               "before running this script" % (ms_name,))
+            raise RuntimeError(f"MS '{ms_name}' already exists - please remove it "
+                               "before running this script")
 
         print("Will create MS output in " + ms_name)
 
@@ -329,21 +327,19 @@ def main():
         if options.elevation_range is not None:
             emin, emax = options.elevation_range.split(',')
             print("\nThe MS can be flagged by elevation in casapy v3.4.0 or higher, with the command:")
-            print("      tflagdata(vis='%s', mode='elevation', lowerlimit=%s, "
-                  "upperlimit=%s, action='apply')\n" % (ms_name, emin, emax))
+            print(f"      tflagdata(vis='{ms_name}', mode='elevation', lowerlimit={emin}, "
+                  f"upperlimit={emax}, action='apply')\n")
 
         # Instructions to create uvfits file if requested
         if options.uvfits:
             uv_name = basename + ".uvfits"
             print("\nThe MS can be converted into a uvfits file in casapy, with the command:")
-            print("      exportuvfits(vis='%s', fitsfile='%s', datacolumn='data')\n"
-                  % (ms_name, uv_name))
+            print(f"      exportuvfits(vis='{ms_name}', fitsfile='{uv_name}', datacolumn='data')\n")
 
         if options.full_pol:
             print("\n#### Producing a full polarisation MS (HH,HV,VH,VV) ####\n")
         else:
-            print("\n#### Producing MS with %s polarisation(s) ####\n"
-                  % (','.join(pols_to_use)))
+            print(f"\n#### Producing MS with {','.join(pols_to_use)} polarisation(s) ####\n")
 
         # if fringe stopping is requested, check that it has not already been done in hardware
         if options.stop_w:
@@ -363,14 +359,13 @@ def main():
 
             if (first_chan < 0) or (last_chan >= dataset.shape[1]):
                 raise RuntimeError("Requested channel range outside data set boundaries. "
-                                   "Set channels in the range [0,%s]" % (dataset.shape[1] - 1,))
+                                   f"Set channels in the range [0,{dataset.shape[1] - 1}]")
             if first_chan > last_chan:
-                raise RuntimeError("First channel (%d) bigger than last channel (%d) - "
-                                   "did you mean it the other way around?"
-                                   % (first_chan, last_chan))
+                raise RuntimeError(f"First channel ({first_chan}) bigger than last channel "
+                                   f"({last_chan}) - did you mean it the other way around?")
 
             chan_range = slice(first_chan, last_chan + 1)
-            print("\nChannel range %d through %d." % (first_chan, last_chan))
+            print(f"\nChannel range {first_chan} through {last_chan}.")
             dataset.select(channels=chan_range)
 
         # Are we averaging?
@@ -385,11 +380,10 @@ def main():
             # Check how many channels we are dropping
             chan_remainder = nchan % options.chanbin
             avg_nchan = int(nchan / min(nchan, options.chanbin))
-            print("Averaging %s channels, output ms will have %s channels."
-                  % (options.chanbin, avg_nchan))
+            print(f"Averaging {options.chanbin} channels, output ms will have {avg_nchan} channels.")
             if chan_remainder > 0:
-                print("The last %s channels in the data will be dropped during averaging "
-                      "(%s does not divide %s)." % (chan_remainder, options.chanbin, nchan))
+                print(f"The last {chan_remainder} channels in the data will be dropped "
+                      f"during averaging ({options.chanbin} does not divide {nchan}).")
             chan_av = options.chanbin
             nchan = avg_nchan
         else:
@@ -420,8 +414,8 @@ def main():
             dataset.select(corrprods='cross')
             print("\nCross-correlations only.")
 
-        print("\nUsing %s as the reference antenna. All targets and scans "
-              "will be based on this antenna.\n" % (dataset.ref_ant,))
+        print(f"\nUsing {dataset.ref_ant} as the reference antenna. All targets and scans "
+              "will be based on this antenna.\n")
         # MS expects timestamps in MJD seconds
         start_time = dataset.start_time.to_mjd() * 24 * 60 * 60
         end_time = dataset.end_time.to_mjd() * 24 * 60 * 60
@@ -496,23 +490,20 @@ def main():
             for scan_ind, scan_state, target in dataset.scans():
                 s = time.time()
                 scan_len = dataset.shape[0]
+                prefix = f'scan {scan_ind:3d} ({scan_len:4d} samples)'
                 if scan_state != 'track':
                     if options.verbose:
-                        print("scan %3d (%4d samples) skipped '%s' - not a track"
-                              % (scan_ind, scan_len, scan_state))
+                        print(f"{prefix} skipped '{scan_state}' - not a track")
                     continue
                 if scan_len < 2:
                     if options.verbose:
-                        print("scan %3d (%4d samples) skipped - too short"
-                              % (scan_ind, scan_len))
+                        print(f'{prefix} skipped - too short')
                     continue
                 if target.body_type != 'radec':
                     if options.verbose:
-                        print("scan %3d (%4d samples) skipped - target '%s' not RADEC"
-                              % (scan_ind, scan_len, target.name))
+                        print(f"{prefix} skipped - target '{target.name}' not RADEC")
                     continue
-                print("scan %3d (%4d samples) loaded. Target: '%s'. Writing to disk..."
-                      % (scan_ind, scan_len, target.name))
+                print(f"{prefix} loaded. Target: '{target.name}'. Writing to disk...")
 
                 # Get the average dump time for this scan (equal to scan length
                 # if the dump period is longer than a scan)
@@ -530,8 +521,7 @@ def main():
                     field_centers.append((ra, dec))
                     field_times.append(katpoint.Timestamp(utc_seconds[0]).to_mjd() * 60 * 60 * 24)
                     if options.verbose:
-                        print("Added new field %d: '%s' %s %s"
-                              % (len(field_names) - 1, target.name, ra, dec))
+                        print(f"Added new field {len(field_names) - 1}: '{target.name}' {ra} {dec}")
                 field_id = field_names.index(target.name)
 
                 # Determine the observation tag for this scan
@@ -608,14 +598,12 @@ def main():
                 s1 = time.time() - s
 
                 if average_data and utc_seconds.shape != ntime_av:
-                    print("Averaged %s x %s second dumps to %s x %s second dumps"
-                          % (np.shape(utc_seconds)[0], dataset.dump_period,
-                             ntime_av, dump_time_width))
+                    print(f'Averaged {np.shape(utc_seconds)[0]} x {dataset.dump_period} second dumps '
+                          f'to {ntime_av} x {dump_time_width} second dumps')
 
                 scan_size_mb = float(scan_size) / (1024**2)
 
-                print("Wrote scan data (%f MiB) in %f s (%f MiBps)\n"
-                      % (scan_size_mb, s1, scan_size_mb / s1))
+                print(f"Wrote scan data ({scan_size_mb} MiB) in {s1} s ({scan_size_mb / s1} MiBps)\n")
 
                 scan_itr += 1
                 total_size += scan_size

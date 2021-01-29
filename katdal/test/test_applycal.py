@@ -460,15 +460,13 @@ class TestVirtualCorrectionSensors:
                     m, n, multi_channel=True, targets=True))
 
     def test_unknown_inputs_and_products(self):
-        known_input = '{}{}'.format(ANTS[0], POLS[0])
+        known_input = ANTS[0] + POLS[0]
         with assert_raises(KeyError):
             self.cache.get(f'Calibration/Corrections/{CAL_STREAM}/K/unknown')
         with assert_raises(KeyError):
-            self.cache.get('Calibration/Corrections/{}/unknown/{}'
-                           .format(CAL_STREAM, known_input))
+            self.cache.get(f'Calibration/Corrections/{CAL_STREAM}/unknown/{known_input}')
         with assert_raises(KeyError):
-            self.cache.get('Calibration/Corrections/{}/K_unknown/{}'
-                           .format(CAL_STREAM, known_input))
+            self.cache.get(f'Calibration/Corrections/{CAL_STREAM}/K_unknown/{known_input}')
         with assert_raises(KeyError):
             self.cache.get('Calibration/Corrections/unknown/K/' + known_input)
         with assert_raises(KeyError):

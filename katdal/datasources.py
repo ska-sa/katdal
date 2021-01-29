@@ -180,9 +180,8 @@ def view_l0_capture_stream(telstate, capture_block_id=None, stream_name=None,
     stream_type = telstate.get('stream_type', 'unknown')
     expected_type = 'sdp.vis'
     if stream_type != expected_type:
-        raise ValueError("Found stream {!r} but it has the wrong type {!r},"
-                         " expected {!r}".format(stream_name, stream_type,
-                                                 expected_type))
+        raise ValueError(f"Found stream {stream_name!r} but it has the wrong type "
+                         f"{stream_type!r}, expected {expected_type!r}")
     logger.info('Using capture block %r and stream %r',
                 capture_block_id, stream_name)
     return telstate, capture_block_id, stream_name
@@ -225,10 +224,8 @@ def _upgrade_chunk_info(chunk_info, improved_chunk_info):
     for key, improved_info in improved_chunk_info.items():
         original_info = chunk_info.get(key, improved_info)
         if improved_info['shape'][1:] != original_info['shape'][1:]:
-            raise ValueError("Original '{}' array has shape {} while improved"
-                             "version has shape {}"
-                             .format(key, original_info['shape'],
-                                     improved_info['shape']))
+            raise ValueError(f"Original '{key}' array has shape {original_info['shape']} "
+                             f"while improved version has shape {improved_info['shape']}")
         chunk_info[key] = improved_info
     return chunk_info
 
@@ -449,8 +446,8 @@ class TelstateDataSource(DataSource):
             if chunk_store == 'auto' and not kwargs.get('s3_endpoint_url'):
                 chunk_store = rdb_store
         else:
-            raise DataSourceNotFound("Unknown URL scheme '{}' - telstate expects "
-                                     "file, redis, or http(s)".format(url_parts.scheme))
+            raise DataSourceNotFound(f"Unknown URL scheme '{url_parts.scheme}' - "
+                                     'telstate expects file, redis, or http(s)')
         telstate, capture_block_id, stream_name = view_l0_capture_stream(telstate, **kwargs)
         if chunk_store == 'auto':
             chunk_store = infer_chunk_store(url_parts, telstate, **kwargs)
@@ -469,6 +466,6 @@ def open_data_source(url, **kwargs):
         # Amend the error message for the case of an IP address without scheme
         url_parts = urllib.parse.urlparse(url, scheme='file')
         if url_parts.scheme == 'file' and not os.path.isfile(url_parts.path):
-            raise DataSourceNotFound('{} (add a URL scheme if {!r} is not meant to be a file)'
-                                     .format(e, url_parts.path)) from e
+            raise DataSourceNotFound(f'{e} (add a URL scheme if {url_parts.path!r} '
+                                     'is not meant to be a file)') from e
         raise

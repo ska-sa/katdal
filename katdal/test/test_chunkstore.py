@@ -182,8 +182,7 @@ class ChunkStoreTestBase:
         array_retrieved = pull.compute()
         array = dask_array.compute()
         assert_array_equal(array_retrieved, array,
-                           "Error retrieving {} / {} / {}"
-                           .format(array_name, offset, dask_array.chunks))
+                           f'Error retrieving {array_name} / {offset} / {dask_array.chunks}')
 
     def test_chunk_non_existent(self):
         array_name = self.array_name('haha')
@@ -246,8 +245,7 @@ class ChunkStoreTestBase:
             assert_equal(array_retrieved.shape, dask_array.shape)
             assert_equal(array_retrieved.dtype, dask_array.dtype)
             assert_array_equal(array_retrieved[np.s_[3:8, 30:60, 0:2]], 17,
-                               "Missing chunk in {} not replaced by default value"
-                               .format(array_name))
+                               f'Missing chunk in {array_name} not replaced by default value')
         # Now store the last quarter and check that complete array is correct
         self.put_dask_array('big_y2', np.s_[3:8, 30:60, 0:2])
         self.get_dask_array('big_y2')

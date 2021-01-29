@@ -56,11 +56,11 @@ class VisFlagsWeights:
 
     def __init__(self, vis, flags, weights, unscaled_weights=None, name='custom'):
         if not (vis.shape == flags.shape == weights.shape):
-            raise ValueError("Shapes of vis %s, flags %s and weights %s differ"
-                             % (vis.shape, flags.shape, weights.shape))
+            raise ValueError(f'Shapes of vis {vis.shape}, flags {flags.shape} '
+                             f'and weights {weights.shape} differ')
         if unscaled_weights is not None and (unscaled_weights.shape != vis.shape):
-            raise ValueError("Shapes of unscaled weights %s and vis %s differ"
-                             % (unscaled_weights.shape, vis.shape))
+            raise ValueError(f'Shapes of unscaled weights {unscaled_weights.shape} '
+                             f'and vis {vis.shape} differ')
         self.vis = vis
         self.flags = flags
         self.weights = weights
@@ -365,7 +365,7 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
             vis = correct_autocorr_quantisation(vis, corrprods)
         elif van_vleck != 'off':
             raise ValueError("The van_vleck parameter should be one of ['off', 'autocorr'], "
-                             "got '{}' instead".format(van_vleck))
+                             f"got '{van_vleck}' instead")
 
         # Combine low-resolution weights and high-resolution weights_channel
         stored_weights = darray['weights'] * darray['weights_channel'][..., np.newaxis]
