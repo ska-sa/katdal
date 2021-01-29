@@ -190,6 +190,15 @@ class TestTokenUtils(object):
         payload = {'exp': 0, 'iss': 'kat', 'prefix': ['123']}
         token = encode_jwt(header, payload)
         assert_raises(InvalidToken, decode_jwt, token)
+        # Check that expiration time is not-too-large integer
+        payload['exp'] = 1.2
+        assert_raises(InvalidToken, decode_jwt, encode_jwt(header, payload))
+        payload['exp'] = 12345678901234567890
+        assert_raises(InvalidToken, decode_jwt, encode_jwt(header, payload))
+        # Check that it works without expiry date too
+        del payload['exp']
+        claims = decode_jwt(encode_jwt(header, payload))
+        assert_equal(payload, claims)
 
 
 class TestS3ChunkStore(ChunkStoreTestBase):

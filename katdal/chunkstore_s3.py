@@ -237,10 +237,17 @@ def decode_jwt(token):
     except jwt.exceptions.InvalidTokenError as err:
         raise InvalidToken(token, str(err)) from err
     # Check if token has expired (PyJWT>=2 won't do this without signature verification)
-    if time.time() > claims.get('exp', np.inf):
-        exp_time = time.strftime('%d-%b-%Y %H:%M:%S', time.gmtime(claims['exp']))
-        raise InvalidToken(token, 'Token expired at {} UTC, please '
-                                  'obtain a new one'.format(exp_time))
+    try:
+        expiration_time = int(claims['exp'])
+        exp_string = time.strftime('%d-%b-%Y %H:%M:%S', time.gmtime(expiration_time))
+    except KeyError:
+        expiration_time = np.inf
+        exp_string = 'inf'
+    except (ValueError, OverflowError) as err:
+        raise InvalidToken(token, 'Expiration time must be an integer that is not too large, '
+                           f"not {claims['exp']!r}") from err
+    if time.time() > expiration_time:
+        raise InvalidToken(token, f'Token expired at {exp_string} UTC, please obtain a new one')
     return claims
 
 
