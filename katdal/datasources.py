@@ -349,6 +349,10 @@ class TelstateDataSource(DataSource):
         Look for associated flag streams and use them if True (default)
     van_vleck : {'off', 'autocorr'}, optional
         Type of Van Vleck (quantisation) correction to perform
+    index : tuple of slice, optional
+        Subset of data to select (only time and frequency can be subset). If
+        explicit `timestamps` are provided, they are indexed too. At present
+        the index must be a tuple of slices with unit step.
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other methods and ignored
 
@@ -356,10 +360,16 @@ class TelstateDataSource(DataSource):
     ------
     KeyError
         If telstate lacks critical keys
+    TypeError
+        If `index` does not meet the criteria above.
     """
     def __init__(self, telstate, capture_block_id, stream_name,
                  chunk_store=None, timestamps=None, source_name='telstate',
-                 upgrade_flags=True, van_vleck='off', **kwargs):
+                 upgrade_flags=True, van_vleck='off', index=(), **kwargs):
+        if not isinstance(index, tuple) or not all(
+                isinstance(idx, slice) or idx.step not in {None, 1}
+                for idx in index):
+            raise TypeError('index must be a tuple of slices with unit step')
         self.telstate = TelstateToStr(telstate)
         # Collect sensors
         sensors = {}
@@ -383,7 +393,8 @@ class TelstateDataSource(DataSource):
             data = ChunkStoreVisFlagsWeights(chunk_store, chunk_info,
                                              corrprods=telstate['bls_ordering'],
                                              stored_weights_are_scaled=not need_weights_power_scale,
-                                             van_vleck=van_vleck)
+                                             van_vleck=van_vleck,
+                                             index=index)
 
         if timestamps is None:
             # Synthesise timestamps from the relevant telstate bits
@@ -391,6 +402,8 @@ class TelstateDataSource(DataSource):
             int_time = telstate['int_time']
             n_dumps = chunk_info['correlator_data']['shape'][0]
             timestamps = t0 + np.arange(n_dumps) * int_time
+        if index:
+            timestamps = timestamps[index[:1]]
         # Metadata and timestamps with or without data
         DataSource.__init__(self, metadata, timestamps, data)
         self.capture_block_id = capture_block_id
