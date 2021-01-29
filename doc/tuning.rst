@@ -96,6 +96,12 @@ You might be able to get a little more performance by using
 selections) rather than using :meth:`~.DataSet.select` with
 ``scans='track'``.
 
+When using MVF v4 one can also pass an `index` parameter to :meth:`katdal.open`
+which contains an index expression to slice a subset of the data (time and
+frequency). It is more limited than :meth:`DataSet.select` (it can only select
+contiguous ranges), but if a script is only interested in working on a subset
+of data, this method can be more efficient and uses less memory.
+
 Network versus local disk
 -------------------------
 When loading data from the network, latency is typically higher, and so

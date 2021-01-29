@@ -113,6 +113,9 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
             avoiding the slow loading of real timestamps at the cost of
             slightly inaccurate label borders
 
+        See the documentation of :class:`VisibilityDataV4` for the keywords
+        it accepts.
+
     Returns
     -------
     data : :class:`DataSet` object
