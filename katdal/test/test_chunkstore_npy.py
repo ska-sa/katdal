@@ -16,6 +16,7 @@
 
 """Tests for :py:mod:`katdal.chunkstore_npy`."""
 
+import os
 import tempfile
 import shutil
 
@@ -39,6 +40,12 @@ class TestNpyFileChunkStore(ChunkStoreTestBase):
     @classmethod
     def teardown_class(cls):
         shutil.rmtree(cls.tempdir)
+
+    def setup(self):
+        # Clean out data created by previous tests
+        for entry in os.scandir(self.tempdir):
+            if not entry.name.startswith('.') and entry.is_dir():
+                shutil.rmtree(entry.path)
 
     def test_store_unavailable(self):
         assert_raises(StoreUnavailable, NpyFileChunkStore, 'hahahahahaha')
