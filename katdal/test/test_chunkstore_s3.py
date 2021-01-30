@@ -156,8 +156,10 @@ class TestReadArray(object):
 def encode_jwt(header, payload, signature=86 * 'x'):
     """Generate JWT token with encoded signature (dummy ES256 one by default)."""
     # Don't specify algorithm='ES256' here since that needs cryptography package
-    token_bytes = jwt.encode(payload, '', algorithm='none', headers=header)
-    return token_bytes.decode() + signature
+    # This generates an Unsecured JWS without a signature: '<header>.<payload>.'
+    header_payload = jwt.encode(payload, '', algorithm='none', headers=header)
+    # Now tack on a signature that nominally matches the header
+    return header_payload + signature
 
 
 class TestTokenUtils(object):
@@ -188,6 +190,15 @@ class TestTokenUtils(object):
         payload = {'exp': 0, 'iss': 'kat', 'prefix': ['123']}
         token = encode_jwt(header, payload)
         assert_raises(InvalidToken, decode_jwt, token)
+        # Check that expiration time is not-too-large integer
+        payload['exp'] = 1.2
+        assert_raises(InvalidToken, decode_jwt, encode_jwt(header, payload))
+        payload['exp'] = 12345678901234567890
+        assert_raises(InvalidToken, decode_jwt, encode_jwt(header, payload))
+        # Check that it works without expiry date too
+        del payload['exp']
+        claims = decode_jwt(encode_jwt(header, payload))
+        assert_equal(payload, claims)
 
 
 class TestS3ChunkStore(ChunkStoreTestBase):
