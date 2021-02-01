@@ -104,7 +104,7 @@ class SensorGetter:
     def __repr__(self):
         """Short human-friendly string representation of sensor data object."""
         class_name = self.__class__.__name__
-        return f"<katdal.{class_name} '{self.name}' at 0x{id(self):x}>"
+        return f"<katdal.{class_name} '{self.name}' at {id(self):#x}>"
 
 
 class SimpleSensorGetter(SensorGetter):
@@ -169,7 +169,7 @@ class RecordSensorGetter(SensorGetter):
 
     def __repr__(self):
         """Short human-friendly string representation of sensor data object."""
-        return "<katdal.{} '{}' len={} type={} at 0x{:x}>".format(
+        return "<katdal.{} '{}' len={} type={} at {:#x}>".format(
                self.__class__.__name__, self.name,
                len(self._data), self._data['value'].dtype, id(self))
 
@@ -652,9 +652,9 @@ class SensorCache(MutableMapping):
             names = sorted([key for key in self.keys()])
             maxlen = max([len(name) for name in names])
             objects = [self.get(name, extract=False) for name in names]
-        obj_reprs = [(f"<numpy.ndarray shape={obj.shape} type={obj.dtype} at 0x{id(obj):x}>"
+        obj_reprs = [(f"<numpy.ndarray shape={obj.shape} type={obj.dtype} at {id(obj):#x}>"
                       if isinstance(obj, np.ndarray) else repr(obj)) for obj in objects]
-        actual = ['{} : {}'.format(str(name).ljust(maxlen), obj_repr)
+        actual = [f'{name!s:{maxlen}} : {obj_repr}'
                   for name, obj_repr in zip(names, obj_reprs)]
         virtual = ['{} : <function {}.{}>'
                    .format(str(pat).ljust(maxlen), func.__module__, func.__name__)
@@ -666,7 +666,7 @@ class SensorCache(MutableMapping):
         """Short human-friendly string representation of sensor cache object."""
         with self._lock:
             sensors = [self.get(name, extract=False) for name in self.keys()]
-        return "<katdal.{} sensors={} cached={} virtual={} at 0x{:x}>".format(
+        return "<katdal.{} sensors={} cached={} virtual={} at {:#x}>".format(
                self.__class__.__name__, len(sensors),
                np.sum([not isinstance(s, SensorGetter) for s in sensors]),
                len(self.virtual), id(self))

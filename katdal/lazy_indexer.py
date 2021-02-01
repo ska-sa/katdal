@@ -201,7 +201,7 @@ class LazyTransform:
         """Short human-friendly string representation of lazy transform object."""
         class_name = self.__class__.__name__
         dtype = 'unchanged' if self.dtype is None else self.dtype
-        return f"<katdal.{class_name} '{self.name}': type '{dtype}' at 0x{id(self):x}>"
+        return f"<katdal.{class_name} '{self.name}': type '{dtype}' at {id(self):#x}>"
 
     def __call__(self, data, keep):
         """Transform data (`keep` is user-specified second-stage index)."""
@@ -312,7 +312,7 @@ class LazyIndexer:
 
     def __repr__(self):
         """Short human-friendly string representation of lazy indexer object."""
-        return "<katdal.{} '{}': shape {}, type {} at 0x{:x}>".format(
+        return "<katdal.{} '{}': shape {}, type {} at {:#x}>".format(
                self.__class__.__name__, self.name, self.shape, self.dtype, id(self))
 
     def _name_shape_dtype(self, name, shape, dtype):
@@ -607,7 +607,7 @@ class DaskLazyIndexer:
 
     def __repr__(self):
         """Short human-friendly string representation of indexer object."""
-        return "<katdal.{} '{}': shape {}, type {} at 0x{:x}>".format(
+        return "<katdal.{} '{}': shape {}, type {} at {:#x}>".format(
             self.__class__.__name__, self.name, self.shape, self.dtype, id(self))
 
     def __str__(self):

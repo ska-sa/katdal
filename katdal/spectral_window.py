@@ -96,7 +96,7 @@ class SpectralWindow:
         product = repr(self.product) if self.product else 'unknown'
         return (f"<katdal.SpectralWindow {band}-band product={product} "
                 f"centre={self.centre_freq/1e6:.3f} MHz bandwidth={self.bandwidth/1e6:.3f} MHz "
-                f"channels={self.num_chans} at 0x{id(self):x}>")
+                f"channels={self.num_chans} at {id(self):#x}>")
 
     @property
     def _description(self):

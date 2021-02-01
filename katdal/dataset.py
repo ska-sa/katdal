@@ -75,7 +75,7 @@ class Subarray:
 
     def __repr__(self):
         """Short human-friendly string representation of subarray object."""
-        return "<katdal.Subarray antennas={} inputs={} corrprods={} at 0x{:x}>".format(
+        return "<katdal.Subarray antennas={} inputs={} corrprods={} at {:#x}>".format(
                len(self.ants), len(self.inputs), len(self.corr_products), id(self))
 
     @property
@@ -407,7 +407,7 @@ class DataSet:
     def __repr__(self):
         """Short human-friendly string representation of data set object."""
         class_name = self.__class__.__name__
-        return f"<katdal.{class_name} '{self.name}' shape {self.shape} at 0x{id(self):x}>"
+        return f"<katdal.{class_name} '{self.name}' shape {self.shape} at {id(self):#x}>"
 
     def __str__(self):
         """Verbose human-friendly string representation of data set."""
