@@ -603,7 +603,8 @@ def main():
 
                 scan_size_mb = float(scan_size) / (1024**2)
 
-                print(f"Wrote scan data ({scan_size_mb} MiB) in {s1} s ({scan_size_mb / s1} MiBps)\n")
+                print(f'Wrote scan data ({scan_size_mb:.3f} MiB) '
+                      f'in {s1:.3f} s ({scan_size_mb / s1:.3f} MiBps)\n')
 
                 scan_itr += 1
                 total_size += scan_size

@@ -656,8 +656,7 @@ class SensorCache(MutableMapping):
                       if isinstance(obj, np.ndarray) else repr(obj)) for obj in objects]
         actual = [f'{name!s:{maxlen}} : {obj_repr}'
                   for name, obj_repr in zip(names, obj_reprs)]
-        virtual = ['{} : <function {}.{}>'
-                   .format(str(pat).ljust(maxlen), func.__module__, func.__name__)
+        virtual = [f'{pat!s:{maxlen}} : <function {func.__module__}.{func.__name__}>'
                    for pat, func in self.virtual.items()]
         return '\n'.join(['Actual sensors', '--------------'] + actual +
                          ['\nVirtual sensors', '---------------'] + virtual)

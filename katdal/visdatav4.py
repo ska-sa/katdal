@@ -304,7 +304,7 @@ class VisibilityDataV4(DataSet):
         for ant in cam_ants:
             # Try sanitised version of RX serial number first
             rx_serial = attrs.get(f'{ant}_rsc_rx{band}_serial_number', 0)
-            self.receivers[ant] = f'{band}.{rx_serial:d}'
+            self.receivers[ant] = f'{band}.{rx_serial}'
             nd_sensor = f'{ant}_dig_{band}_band_noise_diode'
             if nd_sensor in self.sensor:
                 # A sensor alias would be ideal for this but it only deals with suffixes ATM

@@ -17,6 +17,7 @@
 """Data accessor class for HDF5 files produced by KAT-7 correlator."""
 
 import logging
+import secrets
 
 import numpy as np
 import h5py
@@ -126,8 +127,7 @@ def dummy_dataset(name, shape, dtype, value):
     """
     # It is important to randomise the filename as h5py does not allow two writable file objects with the same name
     # Without this randomness katdal can only open one file requiring a dummy dataset
-    random_string = ''.join(f'{x:02x}' for x in np.random.randint(256, size=8))
-    dummy_file = h5py.File(f'{name}_{random_string}.h5', 'x', driver='core', backing_store=False)
+    dummy_file = h5py.File(f'{name}_{secrets.token_hex(8)}.h5', 'x', driver='core', backing_store=False)
     return dummy_file.create_dataset(name, shape=shape, maxshape=shape,
                                      dtype=dtype, fillvalue=value, compression='gzip')
 
@@ -453,7 +453,7 @@ class H5DataV2(DataSet):
             for proc in self.file['History']['process_log']:
                 # proc has a structured dtype and to_str doesn't work on it, so
                 # we have to to_str each element.
-                param_list = '{:>15}:'.format(to_str(proc[0]))
+                param_list = f'{to_str(proc[0]):>15}:'
                 for param in to_str(proc[1]).split(','):
                     param_list += f'  {param}'
                 descr.append(param_list)

@@ -253,8 +253,8 @@ class TestDaskLazyIndexer:
     def test_str_repr(self):
         def transform1(x):
             return x
-        transform2 = lambda x: x    # noqa: E731
-        class Transform3:   # noqa: E306
+        transform2 = lambda x: x  # noqa: E731
+        class Transform3:         # noqa: E306
             def __call__(self, x):
                 return x
         transform3 = Transform3()

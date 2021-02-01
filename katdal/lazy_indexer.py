@@ -43,7 +43,7 @@ def _range_to_slice(index):
     """
     if not len(index):
         return slice(None, 0, None)
-    if any(i for i in index if i < 0):
+    if any(i < 0 for i in index):
         raise ValueError(f'Could not convert {index} to a slice '
                          '(contains negative elements)')
     increments_left = set(np.diff(index))
