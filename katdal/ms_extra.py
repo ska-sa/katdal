@@ -33,9 +33,8 @@ from casacore import tables
 pyc_ver = parse_version(casacore.__version__)
 req_ver = parse_version("2.2.1")
 if not pyc_ver >= req_ver:
-    raise ImportError("python-casacore %s is required, but the current version is %s. "
-                      "Note that python-casacore %s requires at least casacore 2.3.0."
-                      % (req_ver, pyc_ver, req_ver))
+    raise ImportError(f"python-casacore {req_ver} is required, but the current version is {pyc_ver}. "
+                      f"Note that python-casacore {req_ver} requires at least casacore 2.3.0.")
 
 
 def open_table(name, readonly=False, verbose=False, **kwargs):
@@ -86,9 +85,8 @@ def tiled_array(comment, valueType, ndim, dataManagerGroup, **kwargs):
 
 def define_hypercolumn(desc):
     """Add hypercolumn definitions to table description."""
-    desc['_define_hypercolumn_'] = dict([(v['dataManagerGroup'],
-                                          dict(HCdatanames=[k], HCndim=v['ndim'] + 1))
-                                         for k, v in desc.items() if v['dataManagerType'] == 'TiledShapeStMan'])
+    desc['_define_hypercolumn_'] = {v['dataManagerGroup']: dict(HCdatanames=[k], HCndim=v['ndim'] + 1)
+                                    for k, v in desc.items() if v['dataManagerType'] == 'TiledShapeStMan'}
 
 
 # Map MeasurementSet string types to numpy types
@@ -590,7 +588,7 @@ def populate_polarization_dict(ms_pols=['HH', 'VV'], stokes_i=False, circular=Fa
                  'HH': 9, 'VV': 12, 'HV': 10, 'VH': 11}
     if len(ms_pols) > 1 and stokes_i:
         print("Warning: Polarisation to be marked as stokes, but more than 1 polarisation "
-              "product specified. Using first specified pol (%s)" % ms_pols[0])
+              f"product specified. Using first specified pol ({ms_pols[0]})")
         ms_pols = [ms_pols[0]]
     #  Indices describing receptors of feed going into correlation (integer, 2-dim)
     polarization_dict = {}
@@ -742,7 +740,7 @@ def populate_source_dict(phase_centers, time_origins, field_names=None):
     phase_centers = np.atleast_2d(np.asarray(phase_centers, np.float64))
     num_fields = len(phase_centers)
     if field_names is None:
-        field_names = ['Source%d' % (field,) for field in range(num_fields)]
+        field_names = [f'Source{field}' for field in range(num_fields)]
     source_dict = {}
     # Source identifier as specified in the FIELD sub-table (integer)
     source_dict['SOURCE_ID'] = np.arange(num_fields, dtype=np.int32)
@@ -791,7 +789,7 @@ def populate_field_dict(phase_centers, time_origins, field_names=None):
     phase_centers = np.atleast_2d(np.asarray(phase_centers, np.float64))[:, np.newaxis, :]
     num_fields = len(phase_centers)
     if field_names is None:
-        field_names = ['Field%d' % (field,) for field in range(num_fields)]
+        field_names = [f'Field{field}' for field in range(num_fields)]
     field_dict = {}
     # Special characteristics of field, e.g. position code (string)
     field_dict['CODE'] = np.tile('T', num_fields)
@@ -977,11 +975,11 @@ def write_rows(t, row_dict, verbose=True):
     # Add the space required for this group of rows
     t.addrows(num_rows)
     if verbose:
-        print("  added %d rows" % (num_rows,))
+        print(f"  added {num_rows} rows")
     for col_name, col_data in row_dict.items():
         if col_name not in t.colnames():
             if verbose:
-                print("  column '%s' not in table" % (col_name,))
+                print(f"  column '{col_name}' not in table")
             continue
         if col_data.dtype.kind == 'U':
             col_data = np.char.encode(col_data, encoding='utf-8')
@@ -1005,7 +1003,7 @@ def write_dict(ms_dict, ms_name, verbose=True):
         # Iterate through row groups that are separate dicts within the sub_dict array
         for row_dict in sub_dict:
             if verbose:
-                print("Table %s:" % (sub_table_name,))
+                print(f"Table {sub_table_name}:")
             # Open main table or sub-table
             if sub_table_name == 'MAIN':
                 t = open_table(ms_name, verbose=verbose)

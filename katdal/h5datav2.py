@@ -17,6 +17,7 @@
 """Data accessor class for HDF5 files produced by KAT-7 correlator."""
 
 import logging
+import secrets
 
 import numpy as np
 import h5py
@@ -57,7 +58,8 @@ SENSOR_ALIASES = {
 
 def _calc_azel(cache, name, ant):
     """Calculate virtual (az, el) sensors from actual ones in sensor cache."""
-    real_sensor = 'Antennas/%s/%s' % (ant, 'pos.actual-scan-azim' if name.endswith('az') else 'pos.actual-scan-elev')
+    base_name = 'pos.actual-scan-azim' if name.endswith('az') else 'pos.actual-scan-elev'
+    real_sensor = f'Antennas/{ant}/{base_name}'
     cache[name] = sensor_data = katpoint.deg2rad(cache.get(real_sensor))
     return sensor_data
 
@@ -125,8 +127,7 @@ def dummy_dataset(name, shape, dtype, value):
     """
     # It is important to randomise the filename as h5py does not allow two writable file objects with the same name
     # Without this randomness katdal can only open one file requiring a dummy dataset
-    random_string = ''.join(['%02x' % (x,) for x in np.random.randint(256, size=8)])
-    dummy_file = h5py.File('%s_%s.h5' % (name, random_string), 'x', driver='core', backing_store=False)
+    dummy_file = h5py.File(f'{name}_{secrets.token_hex(8)}.h5', 'x', driver='core', backing_store=False)
     return dummy_file.create_dataset(name, shape=shape, maxshape=shape,
                                      dtype=dtype, fillvalue=value, compression='gzip')
 
@@ -197,8 +198,8 @@ class H5DataV2(DataSet):
         self._timestamps = data_group['timestamps']
         num_dumps = len(self._timestamps)
         if num_dumps != self._vis.shape[0]:
-            raise BrokenFile('Number of timestamps received from k7_capture '
-                             '(%d) differs from number of dumps in data (%d)' % (num_dumps, self._vis.shape[0]))
+            raise BrokenFile(f'Number of timestamps received from k7_capture ({num_dumps}) '
+                             f'differs from number of dumps in data ({self._vis.shape[0]})')
         # Discard the last sample if the timestamp is a duplicate (caused by stop packet in k7_capture)
         num_dumps = (num_dumps - 1) if num_dumps > 1 and (self._timestamps[-1] == self._timestamps[-2]) else num_dumps
         # Do quick test for uniform spacing of timestamps (necessary but not sufficient)
@@ -208,9 +209,9 @@ class H5DataV2(DataSet):
         irregular = abs(expected_dumps - num_dumps) >= 0.01
         if irregular:
             # Warn the user, as this is anomalous
-            logger.warning(("Irregular timestamps detected in file '%s': "
-                           "expected %.3f dumps based on dump period and start/end times, got %d instead") %
-                           (filename, expected_dumps, num_dumps))
+            logger.warning("Irregular timestamps detected in file '%s': expected %.3f dumps "
+                           "based on dump period and start/end times, got %d instead",
+                           filename, expected_dumps, num_dumps)
             if quicklook:
                 logger.warning("Quicklook option selected - partitioning data based on synthesised timestamps instead")
         if not irregular or quicklook:
@@ -224,7 +225,7 @@ class H5DataV2(DataSet):
         # Move timestamps from start of each dump to the middle of the dump
         data_timestamps += 0.5 * self.dump_period + self.time_offset
         if data_timestamps[0] < 1e9:
-            logger.warning("File '%s' has invalid first correlator timestamp (%f)" % (filename, data_timestamps[0],))
+            logger.warning("File '%s' has invalid first correlator timestamp (%f)", filename, data_timestamps[0])
         self._time_keep = np.ones(num_dumps, dtype=np.bool)
         self.start_time = katpoint.Timestamp(data_timestamps[0] - 0.5 * self.dump_period)
         self.end_time = katpoint.Timestamp(data_timestamps[-1] + 0.5 * self.dump_period)
@@ -294,7 +295,7 @@ class H5DataV2(DataSet):
         self.sensor['Observation/subarray_index'] = CategoricalData([0], [0, len(data_timestamps)])
         # Store antenna objects in sensor cache too, for use in virtual sensor calculations
         for ant in ants:
-            self.sensor['Antennas/%s/antenna' % (ant.name,)] = CategoricalData([ant], [0, len(data_timestamps)])
+            self.sensor[f'Antennas/{ant.name}/antenna'] = CategoricalData([ant], [0, len(data_timestamps)])
         # Extract array reference from first antenna (first 5 fields of description)
         array_ant_fields = ['array'] + ants[0].description.split(',')[1:5]
         array_ant = katpoint.Antenna(','.join(array_ant_fields))
@@ -312,8 +313,8 @@ class H5DataV2(DataSet):
             centre_freq.unique_values = [freq - 4200e6 for freq in centre_freq.unique_values]
         num_chans = get_single_value(config_group['Correlator'], 'n_chans')
         if num_chans != self._vis.shape[1]:
-            raise BrokenFile('Number of channels received from correlator '
-                             '(%d) differs from number of channels in data (%d)' % (num_chans, self._vis.shape[1]))
+            raise BrokenFile(f'Number of channels received from correlator ({num_chans}) '
+                             f'differs from number of channels in data ({self._vis.shape[1]})')
         bandwidth = get_single_value(config_group['Correlator'], 'bandwidth')
         channel_width = bandwidth / num_chans
         try:
@@ -330,7 +331,7 @@ class H5DataV2(DataSet):
         # ------ Extract scans / compound scans / targets ------
 
         # Use the activity sensor of reference antenna to partition the data set into scans (and to set their states)
-        scan = self.sensor.get('Antennas/%s/activity' % (self.ref_ant,))
+        scan = self.sensor.get(f'Antennas/{self.ref_ant}/activity')
         # If the antenna starts slewing on the second dump, incorporate the first dump into the slew too.
         # This scenario typically occurs when the first target is only set after the first dump is received.
         # The workaround avoids putting the first dump in a scan by itself, typically with an irrelevant target.
@@ -358,7 +359,7 @@ class H5DataV2(DataSet):
         self.sensor['Observation/label'] = label
         self.sensor['Observation/compscan_index'] = CategoricalData(list(range(len(label))), label.events)
         # Use the target sensor of reference antenna to set the target for each scan
-        target = self.sensor.get('Antennas/%s/target' % (self.ref_ant,))
+        target = self.sensor.get(f'Antennas/{self.ref_ant}/target')
         # Move target events onto the nearest scan start
         # ASSUMPTION: Number of targets <= number of scans (i.e. only a single target allowed per scan)
         target.align(scan.events)
@@ -366,7 +367,7 @@ class H5DataV2(DataSet):
         self.sensor['Observation/target_index'] = CategoricalData(target.indices, target.events)
         # Set up catalogue containing all targets in file, with reference antenna as default antenna
         self.catalogue.add(target.unique_values)
-        self.catalogue.antenna = self.sensor['Antennas/%s/antenna' % (self.ref_ant,)][0]
+        self.catalogue.antenna = self.sensor[f'Antennas/{self.ref_ant}/antenna'][0]
         # Ensure that each target flux model spans all frequencies in data set if possible
         self._fix_flux_freq_range()
 
@@ -384,7 +385,7 @@ class H5DataV2(DataSet):
         f = h5py.File(filename, mode)
         version = to_str(f.attrs.get('version', '1.x'))
         if not version.startswith('2.'):
-            raise WrongVersion("Attempting to load version '%s' file with version 2 loader" % (version,))
+            raise WrongVersion(f"Attempting to load version '{version}' file with version 2 loader")
         if 'augment_ts' not in f.attrs:
             raise BrokenFile('HDF5 file not augmented - please run '
                              'k7_augment.py (provided by katcapture package)')
@@ -444,7 +445,7 @@ class H5DataV2(DataSet):
 
     def __str__(self):
         """Verbose human-friendly string representation of data set."""
-        descr = [super(H5DataV2, self).__str__()]
+        descr = [super().__str__()]
         # append the process_log, if it exists, for non-concatenated h5 files
         if 'process_log' in self.file['History']:
             descr.append('-------------------------------------------------------------------------------')
@@ -452,9 +453,9 @@ class H5DataV2(DataSet):
             for proc in self.file['History']['process_log']:
                 # proc has a structured dtype and to_str doesn't work on it, so
                 # we have to to_str each element.
-                param_list = '%15s:' % to_str(proc[0])
+                param_list = f'{to_str(proc[0]):>15}:'
                 for param in to_str(proc[1]).split(','):
-                    param_list += '  %s' % param
+                    param_list += f'  {param}'
                 descr.append(param_list)
         return '\n'.join(descr)
 
@@ -475,7 +476,7 @@ class H5DataV2(DataSet):
                 selection.append(known_weights.index(name))
             except ValueError:
                 logger.warning("%r is not a legitimate weight type for this file, "
-                               "supported ones are %s" % (name, known_weights))
+                               "supported ones are %s", name, known_weights)
         if known_weights and not selection:
             logger.warning('No valid weights were selected - setting all weights to 1.0 by default')
         self._weights_select = selection
@@ -488,7 +489,7 @@ class H5DataV2(DataSet):
         # The KAT-7 flagger uses the np.packbits convention (bit 0 = MSB) so don't flip
         selection = np.unpackbits(self._flags_select)
         assert len(known_flags) == len(selection), \
-            'Expected %d flag types in file, got %s' % (len(selection), self._flags_description)
+            f'Expected {len(selection)} flag types in file, got {self._flags_description}'
         return [name for name, bit in zip(known_flags, selection) if bit]
 
     @_flags_keep.setter
@@ -502,13 +503,13 @@ class H5DataV2(DataSet):
         # Create boolean list for desired flags
         selection = np.zeros(8, dtype=np.uint8)
         assert len(known_flags) == len(selection), \
-            'Expected %d flag types in file, got %d' % (len(selection), self._flags_description)
+            f'Expected {len(selection)} flag types in file, got {self._flags_description}'
         for name in names:
             try:
                 selection[known_flags.index(name)] = 1
             except ValueError:
                 logger.warning("%r is not a legitimate flag type for this file, "
-                               "supported ones are %s" % (name, known_flags))
+                               "supported ones are %s", name, known_flags)
         # Pack index list into bit mask
         # The KAT-7 flagger uses the np.packbits convention (bit 0 = MSB) so don't flip
         flagmask = np.packbits(selection)

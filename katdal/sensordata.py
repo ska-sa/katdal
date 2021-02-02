@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 # -------------------------------------------------------------------------------------------------
 
 
-class SensorData(object):
+class SensorData:
     """Raw (uninterpolated) sensor values.
 
     This is a simple struct that holds timestamps, values, and optionally
@@ -71,7 +71,7 @@ class SensorData(object):
         return len(self.timestamp) > 0
 
 
-class SensorGetter(object):
+class SensorGetter:
     """Raw (uninterpolated) sensor data placeholder.
 
     This is an abstract lazy interface that provides a :class:`SensorData`
@@ -103,8 +103,8 @@ class SensorGetter(object):
 
     def __repr__(self):
         """Short human-friendly string representation of sensor data object."""
-        return "<katdal.%s '%s' at 0x%x>" % \
-               (self.__class__.__name__, self.name, id(self))
+        class_name = self.__class__.__name__
+        return f"<katdal.{class_name} '{self.name}' at {id(self):#x}>"
 
 
 class SimpleSensorGetter(SensorGetter):
@@ -115,7 +115,7 @@ class SimpleSensorGetter(SensorGetter):
     """
 
     def __init__(self, name, timestamp, value, status=None):
-        super(SimpleSensorGetter, self).__init__(name)
+        super().__init__(name)
         self._data = SensorData(name, timestamp, value, status)
 
     def get(self):
@@ -151,7 +151,7 @@ class RecordSensorGetter(SensorGetter):
 
     def __init__(self, data, name=None):
         name = name if name is not None else getattr(data, 'name', '')
-        super(RecordSensorGetter, self).__init__(name)
+        super().__init__(name)
         self._data = data
 
     def get(self):
@@ -169,9 +169,9 @@ class RecordSensorGetter(SensorGetter):
 
     def __repr__(self):
         """Short human-friendly string representation of sensor data object."""
-        return "<katdal.%s '%s' len=%d type=%s at 0x%x>" % \
-               (self.__class__.__name__, self.name,
-                len(self._data), self._data['value'].dtype, id(self))
+        return "<katdal.{} '{}' len={} type={} at {:#x}>".format(
+               self.__class__.__name__, self.name,
+               len(self._data), self._data['value'].dtype, id(self))
 
 
 def to_str(value):
@@ -259,7 +259,7 @@ class H5TelstateSensorGetter(RecordSensorGetter):
     """
 
     def __init__(self, data, name=None):
-        super(H5TelstateSensorGetter, self).__init__(data, name)
+        super().__init__(data, name)
 
     def get(self):
         """Extract timestamp and value of each sensor data point."""
@@ -273,7 +273,7 @@ class H5TelstateSensorGetter(RecordSensorGetter):
         return SensorData(self.name, timestamp, to_str(np.asarray(values)))
 
 
-class TelstateToStr(object):
+class TelstateToStr:
     """Wrap an existing telescope state and pass return values through :meth:`to_str`"""
     def __init__(self, telstate):
         if isinstance(telstate, TelstateToStr):
@@ -304,7 +304,7 @@ class TelstateToStr(object):
 
     def __dir__(self):
         # Include public attributes of _telstate that are reachable via __getattr__
-        basic = dir(super(TelstateToStr, self))
+        basic = dir(super())
         extra = [d for d in dir(self._telstate)
                  if d not in basic and not d.startswith('_')]
         return basic + extra
@@ -367,7 +367,7 @@ class TelstateSensorGetter(SensorGetter):
         if key_type != katsdptelstate.KeyType.MUTABLE:
             raise KeyError("No sensor named %r in telstate (it's %s)" %
                            (name, key_type.name))
-        super(TelstateSensorGetter, self).__init__(name)
+        super().__init__(name)
 
     def __bool__(self):
         """True if sensor has at least one data point (already checked in init)."""
@@ -414,15 +414,15 @@ def get_sensor_from_katstore(store, name, start_time, end_time):
     """
     # The sensor name won't be in sensor store if it contains invalid characters
     if not str.isidentifier(name):
-        raise KeyError("Sensor name '%s' is not valid Python identifier" % (name,))
+        raise KeyError(f"Sensor name '{name}' is not valid Python identifier")
     with requests.Session() as session:
-        url = "http://%s/katstore/api/query" % (store,)
+        url = f"http://{store}/katstore/api/query"
         params = {'sensor': name, 'start_time': start_time, 'end_time': end_time,
                   'limit': 1000000, 'include_value_time': 'True'}
         try:
             response = session.get(url, params=params)
         except requests.exceptions.ConnectionError as exc:
-            err = ConnectionError("Could not connect to sensor store '%s'" % (store,))
+            err = ConnectionError(f"Could not connect to sensor store '{store}'")
             raise err from exc
         with response:
             try:
@@ -436,7 +436,7 @@ def get_sensor_from_katstore(store, name, start_time, end_time):
                                    (url, response.status_code, response.reason))
                 raise err from exc
         if not samples:
-            raise KeyError("Sensor store has no data for sensor '%s'" % (name,))
+            raise KeyError(f"Sensor store has no data for sensor '{name}'")
         samples = np.rec.fromrecords(samples, names='timestamp,value,status')
         return RecordSensorGetter(samples, name)
 
@@ -628,7 +628,7 @@ class SensorCache(MutableMapping):
 
     def __init__(self, cache, timestamps, dump_period, keep=slice(None),
                  props=None, virtual={}, aliases={}, store=None):
-        super(SensorCache, self).__init__()
+        super().__init__()
         # This needs to be an RLock because instantiating a virtual sensor
         # may require further sensor lookups (hopefully without a loop, which
         # would really cause problems).
@@ -652,10 +652,11 @@ class SensorCache(MutableMapping):
             names = sorted([key for key in self.keys()])
             maxlen = max([len(name) for name in names])
             objects = [self.get(name, extract=False) for name in names]
-        obj_reprs = [(("<numpy.ndarray shape=%s type=%s at 0x%x>" % (obj.shape, obj.dtype, id(obj)))
-                     if isinstance(obj, np.ndarray) else repr(obj)) for obj in objects]
-        actual = ['%s : %s' % (str(name).ljust(maxlen), obj_repr) for name, obj_repr in zip(names, obj_reprs)]
-        virtual = ['%s : <function %s.%s>' % (str(pat).ljust(maxlen), func.__module__, func.__name__)
+        obj_reprs = [(f"<numpy.ndarray shape={obj.shape} type={obj.dtype} at {id(obj):#x}>"
+                      if isinstance(obj, np.ndarray) else repr(obj)) for obj in objects]
+        actual = [f'{name!s:{maxlen}} : {obj_repr}'
+                  for name, obj_repr in zip(names, obj_reprs)]
+        virtual = [f'{pat!s:{maxlen}} : <function {func.__module__}.{func.__name__}>'
                    for pat, func in self.virtual.items()]
         return '\n'.join(['Actual sensors', '--------------'] + actual +
                          ['\nVirtual sensors', '---------------'] + virtual)
@@ -664,10 +665,10 @@ class SensorCache(MutableMapping):
         """Short human-friendly string representation of sensor cache object."""
         with self._lock:
             sensors = [self.get(name, extract=False) for name in self.keys()]
-        return "<katdal.%s sensors=%d cached=%d virtual=%d at 0x%x>" % \
-               (self.__class__.__name__, len(sensors),
-                np.sum([not isinstance(s, SensorGetter) for s in sensors]),
-                len(self.virtual), id(self))
+        return "<katdal.{} sensors={} cached={} virtual={} at {:#x}>".format(
+               self.__class__.__name__, len(sensors),
+               np.sum([not isinstance(s, SensorGetter) for s in sensors]),
+               len(self.virtual), id(self))
 
     def __getitem__(self, name):
         """Sensor values interpolated to correlator data timestamps.
@@ -837,7 +838,7 @@ class SensorCache(MutableMapping):
                     # Expand variable names enclosed in braces to the relevant regular expression
                     # (match anything but slashes, which are preferred delimiters in virtual sensor names)
                     pattern = re.sub(r'(\{[a-zA-Z_]\w*\})',
-                                     lambda m: '(?P<%s>[^/]+)' % (m.group(0)[1:-1],), pattern)
+                                     lambda m: '(?P<{}>[^/]+)'.format(m.group(0)[1:-1]), pattern)
                     match = re.match(pattern, name)
                     if match:
                         # Call sensor creation function with extracted variables from sensor name
@@ -852,8 +853,8 @@ class SensorCache(MutableMapping):
                         sensor_data = get_sensor_from_katstore(
                             self.store, name, start_time, end_time)
                     else:
-                        raise KeyError("Unknown sensor '%s' (does not match actual name or "
-                                       "virtual template and no sensor store provided)" % (name,))
+                        raise KeyError(f"Unknown sensor '{name}' (does not match actual name or "
+                                       "virtual template and no sensor store provided)")
             # If this is the first time this sensor is accessed, extract its data and store it in cache, if enabled
             if isinstance(sensor_data, SensorGetter) and extract:
                 props = self._get_props(name, self.props, **kwargs)
@@ -891,8 +892,8 @@ class SensorCache(MutableMapping):
             try:
                 return self.get(name, select=True)
             except KeyError:
-                logger.debug('Could not find %s sensor with name %r, trying next option' % (sensor_type, name))
-        raise KeyError('Could not find any %s sensor, tried %s' % (sensor_type, names))
+                logger.debug('Could not find %s sensor with name %r, trying next option', sensor_type, name)
+        raise KeyError(f'Could not find any {sensor_type} sensor, tried {names}')
 
     # MutableMapping abstract methods
 

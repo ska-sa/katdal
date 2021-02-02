@@ -166,7 +166,7 @@ def npy_header_and_body(chunk):
     return header, chunk
 
 
-class ChunkStore(object):
+class ChunkStore:
     r"""Base class for accessing a store of chunks (i.e. N-dimensional arrays).
 
     A *chunk* is a simple (i.e. unit-stride) slice of an N-dimensional array
@@ -379,24 +379,22 @@ class ChunkStore(object):
         try:
             shape = tuple(s.stop - s.start for s in slices)
         except (TypeError, AttributeError):
-            raise BadChunk('Array {!r}: chunk ID should be a sequence of '
-                           'slice objects, not {}'.format(array_name, slices))
+            raise BadChunk(f'Array {array_name!r}: chunk ID should be '
+                           f'a sequence of slice objects, not {slices}')
         # Verify that all slice strides are unity (i.e. it's a "simple" slice)
         if not all([s.step in (1, None) for s in slices]):
-            raise BadChunk('Array {!r}: chunk ID {} contains non-unit strides'
-                           .format(array_name, slices))
+            raise BadChunk(f'Array {array_name!r}: chunk ID {slices} contains non-unit strides')
         # Construct chunk name from array_name + slices
         chunk_name = cls.join(array_name, cls.chunk_id_str(slices))
         if chunk is not None and chunk.shape != shape:
-            raise BadChunk('Chunk {!r}: shape {} implied by slices does not '
-                           'match actual shape {}'
-                           .format(chunk_name, shape, chunk.shape))
+            raise BadChunk(f'Chunk {chunk_name!r}: shape {shape} implied by slices '
+                           f'does not match actual shape {chunk.shape}')
         if chunk is not None and chunk.dtype.hasobject:
-            raise BadChunk('Chunk {!r}: actual dtype {} cannot contain '
-                           'objects'.format(chunk_name, chunk.dtype))
+            raise BadChunk(f'Chunk {chunk_name!r}: actual dtype {chunk.dtype} '
+                           'cannot contain objects')
         if dtype is not None and np.dtype(dtype).hasobject:
-            raise BadChunk('Chunk {!r}: Requested dtype {} cannot contain '
-                           'objects'.format(chunk_name, dtype))
+            raise BadChunk(f'Chunk {chunk_name!r}: Requested dtype {dtype} '
+                           'cannot contain objects')
         return chunk_name, shape
 
     @contextlib.contextmanager
@@ -421,7 +419,7 @@ class ChunkStore(object):
                 # keys, so pick the first one found
                 FirstBase = next(c for c in self._error_map if isinstance(e, c))
                 StandardisedError = self._error_map[FirstBase]
-            prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
+            prefix = f'Chunk {chunk_name!r}: ' if chunk_name else ''
             raise StandardisedError(prefix + str(e)) from e
 
     def get_dask_array(self, array_name, chunks, dtype, offset=(), errors=0):
@@ -494,7 +492,7 @@ class ChunkStore(object):
         in_name = array.name
         out_name = array_name
         # Make out_name unique to avoid clashes and caches
-        out_name = 'store-{}-{}-{}'.format(out_name, offset, uuid.uuid4().hex)
+        out_name = f'store-{out_name}-{offset}-{uuid.uuid4().hex}'
         put = _scalar_to_chunk(self.put_chunk_noraise)
         if offset:
             put = _add_offset_to_slices(put, offset)

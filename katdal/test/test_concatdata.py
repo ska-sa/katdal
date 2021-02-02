@@ -1,5 +1,3 @@
-# -*- coding: utf-8
-
 ################################################################################
 # Copyright (c) 2020, National Research Foundation (Square Kilometre Array)
 #
@@ -26,7 +24,7 @@ from katdal.sensordata import SensorCache, SimpleSensorGetter
 from katdal.concatdata import ConcatenatedSensorCache
 
 
-class TestConcatenatedSensorCache(object):
+class TestConcatenatedSensorCache:
     @staticmethod
     def _make_cache(timestamps, sensors):
         cache_data = {}

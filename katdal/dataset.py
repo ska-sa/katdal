@@ -41,7 +41,7 @@ class BrokenFile(Exception):
     """Data set could not be loaded because file is inconsistent or misses critical bits."""
 
 
-class Subarray(object):
+class Subarray:
     """Subarray specification.
 
     A subarray is determined by the specific correlation products produced by the
@@ -69,22 +69,20 @@ class Subarray(object):
                                        for inpA, inpB in corr_products])
         # Extract all inputs (and associated antennas) from corr product list
         self.inputs = sorted(set(np.ravel(self.corr_products)))
-        input_ants = set([inp[:-1] for inp in self.inputs])
+        input_ants = {inp[:-1] for inp in self.inputs}
         # Only keep antennas that are involved in correlation products
         self.ants = [ant for ant in ants if ant.name in input_ants]
 
     def __repr__(self):
         """Short human-friendly string representation of subarray object."""
-        return "<katdal.Subarray antennas=%d inputs=%d corrprods=%d at 0x%x>" % \
-               (len(self.ants), len(self.inputs), len(self.corr_products),
-                id(self))
+        return "<katdal.Subarray antennas={} inputs={} corrprods={} at {:#x}>".format(
+               len(self.ants), len(self.inputs), len(self.corr_products), id(self))
 
     @property
     def _description(self):
         """Complete string representation, used internally for comparisons."""
         ants = '\n'.join(ant.description for ant in self.ants)
-        corrprods = ' '.join('%s,%s' % (inpA, inpB)
-                             for inpA, inpB in self.corr_products)
+        corrprods = ' '.join(f'{inpA},{inpB}' for inpA, inpB in self.corr_products)
         return '\n'.join((ants, corrprods))
 
     def __eq__(self, other):
@@ -113,7 +111,7 @@ def _robust_target(description):
     try:
         return katpoint.Target(description)
     except ValueError:
-        logger.warning("Invalid target description '%s' - replaced with dummy target" % (description,))
+        logger.warning("Invalid target description '%s' - replaced with dummy target", description)
         return katpoint.Target('Nothing, special')
 
 
@@ -168,14 +166,14 @@ def _calc_mjd(cache, name):
 
 def _calc_lst(cache, name, ant):
     """Calculate local sidereal time (LST) timestamps using sensor cache contents."""
-    antenna = cache.get('Antennas/%s/antenna' % (ant,))[0]
+    antenna = cache.get(f'Antennas/{ant}/antenna')[0]
     cache[name] = lst = antenna.local_sidereal_time(cache.timestamps[:])
     return lst
 
 
 def _calc_radec(cache, name, ant):
     """Calculate (ra, dec) pointing coordinates using sensor cache contents."""
-    ant_group = 'Antennas/%s/' % (ant,)
+    ant_group = f'Antennas/{ant}/'
     antenna = cache.get(ant_group + 'antenna')[0]
     az = cache.get(ant_group + 'az')
     el = cache.get(ant_group + 'el')
@@ -188,7 +186,7 @@ def _calc_radec(cache, name, ant):
 
 def _calc_parangle(cache, name, ant):
     """Calculate parallactic angle using sensor cache contents."""
-    ant_group = 'Antennas/%s/' % (ant,)
+    ant_group = f'Antennas/{ant}/'
     antenna = cache.get(ant_group + 'antenna')[0]
     az = cache.get(ant_group + 'az')
     el = cache.get(ant_group + 'el')
@@ -200,7 +198,7 @@ def _calc_parangle(cache, name, ant):
 
 def _calc_target_coords(cache, name, ant, projection, coordsys):
     """Calculate target coordinates using sensor cache contents."""
-    ant_group = 'Antennas/%s/' % (ant,)
+    ant_group = f'Antennas/{ant}/'
     antenna = cache.get(ant_group + 'antenna')[0]
     if coordsys == 'radec':
         lon = cache.get(ant_group + 'ra')
@@ -219,14 +217,14 @@ def _calc_target_coords(cache, name, ant, projection, coordsys):
         x[segm], y[segm] = target.sphere_to_plane(lon[segm], lat[segm],
                                                   cache.timestamps[segm],
                                                   antenna, projection, coordsys)
-    cache[ant_group + 'target_x_%s_%s' % (projection, coordsys)] = x
-    cache[ant_group + 'target_y_%s_%s' % (projection, coordsys)] = y
+    cache[ant_group + f'target_x_{projection}_{coordsys}'] = x
+    cache[ant_group + f'target_y_{projection}_{coordsys}'] = y
     return x if name.startswith(ant_group + 'target_x') else y
 
 
 def _calc_uvw_basis(cache, name, ant):
     """Calculate (u,v,w) basis vectors using sensor cache contents."""
-    ant_group = 'Antennas/%s/' % (ant,)
+    ant_group = f'Antennas/{ant}/'
     antenna = cache.get(ant_group + 'antenna')[0]
     u = np.empty((len(cache.timestamps), 3))
     v = np.empty((len(cache.timestamps), 3))
@@ -246,7 +244,7 @@ def _calc_uvw_basis(cache, name, ant):
 def _calc_uvw_per_ant(cache, name, ant):
     """Calculate (u,v,w) coordinates per antenna using sensor cache contents."""
     array_antenna = cache.get('Antennas/array/antenna')[0]
-    antenna = cache.get('Antennas/%s/antenna' % (ant,))[0]
+    antenna = cache.get(f'Antennas/{ant}/antenna')[0]
     basis = cache.get('Antennas/array/basis_' + name[-1])
     # Obtain baseline vector from array reference to specified antenna
     baseline_m = array_antenna.baseline_toward(antenna)
@@ -269,7 +267,7 @@ DEFAULT_VIRTUAL_SENSORS = {
 # -------------------------------------------------------------------------------------------------
 
 
-class DataSet(object):
+class DataSet:
     """Base class for accessing a visibility data set.
 
     This provides a simple interface to a generic file (or files) containing
@@ -408,20 +406,21 @@ class DataSet(object):
 
     def __repr__(self):
         """Short human-friendly string representation of data set object."""
-        return "<katdal.%s '%s' shape %s at 0x%x>" % (self.__class__.__name__, self.name, self.shape, id(self))
+        class_name = self.__class__.__name__
+        return f"<katdal.{class_name} '{self.name}' shape {self.shape} at {id(self):#x}>"
 
     def __str__(self):
         """Verbose human-friendly string representation of data set."""
         # Start with static file information
         descr = ['===============================================================================',
-                 'Name: %s (version %s)' % (self.name, self.version),
+                 f'Name: {self.name} (version {self.version})',
                  '===============================================================================',
-                 'Observer: %s  Experiment ID: %s' % (self.observer if self.observer else '-',
-                                                      self.experiment_id if self.experiment_id else '-'),
-                 "Description: '%s'" % (self.description if self.description else 'No description',),
-                 'Observed from %s to %s' % (self.start_time.local(), self.end_time.local()),
-                 'Dump rate / period: %.5f Hz / %.3f s' % (1 / self.dump_period, self.dump_period),
-                 'Subarrays: %d' % (len(self.subarrays),),
+                 'Observer: {}  Experiment ID: {}'.format(self.observer if self.observer else '-',
+                                                          self.experiment_id if self.experiment_id else '-'),
+                 "Description: '{}'".format(self.description if self.description else 'No description'),
+                 f'Observed from {self.start_time.local()} to {self.end_time.local()}',
+                 'Dump rate / period: {:.5f} Hz / {:.3f} s'.format(1 / self.dump_period, self.dump_period),
+                 'Subarrays: {}'.format(len(self.subarrays)),
                  '  ID  Antennas                            Inputs  Corrprods']
         for n, sub in enumerate(self.subarrays):
             ant_names = ','.join([ant.name for ant in sub.ants])
@@ -439,7 +438,7 @@ class DataSet(object):
         descr += ['-------------------------------------------------------------------------------',
                   'Data selected according to the following criteria:']
         for k, v in sorted(self._selection.items()):
-            descr.append('  %s=%s' % (k, ("'%s'" % (v,)) if isinstance(v, str) else v))
+            descr.append('  {}={}'.format(k, f"'{v}'" if isinstance(v, str) else v))
         descr.append('-------------------------------------------------------------------------------')
         descr.append('Shape: (%d dumps, %d channels, %d correlation products) => Size: %s' %
                      tuple(list(self.shape) + ['%.3f %s' % ((self.size / 1e9, 'GB') if self.size > 1e9 else
@@ -471,7 +470,7 @@ class DataSet(object):
             # Calculate average target flux over selected frequency band
             flux_spectrum = target.flux_density(self.freqs / 1e6)
             flux_valid = ~np.isnan(flux_spectrum)
-            flux = ('%9.2f' % (flux_spectrum[flux_valid].mean(),)) if np.any(flux_valid) else ''
+            flux = '{:9.2f}'.format(flux_spectrum[flux_valid].mean()) if np.any(flux_valid) else ''
             target_dumps = ((self.sensor.get('Observation/target_index') == n) & self._time_keep).sum()
             descr.append('  %2d  %s  %s  %11s  %11s  %s  %5d  %s' %
                          (n, target.name.ljust(name_len), target_type.ljust(8),
@@ -729,7 +728,7 @@ class DataSet(object):
                 scans = _selection_to_list(v)
                 scan_keep = np.zeros(len(self._time_keep), dtype=np.bool)
                 scan_sensor = self.sensor.get('Observation/scan_state' if k == 'scans' else 'Observation/label')
-                scan_index_sensor = self.sensor.get('Observation/%s_index' % (k[:-1],))
+                scan_index_sensor = self.sensor.get(f'Observation/{k[:-1]}_index')
                 for scan in scans:
                     if isinstance(scan, numbers.Integral):
                         scan_keep |= (scan_index_sensor == scan)
@@ -836,7 +835,7 @@ class DataSet(object):
         self.channel_width = self.spectral_windows[self.spw].channel_width
         self.corr_products = self.subarrays[self.subarray].corr_products[self._corrprod_keep]
         self.inputs = sorted(set(np.ravel(self.corr_products)))
-        input_ants = set([inp[:-1] for inp in self.inputs])
+        input_ants = {inp[:-1] for inp in self.inputs}
         self.ants = [ant for ant in self.subarrays[self.subarray].ants if ant.name in input_ants]
         # Ensure that updated selections make their way to sensor cache, as
         # well as any underlying datasets and data lazy indexers that need it
@@ -1030,12 +1029,12 @@ class DataSet(object):
         The sidereal times are returned in an array of float, shape (*T*,).
 
         """
-        return self.sensor['Antennas/%s/lst' % self.ref_ant] * (12 / np.pi)
+        return self.sensor[f'Antennas/{self.ref_ant}/lst'] * (12 / np.pi)
 
     def _sensor_per_ant(self, base_name):
         """Extract a single sensor per antenna and safely stack the results."""
         def sensor_data(ant_name):
-            return self.sensor['Antennas/%s/%s' % (ant_name, base_name)]
+            return self.sensor[f'Antennas/{ant_name}/{base_name}']
         return np.column_stack([sensor_data(ant.name) for ant in self.ants]) \
             if self.ants else np.zeros((self.shape[0], 0))
 
@@ -1047,8 +1046,8 @@ class DataSet(object):
         what (u, v, w) sensors need.
         """
         def difference(antA, antB):
-            coord1 = self.sensor['Antennas/%s/%s' % (antA, base_name)]
-            coord2 = self.sensor['Antennas/%s/%s' % (antB, base_name)]
+            coord1 = self.sensor[f'Antennas/{antA}/{base_name}']
+            coord2 = self.sensor[f'Antennas/{antB}/{base_name}']
             return coord1 - coord2
         return np.column_stack([difference(inpA[:-1], inpB[:-1])
                                 for inpA, inpB in self.corr_products]) \
@@ -1118,7 +1117,7 @@ class DataSet(object):
         float, shape (*T*, *A*).
 
         """
-        name = 'target_x_%s_%s' % (self.target_projection, self.target_coordsys)
+        name = f'target_x_{self.target_projection}_{self.target_coordsys}'
         return rad2deg(self._sensor_per_ant(name))
 
     @property
@@ -1134,7 +1133,7 @@ class DataSet(object):
         float, shape (*T*, *A*).
 
         """
-        name = 'target_y_%s_%s' % (self.target_projection, self.target_coordsys)
+        name = f'target_y_{self.target_projection}_{self.target_coordsys}'
         return rad2deg(self._sensor_per_ant(name))
 
     @property

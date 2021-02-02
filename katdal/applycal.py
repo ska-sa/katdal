@@ -90,8 +90,8 @@ def _parse_cal_product(cal_product):
     """Split `cal_product` into `cal_stream` and `product_type` parts."""
     fields = cal_product.rsplit('.', 1)
     if len(fields) != 2:
-        raise ValueError('Calibration product {} is not in the format '
-                         '<cal_stream>.<product_type>'.format(cal_product))
+        raise ValueError(f'Calibration product {cal_product} is not in the format '
+                         '<cal_stream>.<product_type>')
     return fields[0], fields[1]
 
 
@@ -107,7 +107,7 @@ def get_cal_product(cache, cal_stream, product_type):
     product_type : string
         Calibration product type (e.g. "G")
     """
-    sensor_name = 'Calibration/Products/{}/{}'.format(cal_stream, product_type)
+    sensor_name = f'Calibration/Products/{cal_stream}/{product_type}'
     return cache.get(sensor_name)
 
 
@@ -331,7 +331,7 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
 
     def indirect_cal_product(cache, name, product_type):
         try:
-            n_parts = int(attrs['product_{}_parts'.format(product_type)])
+            n_parts = int(attrs[f'product_{product_type}_parts'])
         except KeyError:
             return indirect_cal_product_raw(cache, name, product_type)
         # Handle multi-part cal product (as produced by "split cal")
@@ -376,8 +376,7 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
                     part_indices[i] += 1
                     part_timestamps[i] = ts[part_indices[i]] if part_indices[i] < len(ts) else np.inf
         if not timestamps:
-            raise KeyError("No cal product '{}' parts found (expected {})"
-                           .format(name, n_parts))
+            raise KeyError(f"No cal product '{name}' parts found (expected {n_parts})")
         return SimpleSensorGetter(indirect_cal_product_name(name, product_type),
                                   np.array(timestamps), np.array(values))
 
@@ -387,9 +386,8 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
         try:
             index = cal_input_map[inp]
         except KeyError:
-            raise KeyError("No calibration solutions available for input "
-                           "'{}' - available ones are {}"
-                           .format(inp, sorted(cal_input_map.keys())))
+            raise KeyError(f"No calibration solutions available for input '{inp}' - "
+                           f'available ones are {sorted(cal_input_map.keys())}')
         if product_type == 'K':
             correction_sensor = calc_delay_correction(product_sensor, index,
                                                       data_freqs)
@@ -402,14 +400,14 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
         elif product_type in ('GPHASE', 'GAMP_PHASE'):
             correction_sensor = calc_gain_correction(product_sensor, index, targets)
         else:
-            raise KeyError("Unknown calibration product type '{}' - available "
-                           "ones are {}".format(product_type, CAL_PRODUCT_TYPES))
+            raise KeyError(f"Unknown calibration product type '{product_type}' - "
+                           f'available ones are {CAL_PRODUCT_TYPES}')
         cache[name] = correction_sensor
         return correction_sensor
 
-    template = 'Calibration/Products/{}/{{product_type}}'.format(cal_stream)
+    template = f'Calibration/Products/{cal_stream}/{{product_type}}'
     cache.virtual[template] = indirect_cal_product
-    template = 'Calibration/Corrections/{}/{{product_type}}/{{inp}}'.format(cal_stream)
+    template = f'Calibration/Corrections/{cal_stream}/{{product_type}}/{{inp}}'
     cache.virtual[template] = calc_correction_per_input
     return cal_freqs
 
@@ -423,7 +421,7 @@ def _correction_inputs_to_corrprods(g_per_cp, g_per_input, input1_index, input2_
                               * np.conj(g_per_input[i, input2_index[j]]))
 
 
-class CorrectionParams(object):
+class CorrectionParams:
     """Data needed to compute corrections in :func:`calc_correction_per_corrprod`.
 
     Once constructed, the data in this class must not be modified, as it will
@@ -557,7 +555,7 @@ def calc_correction(chunks, cache, corrprods, cal_products, data_freqs,
     channel_maps = {}
     for cal_product in cal_products:
         cal_stream, product_type = _parse_cal_product(cal_product)
-        sensor_prefix = 'Calibration/Corrections/{}/{}/'.format(cal_stream, product_type)
+        sensor_prefix = f'Calibration/Corrections/{cal_stream}/{product_type}/'
         corrections_per_product = []
         for i, inp in enumerate(inputs):
             try:
