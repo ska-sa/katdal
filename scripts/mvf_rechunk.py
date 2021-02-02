@@ -2,11 +2,6 @@
 
 """Rechunk an existing MVF dataset"""
 
-from __future__ import print_function, division, absolute_import
-from future import standard_library
-standard_library.install_aliases()  # noqa: 402
-from builtins import object
-
 import sys
 import os
 import re
@@ -23,14 +18,13 @@ from katdal.chunkstore import ChunkStoreError
 from katdal.chunkstore_npy import NpyFileChunkStore
 from katdal.datasources import TelstateDataSource, view_capture_stream, infer_chunk_store
 from katdal.flags import DATA_LOST
-from katdal.applycal import from_block_function    # TODO: get from dask once available there
 
 
-class RechunkSpec(object):
+class RechunkSpec:
     def __init__(self, arg):
-        match = re.match(r'^([A-Za-z0-9_]+)/([A-Za-z0-9_]+):(\d+),(\d+)', arg)
+        match = re.match(r'^([A-Za-z0-9_.]+)/([A-Za-z0-9_]+):(\d+),(\d+)', arg)
         if not match:
-            raise ValueError('Could not parse {!r}'.format(arg))
+            raise ValueError(f'Could not parse {arg!r}')
         self.stream = match.group(1)
         self.array = match.group(2)
         self.time = int(match.group(3))
@@ -39,29 +33,38 @@ class RechunkSpec(object):
             raise ValueError('Chunk sizes must be positive')
 
 
-class Array(object):
+def _fill_missing(data, default_value, block_info):
+    if data is None:
+        info = block_info[None]
+        return np.full(info['chunk-shape'], default_value, info['dtype'])
+    else:
+        return data
+
+
+def _make_lost(data, block_info):
+    info = block_info[None]
+    if data is None:
+        return np.full(info['chunk-shape'], DATA_LOST, np.uint8)
+    else:
+        return np.zeros(info['chunk-shape'], np.uint8)
+
+
+class Array:
     def __init__(self, stream_name, array_name, store, chunk_info):
         self.stream_name = stream_name
         self.array_name = array_name
         self.chunk_info = chunk_info
         self.store = store
         full_name = store.join(chunk_info['prefix'], array_name)
-        shape = chunk_info['shape']
         chunks = chunk_info['chunks']
         dtype = chunk_info['dtype']
-        self.data = store.get_dask_array(full_name, chunks, dtype)
-        self.has_data = store.has_array(full_name, chunks, dtype)
-        self.lost_flags = from_block_function(
-            self._make_lost, shape=shape, chunks=chunks, dtype=np.uint8,
-            name='lost-flags-{}-{}'.format(self.stream_name, self.array_name))
-
-    def _make_lost(self, block_info):
-        loc = block_info['array-location']
-        shape = [l[1] - l[0] for l in loc]
-        if self.has_data[block_info['chunk-location']]:
-            return np.zeros(shape, np.uint8)
-        else:
-            return np.full(shape, DATA_LOST, np.uint8)
+        raw_data = store.get_dask_array(full_name, chunks, dtype, errors='none')
+        # raw_data has `None` objects instead of ndarrays for chunks with
+        # missing data. That's not actually valid as a dask array, but we use
+        # it to produce lost flags (similarly to datasources.py).
+        default_value = DATA_LOST if array_name == 'flags' else 0
+        self.data = da.map_blocks(_fill_missing, raw_data, default_value, dtype=raw_data.dtype)
+        self.lost_flags = da.map_blocks(_make_lost, raw_data, dtype=np.uint8)
 
 
 def get_chunk_store(source, telstate, array):
@@ -75,7 +78,7 @@ def get_chunk_store(source, telstate, array):
 
 
 def comma_list(value):
-    return ','.split(value)
+    return value.split(',')
 
 
 def parse_args():
@@ -97,11 +100,25 @@ def parse_args():
     return args
 
 
+def get_stream_type(telstate, stream):
+    try:
+        return telstate.view(stream)['stream_type']
+    except KeyError:
+        try:
+            base = telstate.view(stream)['inherit']
+            return get_stream_type(telstate, base)
+        except KeyError:
+            return None
+
+
 def get_streams(telstate, streams):
     """Determine streams to copy based on what the user asked for"""
     archived_streams = telstate.get('sdp_archived_streams', [])
+    archived_streams = [
+        stream for stream in archived_streams
+        if get_stream_type(telstate, stream) in {'sdp.vis', 'sdp.flags'}]
     if not archived_streams:
-        raise RuntimeError('Source dataset does not contain any streams')
+        raise RuntimeError('Source dataset does not contain any visibility streams')
     if streams is None:
         streams = archived_streams
     else:
@@ -132,14 +149,14 @@ def main():
         try:
             chunk_info = sts['chunk_info']
         except KeyError as exc:
-            raise RuntimeError('Could not get chunk info for {!r}: {}'.format(stream_name, exc))
+            raise RuntimeError(f'Could not get chunk info for {stream_name!r}: {exc}')
         for array_name, array_info in chunk_info.items():
             if args.new_prefix is not None:
                 array_info['prefix'] = args.new_prefix + '-' + stream_name.replace('_', '-')
             prefix = array_info['prefix']
             path = os.path.join(args.dest, prefix)
             if os.path.exists(path):
-                raise RuntimeError('Directory {!r} already exists'.format(path))
+                raise RuntimeError(f'Directory {path!r} already exists')
             store = get_chunk_store(args.source, sts, array_name)
             # Older files have dtype as an object that can't be encoded in msgpack
             dtype = np.dtype(array_info['dtype'])
@@ -178,7 +195,7 @@ def main():
     for spec in args.spec:
         key = (spec.stream, spec.array)
         if key not in arrays:
-            raise RuntimeError('{}/{} is not a known array'.format(spec.stream, spec.array))
+            raise RuntimeError(f'{spec.stream}/{spec.array} is not a known array')
         arrays[key].data = arrays[key].data.rechunk({0: spec.time, 1: spec.freq})
 
     # Write out the new data
@@ -214,7 +231,7 @@ def main():
     dest_file = os.path.join(args.dest, args.new_prefix or cbid, os.path.basename(url_parts.path))
     os.makedirs(os.path.dirname(dest_file), exist_ok=True)
     with RDBWriter(dest_file) as writer:
-        writer.save(telstate)
+        writer.save(telstate.backend)
 
 
 if __name__ == '__main__':

@@ -1,6 +1,36 @@
 History
 =======
 
+0.17 (2021-01-27)
+-----------------
+* This is the last release that will support Python 3.5
+* Pin PyJWT version to 1.x to avoid breaking API changes (#320)
+* Van Vleck correction! (autocorrelations only, though) (#316)
+* Expose excision, aka raw weights (#308)
+* Better unit testing of DataSource and S3ChunkStore in general (#319)
+* Support indexed telstate keys (the 1000th cut that killed Python 2) (#304)
+* Split out separate utility classes for Minio (#310)
+* Fix filtering of sensor events with invalid status (#306)
+
+0.16 (2020-08-28)
+-----------------
+* This is the last release that will support Python 2 (python2 maintenance branch)
+* New 'time_offset' sensor property that adjusts timestamps of any sensor (#307)
+* Fix calculation of cbf_dump_period for 'wide' / 'narrowN' instruments (#301)
+* Increase katstore search window by 600 seconds to find infrequent updates (#302)
+* Refactor SensorData to become a lazy abstract interface without caching (#292)
+* Refactor SensorCache to use MutableMapping (#300)
+* Fix rx_serial sensor use and file mode warning in MVFv3 files (#298, #299)
+
+0.15 (2020-03-13)
+-----------------
+* Improve S3 chunk store: check tokens, improve timeouts and retries (#272 - #277)
+* Retry truncated reads and 50x errors due to S3 server overload (#274)
+* Apply flux calibration if available (#278, #279)
+* Improve mvf_rechunk and mvf_read_benchmark scripts (#280, #281, #284)
+* Fix selection by target description (#271)
+* Mark Python 2 support as deprecated (#282)
+
 0.14 (2019-10-02)
 -----------------
 * Make L2 product by applying self-calibration corrections (#253 - #256)

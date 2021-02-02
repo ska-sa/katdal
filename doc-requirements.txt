@@ -13,6 +13,12 @@ requests
 snowballstemmer
 sphinx
 sphinx-rtd-theme
+sphinxcontrib-applehelp
+sphinxcontrib-devhelp
+sphinxcontrib-htmlhelp
+sphinxcontrib-jsmath
+sphinxcontrib-qthelp
+sphinxcontrib-serializinghtml
 sphinxcontrib-websupport
 typing; python_version<'3'
 urllib3

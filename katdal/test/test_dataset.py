@@ -16,8 +16,6 @@
 
 """Tests for :py:mod:`katdal.dataset`."""
 
-from __future__ import print_function, division, absolute_import
-
 from nose.tools import assert_equal
 import numpy as np
 from numpy.testing import assert_array_equal, assert_array_almost_equal
@@ -33,7 +31,7 @@ from katdal.spectral_window import SpectralWindow
 class MinimalDataSet(DataSet):
     """Minimal data set containing a single target track."""
     def __init__(self, target, subarray, spectral_window, timestamps):
-        super(MinimalDataSet, self).__init__(name='test', ref_ant='array')
+        super().__init__(name='test', ref_ant='array')
         num_dumps = len(timestamps)
         num_chans = spectral_window.num_chans
         num_corrprods = len(subarray.corr_products)
@@ -46,10 +44,10 @@ class MinimalDataSet(DataSet):
         self.spectral_windows = [spectral_window]
         sensors = {}
         for ant in subarray.ants:
-            sensors['Antennas/%s/antenna' % (ant.name,)] = constant_sensor(ant)
+            sensors[f'Antennas/{ant.name}/antenna'] = constant_sensor(ant)
             az, el = target.azel(timestamps, ant)
-            sensors['Antennas/%s/az' % (ant.name,)] = az
-            sensors['Antennas/%s/el' % (ant.name,)] = el
+            sensors[f'Antennas/{ant.name}/az'] = az
+            sensors[f'Antennas/{ant.name}/el'] = el
         # Extract array reference position as 'array_ant' from last antenna
         array_ant_fields = ['array'] + ant.description.split(',')[1:5]
         array_ant = Antenna(','.join(array_ant_fields))
@@ -57,7 +55,7 @@ class MinimalDataSet(DataSet):
 
         sensors['Observation/target'] = constant_sensor(target)
         for name in ('spw', 'subarray', 'scan', 'compscan', 'target'):
-            sensors['Observation/%s_index' % (name,)] = constant_sensor(0)
+            sensors[f'Observation/{name}_index'] = constant_sensor(0)
         sensors['Observation/scan_state'] = constant_sensor('track')
         sensors['Observation/label'] = constant_sensor('track')
 
@@ -97,7 +95,7 @@ def test_selection_to_list():
     assert_equal(_selection_to_list('all', all=['a', 'b']), ['a', 'b'])
 
 
-class TestVirtualSensors(object):
+class TestVirtualSensors:
     def setup(self):
         self.target = Target('PKS1934-638, radec, 19:39, -63:42')
         self.antennas = [Antenna('m000, -30:42:39.8, 21:26:38.0, 1086.6, 13.5, '

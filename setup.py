@@ -16,8 +16,6 @@
 # limitations under the License.
 ################################################################################
 
-from __future__ import print_function, division, absolute_import
-
 import os.path
 
 from setuptools import setup, find_packages
@@ -48,22 +46,20 @@ setup(name='katdal',
           'License :: OSI Approved :: BSD License',
           'Operating System :: OS Independent',
           'Programming Language :: Python',
-          'Programming Language :: Python :: 2',
-          'Programming Language :: Python :: 2.7',
           'Programming Language :: Python :: 3',
           'Topic :: Software Development :: Libraries :: Python Modules',
           'Topic :: Scientific/Engineering :: Astronomy'],
       platforms=['OS Independent'],
       keywords='meerkat ska',
-      python_requires='>=2.7,!=3.0,!=3.1,!=3.2',
+      python_requires='>=3.6',
       setup_requires=['katversion'],
       use_katversion=True,
-      install_requires=['numpy', 'katpoint >= 0.9', 'h5py >= 2.3', 'numba',
-                        'katsdptelstate[rdb] >= 0.8', 'dask[array] >= 1.2.1',
-                        'requests >= 2.18.0', 'defusedxml', 'future'],
+      install_requires=['numpy >= 1.12.0', 'katpoint >= 0.9', 'h5py >= 2.3', 'numba',
+                        'katsdptelstate[rdb] >= 0.10', 'dask[array] >= 1.2.1',
+                        'requests >= 2.18.0', 'pyjwt >= 2', 'cityhash >= 0.2.2'],
       extras_require={
           'ms': ['python-casacore >= 2.2.1'],
           's3': [],
           's3credentials': ['botocore']
       },
-      tests_require=['mock', 'nose', 'subprocess32'])
+      tests_require=['nose'])

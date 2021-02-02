@@ -14,15 +14,12 @@
 # limitations under the License.
 ################################################################################
 
-from __future__ import print_function, division, absolute_import
-from builtins import object
-
 import threading
 
 import numpy as np
 
 
-class SpectralWindow(object):
+class SpectralWindow:
     """Spectral window specification.
 
     A spectral window is determined by the number of frequency channels produced
@@ -95,13 +92,11 @@ class SpectralWindow(object):
 
     def __repr__(self):
         """Short human-friendly string representation of spectral window object."""
-        return "<katdal.SpectralWindow %s-band product=%s centre=%.3f MHz " \
-               "bandwidth=%.3f MHz channels=%d at 0x%x>" % \
-               (self.band if self.band else 'unknown',
-                repr(self.product) if self.product else 'unknown',
-                self.centre_freq / 1e6,
-                self.bandwidth / 1e6,
-                self.num_chans, id(self))
+        band = self.band if self.band else 'unknown',
+        product = repr(self.product) if self.product else 'unknown'
+        return (f"<katdal.SpectralWindow {band}-band product={product} "
+                f"centre={self.centre_freq/1e6:.3f} MHz bandwidth={self.bandwidth/1e6:.3f} MHz "
+                f"channels={self.num_chans} at {id(self):#x}>")
 
     @property
     def _description(self):

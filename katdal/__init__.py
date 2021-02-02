@@ -16,11 +16,6 @@
 
 """Data access library for data sets in the MeerKAT Visibility Format (MVF)."""
 
-from __future__ import print_function, division, absolute_import
-from future import standard_library
-standard_library.install_aliases()  # noqa: E402
-from past.builtins import basestring
-
 import logging as _logging
 import urllib.parse
 
@@ -55,7 +50,7 @@ try:
     import katversion as _katversion
 except ImportError:
     import time as _time
-    __version__ = "0.0+unknown.%s" % (_time.strftime('%Y%m%d%H%M'),)
+    __version__ = "0.0+unknown.{}".format(_time.strftime('%Y%m%d%H%M'))
 else:
     __version__ = _katversion.get_version(__path__[0])
 # END VERSION CHECK
@@ -91,8 +86,7 @@ def _file_action(action, filename, *args, **kwargs):
         except WrongVersion:
             continue
     else:
-        raise WrongVersion("File '%s' has unknown data file format or version"
-                           % (filename,))
+        raise WrongVersion(f"File '{filename}' has unknown data file format or version")
     return result
 
 
@@ -124,7 +118,7 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
         Object providing :class:`DataSet` interface to file(s)
 
     """
-    filenames = [filename] if isinstance(filename, basestring) else filename
+    filenames = [filename] if isinstance(filename, str) else filename
     datasets = []
     for f in filenames:
         # V4 RDB file or live telstate with optional URL-style query string
@@ -135,8 +129,7 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
         else:
             dataset = _file_action('__call__', f, ref_ant, time_offset, **kwargs)
         datasets.append(dataset)
-    return datasets[0] if isinstance(filename, basestring) else \
-        ConcatenatedDataSet(datasets)
+    return datasets[0] if isinstance(filename, str) else ConcatenatedDataSet(datasets)
 
 
 def get_ants(filename):

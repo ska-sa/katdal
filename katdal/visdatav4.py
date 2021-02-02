@@ -15,8 +15,6 @@
 ################################################################################
 
 """Data accessor class for data and metadata from various sources in v4 format."""
-from __future__ import print_function, division, absolute_import
-from builtins import zip, range
 
 import logging
 
@@ -27,7 +25,7 @@ import dask.array as da
 from .dataset import (DataSet, BrokenFile, Subarray, DEFAULT_SENSOR_PROPS,
                       DEFAULT_VIRTUAL_SENSORS, _robust_target,
                       _selection_to_list)
-from .datasources import VisFlagsWeights
+from .vis_flags_weights import VisFlagsWeights
 from .spectral_window import SpectralWindow
 from .sensordata import SensorCache
 from .categorical import CategoricalData
@@ -35,7 +33,9 @@ from .lazy_indexer import DaskLazyIndexer
 from .applycal import (add_applycal_sensors, calc_correction,
                        apply_vis_correction, apply_weights_correction,
                        apply_flags_correction, CAL_PRODUCT_TYPES, INVALID_GAIN)
-from .flags import NAMES as FLAG_NAMES, DESCRIPTIONS as FLAG_DESCRIPTIONS
+# FLAG_DESCRIPTIONS isn't used, but it's kept here for compatibility with
+# external code that might get it from here
+from .flags import NAMES as FLAG_NAMES, DESCRIPTIONS as FLAG_DESCRIPTIONS   # noqa: F401
 
 
 logger = logging.getLogger(__name__)
@@ -58,6 +58,9 @@ SENSOR_PROPS.update({
     '*_product_G': {'initial_value': INVALID_GAIN},
     '*_product_GPHASE': {'initial_value': INVALID_GAIN},
     '*_product_GAMP_PHASE': {'initial_value': INVALID_GAIN},
+    'Calibration/Products/*/G': {'initial_value': INVALID_GAIN},
+    'Calibration/Products/*/GPHASE': {'initial_value': INVALID_GAIN},
+    'Calibration/Products/*/GAMP_PHASE': {'initial_value': INVALID_GAIN}
 })
 
 SENSOR_ALIASES = {
@@ -67,8 +70,8 @@ SENSOR_ALIASES = {
 
 def _calc_azel(cache, name, ant):
     """Calculate virtual (az, el) sensors from actual ones in sensor cache."""
-    real_sensor = '%s_pos_actual_scan_%s' % \
-                  (ant, 'azim' if name.endswith('az') else 'elev')
+    suffix = 'azim' if name.endswith('az') else 'elev'
+    real_sensor = f'{ant}_pos_actual_scan_{suffix}'
     cache[name] = sensor_data = katpoint.deg2rad(cache.get(real_sensor))
     return sensor_data
 
@@ -81,8 +84,17 @@ def _add_sensor_alias(cache, new_name, old_name):
         pass
 
 
+def _relative_view(telstate, name):
+    """Create a telstate view by appending `name` to all existing namespaces."""
+    prefix = telstate.prefixes[-1]
+    view = telstate.view(prefix + name, exclusive=True)
+    for prefix in reversed(telstate.prefixes[:-1]):
+        view = view.view(prefix + name)
+    return view
+
+
 def _normalise_cal_products(products, cal_streams):
-    """"""
+    """Expand user-supplied list of cal products into fully qualified versions."""
     requested_cal_products = _selection_to_list(products, all=cal_streams,
                                                 default=DEFAULT_CAL_PRODUCTS)
     skip_missing_products = products in ('all', 'default') or any(
@@ -99,11 +111,11 @@ def _normalise_cal_products(products, cal_streams):
                                             for stream in cal_streams])
         else:
             streams = ','.join(cal_streams)
-            streams = ' (one of {})'.format(streams) if streams else ' (none found)'
-            msg = ("Unknown calibration product '{}': it should be a stream{}, "
-                   "product type (one of {}) or <stream>.<product_type>"
-                   .format(product, streams, ','.join(CAL_PRODUCT_TYPES)))
-            raise ValueError(msg)
+            streams = f' (one of {streams})' if streams else ' (none found)'
+            product_types = ','.join(CAL_PRODUCT_TYPES)
+            raise ValueError(f"Unknown calibration product '{product}': it should be a "
+                             f'stream{streams}, product type (one of {product_types}) '
+                             'or <stream>.<product_type>')
     return normalised_cal_products, skip_missing_products
 
 
@@ -142,6 +154,10 @@ class VisibilityDataV4(DataSet):
         while the keyword 'all' means all available products will be applied.
         *NB* In future the default will probably change to 'all'.
         *NB* This is still very much an experimental feature...
+    gaincal_flux : dict mapping string to float, optional
+        Flux density (in Jy) per gaincal target name, used to flux calibrate
+        the "G" product, overriding the measured flux produced by cal pipeline
+        (if available). A value of None disables flux calibration.
     sensor_store : string, optional
         Hostname / endpoint of katstore webserver to access additional sensors
     kwargs : dict, optional
@@ -149,7 +165,7 @@ class VisibilityDataV4(DataSet):
 
     """
     def __init__(self, source, ref_ant='', time_offset=0.0, applycal='',
-                 sensor_store=None, **kwargs):
+                 gaincal_flux={}, sensor_store=None, **kwargs):
         DataSet.__init__(self, source.name, ref_ant, time_offset)
         attrs = source.metadata.attrs
 
@@ -163,8 +179,16 @@ class VisibilityDataV4(DataSet):
         self.version = '4.0'
         self.dump_period = attrs['int_time']
         # The CBF dump period is not in the lite RDB version
-        self.cbf_dump_period = attrs.get(
-            'i0_baseline_correlation_products_int_time', None)
+        try:
+            src_stream = attrs['src_streams'][0]
+            # XXX: should use telstate.join if attrs is a telstate
+            self.cbf_dump_period = attrs[src_stream + '_int_time']
+            cbf_n_accs = attrs[src_stream + '_n_accs']
+        except (KeyError, IndexError):
+            self.cbf_dump_period = self.accumulations_per_dump = None
+        else:
+            cbf_dumps_per_sdp_dump = round(self.dump_period / self.cbf_dump_period)
+            self.accumulations_per_dump = cbf_n_accs * cbf_dumps_per_sdp_dump
         num_dumps = len(source.timestamps)
         source.timestamps += self.time_offset
         if _before('2000-01-01'):
@@ -216,7 +240,7 @@ class VisibilityDataV4(DataSet):
         # Extract script log data verbatim (it is not a standard sensor anyway)
         try:
             self.obs_script_log = self.sensor.get('obs_script_log',
-                                                  extract=False)['value'].tolist()
+                                                  extract=False).get().value.tolist()
         except KeyError:
             self.obs_script_log = []
 
@@ -240,7 +264,7 @@ class VisibilityDataV4(DataSet):
                 continue
         # Keep the basic list sorted as far as possible
         ants = sorted(ants)
-        cam_ants = set(ant.name for ant in ants)
+        cam_ants = {ant.name for ant in ants}
         # Find names of all antennas with associated correlator data
         sdp_ants = set([cp[0][:-1] for cp in corrprods] +
                        [cp[1][:-1] for cp in corrprods])
@@ -251,8 +275,7 @@ class VisibilityDataV4(DataSet):
         self.ref_ant = 'array' if not ref_ant else ref_ant
         valid_ref_ants = cam_ants | {'array'}
         if self.ref_ant not in valid_ref_ants:
-            raise KeyError("Unknown ref_ant '%s', should be one of %s"
-                           % (self.ref_ant, valid_ref_ants))
+            raise KeyError(f"Unknown ref_ant '{self.ref_ant}', should be one of {valid_ref_ants}")
 
         self.subarrays = subs = [Subarray(ants, corrprods)]
         self.sensor['Observation/subarray'] = CategoricalData(subs, all_dumps)
@@ -260,7 +283,7 @@ class VisibilityDataV4(DataSet):
         # Store antenna objects in sensor cache too, for use in virtual
         # sensors, and make aliases for old-style target + activity sensors
         for ant in ants:
-            prefix = 'Antennas/%s/' % (ant.name,)
+            prefix = f'Antennas/{ant.name}/'
             self.sensor[prefix + 'antenna'] = CategoricalData([ant], all_dumps)
             _add_sensor_alias(self.sensor, prefix + 'activity', ant.name + '_activity')
             _add_sensor_alias(self.sensor, prefix + 'target', ant.name + '_target')
@@ -280,12 +303,12 @@ class VisibilityDataV4(DataSet):
         # Populate antenna -> receiver mapping and figure out noise diode
         for ant in cam_ants:
             # Try sanitised version of RX serial number first
-            rx_serial = attrs.get('%s_rsc_rx%s_serial_number' % (ant, band), 0)
-            self.receivers[ant] = '%s.%d' % (band, rx_serial)
-            nd_sensor = '%s_dig_%s_band_noise_diode' % (ant, band)
+            rx_serial = attrs.get(f'{ant}_rsc_rx{band}_serial_number', 0)
+            self.receivers[ant] = f'{band}.{rx_serial}'
+            nd_sensor = f'{ant}_dig_{band}_band_noise_diode'
             if nd_sensor in self.sensor:
                 # A sensor alias would be ideal for this but it only deals with suffixes ATM
-                new_nd_sensor = 'Antennas/%s/nd_coupler' % (ant,)
+                new_nd_sensor = f'Antennas/{ant}/nd_coupler'
                 self.sensor[new_nd_sensor] = self.sensor.get(nd_sensor, extract=False)
         num_chans = attrs['n_chans']
         bandwidth = attrs['bandwidth']
@@ -312,7 +335,7 @@ class VisibilityDataV4(DataSet):
         # ------ Extract scans / compound scans / targets ------
 
         # Use activity sensor of reference antenna to partition the data set into scans
-        scan = self.sensor.get('Antennas/%s/activity' % (self.ref_ant,))
+        scan = self.sensor.get(f'Antennas/{self.ref_ant}/activity')
         # If the antenna starts slewing on the second dump, incorporate the
         # first dump into the slew too. This scenario typically occurs when the
         # first target is only set after the first dump is received.
@@ -352,7 +375,7 @@ class VisibilityDataV4(DataSet):
         self.sensor['Observation/compscan_index'] = CategoricalData(list(range(len(label))),
                                                                     label.events)
         # Use target sensor of reference antenna to set the target for each scan
-        target = self.sensor.get('Antennas/%s/target' % (self.ref_ant,))
+        target = self.sensor.get(f'Antennas/{self.ref_ant}/target')
         # Move target events onto the nearest scan start
         # ASSUMPTION: Number of targets <= number of scans
         # (i.e. only a single target allowed per scan)
@@ -380,14 +403,14 @@ class VisibilityDataV4(DataSet):
                                                                   target.events)
         # Set up catalogue containing all targets in file, with reference antenna as default antenna
         self.catalogue.add(target.unique_values)
-        self.catalogue.antenna = self.sensor['Antennas/%s/antenna' % (self.ref_ant,)][0]
+        self.catalogue.antenna = self.sensor[f'Antennas/{self.ref_ant}/antenna'][0]
         # Ensure that each target flux model spans all frequencies
         # in data set if possible
         self._fix_flux_freq_range()
 
         # ------ Register applycal virtual sensors and products ------
 
-        cal_freqs = self._register_standard_cal_streams()
+        cal_freqs = self._register_standard_cal_streams(gaincal_flux)
         normalised_cal_products, skip_missing_products = _normalise_cal_products(
             applycal, cal_freqs.keys())
         if not self.source.data or not normalised_cal_products:
@@ -408,6 +431,7 @@ class VisibilityDataV4(DataSet):
                                                        self.source.data.flags)
                 corrected_weights = self._make_corrected(apply_weights_correction,
                                                          self.source.data.weights)
+                unscaled_weights = self.source.data.unscaled_weights
                 name = self.source.data.name
                 # Acknowledge that the applycal step is making the L1 product
                 if 'sdp_l0' in name:
@@ -415,43 +439,44 @@ class VisibilityDataV4(DataSet):
                 else:
                     name = name + ' (corrected)'
                 self._corrected = VisFlagsWeights(corrected_vis, corrected_flags,
-                                                  corrected_weights, name=name)
+                                                  corrected_weights, unscaled_weights, name=name)
 
         # Apply default selection and initialise all members that depend
         # on selection in the process
         self.select(spw=0, subarray=0, ants=obs_ants)
 
-    def _register_standard_cal_streams(self):
-        freqs = self.spectral_windows[0].channel_freqs
+    def _register_standard_cal_streams(self, gaincal_flux):
+        """Find L1 and L2 cal streams and register their virtual sensors."""
+        # XXX This assumes that `attrs` is a telstate and not a dict-like
         attrs = self.source.metadata.attrs
-        archived_streams = attrs.get('sdp_archived_streams', [])
-        # The default L1 cal stream, useful for older files
-        l1_stream = 'cal'
-        for stream in archived_streams:
-            if attrs.view(stream).get('stream_type') == 'sdp.cal':
-                l1_stream = stream
-                break
+        # Find first L1 and L2 underlying cal streams by trawling through archived streams
+        l1_stream = ''
         l2_streams = []
+        archived_streams = attrs.get('sdp_archived_streams', [])
         for stream in archived_streams:
-            if attrs.view(stream).get('stream_type') == 'sdp.continuum_image':
-                targets = attrs.get(attrs.join(stream, 'targets'), {})
+            stream_attrs = _relative_view(attrs, stream)
+            stream_type = stream_attrs.get('stream_type')
+            if not l1_stream and stream_type == 'sdp.cal':
+                l1_stream = stream
+            elif not l2_streams and stream_type == 'sdp.continuum_image':
+                targets = stream_attrs.get('targets', {})
                 l2_streams = [attrs.join(stream, target + '_selfcal')
                               for target in targets.values()]
-                break
+        # The default L1 cal stream, useful for older files
+        if not l1_stream:
+            l1_stream = 'cal'
+        # Register virtual sensors for all streams, noting their channelisation
+        freqs = self.spectral_windows[0].channel_freqs
         cal_freqs = {}
-        # XXX This assumes that `attrs` is a telstate and not a dict-like
-        l1_attrs = attrs.view(l1_stream, exclusive=True)
-        l1_freqs = add_applycal_sensors(self.sensor, l1_attrs, freqs,
-                                        cal_stream='l1', cal_substreams=[l1_stream])
+        l1_attrs = _relative_view(attrs, l1_stream)
+        l1_freqs = add_applycal_sensors(self.sensor, l1_attrs, freqs, cal_stream='l1',
+                                        cal_substreams=[l1_stream], gaincal_flux=gaincal_flux)
         if l1_freqs is not None:
             cal_freqs['l1'] = l1_freqs
         if l2_streams:
-            # Add a relative view to the first underlying L2 cal stream
-            l2_attrs = attrs.root()
-            for prefix in reversed(attrs.prefixes):
-                l2_attrs = l2_attrs.view(prefix + l2_streams[0])
-            l2_freqs = add_applycal_sensors(self.sensor, l2_attrs, freqs,
-                                            cal_stream='l2', cal_substreams=l2_streams)
+            l2_attrs = _relative_view(attrs, l2_streams[0])
+            l2_freqs = add_applycal_sensors(self.sensor, l2_attrs, freqs, cal_stream='l2',
+                                            cal_substreams=l2_streams, gaincal_flux=None)
             if l2_freqs is not None:
                 cal_freqs['l2'] = l2_freqs
         return cal_freqs
@@ -464,7 +489,7 @@ class VisibilityDataV4(DataSet):
         # Reverse flag indices as np.packbits has bit 0 as the MSB (we want LSB)
         selection = np.flipud(np.unpackbits(self._flags_select))
         assert len(FLAG_NAMES) == len(selection), \
-            'Expected %d flag types, got %s' % (len(selection), FLAG_NAMES)
+            f'Expected {len(selection)} flag types, got {FLAG_NAMES}'
         return [name for name, bit in zip(FLAG_NAMES, selection) if bit]
 
     @_flags_keep.setter
@@ -474,7 +499,7 @@ class VisibilityDataV4(DataSet):
         # Create boolean list for desired flags
         selection = np.zeros(8, dtype=np.uint8)
         assert len(FLAG_NAMES) == len(selection), \
-            'Expected %d flag types, got %d' % (len(selection), FLAG_NAMES)
+            f'Expected {len(selection)} flag types, got {FLAG_NAMES}'
         for name in names:
             try:
                 selection[FLAG_NAMES.index(name)] = 1
@@ -514,7 +539,7 @@ class VisibilityDataV4(DataSet):
         update_all = time_keep is not None or freq_keep is not None or corrprod_keep is not None
         update_flags = update_all or flags_keep is not None
         if not self.source.data:
-            self._vis = self._weights = self._flags = None
+            self._vis = self._weights = self._flags = self._excision = None
         elif update_flags:
             # Create first-stage index from dataset selectors. Note: use
             # the member variables, not the parameters, because the parameters
@@ -531,6 +556,25 @@ class VisibilityDataV4(DataSet):
                 flag_transforms.append(lambda flags: da.bitwise_and(select, flags))
             flag_transforms.append(lambda flags: flags.view(np.bool_))
             self._flags = DaskLazyIndexer(self._corrected.flags, stage1, flag_transforms)
+            unscaled_weights = self._corrected.unscaled_weights
+            if unscaled_weights is None or self.accumulations_per_dump is None:
+                self._excision = None
+            else:
+                # The maximum / expected number of CBF dumps per SDP dump
+                cbf_dumps_per_sdp_dump = round(self.dump_period / self.cbf_dump_period)
+                accs_per_sdp_dump = np.float32(self.accumulations_per_dump)
+                accs_per_cbf_dump = accs_per_sdp_dump / np.float32(cbf_dumps_per_sdp_dump)
+                # Each unscaled weight represents the actual number of accumulations per SDP dump.
+                # Correct most of the weight compression artefacts by forcing each weight to be
+                # an integer multiple of CBF n_accs, and then convert it to an excision fraction.
+                def integer_cbf_dumps(w):
+                    return da.round(w / accs_per_cbf_dump) * accs_per_cbf_dump
+
+                def excision_fraction(w):
+                    return (accs_per_sdp_dump - w) / accs_per_sdp_dump
+
+                excision_transforms = [integer_cbf_dumps, excision_fraction]
+                self._excision = DaskLazyIndexer(unscaled_weights, stage1, excision_transforms)
 
     @property
     def timestamps(self):
@@ -606,6 +650,27 @@ class VisibilityDataV4(DataSet):
             raise ValueError('Flags are not available since dataset '
                              'was opened with metadata only')
         return self._flags
+
+    @property
+    def excision(self):
+        """Excision as a function of time, frequency and baseline.
+
+        The fraction of each visibility that has been excised in the SDP ingest
+        pipeline is returned as an array indexer of bool, shape (*T*, *F*, *B*)
+        with time along the first dimension, frequency along the second dimension
+        and correlation product ("baseline") index along the third dimension.
+        The number of integrations *T* matches the length of :meth:`timestamps`,
+        the number of frequency channels *F* matches the length of :meth:`freqs`
+        and the number of correlation products *B* matches the length of
+        :meth:`corr_products`. To get the data array itself from the indexer `x`,
+        do `x[:]` or perform any other form of indexing on it. Only then will
+        data be loaded into memory.
+
+        """
+        if self._excision is None:
+            raise ValueError('Excision is not available (maybe lite dataset or '
+                             'dataset opened with metadata only?)')
+        return self._excision
 
     @property
     def temperature(self):

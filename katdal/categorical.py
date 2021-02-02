@@ -15,15 +15,14 @@
 ################################################################################
 
 """Container for categorical (i.e. non-numerical) sensor data and related tools."""
-from __future__ import print_function, division, absolute_import
-from builtins import zip, range, object
 
 import collections
 
 import numpy as np
+from dask.base import tokenize
 
 
-class ComparableArrayWrapper(object):
+class ComparableArrayWrapper:
     """Wrapper that improves comparison of array objects.
 
     This wrapper class has two main benefits:
@@ -35,7 +34,7 @@ class ComparableArrayWrapper(object):
       - It ensures that array-valued sensor values become properly comparable
         (avoiding array-valued booleans resulting from standard comparisons).
 
-    The former is needed because :class:`SensorData` is treated as a structured
+    The former is needed because :class:`SensorGetter` is treated as a structured
     array even if it contains object values. The latter is needed because the
     equality operator crops up in hard-to-reach places like inside list.index().
 
@@ -51,8 +50,8 @@ class ComparableArrayWrapper(object):
 
     def __repr__(self):
         """Short human-friendly string representation of wrapper object."""
-        return "<katdal.%s { %r } at 0x%x>" % \
-               (self.__class__.__name__, self.unwrapped, id(self))
+        class_name = self.__class__.__name__
+        return f"<katdal.{class_name} {{ {self.unwrapped!r} }} at {id(self):#x}>"
 
     def __str__(self):
         """Longer human-friendly string representation of wrapped object."""
@@ -119,7 +118,7 @@ def infer_dtype(values):
     ----------
     values : sequence, or object with dtype
         Sequence of sensor values (typically a list), or a sensor data object
-        with a dtype attribute (like ndarray or :class:`SensorData`)
+        with a dtype attribute (like ndarray or :class:`SensorGetter`)
 
     Returns
     -------
@@ -136,7 +135,7 @@ def infer_dtype(values):
     as opposed to being unpacked across the argument list.
 
     """
-    # If values already has a dtype (because it is an ndarray, SensorData,
+    # If values already has a dtype (because it is an ndarray, SensorGetter,
     # CategoricalData, etc), return that instead
     if hasattr(values, 'dtype'):
         return values.dtype
@@ -179,12 +178,15 @@ def unique_in_order(elements, return_inverse=False):
         # Surprisingly, a zero generator like itertools.repeat does not buy you anything
         lookup = collections.OrderedDict(zip(elements, len(elements) * [0]))
     except TypeError:
-        # Fall back to slower list-based lookup for unhashable object values
+        # Fall back to slower lookup using dask's tokenizer
+        lookup = {}
         for element in elements:
+            token = tokenize(ComparableArrayWrapper.unwrap(element))
             try:
-                index = unique_elements.index(element)
-            except ValueError:
+                index = lookup[token]
+            except KeyError:
                 index = len(unique_elements)
+                lookup[token] = index
                 unique_elements.append(element)
             if return_inverse:
                 inverse.append(index)
@@ -204,7 +206,7 @@ def unique_in_order(elements, return_inverse=False):
 # -------------------------------------------------------------------------------------------------
 
 
-class CategoricalData(object):
+class CategoricalData:
     """Container for categorical (i.e. non-numerical) sensor data.
 
     This container allows simple manipulation and interpolation of a time series
@@ -334,8 +336,8 @@ class CategoricalData(object):
 
     def __repr__(self):
         """Short human-friendly string representation of categorical data object."""
-        return "<katdal.CategoricalData events=%d values=%d type=%s at 0x%x>" % \
-               (len(self.indices), len(self.unique_values), self.dtype, id(self))
+        return "<katdal.CategoricalData events={} values={} type={} at {:#x}>".format(
+               len(self.indices), len(self.unique_values), self.dtype, id(self))
 
     def __str__(self):
         """Long human-friendly string representation of categorical data object."""

@@ -18,8 +18,6 @@
 
 # Update the antenna positions in the specified HDF5 file.
 
-from __future__ import print_function, division, absolute_import
-
 import h5py
 import sys
 

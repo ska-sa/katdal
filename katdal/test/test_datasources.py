@@ -15,72 +15,23 @@
 ################################################################################
 
 """Tests for :py:mod:`katdal.datasources`."""
-from __future__ import print_function, division, absolute_import
-from builtins import object
 
+import urllib.parse
 import tempfile
 import shutil
 import os
-import random
-import itertools
 
 import numpy as np
-from numpy.testing import assert_array_equal
-from nose.tools import assert_equal, assert_raises
-import dask.array as da
+from nose.tools import assert_raises
 import katsdptelstate
+from katsdptelstate.rdb_writer import RDBWriter
 
-from katdal.chunkstore import generate_chunks
 from katdal.chunkstore_npy import NpyFileChunkStore
-from katdal.datasources import ChunkStoreVisFlagsWeights, TelstateDataSource, view_l0_capture_stream
+from katdal.datasources import (TelstateDataSource, view_l0_capture_stream, open_data_source,
+                                DataSourceNotFound)
 from katdal.flags import DATA_LOST
-
-
-def ramp(shape, offset=1.0, slope=1.0, dtype=np.float_):
-    """Generate a multidimensional ramp of values of the given dtype."""
-    x = offset + slope * np.arange(np.prod(shape), dtype=np.float_)
-    return x.astype(dtype).reshape(shape)
-
-
-def to_dask_array(x, chunks=None):
-    """Turn ndarray `x` into dask array with the standard vis-like chunking."""
-    if chunks is None:
-        itemsize = np.dtype('complex64').itemsize
-        # Special case for 2-D weights_channel array ensures one chunk per dump
-        n_corrprods = x.shape[2] if x.ndim >= 3 else x.shape[1] // itemsize
-        # This contrives to have a vis array with 1 dump and 4 channels per chunk
-        chunk_size = 4 * n_corrprods * itemsize
-        chunks = generate_chunks(x.shape, x.dtype, chunk_size,
-                                 dims_to_split=(0, 1), power_of_two=True)
-    return da.from_array(x, chunks)
-
-
-def put_fake_dataset(store, prefix, shape, chunk_overrides=None, array_overrides=None, flags_only=False):
-    """Write a fake dataset into the chunk store."""
-    if flags_only:
-        data = {'flags': np.random.RandomState(1).randint(0, 7, shape, dtype=np.uint8)}
-    else:
-        data = {'correlator_data': ramp(shape, dtype=np.float32) * (1 - 1j),
-                'flags': np.random.RandomState(2).randint(0, 7, shape, dtype=np.uint8),
-                'weights': ramp(shape, slope=255. / np.prod(shape), dtype=np.uint8),
-                'weights_channel': ramp(shape[:-1], dtype=np.float32)}
-    if array_overrides is not None:
-        for name in data:
-            if name in array_overrides:
-                data[name] = array_overrides[name]
-    if chunk_overrides is None:
-        chunk_overrides = {}
-    ddata = {k: to_dask_array(array, chunk_overrides.get(k)) for k, array in data.items()}
-    chunk_info = {k: {'prefix': prefix, 'chunks': darray.chunks,
-                      'dtype': np.lib.format.dtype_to_descr(darray.dtype),
-                      'shape': darray.shape}
-                  for k, darray in ddata.items()}
-    for k, darray in ddata.items():
-        store.create_array(store.join(prefix, k))
-    push = [store.put_dask_array(store.join(prefix, k), darray)
-            for k, darray in ddata.items()]
-    da.compute(*push)
-    return data, chunk_info
+from katdal.vis_flags_weights import correct_autocorr_quantisation
+from katdal.test.test_vis_flags_weights import put_fake_dataset
 
 
 def _make_fake_stream(telstate, store, cbid, stream, shape,
@@ -88,7 +39,8 @@ def _make_fake_stream(telstate, store, cbid, stream, shape,
     telstate_prefix = telstate.join(cbid, stream)
     store_prefix = telstate_prefix.replace('_', '-')
     data, chunk_info = put_fake_dataset(store, store_prefix, shape,
-                                        chunk_overrides=chunk_overrides, array_overrides=array_overrides,
+                                        chunk_overrides=chunk_overrides,
+                                        array_overrides=array_overrides,
                                         flags_only=flags_only)
     cs_view = telstate.view(telstate_prefix)
     s_view = telstate.view(stream)
@@ -112,8 +64,7 @@ def _make_fake_stream(telstate, store, cbid, stream, shape,
         for j in range(i, n_ant):
             for x in 'hv':
                 for y in 'hv':
-                    bls_ordering.append(('m{:03}{}'.format(i, x),
-                                         'm{:03}{}'.format(j, y)))
+                    bls_ordering.append((f'm{i:03}{x}', f'm{j:03}{y}'))
     s_view['bls_ordering'] = np.array(bls_ordering)
     if not flags_only:
         s_view['need_weights_power_scale'] = True
@@ -123,7 +74,7 @@ def _make_fake_stream(telstate, store, cbid, stream, shape,
     return data, cs_view, s_view
 
 
-def make_fake_datasource(telstate, store, cbid, l0_shape, l1_flags_shape=None,
+def make_fake_data_source(telstate, store, l0_shape, cbid='cb', l1_flags_shape=None,
                          l0_chunk_overrides=None, l1_flags_chunk_overrides=None,
                          l0_array_overrides=None, l1_flags_array_overrides=None):
     """Create a complete fake data source.
@@ -149,141 +100,45 @@ def make_fake_datasource(telstate, store, cbid, l0_shape, l1_flags_shape=None,
     return view_l0_capture_stream(telstate, cbid, 'sdp_l0') + (l0_data, l1_flags_data)
 
 
-class TestChunkStoreVisFlagsWeights(object):
-    """Test the :class:`ChunkStoreVisFlagsWeights` dataset store."""
-
-    @classmethod
-    def setup_class(cls):
-        cls.tempdir = tempfile.mkdtemp()
-
-    @classmethod
-    def teardown_class(cls):
-        shutil.rmtree(cls.tempdir)
-
-    def test_construction(self):
-        # Put fake dataset into chunk store
-        store = NpyFileChunkStore(self.tempdir)
-        prefix = 'cb1'
-        shape = (10, 64, 30)
-        data, chunk_info = put_fake_dataset(store, prefix, shape)
-        vfw = ChunkStoreVisFlagsWeights(store, chunk_info, None)
-        weights = data['weights'] * data['weights_channel'][..., np.newaxis]
-        # Check that data is as expected when accessed via VisFlagsWeights
-        assert_equal(vfw.shape, data['correlator_data'].shape)
-        assert_array_equal(vfw.vis.compute(), data['correlator_data'])
-        assert_array_equal(vfw.flags.compute(), data['flags'])
-        assert_array_equal(vfw.weights.compute(), weights)
-
-    def test_weight_power_scale(self):
-        ants = 7
-        index1, index2 = np.triu_indices(ants)
-        inputs = ['m{:03}h'.format(i) for i in range(ants)]
-        corrprods = np.array([(inputs[a], inputs[b]) for (a, b) in zip(index1, index2)])
-        # Put fake dataset into chunk store
-        store = NpyFileChunkStore(self.tempdir)
-        prefix = 'cb1'
-        shape = (10, 64, len(index1))
-
-        # Make up some vis data where the expected scaling factors can be
-        # computed by hand. Note: the autocorrs are all set to powers of
-        # 2 so that we avoid any rounding errors.
-        vis = np.full(shape, 2 + 3j, np.complex64)
-        vis[:, :, index1 == index2] = 2     # Make all autocorrs real
-        vis[3, :, index1 == index2] = 4     # Tests time indexing
-        vis[:, 7, index1 == index2] = 4     # Tests frequency indexing
-        vis[:, :, ants] *= 8                # The (1, 1) baseline
-        vis[4, 5, 0] = 0                    # The (0, 0) baseline
-        expected_scale = np.full(shape, 0.25, np.float32)
-        expected_scale[3, :, :] = 1 / 16
-        expected_scale[:, 7, :] = 1 / 16
-        expected_scale[:, :, index1 == 1] /= 8
-        expected_scale[:, :, index2 == 1] /= 8
-        expected_scale[4, 5, index1 == 0] = 2.0**-32
-        expected_scale[4, 5, index2 == 0] = 2.0**-32
-
-        data, chunk_info = put_fake_dataset(
-            store, prefix, shape, array_overrides={'correlator_data': vis})
-        vfw = ChunkStoreVisFlagsWeights(store, chunk_info, corrprods)
-        weights = data['weights'] * data['weights_channel'][..., np.newaxis] * expected_scale
-
-        # Check that data is as expected when accessed via VisFlagsWeights
-        assert_equal(vfw.shape, data['correlator_data'].shape)
-        assert_array_equal(vfw.vis.compute(), data['correlator_data'])
-        assert_array_equal(vfw.flags.compute(), data['flags'])
-        assert_array_equal(vfw.weights.compute(), weights)
-
-    def _test_missing_chunks(self, shape, chunk_overrides=None):
-        # Put fake dataset into chunk store
-        store = NpyFileChunkStore(self.tempdir)
-        prefix = 'cb2'
-        data, chunk_info = put_fake_dataset(store, prefix, shape, chunk_overrides)
-        # Delete some random chunks in each array of the dataset
-        missing_chunks = {}
-        rs = random.Random(4)
-        for array, info in chunk_info.items():
-            array_name = store.join(prefix, array)
-            slices = da.core.slices_from_chunks(info['chunks'])
-            culled_slices = rs.sample(slices, len(slices) // 10 + 1)
-            missing_chunks[array] = culled_slices
-            for culled_slice in culled_slices:
-                chunk_name, shape = store.chunk_metadata(array_name, culled_slice)
-                os.remove(os.path.join(store.path, chunk_name) + '.npy')
-        vfw = ChunkStoreVisFlagsWeights(store, chunk_info, None)
-        assert_equal(vfw.store, store)
-        assert_equal(vfw.vis_prefix, prefix)
-        # Check that (only) missing chunks have been replaced by zeros
-        vis = data['correlator_data']
-        for culled_slice in missing_chunks['correlator_data']:
-            vis[culled_slice] = 0.
-        assert_array_equal(vfw.vis, vis)
-        weights = data['weights'] * data['weights_channel'][..., np.newaxis]
-        for culled_slice in missing_chunks['weights'] + missing_chunks['weights_channel']:
-            weights[culled_slice] = 0.
-        assert_array_equal(vfw.weights, weights)
-        # Check that (only) missing chunks have been flagged as 'data lost'
-        flags = data['flags']
-        for culled_slice in missing_chunks['flags']:
-            flags[culled_slice] = 0
-        for culled_slice in itertools.chain(*missing_chunks.values()):
-            flags[culled_slice] |= DATA_LOST
-        assert_array_equal(vfw.flags, flags)
-
-    def test_missing_chunks(self):
-        self._test_missing_chunks((100, 256, 30))
-
-    def test_missing_chunks_uneven_chunking(self):
-        self._test_missing_chunks(
-            (20, 210, 30),
-            {
-                'vis': (1, 6, 30),
-                'weights': (5, 10, 15),
-                'weights_channel': (1, 7),
-                'flags': (4, 15, 30)
-            })
+def assert_telstate_data_source_equal(source1, source2):
+    """Assert that two :class:`~katdal.datasources.TelstateDataSource`s are equal."""
+    # Check attributes (sensors left out for now)
+    keys = source1.telstate.keys()
+    assert set(source2.telstate.keys()) == set(keys)
+    for key in keys:
+        np.testing.assert_array_equal(source1.telstate[key], source2.telstate[key])
+    # Check that we also have the same telstate view in both sources
+    assert source1.telstate.prefixes == source2.telstate.prefixes
+    # Check data arrays
+    np.testing.assert_array_equal(source1.timestamps, source2.timestamps)
+    np.testing.assert_array_equal(source1.data.vis.compute(), source2.data.vis.compute())
+    np.testing.assert_array_equal(source1.data.flags.compute(), source2.data.flags.compute())
+    np.testing.assert_array_equal(source1.data.weights.compute(), source2.data.weights.compute())
 
 
-class TestTelstateDataSource(object):
+class TestTelstateDataSource:
     def setup(self):
         self.tempdir = tempfile.mkdtemp()
         self.store = NpyFileChunkStore(self.tempdir)
         self.telstate = katsdptelstate.TelescopeState()
-        self.cbid = 'cb'
 
     def teardown(self):
         shutil.rmtree(self.tempdir)
 
-    def test_timestamps(self):
-        view, cbid, sn, l0_data, l1_flags_data = \
-            make_fake_datasource(self.telstate, self.store, self.cbid, (20, 64, 40))
-        data_source = TelstateDataSource(view, cbid, sn, self.store)
-        np.testing.assert_array_equal(
-            data_source.timestamps,
-            np.arange(20, dtype=np.float32) * 2 + 123456912)
+    def test_basic_timestamps(self):
+        # Add a sensor to telstate to exercise the relevant code paths in TelstateDataSource
+        self.telstate.add('obs_script_log', 'Digitisers synced', ts=123456789.)
+        view, cbid, sn, _, _ = make_fake_data_source(self.telstate, self.store, (20, 64, 40))
+        data_source = TelstateDataSource(view, cbid, sn, chunk_store=None, source_name='hello')
+        assert 'hello' in data_source.name
+        assert data_source.data is None
+        expected_timestamps = np.arange(20, dtype=np.float32) * 2 + 123456789 + 123
+        np.testing.assert_array_equal(data_source.timestamps, expected_timestamps)
 
     def test_upgrade_flags(self):
         shape = (20, 16, 40)
-        view, cbid, sn, l0_data, l1_flags_data = \
-            make_fake_datasource(self.telstate, self.store, self.cbid, shape)
+        view, cbid, sn, l0_data, l1_flags_data = make_fake_data_source(
+            self.telstate, self.store, shape)
         data_source = TelstateDataSource(view, cbid, sn, self.store)
         np.testing.assert_array_equal(data_source.data.vis.compute(), l0_data['correlator_data'])
         np.testing.assert_array_equal(data_source.data.flags.compute(), l1_flags_data['flags'])
@@ -296,14 +151,13 @@ class TestTelstateDataSource(object):
         """L1 flags has fewer dumps than L0"""
         l0_shape = (20, 16, 40)
         l1_flags_shape = (18, 16, 40)
-        view, cbid, sn, l0_data, l1_flags_data = \
-            make_fake_datasource(self.telstate, self.store, self.cbid, l0_shape, l1_flags_shape,
-                                 l0_chunk_overrides=l0_chunk_overrides,
-                                 l1_flags_chunk_overrides=l1_flags_chunk_overrides)
+        view, cbid, sn, l0_data, l1_flags_data = make_fake_data_source(
+            self.telstate, self.store, l0_shape, l1_flags_shape=l1_flags_shape,
+            l0_chunk_overrides=l0_chunk_overrides,
+            l1_flags_chunk_overrides=l1_flags_chunk_overrides)
         data_source = TelstateDataSource(view, cbid, sn, self.store)
-        np.testing.assert_array_equal(
-            data_source.timestamps,
-            np.arange(l0_shape[0], dtype=np.float32) * 2 + 123456912)
+        expected_timestamps = np.arange(l0_shape[0], dtype=np.float32) * 2 + 123456789 + 123
+        np.testing.assert_array_equal(data_source.timestamps, expected_timestamps)
         np.testing.assert_array_equal(data_source.data.vis.compute(), l0_data['correlator_data'])
         expected_flags = np.zeros(l0_shape, np.uint8)
         expected_flags[:l1_flags_shape[0]] = l1_flags_data['flags']
@@ -326,14 +180,13 @@ class TestTelstateDataSource(object):
         """L1 flags has more dumps than L0"""
         l0_shape = (18, 16, 40)
         l1_flags_shape = (20, 16, 40)
-        view, cbid, sn, l0_data, l1_flags_data = \
-            make_fake_datasource(self.telstate, self.store, self.cbid, l0_shape, l1_flags_shape,
-                                 l0_chunk_overrides=l0_chunk_overrides,
-                                 l1_flags_chunk_overrides=l1_flags_chunk_overrides)
+        view, cbid, sn, l0_data, l1_flags_data = make_fake_data_source(
+            self.telstate, self.store, l0_shape, l1_flags_shape=l1_flags_shape,
+            l0_chunk_overrides=l0_chunk_overrides,
+            l1_flags_chunk_overrides=l1_flags_chunk_overrides)
         data_source = TelstateDataSource(view, cbid, sn, self.store)
-        np.testing.assert_array_equal(
-            data_source.timestamps,
-            np.arange(l1_flags_shape[0], dtype=np.float32) * 2 + 123456912)
+        expected_timestamps = np.arange(l1_flags_shape[0], dtype=np.float32) * 2 + 123456789 + 123
+        np.testing.assert_array_equal(data_source.timestamps, expected_timestamps)
         expected_vis = np.zeros(l1_flags_shape, l0_data['correlator_data'].dtype)
         expected_vis[:18] = l0_data['correlator_data']
         expected_flags = l1_flags_data['flags'].copy()
@@ -358,7 +211,49 @@ class TestTelstateDataSource(object):
         """L1 flags shape is incompatible with L0"""
         l0_shape = (18, 16, 40)
         l1_flags_shape = (20, 8, 40)
-        view, cbid, sn, l0_data, l1_flags_data = \
-            make_fake_datasource(self.telstate, self.store, self.cbid, l0_shape, l1_flags_shape)
+        view, cbid, sn, _, _ = make_fake_data_source(self.telstate, self.store, l0_shape,
+                                                    l1_flags_shape=l1_flags_shape)
         with assert_raises(ValueError):
             TelstateDataSource(view, cbid, sn, self.store)
+
+    def test_van_vleck(self):
+        shape = (20, 16, 40)
+        view, cbid, sn, l0_data, _ = make_fake_data_source(self.telstate, self.store, shape)
+        # Uncorrected visibilities
+        data_source = TelstateDataSource(view, cbid, sn, self.store, van_vleck='off')
+        raw_vis = data_source.data.vis
+        np.testing.assert_array_equal(raw_vis.compute(), l0_data['correlator_data'])
+        # Corrected visibilities
+        data_source2 = TelstateDataSource(view, cbid, sn, self.store, van_vleck='autocorr')
+        corrected_vis = data_source2.data.vis
+        expected_vis = correct_autocorr_quantisation(raw_vis, view['bls_ordering'])
+        np.testing.assert_array_equal(corrected_vis.compute(), expected_vis.compute())
+        # Check parameter validation
+        with assert_raises(ValueError):
+            TelstateDataSource(view, cbid, sn, self.store, van_vleck='blah')
+
+    def test_construction_from_url(self):
+        view, cbid, sn, _, _ = make_fake_data_source(self.telstate, self.store, (20, 16, 40))
+        source_direct = TelstateDataSource(view, cbid, sn, self.store)
+        # Save RDB file to e.g. 'tempdir/cb/cb_sdp_l0.rdb', as if 'tempdir' is a real S3 bucket
+        rdb_dir = os.path.join(self.tempdir, cbid)
+        os.mkdir(rdb_dir)
+        rdb_filename = os.path.join(rdb_dir, f'{cbid}_{sn}.rdb')
+        # Insert CBID and stream name at the top level, just like metawriter does
+        self.telstate['capture_block_id'] = cbid
+        self.telstate['stream_name'] = sn
+        with RDBWriter(rdb_filename) as rdbw:
+            rdbw.save(self.telstate)
+        # Check that we can open RDB file and automatically infer the chunk store
+        source_from_file = open_data_source(rdb_filename)
+        assert_telstate_data_source_equal(source_from_file, source_direct)
+        # Check that we can override the capture_block_id and stream name via query parameters
+        query = urllib.parse.urlencode({'capture_block_id': cbid, 'stream_name': sn})
+        url = urllib.parse.urlunparse(('file', '', rdb_filename, '', query, ''))
+        source_from_url = TelstateDataSource.from_url(url, chunk_store=self.store)
+        assert_telstate_data_source_equal(source_from_url, source_direct)
+        # Check invalid URLs
+        with assert_raises(DataSourceNotFound):
+            open_data_source('ftp://unsupported')
+        with assert_raises(DataSourceNotFound):
+            open_data_source(rdb_filename[:-4])

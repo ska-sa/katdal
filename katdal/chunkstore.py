@@ -16,9 +16,6 @@
 
 """Base class for accessing a store of chunks (i.e. N-dimensional arrays)."""
 
-from __future__ import print_function, division, absolute_import
-from builtins import next, zip, range, object
-
 import contextlib
 import functools
 import uuid
@@ -40,6 +37,10 @@ class StoreUnavailable(OSError, ChunkStoreError):
 
 class ChunkNotFound(KeyError, ChunkStoreError):
     """The store was accessible but a chunk with the given name was not found."""
+
+    def __str__(self):
+        """Avoid the implicit repr() of KeyError since we'll have explanatory text."""
+        return ChunkStoreError.__str__(self)
 
 
 class BadChunk(ValueError, ChunkStoreError):
@@ -165,7 +166,7 @@ def npy_header_and_body(chunk):
     return header, chunk
 
 
-class ChunkStore(object):
+class ChunkStore:
     r"""Base class for accessing a store of chunks (i.e. N-dimensional arrays).
 
     A *chunk* is a simple (i.e. unit-stride) slice of an N-dimensional array
@@ -236,13 +237,20 @@ class ChunkStore(object):
         """
         raise NotImplementedError
 
-    def get_chunk_or_zeros(self, array_name, slices, dtype):
-        """Get chunk from the store but return zeros if it is missing."""
+    def get_chunk_or_default(self, array_name, slices, dtype, default_value=0):
+        """Get chunk from the store but return default value if it is missing."""
         try:
             return self.get_chunk(array_name, slices, dtype)
         except ChunkNotFound:
             chunk_name, shape = self.chunk_metadata(array_name, slices)
-            return np.zeros(shape, dtype)
+            return np.full(shape, default_value, dtype)
+
+    def get_chunk_or_none(self, array_name, slices, dtype):
+        """Get chunk from the store but return ``None`` if it is missing."""
+        try:
+            return self.get_chunk(array_name, slices, dtype)
+        except ChunkNotFound:
+            return None
 
     def create_array(self, array_name):
         """Create a new array if it does not already exist.
@@ -290,37 +298,6 @@ class ChunkStore(object):
             return err
         else:
             return None
-
-    def has_chunk(self, array_name, slices, dtype):
-        """Check if chunk is in the store.
-
-        Parameters
-        ----------
-        array_name : string
-            Identifier of parent array `x` of chunk
-        slices : sequence of unit-stride slice objects
-            Identifier of individual chunk, to be extracted as `x[slices]`
-        dtype : :class:`numpy.dtype` object or equivalent
-            Data type of array `x`
-
-        Returns
-        -------
-        success : bool
-            True if chunk was found in the store, with appropriate size / dtype
-
-        Raises
-        ------
-        :exc:`chunkstore.BadChunk`
-            If `slices` has wrong specification
-        :exc:`chunkstore.StoreUnavailable`
-            If interaction with chunk store failed (offline, bad auth, bad config)
-        """
-        try:
-            self.get_chunk(array_name, slices, dtype)
-        except ChunkNotFound:
-            return False
-        else:
-            return True
 
     def mark_complete(self, array_name):
         """Write a special object to indicate that `array_name` is finished.
@@ -402,24 +379,22 @@ class ChunkStore(object):
         try:
             shape = tuple(s.stop - s.start for s in slices)
         except (TypeError, AttributeError):
-            raise BadChunk('Array {!r}: chunk ID should be a sequence of '
-                           'slice objects, not {}'.format(array_name, slices))
+            raise BadChunk(f'Array {array_name!r}: chunk ID should be '
+                           f'a sequence of slice objects, not {slices}')
         # Verify that all slice strides are unity (i.e. it's a "simple" slice)
         if not all([s.step in (1, None) for s in slices]):
-            raise BadChunk('Array {!r}: chunk ID {} contains non-unit strides'
-                           .format(array_name, slices))
+            raise BadChunk(f'Array {array_name!r}: chunk ID {slices} contains non-unit strides')
         # Construct chunk name from array_name + slices
         chunk_name = cls.join(array_name, cls.chunk_id_str(slices))
         if chunk is not None and chunk.shape != shape:
-            raise BadChunk('Chunk {!r}: shape {} implied by slices does not '
-                           'match actual shape {}'
-                           .format(chunk_name, shape, chunk.shape))
+            raise BadChunk(f'Chunk {chunk_name!r}: shape {shape} implied by slices '
+                           f'does not match actual shape {chunk.shape}')
         if chunk is not None and chunk.dtype.hasobject:
-            raise BadChunk('Chunk {!r}: actual dtype {} cannot contain '
-                           'objects'.format(chunk_name, chunk.dtype))
+            raise BadChunk(f'Chunk {chunk_name!r}: actual dtype {chunk.dtype} '
+                           'cannot contain objects')
         if dtype is not None and np.dtype(dtype).hasobject:
-            raise BadChunk('Chunk {!r}: Requested dtype {} cannot contain '
-                           'objects'.format(chunk_name, dtype))
+            raise BadChunk(f'Chunk {chunk_name!r}: Requested dtype {dtype} '
+                           'cannot contain objects')
         return chunk_name, shape
 
     @contextlib.contextmanager
@@ -444,10 +419,10 @@ class ChunkStore(object):
                 # keys, so pick the first one found
                 FirstBase = next(c for c in self._error_map if isinstance(e, c))
                 StandardisedError = self._error_map[FirstBase]
-            prefix = 'Chunk {!r}: '.format(chunk_name) if chunk_name else ''
-            raise StandardisedError(prefix + str(e))
+            prefix = f'Chunk {chunk_name!r}: ' if chunk_name else ''
+            raise StandardisedError(prefix + str(e)) from e
 
-    def get_dask_array(self, array_name, chunks, dtype, offset=()):
+    def get_dask_array(self, array_name, chunks, dtype, offset=(), errors=0):
         """Get dask array from the store.
 
         Any missing chunks are replaced with zeros, suppressing any
@@ -463,13 +438,32 @@ class ChunkStore(object):
             Data type of array
         offset : tuple of int, optional
             Offset to add to each dimension when addressing chunks in store
+        errors : number or 'raise' or 'none', optional
+            Error handling. If 'raise', exceptions are passed through,
+            causing the evaluation to fail.
+
+            If 'none', returns ``None`` in
+            place of missing chunks. Note that such an array cannot be used
+            as-is, because an ndarray is expected, but it can be used as raw
+            material for building new graphs via functions like
+            :func:`da.map_blocks`.
+
+            If a numeric value, it is used as a default value.
 
         Returns
         -------
         array : :class:`dask.array.Array` object
             Dask array of given dtype
         """
-        getter = functools.partial(self.get_chunk_or_zeros, dtype=dtype)
+        kwargs = {'dtype': dtype}
+        if errors == 'none':
+            get_func = self.get_chunk_or_none
+        elif errors == 'raise':
+            get_func = self.get_chunk
+        else:
+            get_func = self.get_chunk_or_default
+            kwargs['default_value'] = errors
+        getter = functools.partial(get_func, **kwargs)
         if offset:
             getter = _add_offset_to_slices(getter, offset)
         # Use dask utility function that forms the core of da.from_array
@@ -498,7 +492,7 @@ class ChunkStore(object):
         in_name = array.name
         out_name = array_name
         # Make out_name unique to avoid clashes and caches
-        out_name = 'store-{}-{}-{}'.format(out_name, offset, uuid.uuid4().hex)
+        out_name = f'store-{out_name}-{offset}-{uuid.uuid4().hex}'
         put = _scalar_to_chunk(self.put_chunk_noraise)
         if offset:
             put = _add_offset_to_slices(put, offset)
@@ -510,65 +504,3 @@ class ChunkStore(object):
         # The success array has one element per chunk in the input array
         out_chunks = tuple(len(c) * (1,) for c in array.chunks)
         return da.Array(dask_graph, out_name, out_chunks, np.object)
-
-    def list_chunk_ids(self, array_name):
-        """List all chunk ID strings associated with given array in chunk store.
-
-        Parameters
-        ----------
-        array_name : string
-            Identifier of array in chunk store
-
-        Returns
-        -------
-        chunk_ids : list of string
-            List of chunk identifier strings (e.g. '00012_01024_00000')
-
-        Raises
-        ------
-        NotImplementedError
-            If the underlying store does not have an efficient implementation
-        """
-        raise NotImplementedError
-
-    def has_array(self, array_name, chunks, dtype, offset=()):
-        """Check which chunks of the array are in the store.
-
-        Parameters
-        ----------
-        array_name : string
-            Identifier of array in chunk store
-        chunks : tuple of tuples of ints
-            Chunk specification
-        dtype : :class:`numpy.dtype` object or equivalent
-            Data type of array
-        offset : tuple of int, optional
-            Offset to add to each dimension when addressing chunks in store
-
-        Returns
-        -------
-        success : :class:`numpy.ndarray` object
-            Array of bools indicating presence of each chunk
-
-        Notes
-        -----
-        If the underlying store implements :meth:`list_chunk_ids`, that is
-        preferred; otherwise :meth:`has_chunk` is called for each chunk.
-        """
-        slices = da.core.slices_from_chunks(chunks)
-        if offset:
-            slices = [tuple(slice(ss.start + i, ss.stop + i)
-                            for (ss, i) in zip(s, offset))
-                      for s in slices]
-        try:
-            # Obtain ID strings of all chunks in store associated with array_name
-            # This might not be implemented by underlying store
-            store_ids = set(self.list_chunk_ids(array_name))
-        except NotImplementedError:
-            success = [self.has_chunk(array_name, index, dtype) for index in slices]
-        else:
-            # Turn chunks + offset into list of expected chunk ID strings
-            chunk_ids = [self.chunk_id_str(s) for s in slices]
-            # Look up expected IDs in set of actual IDs in store
-            success = [cid in store_ids for cid in chunk_ids]
-        return np.array(success).reshape(tuple(len(c) for c in chunks))

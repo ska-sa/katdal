@@ -15,8 +15,6 @@
 ################################################################################
 
 """Two-stage deferred indexer for objects with expensive __getitem__ calls."""
-from __future__ import print_function, division, absolute_import
-from builtins import zip, range, object
 
 import copy
 import threading
@@ -25,6 +23,7 @@ from functools import reduce, partial
 
 import numpy as np
 import dask.array as da
+import dask.highlevelgraph
 import dask.optimization
 
 # TODO support advanced integer indexing with non-strictly increasing indices (i.e. out-of-order and duplicates)
@@ -44,14 +43,14 @@ def _range_to_slice(index):
     """
     if not len(index):
         return slice(None, 0, None)
-    if any(i for i in index if i < 0):
-        raise ValueError('Could not convert {} to a slice (contains negative '
-                         'elements)'.format(index))
+    if any(i < 0 for i in index):
+        raise ValueError(f'Could not convert {index} to a slice '
+                         '(contains negative elements)')
     increments_left = set(np.diff(index))
     step = increments_left.pop() if increments_left else 1
     if step == 0 or increments_left:
-        raise ValueError('Could not convert {} to a slice (unevenly spaced or '
-                         'zero increments)'.format(index))
+        raise ValueError(f'Could not convert {index} to a slice '
+                         '(unevenly spaced or zero increments)')
     start = index[0]
     stop = index[-1] + step
     # Avoid descending below 0 and thereby wrapping back to the top
@@ -136,7 +135,9 @@ def dask_getitem(x, indices):
     # ensure_dict, which copies all the keys, presumably to speed up the
     # case where most keys are retained. A lazy indexer is normally used to
     # fetch a small part of the data.
-    out.dask = dask.optimization.cull(out.dask, out.__dask_keys__())[0]
+    if np.product(out.numblocks) < 0.5 * np.product(x.numblocks):
+        dsk = dask.optimization.cull(out.dask, out.__dask_keys__())[0]
+        out.dask = dask.highlevelgraph.HighLevelGraph.from_collections(out.name, dsk)
     return out
 
 
@@ -159,7 +160,7 @@ class InvalidTransform(Exception):
     """Transform changes data shape in unallowed way."""
 
 
-class LazyTransform(object):
+class LazyTransform:
     """Transformation to be applied by LazyIndexer after final indexing.
 
     A :class:`LazyIndexer` potentially applies a chain of transforms to the
@@ -198,8 +199,9 @@ class LazyTransform(object):
 
     def __repr__(self):
         """Short human-friendly string representation of lazy transform object."""
-        return "<katdal.%s '%s': type '%s' at 0x%x>" % \
-               (self.__class__.__name__, self.name, 'unchanged' if self.dtype is None else self.dtype, id(self))
+        class_name = self.__class__.__name__
+        dtype = 'unchanged' if self.dtype is None else self.dtype
+        return f"<katdal.{class_name} '{self.name}': type '{dtype}' at {id(self):#x}>"
 
     def __call__(self, data, keep):
         """Transform data (`keep` is user-specified second-stage index)."""
@@ -210,7 +212,7 @@ class LazyTransform(object):
 # -------------------------------------------------------------------------------------------------
 
 
-class LazyIndexer(object):
+class LazyIndexer:
     """Two-stage deferred indexer for objects with expensive __getitem__ calls.
 
     This class was originally designed to extend and speed up the indexing
@@ -310,13 +312,13 @@ class LazyIndexer(object):
 
     def __repr__(self):
         """Short human-friendly string representation of lazy indexer object."""
-        return "<katdal.%s '%s': shape %s, type %s at 0x%x>" % \
-               (self.__class__.__name__, self.name, self.shape, self.dtype, id(self))
+        return "<katdal.{} '{}': shape {}, type {} at {:#x}>".format(
+               self.__class__.__name__, self.name, self.shape, self.dtype, id(self))
 
     def _name_shape_dtype(self, name, shape, dtype):
         """Helper function to create strings for display (limits dtype length)."""
         dtype_str = (str(dtype)[:50] + '...') if len(str(dtype)) > 50 else str(dtype)
-        return "%s -> %s %s" % (name, shape, dtype_str)
+        return f"{name} -> {shape} {dtype_str}"
 
     def __str__(self):
         """Verbose human-friendly string representation of lazy indexer object."""
@@ -452,7 +454,7 @@ class LazyIndexer(object):
         allowed_shapes = [self._initial_shape[:(n + 1)] for n in range(len(self._initial_shape))]
         if new_shape[:len(self._initial_shape)] not in allowed_shapes:
             raise InvalidTransform('Transform chain may only add or drop dimensions at the end of data shape: '
-                                   'final shape is %s, expected one of %s' % (new_shape, allowed_shapes))
+                                   f'final shape is {new_shape}, expected one of {allowed_shapes}')
         return new_shape
 
     @property
@@ -462,7 +464,7 @@ class LazyIndexer(object):
                       self.transforms, self._initial_dtype)
 
 
-class DaskLazyIndexer(object):
+class DaskLazyIndexer:
     """Turn a dask Array into a LazyIndexer by computing it upon indexing.
 
     The LazyIndexer wraps an underlying `dataset` in the form of a dask Array.
@@ -605,15 +607,14 @@ class DaskLazyIndexer(object):
 
     def __repr__(self):
         """Short human-friendly string representation of indexer object."""
-        return "<katdal.{} '{}': shape {}, type {} at 0x{:x}>".format(
-            self.__class__.__name__, self.name, self.shape, self.dtype,
-            id(self))
+        return "<katdal.{} '{}': shape {}, type {} at {:#x}>".format(
+            self.__class__.__name__, self.name, self.shape, self.dtype, id(self))
 
     def __str__(self):
         """Verbose human-friendly string representation of indexer object."""
         names = [self.name]
         names += [_callable_name(transform) for transform in self.transforms]
-        return ' | '.join(names) + ' -> {} {}'.format(self.shape, self.dtype)
+        return ' | '.join(names) + f' -> {self.shape} {self.dtype}'
 
     @property
     def shape(self):

@@ -1,5 +1,3 @@
-# -*- coding: utf-8
-
 ################################################################################
 # Copyright (c) 2018-2019, National Research Foundation (Square Kilometre Array)
 #
@@ -17,16 +15,15 @@
 ################################################################################
 
 """Tests for :py:mod:`katdal.sensordata`."""
-from __future__ import print_function, division, absolute_import
-from builtins import object
 
 from collections import OrderedDict
 
 import numpy as np
-from nose.tools import assert_equal, assert_raises
-import mock
+from nose.tools import assert_equal, assert_in, assert_not_in, assert_raises, assert_is_instance
+from unittest.mock import Mock
 
-from katdal.sensordata import SensorCache, to_str
+from katdal.sensordata import (SensorCache, SensorData, SimpleSensorGetter, to_str,
+                               remove_duplicates_and_invalid_values)
 
 
 def assert_equal_typed(a, b):
@@ -34,52 +31,105 @@ def assert_equal_typed(a, b):
     assert_equal(type(a), type(b))
 
 
-class TestToStr(object):
+class TestToStr:
     def test_non_str(self):
         assert_equal_typed(to_str(3), 3)
         assert_equal_typed(to_str(None), None)
 
     def test_simple_str(self):
         assert_equal_typed(to_str(b'hello'), 'hello')
-        assert_equal_typed(to_str(u'hello'), 'hello')
+        assert_equal_typed(to_str('hello'), 'hello')
 
     def test_non_ascii(self):
         assert_equal_typed(to_str(b'caf\xc3\xa9'), 'café')
-        assert_equal_typed(to_str(u'café'), 'café')
+        assert_equal_typed(to_str('café'), 'café')
 
     def test_list(self):
-        assert_equal_typed(to_str([b'hello', u'world']), ['hello', 'world'])
+        assert_equal_typed(to_str([b'hello', 'world']), ['hello', 'world'])
 
     def test_tuple(self):
-        assert_equal_typed(to_str((b'hello', u'world')), ('hello', 'world'))
+        assert_equal_typed(to_str((b'hello', 'world')), ('hello', 'world'))
 
     def test_dict(self):
-        assert_equal_typed(to_str({b'hello': b'world', u'abc': u'xyz'}),
+        assert_equal_typed(to_str({b'hello': b'world', 'abc': 'xyz'}),
                            {'hello': 'world', 'abc': 'xyz'})
 
     def test_custom_dict(self):
-        assert_equal_typed(to_str(OrderedDict([(b'hello', b'world'), (u'abc', u'xyz')])),
+        assert_equal_typed(to_str(OrderedDict([(b'hello', b'world'), ('abc', 'xyz')])),
                            OrderedDict([('hello', 'world'), ('abc', 'xyz')]))
 
     def test_numpy_str(self):
         a = np.array([[b'abc', b'def'], [b'ghi', b'jk']])
-        b = np.array([[u'abc', u'def'], [u'ghi', u'jk']])
+        b = np.array([['abc', 'def'], ['ghi', 'jk']])
         c = np.array([['abc', 'def'], ['ghi', 'jk']])
         np.testing.assert_array_equal(to_str(a), c)
         np.testing.assert_array_equal(to_str(b), c)
 
     def test_numpy_object(self):
-        a = np.array([b'abc', u'def', (b'xyz', u'uvw')], dtype='O')
+        a = np.array([b'abc', 'def', (b'xyz', 'uvw')], dtype='O')
         b = np.array(['abc', 'def', ('xyz', 'uvw')], dtype='O')
         np.testing.assert_array_equal(to_str(a), b)
 
 
-class TestSensorCache(object):
+class TestSensorCache:
+    def _cache_data(self):
+        sensors = [
+            ('foo', [4.0, 7.0], [3.0, 6.0]),
+            ('cat', [2.0, 6.0], ['hello', 'world'])
+        ]
+        cache_data = {}
+        for name, ts, values in sensors:
+            sd = SimpleSensorGetter(name, np.asarray(ts), np.asarray(values))
+            cache_data[name] = sd
+        return cache_data
+
     def setup(self):
-        self.cache = SensorCache({}, timestamps=np.arange(10.), dump_period=1.0)
+        self.cache = SensorCache(self._cache_data(), timestamps=np.arange(10.), dump_period=1.0)
+
+    def test_extract_float(self):
+        data = self.cache.get('foo', extract=True)
+        np.testing.assert_array_equal(data, [3.0, 3.0, 3.0, 3.0, 3.0, 4.0, 5.0, 6.0, 6.0, 6.0])
+
+    def test_extract_categorical(self):
+        data = self.cache.get('cat', extract=True)
+        H = 'hello'
+        W = 'world'
+        np.testing.assert_array_equal(data[:], [H, H, H, H, H, H, W, W, W, W])
+
+    def test_alias(self):
+        self.cache = SensorCache(
+            self._cache_data(), timestamps=np.arange(10.), dump_period=1.0,
+            aliases={'zz': 'at'})
+        # Check that adding the alias didn't lead to extraction
+        assert_is_instance(self.cache.get('czz', extract=False), SimpleSensorGetter)
+        np.testing.assert_array_equal(self.cache['czz'], self.cache['cat'])
+
+    def test_len(self):
+        assert_equal(len(self.cache), 2)
+
+    def test_keys(self):
+        assert_equal(sorted(self.cache.keys()), ['cat', 'foo'])
+
+    def test_contains(self):
+        assert_in('cat', self.cache)
+        assert_in('foo', self.cache)
+        assert_not_in('dog', self.cache)
+        template = 'Antennas/{ant}/{param1}_{param2}'
+        self.cache.virtual[template] = lambda x: None
+        assert_not_in(template, self.cache)
+
+    def test_setitem_delitem(self):
+        self.cache['bar'] = SimpleSensorGetter('bar', np.array([1.0]), np.array([0.0]))
+        np.testing.assert_array_equal(self.cache['bar'], np.zeros(10))
+        del self.cache['bar']
+        assert_not_in('bar', self.cache)
+
+    def test_sensor_time_offset(self):
+        data = self.cache.get('foo', extract=True, time_offset=-1.0)
+        np.testing.assert_array_equal(data, [3.0, 3.0, 3.0, 3.0, 4.0, 5.0, 6.0, 6.0, 6.0, 6.0])
 
     def test_virtual_sensors(self):
-        calculate_value = mock.Mock()
+        calculate_value = Mock()
 
         def _check_sensor(cache, name, **kwargs):
             """Check that virtual sensor function gets the expected parameters."""
@@ -112,3 +162,21 @@ class TestSensorCache(object):
         value = self.cache.get(template.format(**params))
         assert_equal(value, params['param2'])
         assert_equal(calculate_value.call_count, 2)
+
+    # TODO: more tests required:
+    # - extract=False
+    # - selection
+
+
+def test_sensor_cleanup():
+    # The first sensor event has a status of "unknown" and is therefore invalid. It happened
+    # after the second (valid) event, though, and snuck through due to a bug (now fixed).
+    # This mirrors the behaviour of the cbf_1_wide_input_labelling sensor in CBID 1588667937.
+    timestamp = np.array([1.0, 0.0, 3.0, 3.0, 3.0, 3.0, 2.0])
+    value = np.array(['broke', 'a', 'c', 'c', 'c', 'd', 'b'])
+    status = np.array(['unknown', 'nominal', 'nominal', 'nominal', 'warn', 'error', 'nominal'])
+    dirty = SensorData('test', timestamp, value, status)
+    clean = remove_duplicates_and_invalid_values(dirty)
+    assert_equal(clean.status, None)
+    np.testing.assert_array_equal(clean.value, np.array(['a', 'b', 'd']))
+    np.testing.assert_array_equal(clean.timestamp, np.array([0.0, 2.0, 3.0]))

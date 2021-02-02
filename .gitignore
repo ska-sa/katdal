@@ -31,3 +31,7 @@ nosetests.xml
 # Developer tools
 *~
 .ropeproject
+
+# Virtual Studio Code settings
+.vscode
+

@@ -16,9 +16,6 @@
 
 """Tests for :py:mod:`katdal.spectral_window`."""
 
-from __future__ import print_function, division, absolute_import
-from builtins import object
-
 import numpy as np
 from numpy.testing import assert_array_equal, assert_array_almost_equal
 from nose.tools import assert_equal
@@ -26,7 +23,7 @@ from nose.tools import assert_equal
 from katdal.spectral_window import SpectralWindow
 
 
-class TestSpectralWindow(object):
+class TestSpectralWindow:
     def setUp(self):
         self.lsb = SpectralWindow(1000.0, 10.0, 6, sideband=-1, product='lsb')
         self.usb = SpectralWindow(1000.0, 10.0, 6, sideband=1, band='X')

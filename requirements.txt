@@ -1,16 +1,14 @@
 botocore
 certifi
 chardet
+cityhash
 dask
-defusedxml
 docutils
-enum34
-funcsigs
+ephem
 jmespath
 future
 h5py
 idna
-ipaddress
 katversion
 llvmlite
 msgpack
@@ -18,14 +16,13 @@ netifaces
 numba
 numpy
 pyephem
+pyjwt
 python-dateutil
 python-lzf
 rdbtools
 redis
 requests
-singledispatch
 six
-subprocess32
 toolz
 urllib3
 

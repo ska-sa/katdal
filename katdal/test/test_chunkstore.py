@@ -15,20 +15,18 @@
 ################################################################################
 
 """Tests for :py:mod:`katdal.chunkstore`."""
-from __future__ import print_function, division, absolute_import
-from builtins import object
 
 import numpy as np
 from numpy.testing import assert_array_equal
 from nose.tools import (assert_raises, assert_equal, assert_true, assert_false,
-                        assert_is_instance)
+                        assert_is_instance, assert_is_none)
 import dask.array as da
 
 from katdal.chunkstore import (ChunkStore, generate_chunks,
                                StoreUnavailable, ChunkNotFound, BadChunk)
 
 
-class TestGenerateChunks(object):
+class TestGenerateChunks:
     """Test the `generate_chunks` function."""
     def __init__(self):
         self.shape = (10, 8192, 144)
@@ -92,14 +90,13 @@ class TestGenerateChunks(object):
         assert_equal(chunks, ((10,), 1024 * (8,), (144,)))
 
 
-class TestChunkStore(object):
+class TestChunkStore:
     """This tests the base class functionality."""
 
-    def test_put_get_list_chunks(self):
+    def test_put_get(self):
         store = ChunkStore()
         assert_raises(NotImplementedError, store.get_chunk, 1, 2, 3)
         assert_raises(NotImplementedError, store.put_chunk, 1, 2, 3)
-        assert_raises(NotImplementedError, store.list_chunk_ids, 1)
 
     def test_metadata_validation(self):
         store = ChunkStore()
@@ -131,7 +128,7 @@ class TestChunkStore(object):
                 {}['ha']
 
 
-class ChunkStoreTestBase(object):
+class ChunkStoreTestBase:
     """Standard tests performed on all types of ChunkStore."""
 
     # Instance of store instantiated once per class via class-level fixture
@@ -149,16 +146,14 @@ class ChunkStoreTestBase(object):
     def array_name(self, name):
         return name
 
-    def put_has_get_chunk(self, var_name, slices):
-        """Put a single chunk into store, check it, get it back and compare."""
+    def put_get_chunk(self, var_name, slices):
+        """Put a single chunk into store, get it back and compare."""
         array_name = self.array_name(var_name)
         chunk = getattr(self, var_name)[slices]
         self.store.create_array(array_name)
         self.store.put_chunk(array_name, slices, chunk)
-        assert_true(self.store.has_chunk(array_name, slices, chunk.dtype))
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
-        assert_array_equal(chunk_retrieved, chunk,
-                           "Error storing {}[{}]".format(var_name, slices))
+        assert_array_equal(chunk_retrieved, chunk, f"Error storing {var_name}[{slices}]")
 
     def make_dask_array(self, var_name, slices=()):
         """Turn (part of) an existing ndarray into a dask array."""
@@ -187,32 +182,27 @@ class ChunkStoreTestBase(object):
         array_retrieved = pull.compute()
         array = dask_array.compute()
         assert_array_equal(array_retrieved, array,
-                           "Error retrieving {} / {} / {}"
-                           .format(array_name, offset, dask_array.chunks))
-
-    def has_array(self, var_name, slices=()):
-        """Get (part of) an array from store via dask and compare."""
-        array_name, dask_array, offset = self.make_dask_array(var_name, slices)
-        results = self.store.has_array(array_name, dask_array.chunks, dask_array.dtype, offset)
-        divisions_per_dim = [len(c) for c in dask_array.chunks]
-        assert_array_equal(results, np.full(divisions_per_dim, True))
+                           f'Error retrieving {array_name} / {offset} / {dask_array.chunks}')
 
     def test_chunk_non_existent(self):
+        array_name = self.array_name('haha')
         slices = (slice(0, 1),)
         dtype = np.dtype(np.float)
-        args = ('haha', slices, dtype)
+        args = (array_name, slices, dtype)
         shape = tuple(s.stop - s.start for s in slices)
         assert_raises(ChunkNotFound, self.store.get_chunk, *args)
-        assert_false(self.store.has_chunk(*args))
-        zeros = self.store.get_chunk_or_zeros(*args)
+        zeros = self.store.get_chunk_or_default(*args)
         assert_array_equal(zeros, np.zeros(shape, dtype))
         assert_equal(zeros.dtype, dtype)
+        ones = self.store.get_chunk_or_default(*args, default_value=1)
+        assert_array_equal(ones, np.ones(shape, dtype))
+        assert_is_none(self.store.get_chunk_or_none(*args))
 
     def test_chunk_bool_1dim_and_too_small(self):
         # Check basic put + get on 1-D bool
         name = self.array_name('x')
         s = (slice(3, 5),)
-        self.put_has_get_chunk('x', s)
+        self.put_get_chunk('x', s)
         # Stored object has fewer bytes than expected (and wrong dtype)
         assert_raises(BadChunk, self.store.get_chunk, name, s, self.y.dtype)
 
@@ -220,15 +210,15 @@ class ChunkStoreTestBase(object):
         # Check basic put + get on 3-D float
         name = self.array_name('y')
         s = (slice(3, 7), slice(2, 5), slice(1, 2))
-        self.put_has_get_chunk('y', s)
+        self.put_get_chunk('y', s)
         # Stored object has more bytes than expected (and wrong dtype)
         assert_raises(BadChunk, self.store.get_chunk, name, s, self.x.dtype)
 
     def test_chunk_zero_size(self):
         # Try a chunk with zero size
-        self.put_has_get_chunk('y', (slice(4, 7), slice(3, 3), slice(0, 2)))
+        self.put_get_chunk('y', (slice(4, 7), slice(3, 3), slice(0, 2)))
         # Try an empty slice on a zero-dimensional array (but why?)
-        self.put_has_get_chunk('z', ())
+        self.put_get_chunk('z', ())
 
     def test_put_chunk_noraise(self):
         name = self.array_name('x')
@@ -239,43 +229,28 @@ class ChunkStoreTestBase(object):
     def test_dask_array_basic(self):
         self.put_dask_array('big_y')
         self.get_dask_array('big_y')
-        self.has_array('big_y')
         self.get_dask_array('big_y', np.s_[0:3, 0:30, 0:2])
-        self.has_array('big_y', np.s_[0:3, 0:30, 0:2])
 
     def test_dask_array_put_parts_get_whole(self):
         # Split big array into quarters along existing chunks and reassemble
         self.put_dask_array('big_y2', np.s_[0:3,  0:30, 0:2])
         self.put_dask_array('big_y2', np.s_[3:8,  0:30, 0:2])
         self.put_dask_array('big_y2', np.s_[0:3, 30:60, 0:2])
-        # Before storing last quarter, check that get() replaces it with zeros
+        # Before storing last quarter, check that get() replaces it with default
         if not self.preloaded_chunks:
             array_name, dask_array, offset = self.make_dask_array('big_y2')
             pull = self.store.get_dask_array(array_name, dask_array.chunks,
-                                             dask_array.dtype, offset)
+                                             dask_array.dtype, offset, errors=17)
             array_retrieved = pull.compute()
             assert_equal(array_retrieved.shape, dask_array.shape)
             assert_equal(array_retrieved.dtype, dask_array.dtype)
-            assert_array_equal(array_retrieved[np.s_[3:8, 30:60, 0:2]], 0,
-                               "Missing chunk in {} not replaced by zeros"
-                               .format(array_name))
+            assert_array_equal(array_retrieved[np.s_[3:8, 30:60, 0:2]], 17,
+                               f'Missing chunk in {array_name} not replaced by default value')
         # Now store the last quarter and check that complete array is correct
         self.put_dask_array('big_y2', np.s_[3:8, 30:60, 0:2])
         self.get_dask_array('big_y2')
 
-    def test_list_chunk_ids(self):
-        array_name, dask_array, offset = self.make_dask_array('big_y2')
-        try:
-            chunk_ids = self.store.list_chunk_ids(array_name)
-        except NotImplementedError:
-            pass
-        else:
-            slices = da.core.slices_from_chunks(dask_array.chunks)
-            ref_chunk_ids = [self.store.chunk_id_str(s) for s in slices]
-            assert_equal(set(chunk_ids), set(ref_chunk_ids))
-
-    def test_mark_complete(self):
-        name = self.array_name('completetest')
+    def _test_mark_complete(self, name):
         try:
             assert_false(self.store.is_complete(name))
         except NotImplementedError:
@@ -283,3 +258,6 @@ class ChunkStoreTestBase(object):
         else:
             self.store.mark_complete(name)
             assert_true(self.store.is_complete(name))
+
+    def test_mark_complete_array(self):
+        self._test_mark_complete(self.array_name('completetest'))

@@ -15,7 +15,6 @@
 ################################################################################
 
 """A store of chunks (i.e. N-dimensional arrays) based on NPY files."""
-from __future__ import print_function, division, absolute_import
 
 import os
 import errno
@@ -82,10 +81,9 @@ class NpyFileChunkStore(ChunkStore):
     """
 
     def __init__(self, path, direct_write=False):
-        super(NpyFileChunkStore, self).__init__({IOError: ChunkNotFound,
-                                                 ValueError: ChunkNotFound})
+        super().__init__({IOError: ChunkNotFound, ValueError: ChunkNotFound})
         if not os.path.isdir(path):
-            raise StoreUnavailable('Directory {!r} does not exist'.format(path))
+            raise StoreUnavailable(f'Directory {path!r} does not exist')
         self.path = path
         self.direct_write = direct_write
         if direct_write and not hasattr(os, 'O_DIRECT'):
@@ -98,10 +96,8 @@ class NpyFileChunkStore(ChunkStore):
         with self._standard_errors(chunk_name):
             chunk = np.load(filename, allow_pickle=False)
         if chunk.shape != shape or chunk.dtype != dtype:
-            raise BadChunk('Chunk {!r}: NPY file dtype {} and/or shape {} '
-                           'differs from expected dtype {} and shape {}'
-                           .format(chunk_name, chunk.dtype, chunk.shape,
-                                   dtype, shape))
+            raise BadChunk(f'Chunk {chunk_name!r}: NPY file dtype {chunk.dtype} and/or shape '
+                           f'{chunk.shape} differs from expected dtype {dtype} and shape {shape}')
         return chunk
 
     def create_array(self, array_name):
@@ -125,24 +121,6 @@ class NpyFileChunkStore(ChunkStore):
             _write_chunk(temp_filename, chunk, self.direct_write)
             os.rename(temp_filename, base_filename + '.npy')
 
-    def has_chunk(self, array_name, slices, dtype):
-        """See the docstring of :meth:`ChunkStore.has_chunk`."""
-        chunk_name, _ = self.chunk_metadata(array_name, slices, dtype=dtype)
-        filename = os.path.join(self.path, chunk_name) + '.npy'
-        return os.path.exists(filename)
-
-    def list_chunk_ids(self, array_name):
-        """See the docstring of :meth:`ChunkStore.list_chunk_ids`."""
-        array_dir = os.path.join(self.path, array_name)
-        # Strip the .npy extension to get the chunk ID string
-        try:
-            return [fn[:-4] for fn in os.listdir(array_dir) if fn.endswith('.npy')]
-        except OSError as e:
-            # If the directory is missing, there cannot be any objects
-            if e.errno != errno.ENOENT:
-                raise
-            return []
-
     def mark_complete(self, array_name):
         """See the docstring of :meth:`ChunkStore.mark_complete`."""
         self.create_array(array_name)
@@ -157,7 +135,5 @@ class NpyFileChunkStore(ChunkStore):
 
     get_chunk.__doc__ = ChunkStore.get_chunk.__doc__
     put_chunk.__doc__ = ChunkStore.put_chunk.__doc__
-    has_chunk.__doc__ = ChunkStore.has_chunk.__doc__
-    list_chunk_ids.__doc__ = ChunkStore.list_chunk_ids.__doc__
     mark_complete.__doc__ = ChunkStore.mark_complete.__doc__
     is_complete.__doc__ = ChunkStore.is_complete.__doc__
