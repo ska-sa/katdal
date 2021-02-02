@@ -81,10 +81,9 @@ class NpyFileChunkStore(ChunkStore):
     """
 
     def __init__(self, path, direct_write=False):
-        super(NpyFileChunkStore, self).__init__({IOError: ChunkNotFound,
-                                                 ValueError: ChunkNotFound})
+        super().__init__({IOError: ChunkNotFound, ValueError: ChunkNotFound})
         if not os.path.isdir(path):
-            raise StoreUnavailable('Directory {!r} does not exist'.format(path))
+            raise StoreUnavailable(f'Directory {path!r} does not exist')
         self.path = path
         self.direct_write = direct_write
         if direct_write and not hasattr(os, 'O_DIRECT'):
@@ -97,10 +96,8 @@ class NpyFileChunkStore(ChunkStore):
         with self._standard_errors(chunk_name):
             chunk = np.load(filename, allow_pickle=False)
         if chunk.shape != shape or chunk.dtype != dtype:
-            raise BadChunk('Chunk {!r}: NPY file dtype {} and/or shape {} '
-                           'differs from expected dtype {} and shape {}'
-                           .format(chunk_name, chunk.dtype, chunk.shape,
-                                   dtype, shape))
+            raise BadChunk(f'Chunk {chunk_name!r}: NPY file dtype {chunk.dtype} and/or shape '
+                           f'{chunk.shape} differs from expected dtype {dtype} and shape {shape}')
         return chunk
 
     def create_array(self, array_name):

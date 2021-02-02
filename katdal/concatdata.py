@@ -85,7 +85,7 @@ class ConcatenatedLazyIndexer(LazyIndexer):
         descr = [self._name_shape_dtype(self.name, shape, dtype)]
         for n, indexer in enumerate(self.indexers):
             indexer_descr = str(indexer).split('\n')
-            descr += [('- Indexer %03d: ' % (n,)) + indexer_descr[0]]
+            descr += [f'- Indexer {n:03d}: ' + indexer_descr[0]]
             descr += ['               ' + indescr for indescr in indexer_descr[1:]]
         for transform in self.transforms:
             shape, dtype = transform.new_shape(shape), transform.dtype if transform.dtype is not None else dtype
@@ -180,7 +180,7 @@ class ConcatenatedLazyIndexer(LazyIndexer):
         """Shape of data array after first-stage indexing and before transformation."""
         # Each component must have the same shape except for the first dimension (length)
         # The overall length will be the sum of component lengths
-        shape_tails = set([indexer.shape[1:] for indexer in self.indexers])
+        shape_tails = {indexer.shape[1:] for indexer in self.indexers}
         if len(shape_tails) != 1:
             raise ConcatenationError("Incompatible shapes among sub-indexers making up indexer '%s':\n%s" %
                                      (self.name, '\n'.join([repr(indexer) for indexer in self.indexers])))
@@ -190,15 +190,15 @@ class ConcatenatedLazyIndexer(LazyIndexer):
     def _initial_dtype(self):
         """Type of data array before transformation."""
         # Each component must have the same dtype, which becomes the overall dtype
-        dtypes = set([indexer.dtype for indexer in self.indexers])
+        dtypes = {indexer.dtype for indexer in self.indexers}
         if len(dtypes) == 1:
             return dtypes.pop()
         elif np.all([np.issubdtype(dtype, np.string_) for dtype in dtypes]):
             # Strings of different lengths have different dtypes (e.g. '|S1' vs '|S10') but can be safely concatenated
-            return np.dtype('|S%d' % (max([dt.itemsize for dt in dtypes]),))
+            return np.dtype('|S{}'.format(max([dt.itemsize for dt in dtypes])))
         else:
-            raise ConcatenationError("Incompatible dtypes among sub-indexers making up indexer '%s':\n%s" %
-                                     (self.name, '\n'.join([repr(indexer) for indexer in self.indexers])))
+            raise ConcatenationError(f"Incompatible dtypes among sub-indexers making up indexer '{self.name}':\n"
+                                     + '\n'.join([repr(indexer) for indexer in self.indexers]))
 
 # -------------------------------------------------------------------------------------------------
 # -- CLASS :  ConcatenatedSensorGetter
@@ -251,8 +251,8 @@ class ConcatenatedSensorGetter(SensorGetter):
             # but underlying names may legitimately differ for datasets of
             # different minor versions (even within the same version...).
             raise ConcatenationError('Cannot concatenate sensor with different '
-                                     'underlying names: %s' % (names,))
-        super(ConcatenatedSensorGetter, self).__init__(names[0])
+                                     f'underlying names: {names}')
+        super().__init__(names[0])
         self._data = data
 
     def get(self):
@@ -382,7 +382,7 @@ class ConcatenatedSensorCache(SensorCache):
         # Get array, categorical data or raw sensor data from each cache
         split_data = self._get(name, select=select, extract=extract, **kwargs)
         if all(sd is None for sd in split_data):
-            raise KeyError('Key %s not found in any of the concatenated datasets' % name)
+            raise KeyError(f'Key {name} not found in any of the concatenated datasets')
         # If this sensor has already been partially extracted,
         # we are forced to extract it in rest of caches too
         if not extract and not all(sd is None or isinstance(sd, SensorGetter) for sd in split_data):
@@ -515,7 +515,7 @@ class ConcatenatedDataSet(DataSet):
         dump_periods = unique_in_order([d.dump_period for d in datasets])
         if len(dump_periods) > 1:
             raise ConcatenationError('Data sets cannot be concatenated because of differing dump periods: ' +
-                                     ', '.join([('%g' % (dp,)) for dp in dump_periods]))
+                                     ', '.join(f'{dp:g}' for dp in dump_periods))
         self.dump_period = dump_periods[0]
         self._segments = np.cumsum([0] + [len(d.sensor.timestamps) for d in datasets])
         # Keep main time selection mask at top level and ensure that underlying datasets use slice views of main one
@@ -530,7 +530,7 @@ class ConcatenatedDataSet(DataSet):
         self.subarrays = subarray.unique_values
         self.spectral_windows = spw.unique_values
         self.catalogue.add(target.unique_values)
-        self.catalogue.antenna = self.sensor['Antennas/%s/antenna' % (self.ref_ant,)][0]
+        self.catalogue.antenna = self.sensor[f'Antennas/{self.ref_ant}/antenna'][0]
         split_sub = subarray.partition(self._segments)
         split_spw = spw.partition(self._segments)
         split_target = target.partition(self._segments)

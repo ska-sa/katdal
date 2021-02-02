@@ -70,8 +70,8 @@ SENSOR_ALIASES = {
 
 def _calc_azel(cache, name, ant):
     """Calculate virtual (az, el) sensors from actual ones in sensor cache."""
-    real_sensor = '%s_pos_actual_scan_%s' % \
-                  (ant, 'azim' if name.endswith('az') else 'elev')
+    suffix = 'azim' if name.endswith('az') else 'elev'
+    real_sensor = f'{ant}_pos_actual_scan_{suffix}'
     cache[name] = sensor_data = katpoint.deg2rad(cache.get(real_sensor))
     return sensor_data
 
@@ -111,11 +111,11 @@ def _normalise_cal_products(products, cal_streams):
                                             for stream in cal_streams])
         else:
             streams = ','.join(cal_streams)
-            streams = ' (one of {})'.format(streams) if streams else ' (none found)'
-            msg = ("Unknown calibration product '{}': it should be a stream{}, "
-                   "product type (one of {}) or <stream>.<product_type>"
-                   .format(product, streams, ','.join(CAL_PRODUCT_TYPES)))
-            raise ValueError(msg)
+            streams = f' (one of {streams})' if streams else ' (none found)'
+            product_types = ','.join(CAL_PRODUCT_TYPES)
+            raise ValueError(f"Unknown calibration product '{product}': it should be a "
+                             f'stream{streams}, product type (one of {product_types}) '
+                             'or <stream>.<product_type>')
     return normalised_cal_products, skip_missing_products
 
 
@@ -269,7 +269,7 @@ class VisibilityDataV4(DataSet):
                 continue
         # Keep the basic list sorted as far as possible
         ants = sorted(ants)
-        cam_ants = set(ant.name for ant in ants)
+        cam_ants = {ant.name for ant in ants}
         # Find names of all antennas with associated correlator data
         sdp_ants = set([cp[0][:-1] for cp in corrprods] +
                        [cp[1][:-1] for cp in corrprods])
@@ -280,8 +280,7 @@ class VisibilityDataV4(DataSet):
         self.ref_ant = 'array' if not ref_ant else ref_ant
         valid_ref_ants = cam_ants | {'array'}
         if self.ref_ant not in valid_ref_ants:
-            raise KeyError("Unknown ref_ant '%s', should be one of %s"
-                           % (self.ref_ant, valid_ref_ants))
+            raise KeyError(f"Unknown ref_ant '{self.ref_ant}', should be one of {valid_ref_ants}")
 
         self.subarrays = subs = [Subarray(ants, corrprods)]
         self.sensor['Observation/subarray'] = CategoricalData(subs, all_dumps)
@@ -289,7 +288,7 @@ class VisibilityDataV4(DataSet):
         # Store antenna objects in sensor cache too, for use in virtual
         # sensors, and make aliases for old-style target + activity sensors
         for ant in ants:
-            prefix = 'Antennas/%s/' % (ant.name,)
+            prefix = f'Antennas/{ant.name}/'
             self.sensor[prefix + 'antenna'] = CategoricalData([ant], all_dumps)
             _add_sensor_alias(self.sensor, prefix + 'activity', ant.name + '_activity')
             _add_sensor_alias(self.sensor, prefix + 'target', ant.name + '_target')
@@ -309,12 +308,12 @@ class VisibilityDataV4(DataSet):
         # Populate antenna -> receiver mapping and figure out noise diode
         for ant in cam_ants:
             # Try sanitised version of RX serial number first
-            rx_serial = attrs.get('%s_rsc_rx%s_serial_number' % (ant, band), 0)
-            self.receivers[ant] = '%s.%d' % (band, rx_serial)
-            nd_sensor = '%s_dig_%s_band_noise_diode' % (ant, band)
+            rx_serial = attrs.get(f'{ant}_rsc_rx{band}_serial_number', 0)
+            self.receivers[ant] = f'{band}.{rx_serial}'
+            nd_sensor = f'{ant}_dig_{band}_band_noise_diode'
             if nd_sensor in self.sensor:
                 # A sensor alias would be ideal for this but it only deals with suffixes ATM
-                new_nd_sensor = 'Antennas/%s/nd_coupler' % (ant,)
+                new_nd_sensor = f'Antennas/{ant}/nd_coupler'
                 self.sensor[new_nd_sensor] = self.sensor.get(nd_sensor, extract=False)
         num_chans = attrs['n_chans']
         bandwidth = attrs['bandwidth']
@@ -347,7 +346,7 @@ class VisibilityDataV4(DataSet):
         # ------ Extract scans / compound scans / targets ------
 
         # Use activity sensor of reference antenna to partition the data set into scans
-        scan = self.sensor.get('Antennas/%s/activity' % (self.ref_ant,))
+        scan = self.sensor.get(f'Antennas/{self.ref_ant}/activity')
         # If the antenna starts slewing on the second dump, incorporate the
         # first dump into the slew too. This scenario typically occurs when the
         # first target is only set after the first dump is received.
@@ -387,7 +386,7 @@ class VisibilityDataV4(DataSet):
         self.sensor['Observation/compscan_index'] = CategoricalData(list(range(len(label))),
                                                                     label.events)
         # Use target sensor of reference antenna to set the target for each scan
-        target = self.sensor.get('Antennas/%s/target' % (self.ref_ant,))
+        target = self.sensor.get(f'Antennas/{self.ref_ant}/target')
         # Move target events onto the nearest scan start
         # ASSUMPTION: Number of targets <= number of scans
         # (i.e. only a single target allowed per scan)
@@ -415,7 +414,7 @@ class VisibilityDataV4(DataSet):
                                                                   target.events)
         # Set up catalogue containing all targets in file, with reference antenna as default antenna
         self.catalogue.add(target.unique_values)
-        self.catalogue.antenna = self.sensor['Antennas/%s/antenna' % (self.ref_ant,)][0]
+        self.catalogue.antenna = self.sensor[f'Antennas/{self.ref_ant}/antenna'][0]
         # Ensure that each target flux model spans all frequencies
         # in data set if possible
         self._fix_flux_freq_range()
@@ -501,7 +500,7 @@ class VisibilityDataV4(DataSet):
         # Reverse flag indices as np.packbits has bit 0 as the MSB (we want LSB)
         selection = np.flipud(np.unpackbits(self._flags_select))
         assert len(FLAG_NAMES) == len(selection), \
-            'Expected %d flag types, got %s' % (len(selection), FLAG_NAMES)
+            f'Expected {len(selection)} flag types, got {FLAG_NAMES}'
         return [name for name, bit in zip(FLAG_NAMES, selection) if bit]
 
     @_flags_keep.setter
@@ -511,7 +510,7 @@ class VisibilityDataV4(DataSet):
         # Create boolean list for desired flags
         selection = np.zeros(8, dtype=np.uint8)
         assert len(FLAG_NAMES) == len(selection), \
-            'Expected %d flag types, got %d' % (len(selection), FLAG_NAMES)
+            f'Expected {len(selection)} flag types, got {FLAG_NAMES}'
         for name in names:
             try:
                 selection[FLAG_NAMES.index(name)] = 1

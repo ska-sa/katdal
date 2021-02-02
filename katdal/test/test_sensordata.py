@@ -1,5 +1,3 @@
-# -*- coding: utf-8
-
 ################################################################################
 # Copyright (c) 2018-2019, National Research Foundation (Square Kilometre Array)
 #
@@ -33,47 +31,47 @@ def assert_equal_typed(a, b):
     assert_equal(type(a), type(b))
 
 
-class TestToStr(object):
+class TestToStr:
     def test_non_str(self):
         assert_equal_typed(to_str(3), 3)
         assert_equal_typed(to_str(None), None)
 
     def test_simple_str(self):
         assert_equal_typed(to_str(b'hello'), 'hello')
-        assert_equal_typed(to_str(u'hello'), 'hello')
+        assert_equal_typed(to_str('hello'), 'hello')
 
     def test_non_ascii(self):
         assert_equal_typed(to_str(b'caf\xc3\xa9'), 'café')
-        assert_equal_typed(to_str(u'café'), 'café')
+        assert_equal_typed(to_str('café'), 'café')
 
     def test_list(self):
-        assert_equal_typed(to_str([b'hello', u'world']), ['hello', 'world'])
+        assert_equal_typed(to_str([b'hello', 'world']), ['hello', 'world'])
 
     def test_tuple(self):
-        assert_equal_typed(to_str((b'hello', u'world')), ('hello', 'world'))
+        assert_equal_typed(to_str((b'hello', 'world')), ('hello', 'world'))
 
     def test_dict(self):
-        assert_equal_typed(to_str({b'hello': b'world', u'abc': u'xyz'}),
+        assert_equal_typed(to_str({b'hello': b'world', 'abc': 'xyz'}),
                            {'hello': 'world', 'abc': 'xyz'})
 
     def test_custom_dict(self):
-        assert_equal_typed(to_str(OrderedDict([(b'hello', b'world'), (u'abc', u'xyz')])),
+        assert_equal_typed(to_str(OrderedDict([(b'hello', b'world'), ('abc', 'xyz')])),
                            OrderedDict([('hello', 'world'), ('abc', 'xyz')]))
 
     def test_numpy_str(self):
         a = np.array([[b'abc', b'def'], [b'ghi', b'jk']])
-        b = np.array([[u'abc', u'def'], [u'ghi', u'jk']])
+        b = np.array([['abc', 'def'], ['ghi', 'jk']])
         c = np.array([['abc', 'def'], ['ghi', 'jk']])
         np.testing.assert_array_equal(to_str(a), c)
         np.testing.assert_array_equal(to_str(b), c)
 
     def test_numpy_object(self):
-        a = np.array([b'abc', u'def', (b'xyz', u'uvw')], dtype='O')
+        a = np.array([b'abc', 'def', (b'xyz', 'uvw')], dtype='O')
         b = np.array(['abc', 'def', ('xyz', 'uvw')], dtype='O')
         np.testing.assert_array_equal(to_str(a), b)
 
 
-class TestSensorCache(object):
+class TestSensorCache:
     def _cache_data(self):
         sensors = [
             ('foo', [4.0, 7.0], [3.0, 6.0]),

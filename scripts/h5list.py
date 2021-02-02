@@ -55,7 +55,7 @@ for f in files:
     try:
         d = katdal.open(f, quicklook=True)
     except Exception as e:
-        print('%s %s - %s' % (f, e.__class__.__name__, e))
+        print(f'{f} {e.__class__.__name__} - {e}')
         continue
     name = os.path.basename(f)
     name = (name[:10] + '...') if len(name) > 13 else name

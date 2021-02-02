@@ -64,8 +64,7 @@ def _make_fake_stream(telstate, store, cbid, stream, shape,
         for j in range(i, n_ant):
             for x in 'hv':
                 for y in 'hv':
-                    bls_ordering.append(('m{:03}{}'.format(i, x),
-                                         'm{:03}{}'.format(j, y)))
+                    bls_ordering.append((f'm{i:03}{x}', f'm{j:03}{y}'))
     s_view['bls_ordering'] = np.array(bls_ordering)
     if not flags_only:
         s_view['need_weights_power_scale'] = True
@@ -117,7 +116,7 @@ def assert_telstate_data_source_equal(source1, source2):
     np.testing.assert_array_equal(source1.data.weights.compute(), source2.data.weights.compute())
 
 
-class TestTelstateDataSource(object):
+class TestTelstateDataSource:
     def setup(self):
         self.tempdir = tempfile.mkdtemp()
         self.store = NpyFileChunkStore(self.tempdir)
@@ -268,7 +267,7 @@ class TestTelstateDataSource(object):
         # Save RDB file to e.g. 'tempdir/cb/cb_sdp_l0.rdb', as if 'tempdir' is a real S3 bucket
         rdb_dir = os.path.join(self.tempdir, cbid)
         os.mkdir(rdb_dir)
-        rdb_filename = os.path.join(rdb_dir, '{}_{}.rdb'.format(cbid, sn))
+        rdb_filename = os.path.join(rdb_dir, f'{cbid}_{sn}.rdb')
         # Insert CBID and stream name at the top level, just like metawriter does
         self.telstate['capture_block_id'] = cbid
         self.telstate['stream_name'] = sn

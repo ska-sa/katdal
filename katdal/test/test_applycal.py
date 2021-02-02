@@ -89,7 +89,7 @@ ATTRS = {'antlist': ANTS, 'pol_ordering': POLS,
          'n_chans': CAL_N_CHANS, 'product_B_parts': BANDPASS_PARTS,
          'measured_flux': PIPELINE_FLUXES}
 CAL_PRODUCT_TYPES = ('K', 'B', 'G', 'GPHASE')
-CAL_PRODUCTS = ['{}.{}'.format(CAL_STREAM, prod) for prod in CAL_PRODUCT_TYPES]
+CAL_PRODUCTS = [f'{CAL_STREAM}.{prod}' for prod in CAL_PRODUCT_TYPES]
 
 
 def create_delay(pol, ant):
@@ -266,7 +266,7 @@ def assert_categorical_data_equal(actual, desired):
         assert_array_equal(a, d)
 
 
-class TestComplexInterp(object):
+class TestComplexInterp:
     """Test the :func:`~katdal.applycal.complex_interp` function."""
     def setup(self):
         self.xi = np.arange(1., 10.)
@@ -315,7 +315,7 @@ class TestComplexInterp(object):
         assert_allclose(y[-1], 1j, rtol=1e-14)
 
 
-class TestCalProductAccess(object):
+class TestCalProductAccess:
     """Test the :func:`~katdal.applycal.*_cal_product` functions."""
     def setup(self):
         self.cache = create_sensor_cache()
@@ -351,7 +351,7 @@ class TestCalProductAccess(object):
             product[part] = INVALID_GAIN
             assert_array_equal(product_sensor[12], product)
             # Recalculate on the next pass
-            del cache['Calibration/Products/{}/B'.format(CAL_STREAM)]
+            del cache[f'Calibration/Products/{CAL_STREAM}/B']
         # All parts gone triggers a KeyError
         del cache[CAL_STREAM + '_product_B' + str(BANDPASS_PARTS - 1)]
         with assert_raises(KeyError):
@@ -368,7 +368,7 @@ class TestCalProductAccess(object):
         assert_array_equal(product_sensor[GAIN_EVENTS], product)
 
 
-class TestCorrectionPerInput(object):
+class TestCorrectionPerInput:
     """Test the :func:`~katdal.applycal.calc_*_correction` functions."""
     def setup(self):
         self.cache = create_sensor_cache()
@@ -412,7 +412,7 @@ class TestCorrectionPerInput(object):
                     m, n, multi_channel=True, targets=True))
 
 
-class TestVirtualCorrectionSensors(object):
+class TestVirtualCorrectionSensors:
     """Test :func:`~katdal.applycal.add_applycal_sensors` function."""
     def setup(self):
         self.cache = create_sensor_cache()
@@ -433,46 +433,44 @@ class TestVirtualCorrectionSensors(object):
     def test_delay_sensors(self, stream=CAL_STREAM):
         for n, ant in enumerate(ANTS):
             for m, pol in enumerate(POLS):
-                sensor_name = 'Calibration/Corrections/{}/K/{}{}'.format(stream, ant, pol)
+                sensor_name = f'Calibration/Corrections/{stream}/K/{ant}{pol}'
                 sensor = self.cache.get(sensor_name)
                 assert_array_equal(sensor[10 + n], delay_corrections(m, n))
 
     def test_bandpass_sensors(self, stream=CAL_STREAM):
         for n, ant in enumerate(ANTS):
             for m, pol in enumerate(POLS):
-                sensor_name = 'Calibration/Corrections/{}/B/{}{}'.format(stream, ant, pol)
+                sensor_name = f'Calibration/Corrections/{stream}/B/{ant}{pol}'
                 sensor = self.cache.get(sensor_name)
                 assert_array_equal(sensor[12 + n], bandpass_corrections(m, n))
 
     def test_gain_sensors(self, stream=CAL_STREAM):
         for n, ant in enumerate(ANTS):
             for m, pol in enumerate(POLS):
-                sensor_name = 'Calibration/Corrections/{}/G/{}{}'.format(stream, ant, pol)
+                sensor_name = f'Calibration/Corrections/{stream}/G/{ant}{pol}'
                 sensor = self.cache.get(sensor_name)
                 assert_array_equal(sensor[:], gain_corrections(m, n))
 
     def test_selfcal_gain_sensors(self, stream=CAL_STREAM):
         for n, ant in enumerate(ANTS):
             for m, pol in enumerate(POLS):
-                sensor_name = 'Calibration/Corrections/{}/GPHASE/{}{}'.format(stream, ant, pol)
+                sensor_name = f'Calibration/Corrections/{stream}/GPHASE/{ant}{pol}'
                 sensor = self.cache.get(sensor_name)
                 assert_array_equal(sensor[:], gain_corrections(
                     m, n, multi_channel=True, targets=True))
 
     def test_unknown_inputs_and_products(self):
-        known_input = '{}{}'.format(ANTS[0], POLS[0])
+        known_input = ANTS[0] + POLS[0]
         with assert_raises(KeyError):
-            self.cache.get('Calibration/Corrections/{}/K/unknown'.format(CAL_STREAM))
+            self.cache.get(f'Calibration/Corrections/{CAL_STREAM}/K/unknown')
         with assert_raises(KeyError):
-            self.cache.get('Calibration/Corrections/{}/unknown/{}'
-                           .format(CAL_STREAM, known_input))
+            self.cache.get(f'Calibration/Corrections/{CAL_STREAM}/unknown/{known_input}')
         with assert_raises(KeyError):
-            self.cache.get('Calibration/Corrections/{}/K_unknown/{}'
-                           .format(CAL_STREAM, known_input))
+            self.cache.get(f'Calibration/Corrections/{CAL_STREAM}/K_unknown/{known_input}')
         with assert_raises(KeyError):
             self.cache.get('Calibration/Corrections/unknown/K/' + known_input)
         with assert_raises(KeyError):
-            self.cache.get('Calibration/Products/{}/K_unknown'.format(CAL_STREAM))
+            self.cache.get(f'Calibration/Products/{CAL_STREAM}/K_unknown')
         with assert_raises(KeyError):
             self.cache.get('Calibration/Products/unknown/K')
 
@@ -484,7 +482,7 @@ class TestVirtualCorrectionSensors(object):
         self.test_gain_sensors('my_cal')
 
 
-class TestCalibrateFlux(object):
+class TestCalibrateFlux:
     """Test :func:`~katdal.applycal.calibrate_flux` function."""
 
     def setup(self):
@@ -513,7 +511,7 @@ class TestCalibrateFlux(object):
         assert_categorical_data_equal(calibrated_sensor, self.sensor)
 
 
-class TestCalcCorrection(object):
+class TestCalcCorrection:
     """Test :func:`~katdal.applycal.calc_correction` function."""
     def setup(self):
         self.cache = create_sensor_cache()
@@ -566,7 +564,7 @@ class TestCalcCorrection(object):
         assert_array_equal(corrections, expected_corrections)
 
 
-class TestApplyCal(object):
+class TestApplyCal:
     """Test :func:`~katdal.applycal.apply_vis_correction` and friends"""
     def setup(self):
         self.cache = create_sensor_cache()

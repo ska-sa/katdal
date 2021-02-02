@@ -17,6 +17,7 @@
 """Data accessor class for HDF5 files produced by RTS correlator."""
 
 import logging
+import secrets
 from collections import Counter
 
 import numpy as np
@@ -59,7 +60,8 @@ SENSOR_ALIASES = {
 
 def _calc_azel(cache, name, ant):
     """Calculate virtual (az, el) sensors from actual ones in sensor cache."""
-    real_sensor = 'Antennas/%s/%s' % (ant, 'pos_actual_scan_azim' if name.endswith('az') else 'pos_actual_scan_elev')
+    base_name = 'pos_actual_scan_azim' if name.endswith('az') else 'pos_actual_scan_elev'
+    real_sensor = f'Antennas/{ant}/{base_name}'
     cache[name] = sensor_data = katpoint.deg2rad(cache.get(real_sensor))
     return sensor_data
 
@@ -103,8 +105,7 @@ def dummy_dataset(name, shape, dtype, value):
     """
     # It is important to randomise the filename as h5py does not allow two writable file objects with the same name
     # Without this randomness katdal can only open one file requiring a dummy dataset
-    random_string = ''.join(['%02x' % (x,) for x in np.random.randint(256, size=8)])
-    dummy_file = h5py.File('%s_%s.h5' % (name, random_string), 'x', driver='core', backing_store=False)
+    dummy_file = h5py.File(f'{name}_{secrets.token_hex(8)}.h5', 'x', driver='core', backing_store=False)
     return dummy_file.create_dataset(name, shape=shape, maxshape=shape,
                                      dtype=dtype, fillvalue=value, compression='gzip')
 
@@ -221,7 +222,7 @@ class H5DataV3(DataSet):
         # Determine if timestamps are already aligned with middle of dumps
         try:
             ts_ref = to_str(data_group['timestamps'].attrs['timestamp_reference'])
-            assert ts_ref == 'centroid', "Don't know timestamp reference %r" % (ts_ref,)
+            assert ts_ref == 'centroid', f"Don't know timestamp reference {ts_ref!r}"
             offset_to_middle_of_dump = 0.0
         except KeyError:
             # Two possible cases:
@@ -294,8 +295,8 @@ class H5DataV3(DataSet):
         # Check dimensions of timestamps vs those of visibility data
         num_dumps = len(self._timestamps)
         if num_dumps != self._vis.shape[0]:
-            raise BrokenFile('Number of timestamps received from ingest '
-                             '(%d) differs from number of dumps in data (%d)' % (num_dumps, self._vis.shape[0]))
+            raise BrokenFile(f'Number of timestamps received from ingest ({num_dumps}) '
+                             f'differs from number of dumps in data ({self._vis.shape[0]})')
         # Discard the last sample if the timestamp is a duplicate (caused by stop packet in k7_capture)
         num_dumps = (num_dumps - 1) if num_dumps > 1 and (self._timestamps[-1] == self._timestamps[-2]) else num_dumps
         self._timestamps = self._timestamps[:num_dumps]
@@ -307,14 +308,13 @@ class H5DataV3(DataSet):
             expected_dumps = (self._timestamps[-2] - self._timestamps[0]) / self.dump_period + 2
             if abs(expected_dumps - num_dumps) >= 0.01:
                 # Warn the user, as this is anomalous
-                logger.warning("Irregular timestamps detected in file '%s': "
-                               "expected %.3f dumps based on dump period and "
-                               "start/end times, got %d instead",
+                logger.warning("Irregular timestamps detected in file '%s': expected %.3f dumps "
+                               "based on dump period and start/end times, got %d instead",
                                filename, expected_dumps, num_dumps)
         # Ensure timestamps are aligned with the middle of each dump
         self._timestamps += offset_to_middle_of_dump + self.time_offset
         if self._timestamps[0] < 1e9:
-            logger.warning("File '%s' has invalid first correlator timestamp (%f)" % (filename, self._timestamps[0],))
+            logger.warning("File '%s' has invalid first correlator timestamp (%f)", filename, self._timestamps[0])
         self._time_keep = np.ones(num_dumps, dtype=np.bool)
         self.start_time = katpoint.Timestamp(self._timestamps[0] - 0.5 * self.dump_period)
         self.end_time = katpoint.Timestamp(self._timestamps[-1] + 0.5 * self.dump_period)
@@ -382,7 +382,7 @@ class H5DataV3(DataSet):
             if to_str(tm_group[name].attrs.get('class')) != 'AntennaPositioner':
                 continue
             try:
-                ant_description = self.sensor['Antennas/%s/observer' % (name,)][0]
+                ant_description = self.sensor[f'Antennas/{name}/observer'][0]
             except KeyError:
                 try:
                     ant_description = to_str(tm_group[name].attrs['observer'])
@@ -391,7 +391,7 @@ class H5DataV3(DataSet):
             ants.append(katpoint.Antenna(ant_description))
         # Keep the basic list sorted as far as possible
         ants = sorted(ants)
-        cam_ants = set(ant.name for ant in ants)
+        cam_ants = {ant.name for ant in ants}
         # Original list of correlation products as pairs of input labels
         corrprods = self._get_corrprods(f, self.stream_name)
         # Find names of all antennas with associated correlator data
@@ -417,7 +417,7 @@ class H5DataV3(DataSet):
         self.sensor['Observation/subarray_index'] = CategoricalData([0], [0, num_dumps])
         # Store antenna objects in sensor cache too, for use in virtual sensor calculations
         for ant in ants:
-            self.sensor['Antennas/%s/antenna' % (ant.name,)] = CategoricalData([ant], [0, num_dumps])
+            self.sensor[f'Antennas/{ant.name}/antenna'] = CategoricalData([ant], [0, num_dumps])
         # Extract array reference from first antenna (first 5 fields of description)
         array_ant_fields = ['array'] + ants[0].description.split(',')[1:5]
         array_ant = katpoint.Antenna(','.join(array_ant_fields))
@@ -436,7 +436,7 @@ class H5DataV3(DataSet):
                 # Find the most common valid indexer position in the subarray
                 positions = Counter()
                 for ant in cam_ants:
-                    pos_sensor = 'Antennas/%s/ap_indexer_position' % (ant,)
+                    pos_sensor = f'Antennas/{ant}/ap_indexer_position'
                     try:
                         pos = self.sensor[pos_sensor][-1]
                     except KeyError:
@@ -458,22 +458,22 @@ class H5DataV3(DataSet):
         for ant in cam_ants:
             rx_sensor_options = (
                 # Since 2018-01-16 MKAT / ARx only has this version
-                'TelescopeState/%s_rsc_rx%s_serial_number' % (ant, band),
+                f'TelescopeState/{ant}_rsc_rx{band}_serial_number',
                 # RTS since 2017-11-15
-                'TelescopeState/%s_rx_serial_number' % (ant,),
+                f'TelescopeState/{ant}_rx_serial_number',
                 # Original TelescopeModel version
-                'Antennas/%s/rsc_rx%s_serial_number' % (ant, band))
+                f'Antennas/{ant}/rsc_rx{band}_serial_number')
             rx_serial = 0
             for rx_sensor in rx_sensor_options:
                 if rx_sensor in self.sensor:
                     rx_serial = self.sensor[rx_sensor][0]
                     break
             if band:
-                self.receivers[ant] = '%s.%s' % (band, rx_serial)
-            nd_sensor = 'TelescopeState/%s_dig_%s_band_noise_diode' % (ant, band)
+                self.receivers[ant] = f'{band}.{rx_serial}'
+            nd_sensor = f'TelescopeState/{ant}_dig_{band}_band_noise_diode'
             if nd_sensor in self.sensor:
                 # A sensor alias would be ideal for this but it only deals with suffixes ATM
-                new_nd_sensor = 'Antennas/%s/nd_coupler' % (ant,)
+                new_nd_sensor = f'Antennas/{ant}/nd_coupler'
                 self.sensor[new_nd_sensor] = self.sensor.get(nd_sensor, extract=False)
         # Mapping describing current receiver information on MeerKAT
         # XXX Update this as new receivers come online
@@ -541,7 +541,7 @@ class H5DataV3(DataSet):
         # ------ Extract scans / compound scans / targets ------
 
         # Use the activity sensor of reference antenna to partition the data set into scans (and to set their states)
-        scan = self.sensor.get('Antennas/%s/activity' % (self.ref_ant,))
+        scan = self.sensor.get(f'Antennas/{self.ref_ant}/activity')
         # If the antenna starts slewing on the second dump, incorporate the first dump into the slew too.
         # This scenario typically occurs when the first target is only set after the first dump is received.
         # The workaround avoids putting the first dump in a scan by itself, typically with an irrelevant target.
@@ -571,7 +571,7 @@ class H5DataV3(DataSet):
         self.sensor['Observation/label'] = label
         self.sensor['Observation/compscan_index'] = CategoricalData(list(range(len(label))), label.events)
         # Use the target sensor of reference antenna to set the target for each scan
-        target = self.sensor.get('Antennas/%s/target' % (self.ref_ant,))
+        target = self.sensor.get(f'Antennas/{self.ref_ant}/target')
         # RTS workaround: Remove an initial blank target (typically because the antenna is stopped at the start)
         if len(target) > 1 and target[0] == 'Nothing, special':
             target.events, target.indices = target.events[1:], target.indices[1:]
@@ -583,7 +583,7 @@ class H5DataV3(DataSet):
         self.sensor['Observation/target_index'] = CategoricalData(target.indices, target.events)
         # Set up catalogue containing all targets in file, with reference antenna as default antenna
         self.catalogue.add(target.unique_values)
-        self.catalogue.antenna = self.sensor['Antennas/%s/antenna' % (self.ref_ant,)][0]
+        self.catalogue.antenna = self.sensor[f'Antennas/{self.ref_ant}/antenna'][0]
         # Ensure that each target flux model spans all frequencies in data set if possible
         self._fix_flux_freq_range()
 
@@ -696,7 +696,7 @@ class H5DataV3(DataSet):
         except _AttributeFound as exc:
             return exc.args[0]
         if required:
-            raise BrokenFile('File does not contain {!r}'.format(key))
+            raise BrokenFile(f'File does not contain {key!r}')
         return default
 
     def _get_l0_attr(self, key, cbf_group=None, sdp_group=None, required=True,
@@ -773,7 +773,7 @@ class H5DataV3(DataSet):
         f = h5py.File(filename, mode)
         version = to_str(f.attrs.get('version', '1.x'))
         if not version.startswith('3.'):
-            raise WrongVersion("Attempting to load version '%s' file with version 3 loader" % (version,))
+            raise WrongVersion(f"Attempting to load version '{version}' file with version 3 loader")
         return f, version
 
     @staticmethod
@@ -807,7 +807,7 @@ class H5DataV3(DataSet):
                 except KeyError:
                     ant_description = to_str(tm_group[name].attrs['description'])
             ants.append(katpoint.Antenna(ant_description))
-        cam_ants = set(ant.name for ant in ants)
+        cam_ants = {ant.name for ant in ants}
         # Original list of correlation products as pairs of input labels
         corrprods = H5DataV3._get_corrprods(f, stream_name)
         # Find names of all antennas with associated correlator data
@@ -857,7 +857,7 @@ class H5DataV3(DataSet):
 
     def __str__(self):
         """Verbose human-friendly string representation of data set."""
-        descr = [super(H5DataV3, self).__str__()]
+        descr = [super().__str__()]
         # append the process_log, if it exists, for non-concatenated h5 files
         if 'History' in self.file and 'process_log' in self.file['History']:
             descr.append('-------------------------------------------------------------------------------')
@@ -865,9 +865,9 @@ class H5DataV3(DataSet):
             for proc in self.file['History']['process_log']:
                 # proc has a structured dtype and to_str doesn't work on it, so
                 # we have to to_str each element.
-                param_list = '%15s:' % to_str(proc[0])
+                param_list = f'{to_str(proc[0]):>15}:'
                 for param in to_str(proc[1]).split(','):
-                    param_list += '  %s' % param
+                    param_list += f'  {param}'
                 descr.append(param_list)
         return '\n'.join(descr)
 
@@ -888,7 +888,7 @@ class H5DataV3(DataSet):
                 selection.append(known_weights.index(name))
             except ValueError:
                 logger.warning("%r is not a legitimate weight type for this file, "
-                               "supported ones are %s" % (name, known_weights))
+                               "supported ones are %s", name, known_weights)
         if known_weights and not selection:
             logger.warning('No valid weights were selected - setting all weights to 1.0 by default')
         self._weights_select = selection
@@ -901,7 +901,7 @@ class H5DataV3(DataSet):
         # Reverse flag indices as np.packbits has bit 0 as the MSB (we want LSB)
         selection = np.flipud(np.unpackbits(self._flags_select))
         assert len(known_flags) == len(selection), \
-            'Expected %d flag types in file, got %s' % (len(selection), self._flags_description)
+            f'Expected {len(selection)} flag types in file, got {self._flags_description}'
         return [name for name, bit in zip(known_flags, selection) if bit]
 
     @_flags_keep.setter
@@ -915,13 +915,13 @@ class H5DataV3(DataSet):
         # Create boolean list for desired flags
         selection = np.zeros(8, dtype=np.uint8)
         assert len(known_flags) == len(selection), \
-            'Expected %d flag types in file, got %d' % (len(selection), self._flags_description)
+            f'Expected {len(selection)} flag types in file, got {self._flags_description}'
         for name in names:
             try:
                 selection[known_flags.index(name)] = 1
             except ValueError:
                 logger.warning("%r is not a legitimate flag type for this file, "
-                               "supported ones are %s" % (name, known_flags))
+                               "supported ones are %s", name, known_flags)
         # Pack index list into bit mask
         # Reverse flag indices as np.packbits has bit 0 as the MSB (we want LSB)
         flagmask = np.packbits(np.flipud(selection))

@@ -27,7 +27,7 @@ from katdal.chunkstore import (ChunkStore, generate_chunks,
                                PlaceholderChunk)
 
 
-class TestGenerateChunks(object):
+class TestGenerateChunks:
     """Test the `generate_chunks` function."""
     def __init__(self):
         self.shape = (10, 8192, 144)
@@ -91,7 +91,7 @@ class TestGenerateChunks(object):
         assert_equal(chunks, ((10,), 1024 * (8,), (144,)))
 
 
-class TestChunkStore(object):
+class TestChunkStore:
     """This tests the base class functionality."""
 
     def test_put_get(self):
@@ -129,7 +129,7 @@ class TestChunkStore(object):
                 {}['ha']
 
 
-class ChunkStoreTestBase(object):
+class ChunkStoreTestBase:
     """Standard tests performed on all types of ChunkStore."""
 
     # Instance of store instantiated once per class via class-level fixture
@@ -154,8 +154,7 @@ class ChunkStoreTestBase(object):
         self.store.create_array(array_name)
         self.store.put_chunk(array_name, slices, chunk)
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
-        assert_array_equal(chunk_retrieved, chunk,
-                           "Error storing {}[{}]".format(var_name, slices))
+        assert_array_equal(chunk_retrieved, chunk, f"Error storing {var_name}[{slices}]")
 
     def make_dask_array(self, var_name, slices=()):
         """Turn (part of) an existing ndarray into a dask array."""
@@ -184,8 +183,7 @@ class ChunkStoreTestBase(object):
         array_retrieved = pull.compute()
         array = dask_array.compute()
         assert_array_equal(array_retrieved, array,
-                           "Error retrieving {} / {} / {}"
-                           .format(array_name, offset, dask_array.chunks))
+                           f'Error retrieving {array_name} / {offset} / {dask_array.chunks}')
 
     def test_chunk_non_existent(self):
         array_name = self.array_name('haha')
@@ -262,8 +260,7 @@ class ChunkStoreTestBase(object):
             assert_equal(array_retrieved.shape, dask_array.shape)
             assert_equal(array_retrieved.dtype, dask_array.dtype)
             assert_array_equal(array_retrieved[np.s_[3:8, 30:60, 0:2]], 17,
-                               "Missing chunk in {} not replaced by default value"
-                               .format(array_name))
+                               f'Missing chunk in {array_name} not replaced by default value')
 
             pull = self.store.get_dask_array(array_name, dask_array.chunks,
                                              dask_array.dtype, offset, errors='raise')
