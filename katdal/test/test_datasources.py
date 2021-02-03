@@ -46,7 +46,7 @@ def _make_fake_stream(telstate, store, cbid, stream, shape,
     s_view = telstate.view(stream)
     cs_view['chunk_info'] = chunk_info
     cs_view['first_timestamp'] = 123.0
-    s_view['sync_time'] = 123456789.0
+    s_view['sync_time'] = 1600000000.0
     s_view['int_time'] = 2.0
     s_view['bandwidth'] = 856e6
     s_view['center_freq'] = 1284e6
@@ -127,12 +127,12 @@ class TestTelstateDataSource:
 
     def test_basic_timestamps(self):
         # Add a sensor to telstate to exercise the relevant code paths in TelstateDataSource
-        self.telstate.add('obs_script_log', 'Digitisers synced', ts=123456789.)
+        self.telstate.add('obs_script_log', 'Digitisers synced', ts=1600000000.)
         view, cbid, sn, _, _ = make_fake_data_source(self.telstate, self.store, (20, 64, 40))
         data_source = TelstateDataSource(view, cbid, sn, chunk_store=None, source_name='hello')
         assert 'hello' in data_source.name
         assert data_source.data is None
-        expected_timestamps = np.arange(20, dtype=np.float32) * 2 + 123456789 + 123
+        expected_timestamps = np.arange(20, dtype=np.float32) * 2 + 1600000123
         np.testing.assert_array_equal(data_source.timestamps, expected_timestamps)
 
     def test_upgrade_flags(self):
@@ -156,7 +156,7 @@ class TestTelstateDataSource:
             l0_chunk_overrides=l0_chunk_overrides,
             l1_flags_chunk_overrides=l1_flags_chunk_overrides)
         data_source = TelstateDataSource(view, cbid, sn, self.store)
-        expected_timestamps = np.arange(l0_shape[0], dtype=np.float32) * 2 + 123456789 + 123
+        expected_timestamps = np.arange(l0_shape[0], dtype=np.float32) * 2 + 1600000123
         np.testing.assert_array_equal(data_source.timestamps, expected_timestamps)
         np.testing.assert_array_equal(data_source.data.vis.compute(), l0_data['correlator_data'])
         expected_flags = np.zeros(l0_shape, np.uint8)
@@ -185,7 +185,7 @@ class TestTelstateDataSource:
             l0_chunk_overrides=l0_chunk_overrides,
             l1_flags_chunk_overrides=l1_flags_chunk_overrides)
         data_source = TelstateDataSource(view, cbid, sn, self.store)
-        expected_timestamps = np.arange(l1_flags_shape[0], dtype=np.float32) * 2 + 123456789 + 123
+        expected_timestamps = np.arange(l1_flags_shape[0], dtype=np.float32) * 2 + 1600000123
         np.testing.assert_array_equal(data_source.timestamps, expected_timestamps)
         expected_vis = np.zeros(l1_flags_shape, l0_data['correlator_data'].dtype)
         expected_vis[:18] = l0_data['correlator_data']
