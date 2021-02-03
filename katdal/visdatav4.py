@@ -333,7 +333,7 @@ class VisibilityDataV4(DataSet):
         if source.data and (spw.num_chans != source.data.shape[1]):
             logger.warning('Number of channels reported in metadata (%d) differs'
                            ' from actual number of channels in data (%d) - '
-                           'trusting the latter', num_chans, source.data.shape[1])
+                           'trusting the latter', spw.num_chans, source.data.shape[1])
             num_chans = source.data.shape[1]
             centre_freq = 0.0
             spw = SpectralWindow(centre_freq, channel_width, num_chans, product, sideband,
