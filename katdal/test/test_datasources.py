@@ -35,7 +35,8 @@ from katdal.test.test_vis_flags_weights import put_fake_dataset
 
 
 def _make_fake_stream(telstate, store, cbid, stream, shape,
-                      chunk_overrides=None, array_overrides=None, flags_only=False):
+                      chunk_overrides=None, array_overrides=None, flags_only=False,
+                      bls_ordering_override=None):
     telstate_prefix = telstate.join(cbid, stream)
     store_prefix = telstate_prefix.replace('_', '-')
     data, chunk_info = put_fake_dataset(store, store_prefix, shape,
@@ -54,18 +55,21 @@ def _make_fake_stream(telstate, store, cbid, stream, shape,
     s_view['n_bls'] = shape[2]
     # This isn't particularly representative - may need refinement depending on
     # what the test does
-    n_ant = 1
-    while n_ant * (n_ant + 1) * 2 < shape[2]:
-        n_ant += 1
-    if n_ant * (n_ant + 1) * 2 != shape[2]:
-        raise ValueError('n_bls is not consistent with an integer number of antennas')
-    bls_ordering = []
-    for i in range(n_ant):
-        for j in range(i, n_ant):
-            for x in 'hv':
-                for y in 'hv':
-                    bls_ordering.append((f'm{i:03}{x}', f'm{j:03}{y}'))
-    s_view['bls_ordering'] = np.array(bls_ordering)
+    if bls_ordering_override is None:
+        n_ant = 1
+        while n_ant * (n_ant + 1) * 2 < shape[2]:
+            n_ant += 1
+        if n_ant * (n_ant + 1) * 2 != shape[2]:
+            raise ValueError('n_bls is not consistent with an integer number of antennas')
+        bls_ordering = []
+        for i in range(n_ant):
+            for j in range(i, n_ant):
+                for x in 'hv':
+                    for y in 'hv':
+                        bls_ordering.append((f'm{i:03}{x}', f'm{j:03}{y}'))
+        s_view['bls_ordering'] = np.array(bls_ordering)
+    else:
+        s_view['bls_ordering'] = np.asarray(bls_ordering_override)
     if not flags_only:
         s_view['need_weights_power_scale'] = True
         s_view['stream_type'] = 'sdp.vis'
@@ -76,7 +80,8 @@ def _make_fake_stream(telstate, store, cbid, stream, shape,
 
 def make_fake_data_source(telstate, store, l0_shape, cbid='cb', l1_flags_shape=None,
                          l0_chunk_overrides=None, l1_flags_chunk_overrides=None,
-                         l0_array_overrides=None, l1_flags_array_overrides=None):
+                         l0_array_overrides=None, l1_flags_array_overrides=None,
+                         bls_ordering_override=None):
     """Create a complete fake data source.
 
     The resulting telstate and chunk store are suitable for constructing
@@ -89,12 +94,14 @@ def make_fake_data_source(telstate, store, l0_shape, cbid='cb', l1_flags_shape=N
     l0_data, l0_cs_view, l0_s_view = \
         _make_fake_stream(telstate, store, cbid, 'sdp_l0', l0_shape,
                           chunk_overrides=l0_chunk_overrides,
-                          array_overrides=l0_array_overrides)
+                          array_overrides=l0_array_overrides,
+                          bls_ordering_override=bls_ordering_override)
     l1_flags_data, l1_flags_cs_view, l1_flags_s_view = \
         _make_fake_stream(telstate, store, cbid, 'sdp_l1_flags', l1_flags_shape,
                           chunk_overrides=l1_flags_chunk_overrides,
                           array_overrides=l1_flags_array_overrides,
-                          flags_only=True)
+                          flags_only=True,
+                          bls_ordering_override=bls_ordering_override)
     l1_flags_s_view['src_streams'] = ['sdp_l0']
     telstate['sdp_archived_streams'] = ['sdp_l0', 'sdp_l1_flags']
     return view_l0_capture_stream(telstate, cbid, 'sdp_l0') + (l0_data, l1_flags_data)
