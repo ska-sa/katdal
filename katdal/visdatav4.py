@@ -160,9 +160,9 @@ class VisibilityDataV4(DataSet):
         (if available). A value of None disables flux calibration.
     sensor_store : string, optional
         Hostname / endpoint of katstore webserver to access additional sensors
-    index : tuple of slice, optional
+    select : dict, optional
         Subset of the data to select. See :class:`.TelstateDataSource` for
-        restrictions. This selection is permanent, and further selections made
+        details. This selection is permanent, and further selections made
         by :meth:`.DataSet.select` are relative to this subset.
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
@@ -170,7 +170,7 @@ class VisibilityDataV4(DataSet):
     """
     def __init__(self, source, ref_ant='', time_offset=0.0, applycal='',
                  gaincal_flux={}, sensor_store=None,
-                 index=(), **kwargs):
+                 select=None, **kwargs):
         DataSet.__init__(self, source.name, ref_ant, time_offset)
         attrs = source.metadata.attrs
 
@@ -324,8 +324,10 @@ class VisibilityDataV4(DataSet):
         band_map = dict(l='L', s='S', u='UHF', x='X')   # noqa: E741
         spw = SpectralWindow(centre_freq, channel_width, num_chans, product, sideband,
                              band_map[band])
-        if index and len(index) >= 2:
-            start, stop, stride = index[1].indices(num_chans)
+        if select is None:
+            select = {}
+        if 'channels' in select:
+            start, stop, stride = select['channels'].indices(num_chans)
             assert stride == 1    # Checked by TelstateDataSource
             spw = spw.subrange(start, stop)
         # Continue with different channel count, but invalidate centre freq
