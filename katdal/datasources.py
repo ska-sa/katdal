@@ -346,7 +346,7 @@ class TelstateDataSource(DataSource):
         Look for associated flag streams and use them if True (default)
     van_vleck : {'off', 'autocorr'}, optional
         Type of Van Vleck (quantisation) correction to perform
-    select : dict, optional
+    preselect : dict, optional
         Subset of data to select. The keys in the dictionary correspond to the
         keyword arguments of :meth:`.DataSet.select`, but with restrictions:
 
@@ -360,17 +360,17 @@ class TelstateDataSource(DataSource):
     KeyError
         If telstate lacks critical keys
     IndexError
-        If `select` does not meet the criteria above.
+        If `preselect` does not meet the criteria above.
     """
     def __init__(self, telstate, capture_block_id, stream_name,
                  chunk_store=None, timestamps=None, source_name='telstate',
-                 upgrade_flags=True, van_vleck='off', select=None, **kwargs):
-        if select is None:
-            select = {}
-        unexpected = set(select.keys()) - {'channels', 'dumps'}
+                 upgrade_flags=True, van_vleck='off', preselect=None, **kwargs):
+        if preselect is None:
+            preselect = {}
+        unexpected = set(preselect.keys()) - {'channels', 'dumps'}
         if unexpected:
-            raise IndexError("'select' can only specify 'channels' and 'dumps'")
-        for key, idx in select.items():
+            raise IndexError("'preselect' can only specify 'channels' and 'dumps'")
+        for key, idx in preselect.items():
             if not isinstance(idx, slice) or idx.step not in {None, 1}:
                 raise IndexError(f'{key} must be a slice with unit step')
 
@@ -394,8 +394,8 @@ class TelstateDataSource(DataSource):
             data = None
         else:
             need_weights_power_scale = telstate.get('need_weights_power_scale', False)
-            if select:
-                index = (select.get('dumps', np.s_[:]), select.get('channels', np.s_[:]))
+            if preselect:
+                index = (preselect.get('dumps', np.s_[:]), preselect.get('channels', np.s_[:]))
             else:
                 index = ()
             data = ChunkStoreVisFlagsWeights(chunk_store, chunk_info,
@@ -410,8 +410,8 @@ class TelstateDataSource(DataSource):
             int_time = telstate['int_time']
             n_dumps = chunk_info['correlator_data']['shape'][0]
             timestamps = t0 + np.arange(n_dumps) * int_time
-        if 'dumps' in select:
-            timestamps = timestamps[select['dumps']]
+        if 'dumps' in preselect:
+            timestamps = timestamps[preselect['dumps']]
         # Metadata and timestamps with or without data
         DataSource.__init__(self, metadata, timestamps, data)
         self.capture_block_id = capture_block_id
