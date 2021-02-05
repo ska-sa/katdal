@@ -27,6 +27,7 @@ an older version is detected, the test will be skipped.
 .. _race condition: https://github.com/minio/minio/issues/6324
 """
 
+import os
 import tempfile
 import shutil
 import threading
@@ -248,6 +249,16 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         if cls.minio:
             cls.minio.close()
         shutil.rmtree(cls.tempdir)
+
+    def setup(self):
+        # The server is a class-level fixture (for efficiency), so state can
+        # leak between tests. Prevent that by removing any existing objects.
+        # It's easier to do that by manipulating the filesystem directly than
+        # trying to use the S3 API.
+        data_dir = os.path.join(self.tempdir, 'data')
+        for entry in os.scandir(data_dir):
+            if not entry.name.startswith('.') and entry.is_dir():
+                shutil.rmtree(entry.path)
 
     def array_name(self, name):
         """Ensure that bucket is authorised and has valid name."""

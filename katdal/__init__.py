@@ -112,13 +112,22 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
             avoiding the slow loading of real timestamps at the cost of
             slightly inaccurate label borders
 
+        See the documentation of :class:`VisibilityDataV4` for the keywords
+        it accepts.
+
     Returns
     -------
     data : :class:`DataSet` object
         Object providing :class:`DataSet` interface to file(s)
 
     """
-    filenames = [filename] if isinstance(filename, str) else filename
+    if isinstance(filename, str):
+        filenames = [filename]
+    else:
+        unexpected = set(kwargs.get('preselect', {})) - {'channels'}
+        if unexpected:
+            raise IndexError(f'Unsupported preselect key(s) for ConcatenatedDataSet: {unexpected}')
+        filenames = filename
     datasets = []
     for f in filenames:
         # V4 RDB file or live telstate with optional URL-style query string
@@ -127,6 +136,8 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
             dataset = VisibilityDataV4(open_data_source(f, **kwargs),
                                        ref_ant, time_offset, **kwargs)
         else:
+            if 'preselect' in kwargs:
+                raise TypeError('preselect is not supported for this format')
             dataset = _file_action('__call__', f, ref_ant, time_offset, **kwargs)
         datasets.append(dataset)
     return datasets[0] if isinstance(filename, str) else ConcatenatedDataSet(datasets)

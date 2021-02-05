@@ -23,7 +23,8 @@ from nose.tools import (assert_raises, assert_equal, assert_true, assert_false,
 import dask.array as da
 
 from katdal.chunkstore import (ChunkStore, generate_chunks,
-                               StoreUnavailable, ChunkNotFound, BadChunk)
+                               StoreUnavailable, ChunkNotFound, BadChunk,
+                               PlaceholderChunk)
 
 
 class TestGenerateChunks:
@@ -196,7 +197,10 @@ class ChunkStoreTestBase:
         assert_equal(zeros.dtype, dtype)
         ones = self.store.get_chunk_or_default(*args, default_value=1)
         assert_array_equal(ones, np.ones(shape, dtype))
-        assert_is_none(self.store.get_chunk_or_none(*args))
+        placeholder = self.store.get_chunk_or_placeholder(*args)
+        assert_is_instance(placeholder, PlaceholderChunk)
+        assert_equal(placeholder.shape, shape)
+        assert_equal(placeholder.dtype, dtype)
 
     def test_chunk_bool_1dim_and_too_small(self):
         # Check basic put + get on 1-D bool
@@ -231,12 +235,23 @@ class ChunkStoreTestBase:
         self.get_dask_array('big_y')
         self.get_dask_array('big_y', np.s_[0:3, 0:30, 0:2])
 
+    @staticmethod
+    def _placeholder_to_default(array, default):
+        """Replace :class:`PlaceholderChunk`s in a dask array with a default value."""
+        def map_blocks_func(chunk):
+            if isinstance(chunk, PlaceholderChunk):
+                return np.full(chunk.shape, default, chunk.dtype)
+            else:
+                return chunk
+
+        return da.map_blocks(map_blocks_func, array)
+
     def test_dask_array_put_parts_get_whole(self):
         # Split big array into quarters along existing chunks and reassemble
         self.put_dask_array('big_y2', np.s_[0:3,  0:30, 0:2])
         self.put_dask_array('big_y2', np.s_[3:8,  0:30, 0:2])
         self.put_dask_array('big_y2', np.s_[0:3, 30:60, 0:2])
-        # Before storing last quarter, check that get() replaces it with default
+        # Before storing last quarter, check missing chunk handling
         if not self.preloaded_chunks:
             array_name, dask_array, offset = self.make_dask_array('big_y2')
             pull = self.store.get_dask_array(array_name, dask_array.chunks,
@@ -246,9 +261,58 @@ class ChunkStoreTestBase:
             assert_equal(array_retrieved.dtype, dask_array.dtype)
             assert_array_equal(array_retrieved[np.s_[3:8, 30:60, 0:2]], 17,
                                f'Missing chunk in {array_name} not replaced by default value')
+
+            pull = self.store.get_dask_array(array_name, dask_array.chunks,
+                                             dask_array.dtype, offset, errors='raise')
+            with assert_raises(ChunkNotFound):
+                pull.compute()
+
+            pull = self.store.get_dask_array(array_name, dask_array.chunks,
+                                             dask_array.dtype, offset, errors='placeholder')
+            # We can't compute pull directly, because placeholders aren't
+            # numpy arrays. So we have to remap them.
+            pull = self._placeholder_to_default(pull, 17)
+            array_retrieved = pull.compute()
+            assert_equal(array_retrieved.shape, dask_array.shape)
+            assert_equal(array_retrieved.dtype, dask_array.dtype)
+            assert_array_equal(array_retrieved[np.s_[3:8, 30:60, 0:2]], 17,
+                               "Missing chunk in {} not replaced by default value"
+                               .format(array_name))
+
         # Now store the last quarter and check that complete array is correct
         self.put_dask_array('big_y2', np.s_[3:8, 30:60, 0:2])
         self.get_dask_array('big_y2')
+
+    def test_get_dask_array_index(self):
+        # Load most but not all of the array, to test error handling
+        self.put_dask_array('big_y2', np.s_[0:3,  0:30, 0:2])
+        self.put_dask_array('big_y2', np.s_[3:8,  0:30, 0:2])
+        self.put_dask_array('big_y2', np.s_[0:3, 30:60, 0:2])
+        array_name, dask_array, offset = self.make_dask_array('big_y2')
+        indices = [
+            (),
+            np.s_[:, :],
+            np.s_[0:8, 0:60, 0:2],
+            np.s_[..., 0:1],
+            np.s_[5:6, 29:31],
+            np.s_[5:5, 31:31]
+        ]   # TODO: use pytest.mark.parametrize when converted to pytest
+
+        expected = self.big_y2.copy()
+        if not self.preloaded_chunks:
+            expected[3:8, 30:60, 0:2] = 17
+        for index in indices:
+            pull = self.store.get_dask_array(array_name, dask_array.chunks,
+                                             dask_array.dtype, offset, index=index, errors=17)
+            array_retrieved = pull.compute()
+            np.testing.assert_array_equal(array_retrieved, expected[index])
+            # Now test placeholders, to ensure that placeholder slicing works
+            pull = self.store.get_dask_array(array_name, dask_array.chunks,
+                                             dask_array.dtype, offset, index=index,
+                                             errors='placeholder')
+            pull = self._placeholder_to_default(pull, 17)
+            array_retrieved = pull.compute()
+            np.testing.assert_array_equal(array_retrieved, expected[index])
 
     def _test_mark_complete(self, name):
         try:

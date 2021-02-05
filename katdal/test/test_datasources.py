@@ -142,6 +142,38 @@ class TestTelstateDataSource:
         expected_timestamps = np.arange(20, dtype=np.float32) * 2 + 1600000123
         np.testing.assert_array_equal(data_source.timestamps, expected_timestamps)
 
+    def test_timestamps_preselect(self):
+        view, cbid, sn, l0_data, l1_flags_data = \
+            make_fake_data_source(self.telstate, self.store, (20, 64, 40))
+        data_source = TelstateDataSource(view, cbid, sn, self.store,
+                                         preselect=dict(dumps=np.s_[2:10]))
+        np.testing.assert_array_equal(
+            data_source.timestamps,
+            np.arange(2, 10, dtype=np.float32) * 2 + 123456912)
+
+    def test_bad_preselect(self):
+        view, cbid, sn, l0_data, l1_flags_data = \
+            make_fake_data_source(self.telstate, self.store, (20, 64, 40))
+        with assert_raises(IndexError):
+            data_source = TelstateDataSource(view, cbid, sn, self.store,
+                                             preselect=dict(dumps=np.s_[[1, 2]]))
+        with assert_raises(IndexError):
+            data_source = TelstateDataSource(view, cbid, sn, self.store,
+                                             preselect=dict(dumps=np.s_[5:0:-1]))
+        with assert_raises(IndexError):
+            data_source = TelstateDataSource(view, cbid, sn, self.store,
+                                             preselect=dict(frequencies=np.s_[:]))
+
+    def test_preselect(self):
+        view, cbid, sn, l0_data, l1_flags_data = \
+            make_fake_data_source(self.telstate, self.store, (20, 64, 40))
+        preselect = dict(dumps=np.s_[2:10], channels=np.s_[-20:])
+        index = np.s_[2:10, -20:]
+        data_source = TelstateDataSource(view, cbid, sn, self.store,
+                                         upgrade_flags=False, preselect=preselect)
+        np.testing.assert_array_equal(data_source.data.vis.compute(), l0_data['correlator_data'][index])
+        np.testing.assert_array_equal(data_source.data.flags.compute(), l0_data['flags'][index])
+
     def test_upgrade_flags(self):
         shape = (20, 16, 40)
         view, cbid, sn, l0_data, l1_flags_data = make_fake_data_source(

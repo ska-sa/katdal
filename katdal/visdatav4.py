@@ -160,12 +160,17 @@ class VisibilityDataV4(DataSet):
         (if available). A value of None disables flux calibration.
     sensor_store : string, optional
         Hostname / endpoint of katstore webserver to access additional sensors
+    preselect : dict, optional
+        Subset of the data to select. See :class:`.TelstateDataSource` for
+        details. This selection is permanent, and further selections made
+        by :meth:`.DataSet.select` are relative to this subset.
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
 
     """
     def __init__(self, source, ref_ant='', time_offset=0.0, applycal='',
-                 gaincal_flux={}, sensor_store=None, **kwargs):
+                 gaincal_flux={}, sensor_store=None,
+                 preselect=None, **kwargs):
         DataSet.__init__(self, source.name, ref_ant, time_offset)
         attrs = source.metadata.attrs
 
@@ -314,21 +319,29 @@ class VisibilityDataV4(DataSet):
         bandwidth = attrs['bandwidth']
         centre_freq = attrs['center_freq']
         channel_width = bandwidth / num_chans
-        # Continue with different channel count, but invalidate centre freq
-        # (keep channel width though)
-        if source.data and (num_chans != source.data.shape[1]):
-            logger.warning('Number of channels reported in metadata (%d) differs'
-                           ' from actual number of channels in data (%d) - '
-                           'trusting the latter', num_chans, source.data.shape[1])
-            num_chans = source.data.shape[1]
-            centre_freq = 0.0
         product = attrs.get('sub_product', '')
         sideband = 1
         band_map = dict(l='L', s='S', u='UHF', x='X')   # noqa: E741
-        spw_params = (centre_freq, channel_width, num_chans, product, sideband,
-                      band_map[band])
+        spw = SpectralWindow(centre_freq, channel_width, num_chans, product, sideband,
+                             band_map[band])
+        if preselect is None:
+            preselect = {}
+        if 'channels' in preselect:
+            start, stop, stride = preselect['channels'].indices(num_chans)
+            assert stride == 1    # Checked by TelstateDataSource
+            spw = spw.subrange(start, stop)
+        # Continue with different channel count, but invalidate centre freq
+        # (keep channel width though)
+        if source.data and (spw.num_chans != source.data.shape[1]):
+            logger.warning('Number of channels reported in metadata (%d) differs'
+                           ' from actual number of channels in data (%d) - '
+                           'trusting the latter', spw.num_chans, source.data.shape[1])
+            num_chans = source.data.shape[1]
+            centre_freq = 0.0
+            spw = SpectralWindow(centre_freq, channel_width, num_chans, product, sideband,
+                                 band_map[band])
         # We only expect a single spectral window within a single v4 data set
-        self.spectral_windows = spws = [SpectralWindow(*spw_params)]
+        self.spectral_windows = spws = [spw]
         self.sensor['Observation/spw'] = CategoricalData(spws, all_dumps)
         self.sensor['Observation/spw_index'] = CategoricalData([0], all_dumps)
 

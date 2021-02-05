@@ -115,6 +115,19 @@ class TestChunkStoreVisFlagsWeights:
         assert_array_equal(vfw.weights.compute(), weights)
         assert_equal(vfw.unscaled_weights, None)
 
+    def test_index(self):
+        # Put fake dataset into chunk store
+        store = NpyFileChunkStore(self.tempdir)
+        prefix = 'cb1'
+        shape = (10, 64, 30)
+        data, chunk_info = put_fake_dataset(store, prefix, shape)
+        index = np.s_[2:5, -20:]
+        vfw = ChunkStoreVisFlagsWeights(store, chunk_info, index=index)
+        weights = data['weights'] * data['weights_channel'][..., np.newaxis]
+        assert_array_equal(vfw.vis.compute(), data['correlator_data'][index])
+        assert_array_equal(vfw.flags.compute(), data['flags'][index])
+        assert_array_equal(vfw.weights.compute(), weights[index])
+
     def test_van_vleck(self):
         ants = 7
         index1, index2 = np.triu_indices(ants)
