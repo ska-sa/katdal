@@ -149,7 +149,7 @@ class TestTelstateDataSource:
                                          preselect=dict(dumps=np.s_[2:10]))
         np.testing.assert_array_equal(
             data_source.timestamps,
-            np.arange(2, 10, dtype=np.float32) * 2 + 123456912)
+            np.arange(2, 10, dtype=np.float32) * 2 + 1600000123)
 
     def test_bad_preselect(self):
         view, cbid, sn, l0_data, l1_flags_data = \
