@@ -488,10 +488,7 @@ class ChunkStore:
             if not all(isinstance(idx, slice) and idx.step is None
                        for idx in index):
                 raise IndexError('Only slices with unit step are valid indices in get_dask_array')
-            if not offset:
-                offset = [0] * len(shape)
-            else:
-                offset = list(offset)
+            offset = list(offset) if offset else [0] * len(shape)
             for axis in range(len(shape)):
                 if index[axis] == slice(None):
                     continue

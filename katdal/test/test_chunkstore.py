@@ -296,7 +296,7 @@ class ChunkStoreTestBase:
             np.s_[..., 0:1],
             np.s_[5:6, 29:31],
             np.s_[5:5, 31:31]
-        ]   # TODO: use pytbest.mark.parametrize when converted to pytest
+        ]   # TODO: use pytest.mark.parametrize when converted to pytest
 
         expected = self.big_y2.copy()
         if not self.preloaded_chunks:

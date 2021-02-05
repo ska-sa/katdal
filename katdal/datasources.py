@@ -372,7 +372,7 @@ class TelstateDataSource(DataSource):
             raise IndexError("'select' can only specify 'channels' and 'dumps'")
         for key, idx in select.items():
             if not isinstance(idx, slice) or idx.step not in {None, 1}:
-                raise IndexError(f'{key} must be a slices with unit step')
+                raise IndexError(f'{key} must be a slice with unit step')
 
         self.telstate = TelstateToStr(telstate)
         # Collect sensors
