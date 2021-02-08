@@ -61,7 +61,7 @@ setup(name='katdal',
       install_requires=['numpy >= 1.12.0', 'katpoint >= 0.9', 'h5py >= 2.3', 'numba',
                         'katsdptelstate[rdb] >= 0.8', 'dask[array] >= 1.2.1',
                         'requests >= 2.18.0', 'pyjwt', 'future',
-                        'cityhash >= 0.2.2', 'llvmlite==0.32.0'],
+                        'cityhash >= 0.2.2', 'llvmlite < 0.32; python_version < "3"'],
       extras_require={
           'ms': ['python-casacore >= 2.2.1'],
           's3': [],
