@@ -588,9 +588,9 @@ class DaskLazyIndexer:
             Extracted output array (computed from the final dask version)
         """
         kept = [dask_getitem(array.dataset, keep) for array in arrays]
-        # Workaround for https://github.com/dask/dask/issues/3595
+        # Workaround for https://github.com/dask/dask/issues/7187
         # This is equivalent to da.compute(kept), but does not allocate
-        # excessive memory.
+        # excessive memory and is potentially faster.
         if out is None:
             out = [np.empty(array.shape, array.dtype) for array in kept]
         da.store(kept, out, lock=False)
