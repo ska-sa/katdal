@@ -19,14 +19,15 @@
 # Produce a CASA-compatible MeasurementSet from a MeerKAT Visibility Format
 # (MVF) dataset using casacore.
 
+import argparse
 from collections import namedtuple
-import os
-import tarfile
-import optparse
-import time
 import multiprocessing
 import multiprocessing.sharedctypes
+import os
 import queue
+import re
+import tarfile
+import time
 import urllib.parse
 
 import numpy as np
@@ -35,15 +36,43 @@ import numba
 
 import katpoint
 import katdal
-from katdal import averager
-from katdal import ms_extra
-from katdal import ms_async
+from katdal import averager, ms_extra, ms_async
 from katdal.sensordata import telstate_decode
 from katdal.lazy_indexer import DaskLazyIndexer
 from katdal.flags import NAMES as FLAG_NAMES
 
 
 SLOTS = 4    # Controls overlap between loading and writing
+
+
+def casa_style_int_list(range_string, use_argparse=False, opt_unit="m"):
+    """Turn CASA style range string "[0-9]*~[0-9]*, ..." into a list of ints.
+
+    The range may contain unit strings such as 10~50m if the accepted unit is
+    specified in `opt_unit`. Returns None if no range is specified, otherwise
+    a list of range values.
+    """
+    range_string = range_string.strip()
+    if range_string in ("", "*"):
+        return None
+    RangeException = argparse.ArgumentTypeError if use_argparse else ValueError
+    range_type = r"^((\d+)[{0}]?)?(~(\d+)[{0}]?)?$".format(opt_unit)
+    vals = []
+    for val in range_string.split(","):
+        match = re.match(range_type, val.strip())
+        if not match:
+            raise RangeException("Value must be CASA range, comma list or blank")
+        elif match.group(4):
+            # range
+            rmin = int(match.group(2))
+            rmax = int(match.group(4))
+            vals.extend(range(rmin, rmax + 1))
+        elif match.group(2):
+            # int
+            vals.append(int(match.group(2)))
+        else:
+            raise RangeException("Value must be CASA range, comma list or blank")
+    return vals
 
 
 def default_ms_name(args, centre_freq=None):
@@ -107,11 +136,11 @@ def permute_baselines(in_vis, in_weights, in_flags, cp_index, out_vis, out_weigh
     """
     # Workaround for https://github.com/numba/numba/issues/2921
     in_flags_u8 = in_flags.view(np.uint8)
-    n_time, n_bls, n_chans, n_pols = out_vis.shape
+    n_time, n_bls, n_chans, n_pols = out_vis.shape  # noqa: W0612
     bstep = 128
     bblocks = (n_bls + bstep - 1) // bstep
     for t in range(n_time):
-        for bblock in numba.prange(bblocks):
+        for bblock in numba.prange(bblocks):  # noqa: E1133
             bstart = bblock * bstep
             bstop = min(n_bls, bstart + bstep)
             for c in range(n_chans):
@@ -137,76 +166,94 @@ def main():
                      'bpcal': 'CALIBRATE_BANDPASS,CALIBRATE_FLUX',
                      'target': 'TARGET'}
 
-    usage = "%prog [options] <dataset> [<dataset2>]*"
+    usage = "%(prog)s [options] <dataset> [<dataset2>]*"
     description = "Convert MVF dataset(s) to CASA MeasurementSet. The datasets may " \
                   "be local filenames or archive URLs (including access tokens). " \
                   "If there are multiple datasets they will be concatenated via " \
                   "katdal before conversion."
-    parser = optparse.OptionParser(usage=usage, description=description)
-    parser.add_option("-o", "--output-ms", default=None,
-                      help="Name of output MeasurementSet")
-    parser.add_option("-c", "--circular", action="store_true", default=False,
-                      help="Produce quad circular polarisation. (RR, RL, LR, LL) "
-                           "*** Currently just relabels the linear pols ****")
-    parser.add_option("-r", "--ref-ant",
-                      help="Override the reference antenna used to pick targets "
-                           "and scans (default is the 'array' antenna in MVFv4 "
-                           "and the first antenna in older formats)")
-    parser.add_option("-t", "--tar", action="store_true", default=False,
-                      help="Tar-ball the MS")
-    parser.add_option("-f", "--full_pol", action="store_true", default=False,
-                      help="Produce a full polarisation MS in CASA canonical order "
-                           "(HH, HV, VH, VV). Default is to produce HH,VV only.")
-    parser.add_option("-v", "--verbose", action="store_true", default=False,
-                      help="More verbose progress information")
-    parser.add_option("-w", "--stop-w", action="store_true", default=False,
-                      help="Use W term to stop fringes for each baseline")
-    parser.add_option("-p", "--pols-to-use", default=None,
-                      help="Select polarisation products to include in MS as "
-                           "comma-separated list (from: HH, HV, VH, VV). "
-                           "Default is all available from (HH, VV).")
-    parser.add_option("-u", "--uvfits", action="store_true", default=False,
-                      help="Print command to convert MS to miriad uvfits in casapy")
-    parser.add_option("-a", "--no-auto", action="store_true", default=False,
-                      help="MeasurementSet will exclude autocorrelation data")
-    parser.add_option("-s", "--keep-spaces", action="store_true", default=False,
-                      help="Keep spaces in source names, default removes spaces")
-    parser.add_option("-C", "--channel-range",
-                      help="Range of frequency channels to keep (zero-based inclusive "
-                           "'first_chan,last_chan', default is all channels)")
-    parser.add_option("-e", "--elevation-range",
-                      help="Flag elevations outside the range "
-                           "'lowest_elevation,highest_elevation'")
-    parser.add_option("-m", "--model-data", action="store_true", default=False,
-                      help="Add MODEL_DATA and CORRECTED_DATA columns to the MS. "
-                           "MODEL_DATA initialised to unity amplitude zero phase, "
-                           "CORRECTED_DATA initialised to DATA.")
+    parser = argparse.ArgumentParser(usage=usage, description=description)
+    parser.add_argument("-o", "--output-ms", default=None,
+                        help="Name of output MeasurementSet")
+    parser.add_argument("-c", "--circular", action="store_true", default=False,
+                        help="Produce quad circular polarisation. (RR, RL, LR, LL) "
+                             "*** Currently just relabels the linear pols ****")
+    parser.add_argument("-r", "--ref-ant",
+                        help="Override the reference antenna used to pick targets "
+                             "and scans (default is the 'array' antenna in MVFv4 "
+                             "and the first antenna in older formats)")
+    parser.add_argument("-t", "--tar", action="store_true", default=False,
+                        help="Tar-ball the MS")
+    parser.add_argument("-f", "--full_pol", action="store_true", default=False,
+                        help="Produce a full polarisation MS in CASA canonical order "
+                             "(HH, HV, VH, VV). Default is to produce HH,VV only.")
+    parser.add_argument("-v", "--verbose", action="store_true", default=False,
+                        help="More verbose progress information")
+    parser.add_argument("-w", "--stop-w", action="store_true", default=False,
+                        help="Use W term to stop fringes for each baseline")
+    parser.add_argument("-p", "--pols-to-use", default=None,
+                        help="Select polarisation products to include in MS as "
+                             "comma-separated list (from: HH, HV, VH, VV). "
+                             "Default is all available from (HH, VV).")
+    parser.add_argument("-u", "--uvfits", action="store_true", default=False,
+                        help="Print command to convert MS to miriad uvfits in casapy")
+    parser.add_argument("-a", "--no-auto", action="store_true", default=False,
+                        help="MeasurementSet will exclude autocorrelation data")
+    parser.add_argument("-s", "--keep-spaces", action="store_true", default=False,
+                        help="Keep spaces in source names, default removes spaces")
+    parser.add_argument("-C", "--channel-range",
+                        help="Range of frequency channels to keep (zero-based inclusive "
+                             "'first_chan,last_chan', default is all channels)")
+    parser.add_argument("-e", "--elevation-range",
+                        help="Flag elevations outside the range "
+                             "'lowest_elevation,highest_elevation'")
+    parser.add_argument("-m", "--model-data", action="store_true", default=False,
+                        help="Add MODEL_DATA and CORRECTED_DATA columns to the MS. "
+                             "MODEL_DATA initialised to unity amplitude zero phase, "
+                             "CORRECTED_DATA initialised to DATA.")
     flag_names = ', '.join(name for name in FLAG_NAMES if not name.startswith('reserved'))
-    parser.add_option("--flags", default="all",
-                      help="List of online flags to apply "
-                           "(from " + flag_names + ") "
-                           "default is all flags, '' will apply no flags)")
-    parser.add_option("--dumptime", type=float, default=0.0,
-                      help="Output time averaging interval in seconds, "
-                           "default is no averaging")
-    parser.add_option("--chanbin", type=int, default=0,
-                      help="Bin width for channel averaging in channels, "
-                           "default is no averaging")
-    parser.add_option("--flagav", action="store_true", default=False,
-                      help="If a single element in an averaging bin is flagged, "
-                           "flag the averaged bin")
-    parser.add_option("--caltables", action="store_true", default=False,
-                      help="Create calibration tables from gain solutions in "
-                           "the dataset (if present)")
-    parser.add_option("--quack", type=int, default=1, metavar='N',
-                      help="Discard the first N dumps "
-                           "(which are frequently incomplete)")
-    parser.add_option("--applycal", default="",
-                      help="List of calibration solutions to apply to data as "
-                           "a string of comma-separated names, e.g. 'l1' or "
-                           "'K,B,G'. Use 'default' for L1 + L2 and 'all' for "
-                           "all available products.")
-    (options, args) = parser.parse_args()
+    parser.add_argument("--flags", default="all",
+                        help="List of online flags to apply "
+                             "(from " + flag_names + ") "
+                             "default is all flags, '' will apply no flags)")
+    parser.add_argument("--dumptime", type=float, default=0.0,
+                        help="Output time averaging interval in seconds, "
+                             "default is no averaging")
+    parser.add_argument("--chanbin", type=int, default=0,
+                        help="Bin width for channel averaging in channels, "
+                             "default is no averaging")
+    parser.add_argument("--flagav", action="store_true", default=False,
+                        help="If a single element in an averaging bin is flagged, "
+                             "flag the averaged bin")
+    parser.add_argument("--caltables", action="store_true", default=False,
+                        help="Create calibration tables from gain solutions in "
+                             "the dataset (if present)")
+    parser.add_argument("--quack", type=int, default=1, metavar='N',
+                        help="Discard the first N dumps "
+                             "(which are frequently incomplete)")
+    parser.add_argument("--applycal", default="",
+                        help="List of calibration solutions to apply to data as "
+                             "a string of comma-separated names, e.g. 'l1' or "
+                             "'K,B,G'. Use 'default' for L1 + L2 and 'all' for "
+                             "all available products.")
+    parser.add_argument("--target", default=[], action="append",
+                        help="Select only specified target field (name). This switch can "
+                             "be specified multiple times if need be. Default is select "
+                             "all fields.")
+    parser.add_argument("--ant", default=[], action="append",
+                        help="Select only specified antenna (specified as name). This switch can "
+                             "be specified multiple times if need be. Default is select "
+                             "all antennas.")
+    parser.add_argument("--scans", default="",
+                        type=lambda x: casa_style_int_list(x, use_argparse=True, opt_unit="m"),
+                        help="Only select a range of tracking scans. Default is select all "
+                             "tracking scans. Accepts a comma list or a casa style range "
+                             "such as 5~10.")
+    parser.add_argument("datasets", help="Dataset path", nargs='+')
+
+    parseargs = parser.parse_args()
+    # positional arguments are now part of arguments, but lets keep the logic the same
+    options = parseargs
+    args = parseargs.datasets
 
     # Loading is I/O-bound, so give more threads than CPUs
     dask.config.set(pool=multiprocessing.pool.ThreadPool(4 * multiprocessing.cpu_count()))
@@ -275,6 +322,66 @@ def main():
     else:
         print('No calibration products will be applied')
 
+    # select a subset of antennas
+    avail_ants = [a.name for a in dataset.ants]
+    dump_ants = options.ant if len(options.ant) != 0 else avail_ants
+    # some users may specify comma-separated lists although we said the switch should
+    # be specified multiple times. Put in a guard to split comma separated lists as well
+    split_ants = []
+    for a in dump_ants:
+        split_ants += [x.strip() for x in a.split(",")]
+    dump_ants = split_ants
+    dump_ant_str = ", ".join(map(repr, dump_ants))
+    avail_ant_str = ", ".join(map(repr, avail_ants))
+
+    if not set(dump_ants) <= set(avail_ants):
+        raise RuntimeError("One or more antennas cannot be found in the dataset. "
+                           f"You requested {dump_ant_str} but only {avail_ant_str} are available.")
+
+    if len(dump_ants) == 0:
+        print('User antenna criterion resulted in empty database, nothing to be done. '
+              f'Perhaps you wanted to select from the following: {avail_ant_str}')
+
+    print(f'Per user request the following antennas will be selected: {dump_ant_str}')
+
+    # select a subset of targets
+    avail_fields = [f.name for f in dataset.catalogue.targets]
+    dump_fields = options.target if len(options.target) != 0 else avail_fields
+
+    # some users may specify comma-separated lists although we said the switch should
+    # be specified multiple times. Put in a guard to split comma separated lists as well
+    split_fields = []
+    for f in dump_fields:
+        split_fields += [x.strip() for x in f.split(",")]
+    dump_fields = split_fields
+    dump_field_str = ", ".join(map(repr, dump_fields))
+    avail_field_str = ", ".join(map(repr, avail_fields))
+
+    if not set(dump_fields) <= set(avail_fields):
+        raise RuntimeError("One or more fields cannot be found in the dataset. "
+                           f"You requested {dump_field_str} but only {avail_field_str} are available.")
+
+    if len(dump_fields) == 0:
+        print('User target field criterion resulted in empty database, nothing to be done. '
+              f'Perhaps you wanted to select from the following: {avail_field_str}')
+
+    print(f'Per user request the following target fields will be selected: {dump_field_str}')
+
+    dataset.select(targets=dump_fields)
+
+    # get a set of user selected available tracking scans, ignore slew scans
+    avail_tracks = list(map(lambda x: x[0],
+                            filter(lambda x: x[1] == 'track',
+                                   dataset.scans())))
+    dump_scans = options.scans if options.scans else avail_tracks
+    dump_scans = list(set(dump_scans).intersection(set(avail_tracks)))
+    if len(dump_scans) == 0:
+        avail_track_str = ", ".join(map(str, avail_tracks))
+        raise RuntimeError('User scan criterion resulted in empty database, nothing to be done. '
+                           f'Perhaps you wanted to select from the following: {avail_track_str}')
+
+    print(f'Per user request the following scans will be dumped: {", ".join(map(str, dump_scans))}')
+
     # Get list of unique polarisation products in the dataset
     pols_in_dataset = np.unique([(cp[0][-1] + cp[1][-1]).upper() for cp in dataset.corr_products])
 
@@ -313,7 +420,12 @@ def main():
         basename = os.path.splitext(ms_name)[0]
 
         # Discard first N dumps which are frequently incomplete
-        dataset.select(spw=win, scans='track', flags=options.flags, dumps=slice(options.quack, None))
+        dataset.select(spw=win,
+                       scans=dump_scans,  # should already be filtered to target type only
+                       targets=dump_fields,
+                       flags=options.flags,
+                       ants=dump_ants,
+                       dumps=slice(options.quack, None))
 
         # The first step is to copy the blank template MS to our desired output
         # (making sure it's not already there)
@@ -710,7 +822,7 @@ def main():
                         else:
                             ntimes, npols, nants = solvals.shape
                             nchans = 1
-                            solvals = solvals.reshape(ntimes, nchans, npols, nants)
+                            solvals = solvals.reshape((ntimes, nchans, npols, nants))
 
                         # create calibration solution measurement set
                         caltable_desc = ms_extra.caltable_desc_float \
@@ -734,8 +846,8 @@ def main():
                                           'type': 'Calibration'})
 
                         # get the solution data to write to the main table
-                        solutions_to_write = solvals.transpose(0, 3, 1, 2).reshape(
-                            ntimes * nants, nchans, npols)
+                        solutions_to_write = solvals.transpose(0, 3, 1, 2).reshape((
+                            ntimes * nants, nchans, npols))
 
                         # MS's store delays in nanoseconds
                         if sol == 'K':
@@ -782,9 +894,10 @@ def main():
                             cen_index = len(out_freqs) // 2
                             # the delay values in the cal pipeline are calculated relative to frequency 0
                             ref_freq = 0.0 if sol == 'K' else None
-                            spw_dict = {'SPECTRAL_WINDOW': ms_extra.populate_spectral_window_dict(
-                                            np.atleast_1d(out_freqs[cen_index]),
-                                            np.atleast_1d(channel_freq_width), ref_freq=ref_freq)}
+                            spw_dict = {'SPECTRAL_WINDOW':
+                                        ms_extra.populate_spectral_window_dict(np.atleast_1d(out_freqs[cen_index]),
+                                                                               np.atleast_1d(channel_freq_width),
+                                                                               ref_freq=ref_freq)}
                             ms_extra.write_dict(spw_dict, caltable.name(), verbose=options.verbose)
 
                         # done with this caltable
