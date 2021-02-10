@@ -19,11 +19,6 @@
 # Produce a CASA-compatible MeasurementSet from a MeerKAT Visibility Format
 # (MVF) dataset using casacore.
 
-from __future__ import print_function, division, absolute_import
-from future import standard_library
-standard_library.install_aliases()    # noqa: E402
-from builtins import zip, range
-
 import argparse
 from collections import namedtuple
 import multiprocessing
@@ -336,20 +331,18 @@ def main():
     for a in dump_ants:
         split_ants += [x.strip() for x in a.split(",")]
     dump_ants = split_ants
+    dump_ant_str = ", ".join(map(repr, dump_ants))
+    avail_ant_str = ", ".join(map(repr, avail_ants))
 
     if not set(dump_ants) <= set(avail_ants):
         raise RuntimeError("One or more antennas cannot be found in the dataset. "
-                           "You requested {0:s}, but only {1:s} are available."
-                           .format(", ".join([repr(f) for f in dump_ants]),
-                                   ", ".join([repr(f) for f in avail_ants])))
+                           f"You requested {dump_ant_str} but only {avail_ant_str} are available.")
 
     if len(dump_ants) == 0:
         print('User antenna criterion resulted in empty database, nothing to be done. '
-              'Perhaps you wanted to select from the following: {}'
-              .format(", ".join(["'{}'".format(f) for f in avail_ants])))
+              f'Perhaps you wanted to select from the following: {avail_ant_str}')
 
-    print('Per user request the following antennas will be selected: {}'.format(
-        ", ".join(["'{}'".format(f) for f in dump_ants])))
+    print(f'Per user request the following antennas will be selected: {dump_ant_str}')
 
     # select a subset of targets
     avail_fields = [f.name for f in dataset.catalogue.targets]
@@ -361,20 +354,18 @@ def main():
     for f in dump_fields:
         split_fields += [x.strip() for x in f.split(",")]
     dump_fields = split_fields
+    dump_field_str = ", ".join(map(repr, dump_fields))
+    avail_field_str = ", ".join(map(repr, avail_fields))
 
     if not set(dump_fields) <= set(avail_fields):
         raise RuntimeError("One or more fields cannot be found in the dataset. "
-                           "You requested {0:s}, but only {1:s} are available."
-                           .format(", ".join(["'{}'".format(f) for f in dump_fields]),
-                                   ", ".join(["'{}'".format(f) for f in avail_fields])))
+                           f"You requested {dump_field_str} but only {avail_field_str} are available.")
 
     if len(dump_fields) == 0:
         print('User target field criterion resulted in empty database, nothing to be done. '
-              'Perhaps you wanted to select from the following: {}'
-              .format(", ".join(["'{}'".format(f) for f in avail_fields])))
+              f'Perhaps you wanted to select from the following: {avail_field_str}')
 
-    print('Per user request the following target fields will be selected: {}'
-          .format(", ".join(["'{}'".format(f) for f in dump_fields])))
+    print(f'Per user request the following target fields will be selected: {dump_field_str}')
 
     dataset.select(targets=dump_fields)
 
@@ -385,12 +376,11 @@ def main():
     dump_scans = options.scans if options.scans else avail_tracks
     dump_scans = list(set(dump_scans).intersection(set(avail_tracks)))
     if len(dump_scans) == 0:
+        avail_track_str = ", ".join(map(str, avail_tracks))
         raise RuntimeError('User scan criterion resulted in empty database, nothing to be done. '
-                           'Perhaps you wanted to select from the following: {}'
-                           .format(", ".join(map(str, avail_tracks))))
+                           f'Perhaps you wanted to select from the following: {avail_track_str}')
 
-    print('Per user request the following scans will be dumped: {}'.format(
-          ", ".join(map(str, dump_scans))))
+    print(f'Per user request the following scans will be dumped: {", ".join(map(str, dump_scans))}')
 
     # Get list of unique polarisation products in the dataset
     pols_in_dataset = np.unique([(cp[0][-1] + cp[1][-1]).upper() for cp in dataset.corr_products])
