@@ -50,31 +50,31 @@ from katdal.flags import NAMES as FLAG_NAMES
 SLOTS = 4    # Controls overlap between loading and writing
 
 
-def casa_style_int_list(val, use_argparse=False, opt_unit="m"):
+def casa_style_int_list(range_string, use_argparse=False, opt_unit="m"):
     """Turn CASA style range string "[0-9]*~[0-9]*, ..." into a list of ints.
 
     The range may contain unit strings such as 10~50m if the accepted unit is
     specified in `opt_unit`. Returns None if no range is specified, otherwise
     a list of range values.
     """
-    RangeException = argparse.ArgumentTypeError if use_argparse else ValueError
-    if val.strip() == "" or val.strip() == "*":
+    range_string = range_string.strip()
+    if range_string in ("", "*"):
         return None
+    RangeException = argparse.ArgumentTypeError if use_argparse else ValueError
+    range_type = r"^((\d+)[{0}]?)?(~(\d+)[{0}]?)?$".format(opt_unit)
     vals = []
-    for val in map(lambda x: x.strip(), val.strip().split(",")):
-        val = val.strip()
-        range_type = r"^((\d+)[{0}]?)?(~(\d+)[{0}]?)?$".format(opt_unit)
-        match = re.match(range_type, val)
+    for val in range_string.split(","):
+        match = re.match(range_type, val.strip())
         if not match:
             raise RangeException("Value must be CASA range, comma list or blank")
         elif match.group(4):
             # range
             rmin = int(match.group(2))
             rmax = int(match.group(4))
-            vals = vals + list(range(rmin, rmax + 1))
+            vals.extend(range(rmin, rmax + 1))
         elif match.group(2):
             # int
-            vals = vals + [int(match.group(2))]
+            vals.append(int(match.group(2)))
         else:
             raise RangeException("Value must be CASA range, comma list or blank")
     return vals
