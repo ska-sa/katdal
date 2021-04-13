@@ -4,8 +4,8 @@ History
 0.18 (2021-04-13)
 -----------------
 * Switch to PyJWT 2 and Python 3.6, cleaning up Python 2 relics (#321 - #323)
-* Preselect channels and dumps upon katdal.open() to save time and memory (#324)
-* Select fields, scans and antennas in mvftoms (#269)
+* Allow preselection of channels and dumps upon katdal.open() to save time and memory (#324)
+* Allow user to select fields, scans and antennas in mvftoms (#269)
 * Refactor requirement files to remove recursive dependencies (#329)
 
 0.17 (2021-01-27)
