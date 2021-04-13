@@ -1,6 +1,13 @@
 History
 =======
 
+0.18 (2021-04-13)
+-----------------
+* Switch to PyJWT 2 and Python 3.6, cleaning up Python 2 relics (#321 - #323)
+* Preselect channels and dumps upon katdal.open() to save time and memory (#324)
+* Select fields, scans and antennas in mvftoms (#269)
+* Refactor requirement files to remove recursive dependencies (#329)
+
 0.17 (2021-01-27)
 -----------------
 * This is the last release that will support Python 3.5
