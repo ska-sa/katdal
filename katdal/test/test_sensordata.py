@@ -23,7 +23,7 @@ from nose.tools import assert_equal, assert_in, assert_not_in, assert_raises, as
 from unittest.mock import Mock
 
 from katdal.sensordata import (SensorCache, SensorData, SimpleSensorGetter, to_str,
-                               remove_duplicates_and_invalid_values)
+                               remove_duplicates_and_invalid_values, telstate_decode)
 
 
 def assert_equal_typed(a, b):
@@ -69,6 +69,19 @@ class TestToStr:
         a = np.array([b'abc', 'def', (b'xyz', 'uvw')], dtype='O')
         b = np.array(['abc', 'def', ('xyz', 'uvw')], dtype='O')
         np.testing.assert_array_equal(to_str(a), b)
+
+
+def test_telstate_decode():
+    raw = "S'1'\n."
+    assert telstate_decode(raw) == '1'
+    assert telstate_decode(raw.encode()) == '1'
+    assert telstate_decode(np.void(raw.encode())) == '1'
+    assert telstate_decode('l', no_decode=('l', 's', 'u', 'x')) == 'l'
+    raw_np = ("cnumpy.core.multiarray\nscalar\np1\n(cnumpy\ndtype\np2\n(S'f8'\nI0\nI1\ntRp3\n"
+              "(I3\nS'<'\nNNNI-1\nI-1\nI0\ntbS'8\\xdf\\xd4(\\x89\\xfc\\xef?'\ntRp4\n.")
+    value_np = telstate_decode(raw_np)
+    assert value_np == 0.9995771214953271
+    assert isinstance(value_np, np.float64)
 
 
 class TestSensorCache:
