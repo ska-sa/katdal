@@ -20,7 +20,7 @@ from collections import OrderedDict
 
 import numpy as np
 from nose.tools import assert_equal, assert_in, assert_not_in, assert_raises, assert_is_instance
-from unittest.mock import Mock
+from unittest import mock
 
 from katdal.sensordata import (SensorCache, SensorData, SimpleSensorGetter, to_str,
                                remove_duplicates_and_invalid_values, telstate_decode)
@@ -71,6 +71,7 @@ class TestToStr:
         np.testing.assert_array_equal(to_str(a), b)
 
 
+@mock.patch('katsdptelstate.encoding._allow_pickle', True)
 def test_telstate_decode():
     raw = "S'1'\n."
     assert telstate_decode(raw) == '1'
@@ -142,7 +143,7 @@ class TestSensorCache:
         np.testing.assert_array_equal(data, [3.0, 3.0, 3.0, 3.0, 4.0, 5.0, 6.0, 6.0, 6.0, 6.0])
 
     def test_virtual_sensors(self):
-        calculate_value = Mock()
+        calculate_value = mock.Mock()
 
         def _check_sensor(cache, name, **kwargs):
             """Check that virtual sensor function gets the expected parameters."""
