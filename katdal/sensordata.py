@@ -214,10 +214,11 @@ def telstate_decode(raw, no_decode=()):
     """
     if isinstance(raw, (np.void, np.ndarray)):
         return to_str(katsdptelstate.decode_value(raw.tostring()))
-    elif raw not in no_decode:
-        return to_str(katsdptelstate.decode_value(raw))
+    raw_str = to_str(raw)
+    if raw_str in no_decode:
+        return raw_str
     else:
-        return to_str(raw)
+        return to_str(katsdptelstate.decode_value(raw_str.encode()))
 
 
 def _h5_telstate_unpack(s):

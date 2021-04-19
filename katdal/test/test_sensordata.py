@@ -20,10 +20,10 @@ from collections import OrderedDict
 
 import numpy as np
 from nose.tools import assert_equal, assert_in, assert_not_in, assert_raises, assert_is_instance
-from unittest.mock import Mock
+from unittest import mock
 
 from katdal.sensordata import (SensorCache, SensorData, SimpleSensorGetter, to_str,
-                               remove_duplicates_and_invalid_values)
+                               remove_duplicates_and_invalid_values, telstate_decode)
 
 
 def assert_equal_typed(a, b):
@@ -69,6 +69,21 @@ class TestToStr:
         a = np.array([b'abc', 'def', (b'xyz', 'uvw')], dtype='O')
         b = np.array(['abc', 'def', ('xyz', 'uvw')], dtype='O')
         np.testing.assert_array_equal(to_str(a), b)
+
+
+@mock.patch('katsdptelstate.encoding._allow_pickle', True)
+@mock.patch('katsdptelstate.encoding._warn_on_pickle', False)
+def test_telstate_decode():
+    raw = "S'1'\n."
+    assert telstate_decode(raw) == '1'
+    assert telstate_decode(raw.encode()) == '1'
+    assert telstate_decode(np.void(raw.encode())) == '1'
+    assert telstate_decode('l', no_decode=('l', 's', 'u', 'x')) == 'l'
+    raw_np = ("cnumpy.core.multiarray\nscalar\np1\n(cnumpy\ndtype\np2\n(S'f8'\nI0\nI1\ntRp3\n"
+              "(I3\nS'<'\nNNNI-1\nI-1\nI0\ntbS'8\\xdf\\xd4(\\x89\\xfc\\xef?'\ntRp4\n.")
+    value_np = telstate_decode(raw_np)
+    assert value_np == 0.9995771214953271
+    assert isinstance(value_np, np.float64)
 
 
 class TestSensorCache:
@@ -129,7 +144,7 @@ class TestSensorCache:
         np.testing.assert_array_equal(data, [3.0, 3.0, 3.0, 3.0, 4.0, 5.0, 6.0, 6.0, 6.0, 6.0])
 
     def test_virtual_sensors(self):
-        calculate_value = Mock()
+        calculate_value = mock.Mock()
 
         def _check_sensor(cache, name, **kwargs):
             """Check that virtual sensor function gets the expected parameters."""
