@@ -1,11 +1,12 @@
 History
 =======
 
-0.18 (2021-04-13)
+0.18 (2021-04-20)
 -----------------
 * Switch to PyJWT 2 and Python 3.6, cleaning up Python 2 relics (#321 - #323)
 * Allow preselection of channels and dumps upon katdal.open() to save time and memory (#324)
 * Allow user to select fields, scans and antennas in mvftoms (#269)
+* Support h5py 3.0 string handling in MVF3 (#331)
 * Refactor requirement files to remove recursive dependencies (#329)
 
 0.17 (2021-01-27)
