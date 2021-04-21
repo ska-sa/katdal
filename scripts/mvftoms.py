@@ -611,10 +611,6 @@ def main():
                     if options.verbose:
                         print(f'{prefix} skipped - too short')
                     continue
-                if target.body_type != 'radec':
-                    if options.verbose:
-                        print(f"{prefix} skipped - target '{target.name}' not RADEC")
-                    continue
                 print(f"{prefix} loaded. Target: '{target.name}'. Writing to disk...")
 
                 # Get the average dump time for this scan (equal to scan length
@@ -625,13 +621,13 @@ def main():
                 utc_seconds = dataset.timestamps[:]
                 # Update field lists if this is a new target
                 if target.name not in field_names:
-                    # Since this will be an 'radec' target, we don't need antenna
-                    # or timestamp to get the (astrometric) ra, dec
-                    ra, dec = target.radec()
-
                     field_names.append(target.name)
+                    # Set direction of the field center to the (ra, dec) at the start
+                    # of the first valid scan, based on the reference (catalogue) antenna.
+                    field_time = katpoint.Timestamp(utc_seconds[0])
+                    ra, dec = target.radec(field_time)
                     field_centers.append((ra, dec))
-                    field_times.append(katpoint.Timestamp(utc_seconds[0]).to_mjd() * 60 * 60 * 24)
+                    field_times.append(field_time.to_mjd() * 60 * 60 * 24)
                     if options.verbose:
                         print(f"Added new field {len(field_names) - 1}: '{target.name}' {ra} {dec}")
                 field_id = field_names.index(target.name)
