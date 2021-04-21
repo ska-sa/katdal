@@ -603,9 +603,9 @@ def main():
                 s = time.time()
                 scan_len = dataset.shape[0]
                 prefix = f'scan {scan_ind:3d} ({scan_len:4d} samples)'
-                if scan_state != 'track':
+                if scan_state not in {'track', 'scan'}:
                     if options.verbose:
-                        print(f"{prefix} skipped '{scan_state}' - not a track")
+                        print(f"{prefix} skipped '{scan_state}' - not a track or scan")
                     continue
                 if scan_len < 2:
                     if options.verbose:
