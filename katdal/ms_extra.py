@@ -863,7 +863,7 @@ def populate_pointing_dict(num_antennas, observation_duration, start_time, phase
     start_time : float
         Start time of observation, as a Modified Julian Date in seconds
     phase_center : array of float, shape (2,)
-        Direction of phase center, in ra-dec coordinates as 2-element array
+        Direction of phase center, in (az, el) coordinates as 2-element array (?)
     pointing_name : string, optional
         Name for pointing
 
