@@ -552,7 +552,7 @@ class VisibilityDataV4(DataSet):
         update_all = time_keep is not None or freq_keep is not None or corrprod_keep is not None
         update_flags = update_all or flags_keep is not None
         if not self.source.data:
-            self._vis = self._weights = self._flags = self._excision = None
+            self._vis = self._weights = self._flags = self._raw_flags = self._excision = None
         elif update_flags:
             # Create first-stage index from dataset selectors. Note: use
             # the member variables, not the parameters, because the parameters
@@ -562,6 +562,7 @@ class VisibilityDataV4(DataSet):
                 # Cache dask graphs for the data fields
                 self._vis = DaskLazyIndexer(self._corrected.vis, stage1)
                 self._weights = DaskLazyIndexer(self._corrected.weights, stage1)
+                self._raw_flags = DaskLazyIndexer(self._corrected.flags, stage1)
             flag_transforms = []
             if ~self._flags_select != 0:
                 # Copy so that the lambda isn't affected by future changes
@@ -663,6 +664,26 @@ class VisibilityDataV4(DataSet):
             raise ValueError('Flags are not available since dataset '
                              'was opened with metadata only')
         return self._flags
+
+    @property
+    def raw_flags(self):
+        """Raw flags as a function of time, frequency and baseline.
+
+        The flags data are returned as an array indexer of uint8, shape
+        (*T*, *F*, *B*), with time along the first dimension, frequency along the
+        second dimension and correlation product ("baseline") index along the
+        third dimension. The number of integrations *T* matches the length of
+        :meth:`timestamps`, the number of frequency channels *F* matches the
+        length of :meth:`freqs` and the number of correlation products *B*
+        matches the length of :meth:`corr_products`. To get the data array
+        itself from the indexer `x`, do `x[:]` or perform any other form of
+        indexing on it. Only then will data be loaded into memory.
+
+        """
+        if self._raw_flags is None:
+            raise ValueError('Raw flags are not available since dataset '
+                             'was opened with metadata only')
+        return self._raw_flags
 
     @property
     def excision(self):
