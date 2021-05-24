@@ -548,7 +548,7 @@ class VisibilityDataV4(DataSet):
             Names of selected flag types (or 'all' for the lot)
 
         """
-        DataSet._set_keep(self, time_keep, freq_keep, corrprod_keep, weights_keep, flags_keep)
+        super()._set_keep(time_keep, freq_keep, corrprod_keep, weights_keep, flags_keep)
         if not self.source.data:
             self._vis = self._weights = self._flags = self._raw_flags = self._excision = None
             return
@@ -560,13 +560,20 @@ class VisibilityDataV4(DataSet):
         self._vis = DaskLazyIndexer(self._corrected.vis, stage1)
         self._weights = DaskLazyIndexer(self._corrected.weights, stage1)
         self._raw_flags = DaskLazyIndexer(self._corrected.flags, stage1)
+
+        # Create flags indexer based on current flag selection
         flag_transforms = []
         if ~self._flags_select != 0:
-            # Copy so that the lambda isn't affected by future changes
+            # Copy so that the closure isn't affected by future changes
             select = self._flags_select.copy()
-            flag_transforms.append(lambda flags: da.bitwise_and(select, flags))
-        flag_transforms.append(lambda flags: flags.view(np.bool_))
+            def bitwise_and(flags): return da.bitwise_and(select, flags)
+            flag_transforms.append(bitwise_and)
+        # Convert uint8 to bool by ORing all the bits
+        def view_as_bool(flags): return flags.view(np.bool_)
+        flag_transforms.append(view_as_bool)
         self._flags = DaskLazyIndexer(self._corrected.flags, stage1, flag_transforms)
+
+        # Create excision indexer based on unscaled weights
         unscaled_weights = self._corrected.unscaled_weights
         if unscaled_weights is None or self.accumulations_per_dump is None:
             self._excision = None
@@ -578,12 +585,8 @@ class VisibilityDataV4(DataSet):
             # Each unscaled weight represents the actual number of accumulations per SDP dump.
             # Correct most of the weight compression artefacts by forcing each weight to be
             # an integer multiple of CBF n_accs, and then convert it to an excision fraction.
-            def integer_cbf_dumps(w):
-                return da.round(w / accs_per_cbf_dump) * accs_per_cbf_dump
-
-            def excision_fraction(w):
-                return (accs_per_sdp_dump - w) / accs_per_sdp_dump
-
+            def integer_cbf_dumps(w): return da.round(w / accs_per_cbf_dump) * accs_per_cbf_dump
+            def excision_fraction(w): return (accs_per_sdp_dump - w) / accs_per_sdp_dump
             excision_transforms = [integer_cbf_dumps, excision_fraction]
             self._excision = DaskLazyIndexer(unscaled_weights, stage1, excision_transforms)
 
