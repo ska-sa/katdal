@@ -578,29 +578,13 @@ class ConcatenatedDataSet(DataSet):
             Names of selected flag types (or 'all' for the lot)
 
         """
-        if time_keep is not None:
-            self._time_keep = time_keep
-            for n, d in enumerate(self.datasets):
-                d._set_keep(time_keep=self._time_keep[self._segments[n]:self._segments[n + 1]])
-            # Ensure that sensor cache gets updated time selection
-            if self.sensor:
-                self.sensor._set_keep(self._time_keep)
-        if freq_keep is not None:
-            self._freq_keep = freq_keep
-            for n, d in enumerate(self.datasets):
-                d._set_keep(freq_keep=self._freq_keep)
-        if corrprod_keep is not None:
-            self._corrprod_keep = corrprod_keep
-            for n, d in enumerate(self.datasets):
-                d._set_keep(corrprod_keep=self._corrprod_keep)
-        if weights_keep is not None:
-            self._weights_keep = weights_keep
-            for n, d in enumerate(self.datasets):
-                d._set_keep(weights_keep=self._weights_keep)
-        if flags_keep is not None:
-            self._flags_keep = flags_keep
-            for n, d in enumerate(self.datasets):
-                d._set_keep(flags_keep=self._flags_keep)
+        super()._set_keep(time_keep, freq_keep, corrprod_keep, weights_keep, flags_keep)
+        for n, d in enumerate(self.datasets):
+            d._set_keep(time_keep=self._time_keep[self._segments[n]:self._segments[n + 1]],
+                        freq_keep=self._freq_keep,
+                        corrprod_keep=self._corrprod_keep,
+                        weights_keep=self._weights_keep,
+                        flags_keep=self._flags_keep)
 
     @property
     def timestamps(self):
