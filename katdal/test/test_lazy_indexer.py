@@ -272,6 +272,9 @@ class TestDaskLazyIndexer:
         npy2 = numpy_oindex(npy1, stage2)
         indexer = DaskLazyIndexer(self.data_dask, stage1)
         np.testing.assert_array_equal(indexer[stage2], npy2)
+        # Check nested indexers
+        indexer2 = DaskLazyIndexer(indexer, stage2)
+        np.testing.assert_array_equal(indexer2[()], npy2)
 
     def test_stage1_slices(self):
         self._test_with(np.s_[5:, :, 1::2])
@@ -309,3 +312,9 @@ class TestDaskLazyIndexer:
         indexer.dataset
         indexer.add_transform(lambda x: 0 * x)
         np.testing.assert_array_equal(indexer[:], np.zeros_like(indexer))
+        # Check nested indexers
+        indexer = DaskLazyIndexer(self.data_dask)
+        indexer2 = DaskLazyIndexer(indexer)
+        indexer2.add_transform(lambda x: 0 * x)
+        np.testing.assert_array_equal(indexer[:], self.data)
+        np.testing.assert_array_equal(indexer2[:], np.zeros_like(indexer))
