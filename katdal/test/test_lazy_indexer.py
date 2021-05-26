@@ -27,8 +27,8 @@ from katdal.lazy_indexer import (_range_to_slice, _simplify_index,
                                  _dask_oindex, dask_getitem, DaskLazyIndexer)
 
 
-def slice_to_range(s, l):
-    return range(*s.indices(l))
+def slice_to_range(s, length):
+    return range(*s.indices(length))
 
 
 class TestRangeToSlice:
