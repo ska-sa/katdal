@@ -568,7 +568,7 @@ class VisibilityDataV4(DataSet):
             select = self._flags_select.copy()
             def bitwise_and(flags): return da.bitwise_and(select, flags)
             flag_transforms.append(bitwise_and)
-        # Convert uint8 to bool by ORing all the bits
+        # View uint8 as bool (can still be undone by flags.view(np.uint8))
         def view_as_bool(flags): return flags.view(np.bool_)
         flag_transforms.append(view_as_bool)
         self._flags = DaskLazyIndexer(self._corrected.flags, stage1, flag_transforms)
