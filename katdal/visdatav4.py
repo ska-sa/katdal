@@ -571,7 +571,7 @@ class VisibilityDataV4(DataSet):
         # View uint8 as bool (can still be undone by flags.view(np.uint8))
         def view_as_bool(flags): return flags.view(np.bool_)
         flag_transforms.append(view_as_bool)
-        self._flags = DaskLazyIndexer(self._corrected.flags, stage1, flag_transforms)
+        self._flags = DaskLazyIndexer(self._raw_flags, transforms=flag_transforms)
 
         # Create excision indexer based on unscaled weights
         unscaled_weights = self._corrected.unscaled_weights

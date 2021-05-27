@@ -479,9 +479,13 @@ class DaskLazyIndexer:
     :class:`numpy.ndarray` output. Both selection steps follow outer indexing
     ("oindex") semantics, by indexing each dimension / axis separately.
 
+    DaskLazyIndexers can also index other DaskLazyIndexers, which allows them
+    to share first-stage selections and/or transforms, and to construct nested
+    or hierarchical indexers.
+
     Parameters
     ----------
-    dataset : :class:`dask.Array`
+    dataset : :class:`dask.Array` or :class:`DaskLazyIndexer`
         The full dataset, from which a subset is chosen by `keep`
     keep : NumPy index expression, optional
         Index expression describing first-stage selection (e.g. as applied by
@@ -519,23 +523,14 @@ class DaskLazyIndexer:
         """Array after first-stage indexing and transformation."""
         with self._lock:
             if self._dataset is None:
+                if isinstance(self._orig_dataset, DaskLazyIndexer):
+                    self._orig_dataset = self._orig_dataset.dataset
                 dataset = dask_getitem(self._orig_dataset, self.keep)
                 for transform in self.transforms:
                     dataset = transform(dataset)
                 self._dataset = dataset
                 self._orig_dataset = None
             return self._dataset
-
-    def add_transform(self, transform):
-        """Add another transform to the end of the transform chain.
-
-        The `transform` is a callable that takes a dask array and returns
-        another dask array.
-        """
-        with self._lock:
-            if self._dataset is not None:
-                self._dataset = transform(self._dataset)
-            self._transforms.append(transform)
 
     def __getitem__(self, keep):
         """Extract a selected array from the underlying dataset.
