@@ -303,18 +303,8 @@ class TestDaskLazyIndexer:
         # Add transform at initialisation
         indexer = DaskLazyIndexer(self.data_dask, transforms=[lambda x: 0 * x])
         np.testing.assert_array_equal(indexer[:], np.zeros_like(indexer))
-        # Add transform before first use of object
-        indexer = DaskLazyIndexer(self.data_dask)
-        indexer.add_transform(lambda x: 0 * x)
-        np.testing.assert_array_equal(indexer[:], np.zeros_like(indexer))
-        # Add transform after first use of object
-        indexer = DaskLazyIndexer(self.data_dask)
-        indexer.dataset
-        indexer.add_transform(lambda x: 0 * x)
-        np.testing.assert_array_equal(indexer[:], np.zeros_like(indexer))
         # Check nested indexers
         indexer = DaskLazyIndexer(self.data_dask)
-        indexer2 = DaskLazyIndexer(indexer)
-        indexer2.add_transform(lambda x: 0 * x)
+        indexer2 = DaskLazyIndexer(indexer, transforms=[lambda x: 0 * x])
         np.testing.assert_array_equal(indexer[:], self.data)
         np.testing.assert_array_equal(indexer2[:], np.zeros_like(indexer))

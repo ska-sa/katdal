@@ -532,17 +532,6 @@ class DaskLazyIndexer:
                 self._orig_dataset = None
             return self._dataset
 
-    def add_transform(self, transform):
-        """Add another transform to the end of the transform chain.
-
-        The `transform` is a callable that takes a dask array and returns
-        another dask array.
-        """
-        with self._lock:
-            if self._dataset is not None:
-                self._dataset = transform(self._dataset)
-            self._transforms.append(transform)
-
     def __getitem__(self, keep):
         """Extract a selected array from the underlying dataset.
 
