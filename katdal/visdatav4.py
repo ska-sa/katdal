@@ -76,6 +76,13 @@ def _calc_azel(cache, name, ant):
     return sensor_data
 
 
+VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
+VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel,
+                        'Antennas/{ant}/el': _calc_azel})
+
+DEFAULT_CAL_PRODUCTS = ('l1.K', 'l1.B', 'l1.G', 'l2.GPHASE')
+
+
 def _add_sensor_alias(cache, new_name, old_name):
     """Add an optional alias for single sensor in sensor cache."""
     try:
@@ -117,13 +124,6 @@ def _normalise_cal_products(products, cal_streams):
                              f'stream{streams}, product type (one of {product_types}) '
                              'or <stream>.<product_type>')
     return normalised_cal_products, skip_missing_products
-
-
-VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
-VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel,
-                        'Antennas/{ant}/el': _calc_azel})
-
-DEFAULT_CAL_PRODUCTS = ('l1.K', 'l1.B', 'l1.G', 'l2.GPHASE')
 
 # -----------------------------------------------------------------------------
 # -- CLASS :  VisibilityDataV4
@@ -185,10 +185,10 @@ class VisibilityDataV4(DataSet):
         self.dump_period = attrs['int_time']
         # The CBF dump period is not in the lite RDB version
         try:
-            src_stream = attrs['src_streams'][0]
+            correlator_stream = attrs['src_streams'][0]
             # XXX: should use telstate.join if attrs is a telstate
-            self.cbf_dump_period = attrs[src_stream + '_int_time']
-            cbf_n_accs = attrs[src_stream + '_n_accs']
+            self.cbf_dump_period = attrs[correlator_stream + '_int_time']
+            cbf_n_accs = attrs[correlator_stream + '_n_accs']
         except (KeyError, IndexError):
             self.cbf_dump_period = self.accumulations_per_dump = None
         else:
