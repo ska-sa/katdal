@@ -27,8 +27,8 @@ from .dataset import (DataSet, BrokenFile, Subarray, DEFAULT_SENSOR_PROPS,
                       _selection_to_list)
 from .vis_flags_weights import VisFlagsWeights
 from .spectral_window import SpectralWindow
-from .sensordata import SensorCache
-from .categorical import CategoricalData
+from .sensordata import SensorCache, SimpleSensorGetter
+from .categorical import CategoricalData, ComparableArrayWrapper
 from .lazy_indexer import DaskLazyIndexer
 from .applycal import (add_applycal_sensors, calc_correction,
                        apply_vis_correction, apply_weights_correction,
@@ -76,9 +76,35 @@ def _calc_azel(cache, name, ant):
     return sensor_data
 
 
+def _calc_delay(cache, name, inp):
+    """Extract virtual delay correction sensors from custom-formatted CBF sensors."""
+    # Obtain the relevant CBF attributes from the cache
+    instrument = cache.get('Correlator/instrument')[0]
+    sync_time = cache.get('Correlator/sync_time')[0]
+    scale_factor_timestamp = cache.get('Correlator/scale_factor_timestamp')[0]
+    # Don't extract the sensor since the real timestamps are hidden in the values
+    getter = cache.get(f'{instrument}_antenna_channelised_voltage_{inp}_delay',
+                       extract=False)
+    sensor_data = getter.get()
+    # Unwrap and unpack the five components of the CBF sensor
+    values = [ComparableArrayWrapper.unwrap(v) for v in sensor_data.value]
+    adc_sample_counts, delays, delay_rates, phases, phase_rates = zip(*values)
+    # Convert the ADC sample count of each delay update to proper Unix timestamp
+    times = sync_time + np.array(adc_sample_counts) / scale_factor_timestamp
+    # Use the actual delay rate used by F-engine to interpolate between updates.
+    # Insert interpolation endpoint just before next update for strict monotonicity.
+    next_times = np.r_[times[1:], 2 * times[-1] - times[-2]] - 1e-6
+    next_delays = delays + delay_rates * (next_times - times)
+    times = np.c_[times, next_times].ravel()
+    delays = np.c_[delays, next_delays].ravel()
+    cache[name] = sensor_data = SimpleSensorGetter(name, times, delays)
+    return sensor_data
+
+
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel,
-                        'Antennas/{ant}/el': _calc_azel})
+                        'Antennas/{ant}/el': _calc_azel,
+                        'Correlator/Inputs/{inp}/applied_delay': _calc_delay})
 
 DEFAULT_CAL_PRODUCTS = ('l1.K', 'l1.B', 'l1.G', 'l2.GPHASE')
 
@@ -189,8 +215,10 @@ class VisibilityDataV4(DataSet):
             # XXX: should use telstate.join if attrs is a telstate
             self.cbf_dump_period = attrs[correlator_stream + '_int_time']
             cbf_n_accs = attrs[correlator_stream + '_n_accs']
+            self._cbf_instrument = attrs[correlator_stream + '_instrument_dev_name']
         except (KeyError, IndexError):
             self.cbf_dump_period = self.accumulations_per_dump = None
+            self._cbf_instrument = 'UNKNOWN'
         else:
             cbf_dumps_per_sdp_dump = round(self.dump_period / self.cbf_dump_period)
             self.accumulations_per_dump = cbf_n_accs * cbf_dumps_per_sdp_dump
@@ -300,6 +328,26 @@ class VisibilityDataV4(DataSet):
             [array_ant], all_dumps)
         _add_sensor_alias(self.sensor, 'Antennas/array/activity', 'obs_activity')
         _add_sensor_alias(self.sensor, 'Antennas/array/target', 'cbf_target')
+
+        # ------ Extract correlator settings ------
+
+        self.sensor['Correlator/instrument'] = CategoricalData(
+            [self._cbf_instrument], all_dumps)
+        try:
+            sync_time = attrs[self._cbf_instrument + '_sync_time']
+        except KeyError:
+            pass
+        else:
+            self.sensor['Correlator/sync_time'] = CategoricalData(
+                [sync_time], all_dumps)
+        try:
+            scale_factor_timestamp = attrs[self._cbf_instrument
+                                           + '_scale_factor_timestamp']
+        except KeyError:
+            pass
+        else:
+            self.sensor['Correlator/scale_factor_timestamp'] = CategoricalData(
+               [scale_factor_timestamp], all_dumps)
 
         # ------ Extract spectral windows / frequencies ------
 
