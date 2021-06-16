@@ -77,7 +77,7 @@ def _calc_azel(cache, name, ant):
 
 
 def _calc_delay(cache, name, inp):
-    """Extract virtual delay correction sensors from custom-formatted CBF sensors."""
+    """Extract virtual applied delay/phase sensors from raw CBF sensors."""
     # Obtain the relevant CBF attributes from the cache
     instrument = cache.get('Correlator/instrument')[0]
     sync_time = cache.get('Correlator/sync_time')[0]
@@ -91,20 +91,26 @@ def _calc_delay(cache, name, inp):
     adc_sample_counts, delays, delay_rates, phases, phase_rates = zip(*values)
     # Convert the ADC sample count of each delay update to proper Unix timestamp
     times = sync_time + np.array(adc_sample_counts) / scale_factor_timestamp
-    # Use the actual delay rate used by F-engine to interpolate between updates.
+    # Use actual delay/phase rate used by F-engine to interpolate between updates.
     # Insert interpolation endpoint just before next update for strict monotonicity.
     next_times = np.r_[times[1:], 2 * times[-1] - times[-2]] - 1e-6
     next_delays = delays + delay_rates * (next_times - times)
+    next_phases = phases + phase_rates * (next_times - times)
     times = np.c_[times, next_times].ravel()
     delays = np.c_[delays, next_delays].ravel()
-    cache[name] = sensor_data = SimpleSensorGetter(name, times, delays)
-    return sensor_data
+    phases = np.c_[phases, next_phases].ravel()
+    delay_data = SimpleSensorGetter(name, times, delays)
+    phase_data = SimpleSensorGetter(name, times, phases)
+    cache[name.replace('applied_phase', 'applied_delay')] = delay_data
+    cache[name.replace('applied_delay', 'applied_phase')] = phase_data
+    return delay_data if name.endswith('delay') else phase_data
 
 
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel,
                         'Antennas/{ant}/el': _calc_azel,
-                        'Correlator/Inputs/{inp}/applied_delay': _calc_delay})
+                        'Correlator/Inputs/{inp}/applied_delay': _calc_delay,
+                        'Correlator/Inputs/{inp}/applied_phase': _calc_delay})
 
 DEFAULT_CAL_PRODUCTS = ('l1.K', 'l1.B', 'l1.G', 'l2.GPHASE')
 
