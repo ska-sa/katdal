@@ -51,10 +51,10 @@ class AttrsSensors:
         Identifier that describes the origin of the metadata (backend-specific)
 
     """
-    def __init__(self, attrs, sensors, name='custom'):
+    def __init__(self, attrs, sensors, source_name='custom'):
         self.attrs = attrs
         self.sensors = sensors
-        self.name = name
+        self.source_name = source_name
 
 
 class DataSource:
@@ -77,10 +77,13 @@ class DataSource:
 
     @property
     def name(self):
-        name = self.metadata.name
-        if self.data and self.data.name != name:
-            name += ' | ' + self.data.name
-        return name
+        if self.data:
+            return self.data.name
+        return self.source_name
+
+    @property
+    def source_name(self):
+        return self.metadata.source_name
 
 
 def view_capture_stream(telstate, capture_block_id, stream_name):
@@ -382,7 +385,7 @@ class TelstateDataSource(DataSource):
                 sensor_name = _shorten_key(telstate, key)
                 if sensor_name:
                     sensors[sensor_name] = TelstateSensorGetter(telstate, key)
-        metadata = AttrsSensors(telstate, sensors, name=source_name)
+        metadata = AttrsSensors(telstate, sensors, source_name=source_name)
         if chunk_store is not None or timestamps is None:
             chunk_info = telstate['chunk_info']
             chunk_info = _ensure_prefix_is_set(chunk_info, telstate)

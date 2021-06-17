@@ -23,6 +23,7 @@ import os
 
 import numpy as np
 from nose.tools import assert_raises
+
 import katsdptelstate
 from katsdptelstate.rdb_writer import RDBWriter
 
@@ -296,3 +297,23 @@ class TestTelstateDataSource:
             open_data_source('ftp://unsupported')
         with assert_raises(DataSourceNotFound):
             open_data_source(rdb_filename[:-4])
+
+    def test_name_change(self):
+        # Ideally this test should do the following
+        # >>> d = katdal.open(RDBfile)
+        # >>> assert 'URI: ...' in d.__str__()
+        # >>> assert 'Name: ...' in d.__str__()
+        # but with the limitations in RDBWriter this wasn't feasable
+        # See: JIRA SPR1-1152
+        view, cbid, sn, _, _ = make_fake_data_source(self.telstate, self.store, (20, 16, 40))
+        rdb_dir = os.path.join(self.tempdir, cbid)
+        os.mkdir(rdb_dir)
+        rdb_filename = os.path.join(rdb_dir, f'{cbid}_{sn}.rdb')
+        self.telstate['capture_block_id'] = cbid
+        self.telstate['stream_name'] = sn
+        with RDBWriter(rdb_filename) as rdbw:
+            rdbw.save(self.telstate)
+        source_from_file = open_data_source(rdb_filename)
+        source_name = f'{cbid}-{sn}'.replace('_', '-')
+        assert source_from_file.name == source_name
+        assert rdb_filename in source_from_file.source_name
