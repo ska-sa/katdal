@@ -106,11 +106,23 @@ def _calc_delay(cache, name, inp):
     return delay_data if name.endswith('delay') else phase_data
 
 
+def _calc_gain(cache, name, inp):
+    """Extract virtual applied F-engine gain sensors from raw CBF sensors."""
+    instrument = cache.get('Correlator/instrument')[0]
+    # The real/imag parts are cast to int16 in the F-engine but the CBF sensor
+    # seems to report back the CAM request, so round them here to be more accurate
+    sensor_data = cache.get(f'{instrument}_antenna_channelised_voltage_{inp}_eq',
+                            transform=lambda g: np.array(g, dtype=np.complex64).round())
+    cache[name] = sensor_data
+    return sensor_data
+
+
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel,
                         'Antennas/{ant}/el': _calc_azel,
                         'Correlator/Inputs/{inp}/applied_delay': _calc_delay,
-                        'Correlator/Inputs/{inp}/applied_phase': _calc_delay})
+                        'Correlator/Inputs/{inp}/applied_phase': _calc_delay,
+                        'Correlator/Inputs/{inp}/applied_gain': _calc_gain})
 
 DEFAULT_CAL_PRODUCTS = ('l1.K', 'l1.B', 'l1.G', 'l2.GPHASE')
 
