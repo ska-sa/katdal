@@ -358,11 +358,11 @@ class DataSet:
 
     """
 
-    def __init__(self, name, ref_ant='', time_offset=0.0):
+    def __init__(self, name, ref_ant='', time_offset=0.0, url=''):
         self.name = name
         self.ref_ant = ref_ant
         self.time_offset = time_offset
-        self.url = ''
+        self.url = url
         self.version = ''
         self.observer = ''
         self.description = ''
