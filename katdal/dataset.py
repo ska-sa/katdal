@@ -362,7 +362,7 @@ class DataSet:
         self.name = name
         self.ref_ant = ref_ant
         self.time_offset = time_offset
-        self.source_name = ''
+        self.url = ''
         self.version = ''
         self.observer = ''
         self.description = ''
@@ -415,8 +415,8 @@ class DataSet:
         # Start with static file information
         descr = ['===============================================================================',
                  f'Name: {self.name} (version {self.version})',
-                 '===============================================================================',
-                 f'URI: {self.source_name}',
+                 '-------------------------------------------------------------------------------',
+                 f'URL: {self.url}',
                  '===============================================================================',
                  'Observer: {}  Experiment ID: {}'.format(self.observer if self.observer else '-',
                                                           self.experiment_id if self.experiment_id else '-'),

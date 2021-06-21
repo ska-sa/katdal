@@ -51,10 +51,10 @@ class AttrsSensors:
         Identifier that describes the origin of the metadata (backend-specific)
 
     """
-    def __init__(self, attrs, sensors, source_name='custom'):
+    def __init__(self, attrs, sensors, url='custom'):
         self.attrs = attrs
         self.sensors = sensors
-        self.source_name = source_name
+        self.url = url
 
 
 class DataSource:
@@ -79,11 +79,15 @@ class DataSource:
     def name(self):
         if self.data:
             return self.data.name
-        return self.source_name
+        return self.url
 
     @property
-    def source_name(self):
-        return self.metadata.source_name
+    def url(self):
+        return self.metadata.url
+
+    @url.setter
+    def url(self, value):
+        self.metadata.url = value
 
 
 def view_capture_stream(telstate, capture_block_id, stream_name):
@@ -365,7 +369,7 @@ class TelstateDataSource(DataSource):
     IndexError
         If `preselect` does not meet the criteria above.
     """
-    def __init__(self, telstate, capture_block_id, stream_name,
+    def __init__(self, telstate, capture_block_id, url,
                  chunk_store=None, timestamps=None, source_name='telstate',
                  upgrade_flags=True, van_vleck='off', preselect=None, **kwargs):
         if preselect is None:
@@ -385,12 +389,12 @@ class TelstateDataSource(DataSource):
                 sensor_name = _shorten_key(telstate, key)
                 if sensor_name:
                     sensors[sensor_name] = TelstateSensorGetter(telstate, key)
-        metadata = AttrsSensors(telstate, sensors, source_name=source_name)
+        metadata = AttrsSensors(telstate, sensors, url=source_name)
         if chunk_store is not None or timestamps is None:
             chunk_info = telstate['chunk_info']
             chunk_info = _ensure_prefix_is_set(chunk_info, telstate)
             if upgrade_flags:
-                chunk_info = _upgrade_flags(chunk_info, telstate, capture_block_id, stream_name)
+                chunk_info = _upgrade_flags(chunk_info, telstate, capture_block_id, url)
             chunk_info = _align_chunk_info(chunk_info)
 
         if chunk_store is None:
@@ -418,7 +422,7 @@ class TelstateDataSource(DataSource):
         # Metadata and timestamps with or without data
         DataSource.__init__(self, metadata, timestamps, data)
         self.capture_block_id = capture_block_id
-        self.stream_name = stream_name
+        self.url = url
 
     @classmethod
     def from_url(cls, url, chunk_store='auto', **kwargs):
