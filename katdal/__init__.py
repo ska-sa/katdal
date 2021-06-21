@@ -134,7 +134,7 @@ def open(filename, ref_ant='', time_offset=0.0, **kwargs):
         parsed = urllib.parse.urlsplit(f)
         if parsed.path.endswith('.rdb') or parsed.scheme != '':
             dataset = VisibilityDataV4(open_data_source(f, **kwargs),
-                                       ref_ant, time_offset, url=f, **kwargs)
+                                       ref_ant, time_offset, **kwargs)
         else:
             if 'preselect' in kwargs:
                 raise TypeError('preselect is not supported for this format')

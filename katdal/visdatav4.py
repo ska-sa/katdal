@@ -171,7 +171,7 @@ class VisibilityDataV4(DataSet):
     def __init__(self, source, ref_ant='', time_offset=0.0, applycal='',
                  gaincal_flux={}, sensor_store=None,
                  preselect=None, url='', **kwargs):
-        DataSet.__init__(self, source.name, ref_ant, time_offset, url=url)
+        DataSet.__init__(self, source.name, ref_ant, time_offset, url=source.url)
         attrs = source.metadata.attrs
 
         # ------ Extract timestamps ------
