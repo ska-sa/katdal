@@ -71,12 +71,7 @@ class DataSource:
         self.metadata = metadata
         self.timestamps = timestamps
         self.data = data
-
-    @property
-    def name(self):
-        if self.data:
-            return self.data.name
-        return ''
+        self.name = ''
 
 
 def view_capture_stream(telstate, capture_block_id, stream_name):
@@ -413,10 +408,7 @@ class TelstateDataSource(DataSource):
         self.capture_block_id = capture_block_id
         self.stream_name = stream_name
         self.url = url
-
-    @property
-    def name(self):
-        return '_'.join([self.capture_block_id, self.stream_name])
+        self.name = f'{self.capture_block_id}_{self.stream_name}'
 
     @classmethod
     def from_url(cls, url, chunk_store='auto', **kwargs):

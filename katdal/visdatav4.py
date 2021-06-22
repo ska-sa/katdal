@@ -171,7 +171,8 @@ class VisibilityDataV4(DataSet):
     def __init__(self, source, ref_ant='', time_offset=0.0, applycal='',
                  gaincal_flux={}, sensor_store=None,
                  preselect=None, **kwargs):
-        DataSet.__init__(self, source.name, ref_ant, time_offset, url=source.url)
+        DataSet.__init__(self, source.name, ref_ant, time_offset)
+        self.url = source.url
         attrs = source.metadata.attrs
 
         # ------ Extract timestamps ------
@@ -445,14 +446,17 @@ class VisibilityDataV4(DataSet):
                 corrected_weights = self._make_corrected(apply_weights_correction,
                                                          self.source.data.weights)
                 unscaled_weights = self.source.data.unscaled_weights
-                name = self.source.data.name
+                # TODO: either remove this unused piece of code, or add a new
+                # TODO: class attribute, what do you think @Ludwig?
+                name = self.source.name
                 # Acknowledge that the applycal step is making the L1 product
                 if 'sdp_l0' in name:
                     name = name.replace('sdp_l0', 'sdp_l1')
                 else:
                     name = name + ' (corrected)'
+                # TODO: END
                 self._corrected = VisFlagsWeights(corrected_vis, corrected_flags,
-                                                  corrected_weights, unscaled_weights, name=name)
+                                                  corrected_weights, unscaled_weights)
 
         # Apply default selection and initialise all members that depend
         # on selection in the process

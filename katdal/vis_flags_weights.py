@@ -55,7 +55,7 @@ class VisFlagsWeights:
         Identifier that describes the origin of the data (backend-specific)
     """
 
-    def __init__(self, vis, flags, weights, unscaled_weights=None, name='custom'):
+    def __init__(self, vis, flags, weights, unscaled_weights=None):
         if not (vis.shape == flags.shape == weights.shape):
             raise ValueError(f'Shapes of vis {vis.shape}, flags {flags.shape} '
                              f'and weights {weights.shape} differ')
@@ -66,7 +66,6 @@ class VisFlagsWeights:
         self.flags = flags
         self.weights = weights
         self.unscaled_weights = unscaled_weights
-        self.name = name
 
     @property
     def shape(self):
@@ -386,4 +385,4 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
             weights = stored_weights
             # Don't bother with unscaled weights (it's optional)
             unscaled_weights = None
-        VisFlagsWeights.__init__(self, vis, flags, weights, unscaled_weights, self.vis_prefix)
+        VisFlagsWeights.__init__(self, vis, flags, weights, unscaled_weights)
