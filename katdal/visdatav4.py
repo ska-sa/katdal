@@ -446,15 +446,9 @@ class VisibilityDataV4(DataSet):
                 corrected_weights = self._make_corrected(apply_weights_correction,
                                                          self.source.data.weights)
                 unscaled_weights = self.source.data.unscaled_weights
-                # TODO: either remove this unused piece of code, or add a new
-                # TODO: class attribute, what do you think @Ludwig?
-                name = self.source.name
                 # Acknowledge that the applycal step is making the L1 product
-                if 'sdp_l0' in name:
-                    name = name.replace('sdp_l0', 'sdp_l1')
-                else:
-                    name = name + ' (corrected)'
-                # TODO: END
+                if 'sdp_l0' in self.name:
+                    self.name = self.name.replace('sdp_l0', 'sdp_l1')
                 self._corrected = VisFlagsWeights(corrected_vis, corrected_flags,
                                                   corrected_weights, unscaled_weights)
 
