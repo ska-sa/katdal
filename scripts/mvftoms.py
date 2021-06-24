@@ -44,6 +44,8 @@ from katdal.flags import NAMES as FLAG_NAMES
 
 SLOTS = 4    # Controls overlap between loading and writing
 
+CPInfo = namedtuple('CPInfo', 'ant1_index ant2_index ant1 ant2 cp_index')
+
 
 def casa_style_int_list(range_string, use_argparse=False, opt_unit="m"):
     """Turn CASA style range string "[0-9]*~[0-9]*, ..." into a list of ints.
@@ -308,8 +310,6 @@ def main():
                     for p in pols_to_use]
         cp_index = np.array(cp_index, dtype=np.int32)
 
-        CPInfo = namedtuple("CPInfo", ["ant1_index", "ant2_index",
-                                       "ant1", "ant2", "cp_index"])
         return CPInfo(ant1_index, ant2_index, ant1, ant2, cp_index)
 
     # Open dataset
