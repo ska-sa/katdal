@@ -138,7 +138,6 @@ class TestTelstateDataSource:
         view, cbid, sn, _, _ = make_fake_data_source(self.telstate, self.store, (20, 64, 40))
         data_source = TelstateDataSource(
             view, cbid, sn, chunk_store=None, url='http://hello')
-        assert 'hello' in data_source.url
         assert data_source.data is None
         expected_timestamps = np.arange(20, dtype=np.float32) * 2 + 1600000123
         np.testing.assert_array_equal(data_source.timestamps, expected_timestamps)
@@ -300,12 +299,3 @@ class TestTelstateDataSource:
         source_name = f'{cbid}_{sn}'
         assert source_from_file.name == source_name
         assert rdb_filename in source_from_file.url
-
-    def test_name_change(self):
-        # Ideally this test should do the following
-        # >>> d = katdal.open(RDBfile)
-        # >>> assert 'URI: ...' in d.__str__()
-        # >>> assert 'Name: ...' in d.__str__()
-        # but with the limitations in RDBWriter this wasn't feasable
-        # See: JIRA SPR1-1152
-        pass

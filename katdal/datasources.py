@@ -72,6 +72,7 @@ class DataSource:
         self.timestamps = timestamps
         self.data = data
         self.name = ''
+        self.url = ''
 
 
 def view_capture_stream(telstate, capture_block_id, stream_name):
@@ -408,7 +409,7 @@ class TelstateDataSource(DataSource):
         self.capture_block_id = capture_block_id
         self.stream_name = stream_name
         self.url = url
-        self.name = f'{self.capture_block_id}_{self.stream_name}'
+        self.name = f'{capture_block_id}_{stream_name}'
 
     @classmethod
     def from_url(cls, url, chunk_store='auto', **kwargs):
