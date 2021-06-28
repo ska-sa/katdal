@@ -27,8 +27,8 @@ from .dataset import (DataSet, BrokenFile, Subarray, DEFAULT_SENSOR_PROPS,
                       _selection_to_list)
 from .vis_flags_weights import VisFlagsWeights
 from .spectral_window import SpectralWindow
-from .sensordata import SensorCache
-from .categorical import CategoricalData
+from .sensordata import SensorCache, SimpleSensorGetter
+from .categorical import CategoricalData, ComparableArrayWrapper
 from .lazy_indexer import DaskLazyIndexer
 from .applycal import (add_applycal_sensors, calc_correction,
                        apply_vis_correction, apply_weights_correction,
@@ -76,6 +76,70 @@ def _calc_azel(cache, name, ant):
     return sensor_data
 
 
+def _calc_delay(cache, name, inp):
+    """Extract virtual applied delay/phase sensors from raw CBF sensors."""
+    # Obtain the relevant CBF attributes from the cache
+    stream = cache.get('Correlator/antenna_channelised_voltage_stream')[0]
+    sync_time = cache.get('Correlator/sync_time')[0]
+    scale_factor_timestamp = cache.get('Correlator/scale_factor_timestamp')[0]
+    # Don't extract the sensor since the real timestamps are hidden in the values
+    getter = cache.get(f'{stream}_{inp}_delay', extract=False)
+    sensor_data = getter.get()
+    # Unwrap and unpack the five components of the CBF sensor
+    values = [ComparableArrayWrapper.unwrap(v) for v in sensor_data.value]
+    adc_sample_counts, delays, delay_rates, phases, phase_rates = zip(*values)
+    # Convert the ADC sample count of each delay update to proper Unix timestamp
+    times = sync_time + np.array(adc_sample_counts) / scale_factor_timestamp
+    # Ensure that we can at least extrapolate to the final timestamp in the cache
+    final_time = max(times[-1], cache.timestamps[-1]) + 1
+    # Insert interpolation endpoint just before next update for strict monotonicity
+    next_times = np.r_[times[1:] - 1e-6, final_time]
+    # Use actual delay/phase rate used by F-engine to interpolate between updates
+    next_delays = delays + delay_rates * (next_times - times)
+    next_phases = phases + phase_rates * (next_times - times)
+    times = np.c_[times, next_times].ravel()
+    delays = np.c_[delays, next_delays].ravel()
+    phases = np.c_[phases, next_phases].ravel()
+    delay_data = SimpleSensorGetter(name, times, delays)
+    phase_data = SimpleSensorGetter(name, times, phases)
+    cache[name.replace('applied_phase', 'applied_delay')] = delay_data
+    cache[name.replace('applied_delay', 'applied_phase')] = phase_data
+    return delay_data if name.endswith('delay') else phase_data
+
+
+def _calc_gain(cache, name, inp):
+    """Extract virtual applied F-engine gain sensors from raw CBF sensors."""
+    stream = cache.get('Correlator/antenna_channelised_voltage_stream')[0]
+    # The real/imag parts are cast to int16 in the F-engine but the CBF sensor
+    # seems to report back the CAM request, so round them here to be more accurate
+    sensor_data = cache.get(f'{stream}_{inp}_eq',
+                            transform=lambda g: np.array(g, dtype=np.complex64).round())
+    cache[name] = sensor_data
+    return sensor_data
+
+
+VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
+VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel,
+                        'Antennas/{ant}/el': _calc_azel,
+                        'Correlator/Inputs/{inp}/applied_delay': _calc_delay,
+                        'Correlator/Inputs/{inp}/applied_phase': _calc_delay,
+                        'Correlator/Inputs/{inp}/applied_gain': _calc_gain})
+
+DEFAULT_CAL_PRODUCTS = ('l1.K', 'l1.B', 'l1.G', 'l2.GPHASE')
+
+
+def _cbf_attrs(attrs):
+    """Extract attributes from the various CBF streams and instruments."""
+    correlator_stream = attrs['src_streams'][0]
+    # XXX: should use telstate.join if attrs is a telstate
+    int_time = attrs[correlator_stream + '_int_time']
+    n_accs = attrs[correlator_stream + '_n_accs']
+    f_engine_stream = attrs[correlator_stream + '_src_streams'][0]
+    f_engine_instrument = attrs[f_engine_stream + '_instrument_dev_name']
+    scale_factor_timestamp = attrs[f_engine_instrument + '_scale_factor_timestamp']
+    return int_time, n_accs, f_engine_stream, scale_factor_timestamp
+
+
 def _add_sensor_alias(cache, new_name, old_name):
     """Add an optional alias for single sensor in sensor cache."""
     try:
@@ -117,13 +181,6 @@ def _normalise_cal_products(products, cal_streams):
                              f'stream{streams}, product type (one of {product_types}) '
                              'or <stream>.<product_type>')
     return normalised_cal_products, skip_missing_products
-
-
-VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
-VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel,
-                        'Antennas/{ant}/el': _calc_azel})
-
-DEFAULT_CAL_PRODUCTS = ('l1.K', 'l1.B', 'l1.G', 'l2.GPHASE')
 
 # -----------------------------------------------------------------------------
 # -- CLASS :  VisibilityDataV4
@@ -185,12 +242,11 @@ class VisibilityDataV4(DataSet):
         self.dump_period = attrs['int_time']
         # The CBF dump period is not in the lite RDB version
         try:
-            src_stream = attrs['src_streams'][0]
-            # XXX: should use telstate.join if attrs is a telstate
-            self.cbf_dump_period = attrs[src_stream + '_int_time']
-            cbf_n_accs = attrs[src_stream + '_n_accs']
+            (self.cbf_dump_period, cbf_n_accs,
+             f_engine_stream, scale_factor_timestamp) = _cbf_attrs(attrs)
         except (KeyError, IndexError):
             self.cbf_dump_period = self.accumulations_per_dump = None
+            f_engine_stream = scale_factor_timestamp = None
         else:
             cbf_dumps_per_sdp_dump = round(self.dump_period / self.cbf_dump_period)
             self.accumulations_per_dump = cbf_n_accs * cbf_dumps_per_sdp_dump
@@ -300,6 +356,19 @@ class VisibilityDataV4(DataSet):
             [array_ant], all_dumps)
         _add_sensor_alias(self.sensor, 'Antennas/array/activity', 'obs_activity')
         _add_sensor_alias(self.sensor, 'Antennas/array/target', 'cbf_target')
+
+        # ------ Extract correlator settings ------
+
+        if f_engine_stream is not None:
+            self.sensor['Correlator/antenna_channelised_voltage_stream'] = CategoricalData(
+                [f_engine_stream], all_dumps)
+        sync_time = attrs.get('sync_time')
+        if sync_time is not None:
+            self.sensor['Correlator/sync_time'] = CategoricalData(
+                [sync_time], all_dumps)
+        if scale_factor_timestamp is not None:
+            self.sensor['Correlator/scale_factor_timestamp'] = CategoricalData(
+               [scale_factor_timestamp], all_dumps)
 
         # ------ Extract spectral windows / frequencies ------
 
