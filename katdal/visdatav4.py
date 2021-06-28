@@ -79,7 +79,7 @@ def _calc_azel(cache, name, ant):
 def _calc_delay(cache, name, inp):
     """Extract virtual applied delay/phase sensors from raw CBF sensors."""
     # Obtain the relevant CBF attributes from the cache
-    stream = cache.get('Correlator/f_engine_stream')[0]
+    stream = cache.get('Correlator/antenna_channelised_voltage_stream')[0]
     sync_time = cache.get('Correlator/sync_time')[0]
     scale_factor_timestamp = cache.get('Correlator/scale_factor_timestamp')[0]
     # Don't extract the sensor since the real timestamps are hidden in the values
@@ -109,7 +109,7 @@ def _calc_delay(cache, name, inp):
 
 def _calc_gain(cache, name, inp):
     """Extract virtual applied F-engine gain sensors from raw CBF sensors."""
-    stream = cache.get('Correlator/f_engine_stream')[0]
+    stream = cache.get('Correlator/antenna_channelised_voltage_stream')[0]
     # The real/imag parts are cast to int16 in the F-engine but the CBF sensor
     # seems to report back the CAM request, so round them here to be more accurate
     sensor_data = cache.get(f'{stream}_{inp}_eq',
@@ -360,7 +360,7 @@ class VisibilityDataV4(DataSet):
         # ------ Extract correlator settings ------
 
         if f_engine_stream is not None:
-            self.sensor['Correlator/f_engine_stream'] = CategoricalData(
+            self.sensor['Correlator/antenna_channelised_voltage_stream'] = CategoricalData(
                 [f_engine_stream], all_dumps)
         sync_time = attrs.get('sync_time')
         if sync_time is not None:
