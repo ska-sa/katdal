@@ -447,8 +447,11 @@ class VisibilityDataV4(DataSet):
                                                          self.source.data.weights)
                 unscaled_weights = self.source.data.unscaled_weights
                 # Acknowledge that the applycal step is making the L1 product
-                if 'sdp_l0' in self.name:
+                cal_streams = {cp.split('.')[0] for cp in self.applycal_products}
+                if 'sdp_l0' in self.name and 'l1' in cal_streams:
                     self.name = self.name.replace('sdp_l0', 'sdp_l1')
+                    if 'l2' in cal_streams:
+                        self.name = self.name.replace('sdp_l1', 'sdp_l2')
                 self._corrected = VisFlagsWeights(corrected_vis, corrected_flags,
                                                   corrected_weights, unscaled_weights)
 
