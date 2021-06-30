@@ -19,6 +19,8 @@
 import logging
 import secrets
 from collections import Counter
+import pathlib
+import urllib.parse
 
 import numpy as np
 import h5py
@@ -169,7 +171,11 @@ class H5DataV3(DataSet):
     def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r',
                  time_scale=None, time_origin=None, rotate_bls=False,
                  centre_freq=None, band=None, keepdims=False, **kwargs):
-        DataSet.__init__(self, filename, ref_ant, time_offset)
+        absolute_path = pathlib.Path(filename).resolve()
+        # The closest thing to a capture block ID is the Unix timestamp in the original filename
+        cbid = absolute_path.stem
+        DataSet.__init__(self, cbid, ref_ant, time_offset)
+        self.url = urllib.parse.urlparse(str(absolute_path), scheme='file').geturl()
 
         # Load file
         self.file, self.version = H5DataV3._open(filename, mode)
@@ -178,6 +184,7 @@ class H5DataV3(DataSet):
         # Load main HDF5 groups
         data_group, tm_group = f['Data'], f['TelescopeModel']
         self.stream_name = to_str(data_group.attrs.get('stream_name', 'sdp_l0'))
+        self.name = f'{cbid}_{self.stream_name}'
         # Pick first group with appropriate class as CBF
         cbfs = [comp for comp in tm_group
                 if to_str(tm_group[comp].attrs.get('class')) == 'CorrelatorBeamformer']
