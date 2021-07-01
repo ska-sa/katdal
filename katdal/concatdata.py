@@ -495,8 +495,8 @@ class ConcatenatedDataSet(DataSet):
         self.datasets = datasets = [d[-1] for d in decorated_datasets]
 
         # Merge high-level metadata
-        names = unique_in_order([d.name for d in datasets])
-        self.name = ','.join([os.path.basename(name) for name in names])
+        self.name = ','.join(unique_in_order([d.name for d in datasets]))
+        self.url = ' | '.join(unique_in_order([d.url for d in datasets]))
         self.version = ','.join(unique_in_order([d.version for d in datasets]))
         self.observer = ','.join(unique_in_order([d.observer for d in datasets]))
         self.description = ' | '.join(unique_in_order([d.description for d in datasets]))
