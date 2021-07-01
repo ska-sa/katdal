@@ -19,6 +19,8 @@
 import time
 import logging
 import numbers
+import pathlib
+import urllib.parse
 
 import numpy as np
 
@@ -102,6 +104,29 @@ class Subarray:
     def __hash__(self):
         """Base hash on description string, just like equality operator."""
         return hash(self._description)
+
+
+def parse_url_or_path(url_or_path):
+    """Parse URL into components, converting path to absolute file URL.
+
+    Parameters
+    ----------
+    url_or_path : string
+        URL, or filesystem path if there is no scheme
+
+    Returns
+    -------
+    url_parts : :class:`urllib.parse.ParseResult`
+        Components of the parsed URL ('file' scheme will have an absolute path)
+    """
+    url_parts = urllib.parse.urlparse(url_or_path)
+    # Assume filesystem path if there is no scheme (unless url is empty string)
+    if not url_parts.scheme and url_parts.path:
+       # A file:// URL expects an absolute path (local paths can't be located)
+        absolute_path = str(pathlib.Path(url_parts.path).absolute())
+        # Note to self: namedtuple._replace is not a private method, despite the underscore!
+        url_parts = url_parts._replace(scheme='file', path=absolute_path)
+    return url_parts
 
 
 def _robust_target(description):
@@ -285,6 +310,8 @@ class DataSet:
         (default is first antenna in use by script)
     time_offset : float, optional
         Offset to add to all correlator timestamps, in seconds
+    url : string, optional
+        Location of data set (either local filename or full URL accepted)
 
     Attributes
     ----------
@@ -358,11 +385,12 @@ class DataSet:
 
     """
 
-    def __init__(self, name, ref_ant='', time_offset=0.0):
+    def __init__(self, name, ref_ant='', time_offset=0.0, url=''):
         self.name = name
         self.ref_ant = ref_ant
         self.time_offset = time_offset
-        self.url = ''
+        self.url = parse_url_or_path(url).geturl()
+
         self.version = ''
         self.observer = ''
         self.description = ''

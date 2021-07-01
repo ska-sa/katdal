@@ -29,6 +29,7 @@ from .chunkstore_s3 import S3ChunkStore
 from .chunkstore_npy import NpyFileChunkStore
 from .chunkstore import ChunkStoreError
 from .vis_flags_weights import ChunkStoreVisFlagsWeights
+from .dataset import parse_url_or_path
 
 
 logger = logging.getLogger(__name__)
@@ -425,7 +426,7 @@ class TelstateDataSource(DataSource):
         kwargs : dict, optional
             Extra keyword arguments passed to init, telstate view, chunk store init
         """
-        url_parts = urllib.parse.urlparse(url, scheme='file')
+        url_parts = parse_url_or_path(url)
         # Merge key-value pairs from URL query with keyword arguments
         # of function (the latter takes precedence)
         url_kwargs = dict(urllib.parse.parse_qsl(url_parts.query))

@@ -20,7 +20,6 @@ import logging
 import secrets
 from collections import Counter
 import pathlib
-import urllib.parse
 
 import numpy as np
 import h5py
@@ -171,11 +170,9 @@ class H5DataV3(DataSet):
     def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r',
                  time_scale=None, time_origin=None, rotate_bls=False,
                  centre_freq=None, band=None, keepdims=False, **kwargs):
-        absolute_path = pathlib.Path(filename).resolve()
         # The closest thing to a capture block ID is the Unix timestamp in the original filename
-        cbid = absolute_path.stem
-        DataSet.__init__(self, cbid, ref_ant, time_offset)
-        self.url = urllib.parse.urlparse(str(absolute_path), scheme='file').geturl()
+        cbid = pathlib.Path(filename).stem
+        DataSet.__init__(self, cbid, ref_ant, time_offset, url=filename)
 
         # Load file
         self.file, self.version = H5DataV3._open(filename, mode)
