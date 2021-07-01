@@ -414,15 +414,21 @@ class TelstateDataSource(DataSource):
 
     @classmethod
     def from_url(cls, url, chunk_store='auto', **kwargs):
-        """Construct TelstateDataSource from URL (RDB file / REDIS server).
+        """Construct TelstateDataSource from URL or RDB filename.
+
+        The following URL styles are supported:
+
+          - Local RDB filename (no scheme): '1556574656/1556574656_sdp_l0.rdb'
+          - Archive: 'https://archive/1556574656/1556574656_sdp_l0.rdb?token=<>'
+          - Redis server: 'redis://cal5.sdp.mkat.karoo.kat.ac.za:31852'
 
         Parameters
         ----------
         url : string
-            URL serving as entry point to dataset (typically RDB file or REDIS)
+            URL or RDB filename serving as entry point to data set
         chunk_store : :class:`katdal.ChunkStore` object, optional
             Chunk store for visibility data (obtained automatically by default,
-            or set to None for metadata-only dataset)
+            or set to None for metadata-only data set)
         kwargs : dict, optional
             Extra keyword arguments passed to init, telstate view, chunk store init
         """
