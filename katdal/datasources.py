@@ -489,8 +489,8 @@ def open_data_source(url, **kwargs):
         return TelstateDataSource.from_url(url, **kwargs)
     except DataSourceNotFound as e:
         # Amend the error message for the case of an IP address without scheme
-        url_parts = urllib.parse.urlparse(url, scheme='file')
-        if url_parts.scheme == 'file' and not os.path.isfile(url_parts.path):
+        url_parts = urllib.parse.urlparse(url)
+        if not url_parts.scheme and not os.path.isfile(url_parts.path):
             raise DataSourceNotFound(f'{e} (add a URL scheme if {url_parts.path!r} '
                                      'is not meant to be a file)') from e
         raise
