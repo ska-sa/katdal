@@ -18,6 +18,7 @@
 
 import logging
 import re
+import pathlib
 
 import numpy as np
 import h5py
@@ -95,7 +96,10 @@ class H5DataV1(DataSet):
     """
 
     def __init__(self, filename, ref_ant='', time_offset=0.0, mode='r', **kwargs):
-        DataSet.__init__(self, filename, ref_ant, time_offset)
+        # The closest thing to a capture block ID is the Unix timestamp in the original filename
+        # There is only one (unnamed) output stream, so leave off the stream name
+        cbid = pathlib.Path(filename).stem
+        DataSet.__init__(self, cbid, ref_ant, time_offset, url=filename)
 
         # Load file
         self.file, self.version = H5DataV1._open(filename, mode)

@@ -136,8 +136,8 @@ class TestTelstateDataSource:
         # Add a sensor to telstate to exercise the relevant code paths in TelstateDataSource
         self.telstate.add('obs_script_log', 'Digitisers synced', ts=1600000000.)
         view, cbid, sn, _, _ = make_fake_data_source(self.telstate, self.store, (20, 64, 40))
-        data_source = TelstateDataSource(view, cbid, sn, chunk_store=None, source_name='hello')
-        assert 'hello' in data_source.name
+        data_source = TelstateDataSource(
+            view, cbid, sn, chunk_store=None, url='http://hello')
         assert data_source.data is None
         expected_timestamps = np.arange(20, dtype=np.float32) * 2 + 1600000123
         np.testing.assert_array_equal(data_source.timestamps, expected_timestamps)
@@ -296,3 +296,6 @@ class TestTelstateDataSource:
             open_data_source('ftp://unsupported')
         with assert_raises(DataSourceNotFound):
             open_data_source(rdb_filename[:-4])
+        source_name = f'{cbid}_{sn}'
+        assert source_from_file.name == source_name
+        assert rdb_filename in source_from_file.url
