@@ -550,6 +550,14 @@ class DataSet:
                 model.min_freq_MHz = new_min_freq
                 model.max_freq_MHz = new_max_freq
 
+    def _is_deselection(self, selectors):
+        """If all the selectors have a tilde ~ , then this is treated as a
+         deselect and we are going to invert the selection."""
+        for selector in selectors:
+            if selector[0] != '~':
+                return False
+        return True
+
     def _set_keep(self, time_keep=None, freq_keep=None, corrprod_keep=None,
                   weights_keep=None, flags_keep=None):
         """Set time, frequency and/or correlation product selection masks.
@@ -658,7 +666,9 @@ class DataSet:
             value via a sequence of string pairs, or select all autocorrelations
             via 'auto' or all cross-correlations via 'cross'.
         ants : string or :class:`katpoint.Antenna` object or sequence, optional
-            Select antennas by name or object
+            Select antennas by name or object. If all antennas specified are
+            prefaced by a ~ this is treated as a deselection and these antennas
+            are excluded.
         inputs : string or sequence of strings, optional
             Select inputs by label
         pol : string or sequence of strings
@@ -822,7 +832,12 @@ class DataSet:
             elif k == 'ants':
                 ants = _selection_to_list(v)
                 ant_names = [(ant.name if isinstance(ant, katpoint.Antenna) else ant) for ant in ants]
-                self._corrprod_keep &= [(inpA[:-1] in ant_names and inpB[:-1] in ant_names)
+                if self._is_deselection(ant_names):
+                    ant_names = [ant_name[1:] for ant_name in ant_names]
+                    self._corrprod_keep &= [(inpA[:-1] not in ant_names and inpB[:-1] not in ant_names)
+                                        for inpA, inpB in self.subarrays[self.subarray].corr_products]
+                else:
+                    self._corrprod_keep &= [(inpA[:-1] in ant_names and inpB[:-1] in ant_names)
                                         for inpA, inpB in self.subarrays[self.subarray].corr_products]
             elif k == 'inputs':
                 inps = _selection_to_list(v)
