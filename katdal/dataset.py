@@ -694,7 +694,7 @@ class DataSet:
         corrprod_selectors = ['corrprods', 'ants', 'inputs', 'pol']
         # Check if keywords are valid and raise exception only if this is explicitly enabled
         valid_kwargs = time_selectors + freq_selectors + corrprod_selectors + \
-            ['spw', 'subarray', 'weights', 'flags', 'reset', 'strict']
+            ['spw', 'subarray', 'weights', 'flags', 'reset', 'strict', 'target_tags']
         # Check for definition of strict
         strict = kwargs.get('strict', True)
         if strict and set(kwargs.keys()) - set(valid_kwargs):
@@ -785,6 +785,15 @@ class DataSet:
                         logger.warning("Skipping unknown selected target '%s'", t)
                         continue
                     target_keep |= (target_index_sensor == target_index)
+                self._time_keep &= target_keep
+            elif k == 'target_tags':
+                tags = v if is_iterable(v) else [v]
+                target_keep = np.zeros(len(self._time_keep), dtype=np.bool)
+                target_index_sensor = self.sensor.get('Observation/target_index')
+                for target_index in self.target_indices:
+                    target_tags = self.catalogue.targets[target_index].tags
+                    if set(target_tags) & set(tags):
+                        target_keep |= (target_index_sensor == target_index)
                 self._time_keep &= target_keep
             # Selections that affect frequency axis
             elif k == 'channels':

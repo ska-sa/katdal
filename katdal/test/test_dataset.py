@@ -114,7 +114,8 @@ def test_selection_to_list():
 
 class TestVirtualSensors:
     def setup(self):
-        self.target = Target('PKS1934-638, radec, 19:39, -63:42')
+        self.target = Target('PKS1934-638, radec, 19:39, -63:42',
+                             tags='radec')
         self.antennas = [Antenna('m000, -30:42:39.8, 21:26:38.0, 1086.6, 13.5, '
                                  '-8.264 -207.29 8.5965'),
                          Antenna('m063, -30:42:39.8, 21:26:38.0, 1086.6, 13.5, '
@@ -164,3 +165,9 @@ class TestVirtualSensors:
         assert_array_equal(self.dataset.u[:, 5], u)
         assert_array_equal(self.dataset.v[:, 5], v)
         assert_array_equal(self.dataset.w[:, 5], w)
+
+    def test_tag_selection(self):
+        self.dataset.select(target_tags='radec')
+        assert_equal(len(self.dataset.target_indices), 1)
+        self.dataset.select(target_tags='incorrect_tag')
+        assert_equal(len(self.dataset.target_indices), 0)
