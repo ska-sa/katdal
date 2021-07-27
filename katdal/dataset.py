@@ -168,6 +168,17 @@ def _selection_to_list(names, **groups):
         return [names]
 
 
+def _is_deselection(selectors):
+    """If all the selectors have a tilde ~ , then this is treated as a
+     deselect and we are going to invert the selection.
+     TODO: For version 1 release the deselector interface should just have a leading ~
+     """
+    for selector in selectors:
+        if selector[0] != '~':
+            return False
+    return True
+
+
 DEFAULT_SENSOR_PROPS = {
     '*nd_coupler': {'categorical': True, 'greedy_values': (True,), 'initial_value': '0',
                     'transform': lambda x: x not in ('0', 'False', 0)},
@@ -550,14 +561,6 @@ class DataSet:
                 model.min_freq_MHz = new_min_freq
                 model.max_freq_MHz = new_max_freq
 
-    def _is_deselection(self, selectors):
-        """If all the selectors have a tilde ~ , then this is treated as a
-         deselect and we are going to invert the selection."""
-        for selector in selectors:
-            if selector[0] != '~':
-                return False
-        return True
-
     def _set_keep(self, time_keep=None, freq_keep=None, corrprod_keep=None,
                   weights_keep=None, flags_keep=None):
         """Set time, frequency and/or correlation product selection masks.
@@ -832,7 +835,7 @@ class DataSet:
             elif k == 'ants':
                 ants = _selection_to_list(v)
                 ant_names = [(ant.name if isinstance(ant, katpoint.Antenna) else ant) for ant in ants]
-                if self._is_deselection(ant_names):
+                if _is_deselection(ant_names):
                     ant_names = [ant_name[1:] for ant_name in ant_names]
                     self._corrprod_keep &= [(inpA[:-1] not in ant_names and inpB[:-1] not in ant_names)
                                         for inpA, inpB in self.subarrays[self.subarray].corr_products]
