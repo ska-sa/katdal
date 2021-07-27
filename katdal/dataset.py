@@ -700,7 +700,8 @@ class DataSet:
             If `spw` or `subarray` is out of range
 
         """
-        time_selectors = ['dumps', 'timerange', 'scans', 'compscans', 'targets']
+        time_selectors = ['dumps', 'timerange', 'scans', 'compscans',
+                          'targets', 'target_tags']
         freq_selectors = ['channels', 'freqrange']
         corrprod_selectors = ['corrprods', 'ants', 'inputs', 'pol']
         # Check if keywords are valid and raise exception only if this is explicitly enabled
@@ -802,6 +803,16 @@ class DataSet:
                 target_index_sensor = self.sensor.get('Observation/target_index')
                 for target_index in set(target_indices):
                     target_keep |= (target_index_sensor == target_index)
+                self._time_keep &= target_keep
+            elif k == 'target_tags':
+                tags = v if is_iterable(v) else [v]
+                target_keep = np.zeros(len(self._time_keep), dtype=bool)
+                target_index_sensor = self.sensor.get('Observation/target_index')
+                for target in self.catalogue.targets:
+                    target_tags = target.tags
+                    if set(target_tags) & set(tags):
+                        target_index = self.catalogue.targets.index(target)
+                        target_keep |= (target_index_sensor == target_index)
                 self._time_keep &= target_keep
             # Selections that affect frequency axis
             elif k == 'channels':

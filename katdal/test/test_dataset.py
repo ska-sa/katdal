@@ -303,3 +303,17 @@ def test_select_targets(caplog, dataset, targets, expected_dumps):
     if len(expected_dumps) == 0:
         assert 'Skipping unknown selected target' in caplog.text
     assert_array_equal(dataset.dumps, expected_dumps)
+
+
+@pytest.mark.parametrize(
+    'target_tags,expected_dumps',
+    [
+        ('radec', np.arange(12)),
+        # Empty selections
+        ('incorrect_tag', []),
+    ]
+)
+def test_select_target_tags(caplog, dataset, target_tags, expected_dumps):
+    with caplog.at_level(logging.WARNING, logger='katdal.dataset'):
+        dataset.select(target_tags=target_tags)
+    assert_array_equal(dataset.dumps, expected_dumps)
