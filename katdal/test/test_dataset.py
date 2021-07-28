@@ -164,3 +164,9 @@ class TestVirtualSensors:
         assert_array_equal(self.dataset.u[:, 5], u)
         assert_array_equal(self.dataset.v[:, 5], v)
         assert_array_equal(self.dataset.w[:, 5], w)
+
+    def test_selecting_antenna(self):
+        self.dataset.select(ants='~m000')
+        assert_array_equal(
+            self.dataset.corr_products,
+            [('m063h', 'm063h'), ('m063v', 'm063v')])
