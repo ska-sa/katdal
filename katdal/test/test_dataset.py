@@ -171,3 +171,9 @@ class TestVirtualSensors:
         assert_equal(len(self.dataset.target_indices), 1)
         self.dataset.select(target_tags='incorrect_tag')
         assert_equal(len(self.dataset.target_indices), 0)
+
+    def test_selecting_antenna(self):
+        self.dataset.select(ants='~m000')
+        assert_array_equal(
+            self.dataset.corr_products,
+            [('m063h', 'm063h'), ('m063v', 'm063v')])

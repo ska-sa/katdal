@@ -168,6 +168,17 @@ def _selection_to_list(names, **groups):
         return [names]
 
 
+def _is_deselection(selectors):
+    """If all the selectors have a tilde ~ , then this is treated as a
+     deselect and we are going to invert the selection.
+     TODO: For version 1 release the deselector interface should just have a leading ~
+     """
+    for selector in selectors:
+        if selector[0] != '~':
+            return False
+    return True
+
+
 DEFAULT_SENSOR_PROPS = {
     '*nd_coupler': {'categorical': True, 'greedy_values': (True,), 'initial_value': '0',
                     'transform': lambda x: x not in ('0', 'False', 0)},
@@ -658,7 +669,9 @@ class DataSet:
             value via a sequence of string pairs, or select all autocorrelations
             via 'auto' or all cross-correlations via 'cross'.
         ants : string or :class:`katpoint.Antenna` object or sequence, optional
-            Select antennas by name or object
+            Select antennas by name or object. If all antennas specified are
+            prefaced by a ~ this is treated as a deselection and these antennas
+            are excluded.
         inputs : string or sequence of strings, optional
             Select inputs by label
         pol : string or sequence of strings
@@ -831,7 +844,12 @@ class DataSet:
             elif k == 'ants':
                 ants = _selection_to_list(v)
                 ant_names = [(ant.name if isinstance(ant, katpoint.Antenna) else ant) for ant in ants]
-                self._corrprod_keep &= [(inpA[:-1] in ant_names and inpB[:-1] in ant_names)
+                if _is_deselection(ant_names):
+                    ant_names = [ant_name[1:] for ant_name in ant_names]
+                    self._corrprod_keep &= [(inpA[:-1] not in ant_names and inpB[:-1] not in ant_names)
+                                        for inpA, inpB in self.subarrays[self.subarray].corr_products]
+                else:
+                    self._corrprod_keep &= [(inpA[:-1] in ant_names and inpB[:-1] in ant_names)
                                         for inpA, inpB in self.subarrays[self.subarray].corr_products]
             elif k == 'inputs':
                 inps = _selection_to_list(v)
