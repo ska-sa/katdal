@@ -702,12 +702,13 @@ class DataSet:
             If `spw` or `subarray` is out of range
 
         """
-        time_selectors = ['dumps', 'timerange', 'scans', 'compscans', 'targets']
+        time_selectors = ['dumps', 'timerange', 'scans', 'compscans',
+                          'targets', 'target_tags']
         freq_selectors = ['channels', 'freqrange']
         corrprod_selectors = ['corrprods', 'ants', 'inputs', 'pol']
         # Check if keywords are valid and raise exception only if this is explicitly enabled
         valid_kwargs = time_selectors + freq_selectors + corrprod_selectors + \
-            ['spw', 'subarray', 'weights', 'flags', 'reset', 'strict', 'target_tags']
+            ['spw', 'subarray', 'weights', 'flags', 'reset', 'strict']
         # Check for definition of strict
         strict = kwargs.get('strict', True)
         if strict and set(kwargs.keys()) - set(valid_kwargs):
@@ -803,9 +804,10 @@ class DataSet:
                 tags = v if is_iterable(v) else [v]
                 target_keep = np.zeros(len(self._time_keep), dtype=np.bool)
                 target_index_sensor = self.sensor.get('Observation/target_index')
-                for target_index in self.target_indices:
-                    target_tags = self.catalogue.targets[target_index].tags
+                for target in self.catalogue.targets:
+                    target_tags = target.tags
                     if set(target_tags) & set(tags):
+                        target_index = self.catalogue.targets.index(target)
                         target_keep |= (target_index_sensor == target_index)
                 self._time_keep &= target_keep
             # Selections that affect frequency axis
