@@ -168,6 +168,15 @@ def _read_chunk(response):
     return chunk
 
 
+def _bucket_url(url):
+    """Turn `url` into associated S3 bucket URL (first path component only)."""
+    split_url = urllib.parse.urlsplit(url)
+    # Only keep first path component as this references S3 bucket (may be part of store URL)
+    bucket_name = split_url.path.lstrip('/').split('/')[0]
+    # Note to self: namedtuple._replace is not a private method, despite the underscore!
+    return split_url._replace(path=bucket_name).geturl()
+
+
 class AuthorisationFailed(StoreUnavailable):
     """Authorisation failed, e.g. due to invalid, malformed or expired token."""
 
@@ -616,24 +625,21 @@ class S3ChunkStore(ChunkStore):
     def create_array(self, array_name):
         """See the docstring of :meth:`ChunkStore.create_array`."""
         # Array name is formatted as bucket/array but we only need to create bucket
-        url = self._chunk_url(array_name, extension='')
-        split_url = urllib.parse.urlsplit(url)
-        # Only keep first path component as this references S3 bucket (may be part of store URL)
-        bucket_name = split_url.path.lstrip('/').split('/')[0]
-        # Note to self: namedtuple._replace is not a private method, despite the underscore!
-        bucket_url = split_url._replace(path=bucket_name).geturl()
-        self._create_bucket(bucket_name, bucket_url)
+        array_url = self._chunk_url(array_name, extension='')
+        bucket_url = _bucket_url(array_url)
+        self._create_bucket(bucket_url)
 
-    def _create_bucket(self, bucket, url):
+    def _create_bucket(self, url):
         # Make bucket (409 indicates the bucket already exists, which is OK)
         self.complete_request('PUT', url, ignored_errors=(409,))
 
         if self.public_read:
             policy_url = urllib.parse.urljoin(url, '?policy')
+            bucket_name = urllib.parse.urlsplit(url).path.lstrip('/')
             policy = copy.deepcopy(_BUCKET_POLICY)
             policy['Statement'][0]['Resource'] = [
-                f'arn:aws:s3:::{bucket}/*',
-                f'arn:aws:s3:::{bucket}'
+                f'arn:aws:s3:::{bucket_name}/*',
+                f'arn:aws:s3:::{bucket_name}'
             ]
             self.complete_request('PUT', policy_url, data=json.dumps(policy))
 
