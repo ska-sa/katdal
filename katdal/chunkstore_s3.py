@@ -607,6 +607,19 @@ class S3ChunkStore(ChunkStore):
             else:
                 return result
 
+    def _verify_bucket(self, url, chunk_error=None):
+        """Check that bucket associated with `url` exists and is not empty."""
+        bucket = _bucket_url(url)
+        try:
+            response = self.complete_request('GET', bucket, process=lambda r: r)
+        except S3ObjectNotFound as err:
+            # There is no point continuing if the bucket is completely missing
+            raise StoreUnavailable(err) from chunk_error
+        # An empty bucket response has no Contents elements (no need for full XML parsing)
+        if response.ok and b'<Contents>' not in response.content:
+            msg = f'S3 bucket {bucket} is empty - your data is not currently accessible'
+            raise StoreUnavailable(msg) from chunk_error
+
     def get_chunk(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get_chunk`."""
         dtype = np.dtype(dtype)
@@ -615,8 +628,14 @@ class S3ChunkStore(ChunkStore):
         # Our hacky optimisation to speed up response reading doesn't
         # work with non-identity encodings.
         headers = {'Accept-Encoding': 'identity'}
-        chunk = self.complete_request('GET', url, chunk_name, _read_chunk,
-                                      headers=headers, stream=True)
+        try:
+            chunk = self.complete_request('GET', url, chunk_name, _read_chunk,
+                                          headers=headers, stream=True)
+        except S3ObjectNotFound as err:
+            # If the entire bucket is gone, this becomes StoreUnavailable instead
+            self._verify_bucket(url, err)
+            # If the bucket checks out, treat this as a random missing chunk and reraise
+            raise
         if chunk.shape != shape or chunk.dtype != dtype:
             raise BadChunk(f'Chunk {chunk_name!r}: dtype {chunk.dtype} and/or shape {chunk.shape} '
                            f'in store differs from expected dtype {dtype} and shape {shape}')
