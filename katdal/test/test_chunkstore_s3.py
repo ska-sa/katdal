@@ -326,6 +326,17 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         source_direct = TelstateDataSource(view, cbid, sn, self.store)
         assert_telstate_data_source_equal(source_from_url, source_direct)
 
+    def test_missing_or_empty_buckets(self):
+        slices = (slice(0, 1),)
+        dtype = np.dtype(np.float)
+        # Without create_array the bucket is missing
+        with assert_raises(StoreUnavailable):
+            self.store.get_chunk(f'{BUCKET}-missing/x', slices, dtype)
+        self.store.create_array(f'{BUCKET}-empty/x')
+        # Without put_chunk the bucket is empty
+        with assert_raises(StoreUnavailable):
+            self.store.get_chunk(f'{BUCKET}-empty/x', slices, dtype)
+
 
 class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
     """HTTP proxy that substitutes AWS credentials in place of a bearer token."""
