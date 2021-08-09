@@ -266,6 +266,11 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             return name
         return self.store.join(BUCKET, name)
 
+    def test_chunk_non_existent(self):
+        # An empty bucket will trigger StoreUnavailable so put something in there first
+        self.store.mark_complete(self.array_name('crumbs'))
+        return super().test_chunk_non_existent()
+
     def test_public_read(self):
         url, kwargs = self.prepare_store_args(self.s3_url, credentials=None)
         reader = S3ChunkStore(url, **kwargs)
@@ -277,7 +282,8 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         self.store.create_array('private/x')
         self.store.put_chunk('private/x', slices, x)
         # Ceph RGW returns 403 for missing chunks too so we see ChunkNotFound
-        with assert_raises(ChunkNotFound):
+        # The ChunkNotFound then triggers a bucket list that raises StoreUnavailable
+        with assert_raises(StoreUnavailable):
             reader.get_chunk('private/x', slices, x.dtype)
 
         # Now a public-read array
