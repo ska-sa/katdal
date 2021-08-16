@@ -611,7 +611,9 @@ class S3ChunkStore(ChunkStore):
         """Check that bucket associated with `url` exists and is not empty."""
         bucket = _bucket_url(url)
         try:
-            response = self.complete_request('GET', bucket, process=lambda r: r)
+            # Speed up the request by only checking that the bucket has at least one key
+            response = self.complete_request('GET', bucket, process=lambda r: r,
+                                             params={'max-keys': 1})
         except S3ObjectNotFound as err:
             # There is no point continuing if the bucket is completely missing
             raise StoreUnavailable(err) from chunk_error
