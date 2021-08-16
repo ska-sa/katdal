@@ -618,7 +618,7 @@ class S3ChunkStore(ChunkStore):
             # There is no point continuing if the bucket is completely missing
             raise StoreUnavailable(err) from chunk_error
         # An empty bucket response has no Contents elements (no need for full XML parsing)
-        if response.ok and b'<Contents>' not in response.content:
+        if b'<Contents>' not in response.content:
             msg = f'S3 bucket {bucket} is empty - your data is not currently accessible'
             raise StoreUnavailable(msg) from chunk_error
 
