@@ -46,7 +46,7 @@ from urllib3.util.retry import Retry
 import numpy as np
 from numpy.testing import assert_array_equal
 from nose import SkipTest
-from nose.tools import assert_raises, assert_equal, timed
+from nose.tools import assert_raises, assert_equal, assert_true, timed
 import requests
 import jwt
 import katsdptelstate
@@ -259,6 +259,8 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         for entry in os.scandir(data_dir):
             if not entry.name.startswith('.') and entry.is_dir():
                 shutil.rmtree(entry.path)
+        # Also get rid of the cache of verified buckets
+        self.store._verified_buckets.clear()
 
     def array_name(self, name):
         """Ensure that bucket is authorised and has valid name."""
@@ -342,6 +344,12 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         # Without put_chunk the bucket is empty
         with assert_raises(StoreUnavailable):
             self.store.get_chunk(f'{BUCKET}-empty/x', slices, dtype)
+        # Check that the standard bucket has not been verified yet
+        bucket_url = urllib.parse.urljoin(self.store._url, BUCKET)
+        assert_true(bucket_url not in self.store._verified_buckets)
+        # Check that the standard bucket remains verified after initial check
+        self.test_chunk_non_existent()
+        assert_true(bucket_url in self.store._verified_buckets)
 
 
 class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):

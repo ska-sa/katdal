@@ -476,6 +476,7 @@ class S3ChunkStore(ChunkStore):
         self._session_pool = _Pool(session_factory)
         self._url = to_str(url)
         self._retries = retries
+        self._verified_buckets = set()
         self.timeout = timeout
         self.public_read = public_read
         self.expiry_days = int(expiry_days)
@@ -610,6 +611,8 @@ class S3ChunkStore(ChunkStore):
     def _verify_bucket(self, url, chunk_error=None):
         """Check that bucket associated with `url` exists and is not empty."""
         bucket = _bucket_url(url)
+        if bucket in self._verified_buckets:
+            return
         try:
             # Speed up the request by only checking that the bucket has at least one key
             response = self.complete_request('GET', bucket, process=lambda r: r,
@@ -622,6 +625,7 @@ class S3ChunkStore(ChunkStore):
         if b'<Contents>' not in response.content:
             msg = f'S3 bucket {bucket} is empty - your data is not currently accessible'
             raise StoreUnavailable(msg) from chunk_error
+        self._verified_buckets.add(bucket)
 
     def get_chunk(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get_chunk`."""
