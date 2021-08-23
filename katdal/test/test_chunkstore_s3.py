@@ -46,7 +46,7 @@ from urllib3.util.retry import Retry
 import numpy as np
 from numpy.testing import assert_array_equal
 from nose import SkipTest
-from nose.tools import assert_raises, assert_equal, timed
+from nose.tools import assert_raises, assert_equal, assert_in, assert_not_in, timed
 import requests
 import jwt
 import katsdptelstate
@@ -259,12 +259,19 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         for entry in os.scandir(data_dir):
             if not entry.name.startswith('.') and entry.is_dir():
                 shutil.rmtree(entry.path)
+        # Also get rid of the cache of verified buckets
+        self.store._verified_buckets.clear()
 
     def array_name(self, name):
         """Ensure that bucket is authorised and has valid name."""
         if name.startswith(PREFIX):
             return name
         return self.store.join(BUCKET, name)
+
+    def test_chunk_non_existent(self):
+        # An empty bucket will trigger StoreUnavailable so put something in there first
+        self.store.mark_complete(self.array_name('crumbs'))
+        return super().test_chunk_non_existent()
 
     def test_public_read(self):
         url, kwargs = self.prepare_store_args(self.s3_url, credentials=None)
@@ -277,7 +284,8 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         self.store.create_array('private/x')
         self.store.put_chunk('private/x', slices, x)
         # Ceph RGW returns 403 for missing chunks too so we see ChunkNotFound
-        with assert_raises(ChunkNotFound):
+        # The ChunkNotFound then triggers a bucket list that raises StoreUnavailable
+        with assert_raises(StoreUnavailable):
             reader.get_chunk('private/x', slices, x.dtype)
 
         # Now a public-read array
@@ -325,6 +333,23 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         source_from_url = TelstateDataSource.from_url(rdb_url, **self.store_kwargs)
         source_direct = TelstateDataSource(view, cbid, sn, self.store)
         assert_telstate_data_source_equal(source_from_url, source_direct)
+
+    def test_missing_or_empty_buckets(self):
+        slices = (slice(0, 1),)
+        dtype = np.dtype(np.float)
+        # Without create_array the bucket is missing
+        with assert_raises(StoreUnavailable):
+            self.store.get_chunk(f'{BUCKET}-missing/x', slices, dtype)
+        self.store.create_array(f'{BUCKET}-empty/x')
+        # Without put_chunk the bucket is empty
+        with assert_raises(StoreUnavailable):
+            self.store.get_chunk(f'{BUCKET}-empty/x', slices, dtype)
+        # Check that the standard bucket has not been verified yet
+        bucket_url = urllib.parse.urljoin(self.store._url, BUCKET)
+        assert_not_in(bucket_url, self.store._verified_buckets)
+        # Check that the standard bucket remains verified after initial check
+        self.test_chunk_non_existent()
+        assert_in(bucket_url, self.store._verified_buckets)
 
 
 class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):

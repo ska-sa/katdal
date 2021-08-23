@@ -168,6 +168,15 @@ def _read_chunk(response):
     return chunk
 
 
+def _bucket_url(url):
+    """Turn `url` into associated S3 bucket URL (first path component only)."""
+    split_url = urllib.parse.urlsplit(url)
+    # Only keep first path component as this references S3 bucket (may be part of store URL)
+    bucket_name = split_url.path.lstrip('/').split('/')[0]
+    # Note to self: namedtuple._replace is not a private method, despite the underscore!
+    return split_url._replace(path=bucket_name).geturl()
+
+
 class AuthorisationFailed(StoreUnavailable):
     """Authorisation failed, e.g. due to invalid, malformed or expired token."""
 
@@ -467,6 +476,7 @@ class S3ChunkStore(ChunkStore):
         self._session_pool = _Pool(session_factory)
         self._url = to_str(url)
         self._retries = retries
+        self._verified_buckets = set()
         self.timeout = timeout
         self.public_read = public_read
         self.expiry_days = int(expiry_days)
@@ -598,6 +608,25 @@ class S3ChunkStore(ChunkStore):
             else:
                 return result
 
+    def _verify_bucket(self, url, chunk_error=None):
+        """Check that bucket associated with `url` exists and is not empty."""
+        bucket = _bucket_url(url)
+        if bucket in self._verified_buckets:
+            return
+        try:
+            # Speed up the request by only checking that the bucket has at least one key
+            response = self.complete_request('GET', bucket, process=lambda r: r,
+                                             params={'max-keys': 1})
+        except S3ObjectNotFound as err:
+            # There is no point continuing if the bucket is completely missing
+            raise StoreUnavailable(err) from chunk_error
+        assert response.ok, f'Listing {bucket} failed: {response} {response.content}'
+        # An empty bucket response has no Contents elements (no need for full XML parsing)
+        if b'<Contents>' not in response.content:
+            msg = f'S3 bucket {bucket} is empty - your data is not currently accessible'
+            raise StoreUnavailable(msg) from chunk_error
+        self._verified_buckets.add(bucket)
+
     def get_chunk(self, array_name, slices, dtype):
         """See the docstring of :meth:`ChunkStore.get_chunk`."""
         dtype = np.dtype(dtype)
@@ -606,8 +635,14 @@ class S3ChunkStore(ChunkStore):
         # Our hacky optimisation to speed up response reading doesn't
         # work with non-identity encodings.
         headers = {'Accept-Encoding': 'identity'}
-        chunk = self.complete_request('GET', url, chunk_name, _read_chunk,
-                                      headers=headers, stream=True)
+        try:
+            chunk = self.complete_request('GET', url, chunk_name, _read_chunk,
+                                          headers=headers, stream=True)
+        except S3ObjectNotFound as err:
+            # If the entire bucket is gone, this becomes StoreUnavailable instead
+            self._verify_bucket(url, err)
+            # If the bucket checks out, treat this as a random missing chunk and reraise
+            raise
         if chunk.shape != shape or chunk.dtype != dtype:
             raise BadChunk(f'Chunk {chunk_name!r}: dtype {chunk.dtype} and/or shape {chunk.shape} '
                            f'in store differs from expected dtype {dtype} and shape {shape}')
@@ -616,24 +651,21 @@ class S3ChunkStore(ChunkStore):
     def create_array(self, array_name):
         """See the docstring of :meth:`ChunkStore.create_array`."""
         # Array name is formatted as bucket/array but we only need to create bucket
-        url = self._chunk_url(array_name, extension='')
-        split_url = urllib.parse.urlsplit(url)
-        # Only keep first path component as this references S3 bucket (may be part of store URL)
-        bucket_name = split_url.path.lstrip('/').split('/')[0]
-        # Note to self: namedtuple._replace is not a private method, despite the underscore!
-        bucket_url = split_url._replace(path=bucket_name).geturl()
-        self._create_bucket(bucket_name, bucket_url)
+        array_url = self._chunk_url(array_name, extension='')
+        bucket_url = _bucket_url(array_url)
+        self._create_bucket(bucket_url)
 
-    def _create_bucket(self, bucket, url):
+    def _create_bucket(self, url):
         # Make bucket (409 indicates the bucket already exists, which is OK)
         self.complete_request('PUT', url, ignored_errors=(409,))
 
         if self.public_read:
             policy_url = urllib.parse.urljoin(url, '?policy')
+            bucket_name = urllib.parse.urlsplit(url).path.lstrip('/')
             policy = copy.deepcopy(_BUCKET_POLICY)
             policy['Statement'][0]['Resource'] = [
-                f'arn:aws:s3:::{bucket}/*',
-                f'arn:aws:s3:::{bucket}'
+                f'arn:aws:s3:::{bucket_name}/*',
+                f'arn:aws:s3:::{bucket_name}'
             ]
             self.complete_request('PUT', policy_url, data=json.dumps(policy))
 
