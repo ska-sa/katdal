@@ -46,7 +46,7 @@ from urllib3.util.retry import Retry
 import numpy as np
 from numpy.testing import assert_array_equal
 from nose import SkipTest
-from nose.tools import assert_raises, assert_equal, assert_true, timed
+from nose.tools import assert_raises, assert_equal, assert_in, assert_not_in, timed
 import requests
 import jwt
 import katsdptelstate
@@ -346,10 +346,10 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             self.store.get_chunk(f'{BUCKET}-empty/x', slices, dtype)
         # Check that the standard bucket has not been verified yet
         bucket_url = urllib.parse.urljoin(self.store._url, BUCKET)
-        assert_true(bucket_url not in self.store._verified_buckets)
+        assert_not_in(bucket_url, self.store._verified_buckets)
         # Check that the standard bucket remains verified after initial check
         self.test_chunk_non_existent()
-        assert_true(bucket_url in self.store._verified_buckets)
+        assert_in(bucket_url, self.store._verified_buckets)
 
 
 class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
