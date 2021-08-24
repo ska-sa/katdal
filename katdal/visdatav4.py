@@ -72,7 +72,7 @@ def _calc_azel(cache, name, ant):
     """Calculate virtual (az, el) sensors from actual ones in sensor cache."""
     suffix = 'azim' if name.endswith('az') else 'elev'
     real_sensor = f'{ant}_pos_actual_scan_{suffix}'
-    cache[name] = sensor_data = katpoint.deg2rad(cache.get(real_sensor))
+    cache[name] = sensor_data = np.radians(cache.get(real_sensor))
     return sensor_data
 
 

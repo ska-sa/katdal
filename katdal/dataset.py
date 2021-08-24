@@ -25,7 +25,6 @@ import urllib.parse
 import numpy as np
 
 import katpoint
-from katpoint import rad2deg
 
 logger = logging.getLogger(__name__)
 
@@ -1118,7 +1117,7 @@ class DataSet:
         The azimuth angles are returned in an array of float, shape (*T*, *A*).
 
         """
-        return rad2deg(self._sensor_per_ant('az'))
+        return np.degrees(self._sensor_per_ant('az'))
 
     @property
     def el(self):
@@ -1127,7 +1126,7 @@ class DataSet:
         The elevation angles are returned in an array of float, shape (*T*, *A*).
 
         """
-        return rad2deg(self._sensor_per_ant('el'))
+        return np.degrees(self._sensor_per_ant('el'))
 
     @property
     def ra(self):
@@ -1136,7 +1135,7 @@ class DataSet:
         The right ascensions are returned in an array of float, shape (*T*, *A*).
 
         """
-        return rad2deg(self._sensor_per_ant('ra'))
+        return np.degrees(self._sensor_per_ant('ra'))
 
     @property
     def dec(self):
@@ -1145,7 +1144,7 @@ class DataSet:
         The declinations are returned in an array of float, shape (*T*, *A*).
 
         """
-        return rad2deg(self._sensor_per_ant('dec'))
+        return np.degrees(self._sensor_per_ant('dec'))
 
     @property
     def parangle(self):
@@ -1160,7 +1159,7 @@ class DataSet:
         It is returned as an array of float, shape (*T*, *A*).
 
         """
-        return rad2deg(self._sensor_per_ant('parangle'))
+        return np.degrees(self._sensor_per_ant('parangle'))
 
     @property
     def target_x(self):
@@ -1176,7 +1175,7 @@ class DataSet:
 
         """
         name = f'target_x_{self.target_projection}_{self.target_coordsys}'
-        return rad2deg(self._sensor_per_ant(name))
+        return np.degrees(self._sensor_per_ant(name))
 
     @property
     def target_y(self):
@@ -1192,7 +1191,7 @@ class DataSet:
 
         """
         name = f'target_y_{self.target_projection}_{self.target_coordsys}'
-        return rad2deg(self._sensor_per_ant(name))
+        return np.degrees(self._sensor_per_ant(name))
 
     @property
     def u(self):
