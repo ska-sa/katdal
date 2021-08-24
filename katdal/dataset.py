@@ -24,7 +24,7 @@ import urllib.parse
 
 import katpoint
 import numpy as np
-from katpoint import is_iterable, rad2deg
+from katpoint import rad2deg
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +138,16 @@ def _robust_target(description):
         return katpoint.Target('Nothing, special')
 
 
+def _is_iterable(obj):
+    """Checks if object is iterable (but not a string/bytes or 0-dimensional array)."""
+    try:
+        iter(obj)
+    except TypeError:
+        return False
+    else:
+        return not isinstance(obj, (str, bytes))
+
+
 def _selection_to_list(names, **groups):
     """Normalise string of comma-separated names or sequence of names / objects.
 
@@ -160,7 +170,7 @@ def _selection_to_list(names, **groups):
             return list(groups[names])
         else:
             return [name.strip() for name in names.split(',')]
-    elif is_iterable(names):
+    elif _is_iterable(names):
         return list(names)
     else:
         return [names]
@@ -780,7 +790,7 @@ class DataSet:
                         scan_keep |= (scan_sensor == scan)
                 self._time_keep &= scan_keep
             elif k == 'targets':
-                targets = v if is_iterable(v) else [v]
+                targets = v if _is_iterable(v) else [v]
                 target_keep = np.zeros(len(self._time_keep), dtype=np.bool)
                 target_index_sensor = self.sensor.get('Observation/target_index')
                 for t in targets:
