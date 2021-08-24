@@ -72,10 +72,12 @@ def complex_interp(x, xi, yi, left=None, right=None):
     mag_left = phase_left = mag_right = phase_right = None
     if left is not None:
         mag_left = np.abs(left)
-        phase_left = np.unwrap([phase_i[0], np.angle(left)])[1]
+        with np.errstate(invalid='ignore'):
+            phase_left = np.unwrap([phase_i[0], np.angle(left)])[1]
     if right is not None:
         mag_right = np.abs(right)
-        phase_right = np.unwrap([phase_i[-1], np.angle(right)])[1]
+        with np.errstate(invalid='ignore'):
+            phase_right = np.unwrap([phase_i[-1], np.angle(right)])[1]
     # Interpolate magnitude and phase separately, and reassemble
     mag = np.interp(x, xi, mag_i, left=mag_left, right=mag_right)
     phase = np.interp(x, xi, phase_i, left=phase_left, right=phase_right)
