@@ -17,7 +17,7 @@
 """Tests for :py:mod:`katdal.dataset`."""
 
 import numpy as np
-from katpoint import Antenna, Target, Timestamp, rad2deg
+from katpoint import Antenna, Target, Timestamp
 from numpy.testing import assert_array_almost_equal, assert_array_equal
 
 from katdal.categorical import CategoricalData
@@ -138,17 +138,17 @@ class TestVirtualSensors:
 
     def test_pointing(self):
         az, el = self.target.azel(self.timestamps, self.antennas[1])
-        assert_array_equal(self.dataset.az[:, 1], rad2deg(az))
-        assert_array_equal(self.dataset.el[:, 1], rad2deg(el))
+        assert_array_equal(self.dataset.az[:, 1], np.degrees(az))
+        assert_array_equal(self.dataset.el[:, 1], np.degrees(el))
         ra, dec = self.target.radec(self.timestamps, self.antennas[0])
-        assert_array_almost_equal(self.dataset.ra[:, 0], rad2deg(ra), decimal=5)
-        assert_array_almost_equal(self.dataset.dec[:, 0], rad2deg(dec), decimal=5)
+        assert_array_almost_equal(self.dataset.ra[:, 0], np.degrees(ra), decimal=5)
+        assert_array_almost_equal(self.dataset.dec[:, 0], np.degrees(dec), decimal=5)
         angle = self.target.parallactic_angle(self.timestamps, self.antennas[0])
         # TODO: Check why this is so poor... see SR-1882 for progress on this
-        assert_array_almost_equal(self.dataset.parangle[:, 0], rad2deg(angle), decimal=0)
+        assert_array_almost_equal(self.dataset.parangle[:, 0], np.degrees(angle), decimal=0)
         x, y = self.target.sphere_to_plane(az, el, self.timestamps, self.antennas[1])
-        assert_array_equal(self.dataset.target_x[:, 1], rad2deg(x))
-        assert_array_equal(self.dataset.target_y[:, 1], rad2deg(y))
+        assert_array_equal(self.dataset.target_x[:, 1], np.degrees(x))
+        assert_array_equal(self.dataset.target_y[:, 1], np.degrees(y))
 
     def test_uvw(self):
         u0, v0, w0 = self.target.uvw(self.antennas[0], self.timestamps, self.array_ant)
