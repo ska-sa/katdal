@@ -552,9 +552,10 @@ def main():
         ms_extra.create_ms(ms_name, table_desc, dminfo)
 
         ms_dict = {}
-        ms_dict['ANTENNA'] = ms_extra.populate_antenna_dict([ant.name for ant in dataset.ants],
-                                                            [ant.position_ecef for ant in dataset.ants],
-                                                            [ant.diameter for ant in dataset.ants])
+        ms_dict['ANTENNA'] = ms_extra.populate_antenna_dict(
+            [ant.name for ant in dataset.ants],
+            [ant.position_ecef for ant in dataset.ants],
+            [ant.diameter.to_value('m') for ant in dataset.ants])
         ms_dict['FEED'] = ms_extra.populate_feed_dict(len(dataset.ants), num_receptors_per_feed=2)
         ms_dict['DATA_DESCRIPTION'] = ms_extra.populate_data_description_dict()
         ms_dict['POLARIZATION'] = ms_extra.populate_polarization_dict(ms_pols=pols_to_use,
@@ -625,10 +626,12 @@ def main():
                     # Set direction of the field center to the (ra, dec) at the start
                     # of the first valid scan, based on the reference (catalogue) antenna.
                     field_time = katpoint.Timestamp(utc_seconds[0])
-                    ra, dec = target.radec(field_time)
-                    field_centers.append((ra, dec))
+                    radec = target.radec(field_time)
+                    field_centers.append((radec.ra.rad, radec.dec.rad))
                     field_times.append(field_time.to_mjd() * 60 * 60 * 24)
                     if options.verbose:
+                        ra = radec.ra.to_string(sep=':', unit='hour')
+                        dec = radec.dec.to_string(sep=':')
                         print(f"Added new field {len(field_names) - 1}: '{target.name}' {ra} {dec}")
                 field_id = field_names.index(target.name)
 

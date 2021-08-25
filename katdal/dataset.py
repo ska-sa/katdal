@@ -203,15 +203,16 @@ DEFAULT_SENSOR_PROPS = {
 
 def _calc_mjd(cache, name):
     """Calculate Modified Julian Day (MJD) timestamps using sensor cache contents."""
-    cache[name] = mjd = np.array([katpoint.Timestamp(t).to_mjd()
-                                  for t in cache.timestamps[:]])
+    ts = cache.timestamps[:]
+    cache[name] = mjd = katpoint.Timestamp(ts).to_mjd()
     return mjd
 
 
 def _calc_lst(cache, name, ant):
     """Calculate local sidereal time (LST) timestamps using sensor cache contents."""
     antenna = cache.get(f'Antennas/{ant}/antenna')[0]
-    cache[name] = lst = antenna.local_sidereal_time(cache.timestamps[:])
+    ts = cache.timestamps[:]
+    cache[name] = lst = antenna.local_sidereal_time(ts).rad
     return lst
 
 
@@ -221,8 +222,11 @@ def _calc_radec(cache, name, ant):
     antenna = cache.get(ant_group + 'antenna')[0]
     az = cache.get(ant_group + 'az')
     el = cache.get(ant_group + 'el')
-    ra, dec = np.array([katpoint.construct_azel_target(a, e).radec(t, antenna)
-                        for t, a, e in zip(cache.timestamps[:], az, el)]).T
+    ts = cache.timestamps[:]
+    radecs = [katpoint.Target.from_azel(a, e).radec(t, antenna)
+              for t, a, e in zip(ts, az, el)]
+    ra = np.array([radec.ra.rad for radec in radecs])
+    dec = np.array([radec.dec.rad for radec in radecs])
     cache[ant_group + 'ra'] = ra
     cache[ant_group + 'dec'] = dec
     return ra if name.endswith('ra') else dec
@@ -234,8 +238,10 @@ def _calc_parangle(cache, name, ant):
     antenna = cache.get(ant_group + 'antenna')[0]
     az = cache.get(ant_group + 'az')
     el = cache.get(ant_group + 'el')
-    parangle = np.array([katpoint.construct_azel_target(a, e).parallactic_angle(t, antenna)
-                         for t, a, e in zip(cache.timestamps[:], az, el)])
+    ts = cache.timestamps[:]
+    parangle = [katpoint.Target.from_azel(a, e).parallactic_angle(t, antenna)
+                for t, a, e in zip(ts, az, el)]
+    parangle = np.array([par.rad for par in parangle])
     cache[name] = parangle
     return parangle
 
@@ -507,23 +513,27 @@ class DataSet:
         name_len, tag_len = 4, 4
         for n in self.target_indices:
             target = self.catalogue.targets[n]
+            tags = ' '.join(target.tags[1:])
             name_len = max(len(target.name), name_len)
-            tag_len = max(len(' '.join(target.tags[1:] if target.body_type != 'xephem' else target.tags[2:])), tag_len)
+            tag_len = max(len(tags), tag_len)
         descr += ['Targets: %d selected out of %d in catalogue' % (len(self.target_indices), len(self.catalogue)),
                   '  ID  %s  Type      RA(J2000)     DEC(J2000)  %s  Dumps  ModelFlux(Jy)' %
                   ('Name'.ljust(name_len), 'Tags'.ljust(tag_len))]
         for n in self.target_indices:
             target = self.catalogue.targets[n]
-            target_type = target.body_type if target.body_type != 'xephem' else target.tags[1]
-            tags = ' '.join(target.tags[1:] if target.body_type != 'xephem' else target.tags[2:])
-            ra, dec = target.radec() if target_type == 'radec' else ('-', '-')
+            tags = ' '.join(target.tags[1:])
+            ra = dec = '-'
+            if target.body_type == 'radec':
+                radec = target.radec()
+                ra = radec.ra.to_string(sep=':', unit='hour')
+                dec = radec.dec.to_string(sep=':')
             # Calculate average target flux over selected frequency band
             flux_spectrum = target.flux_density(self.freqs / 1e6)
             flux_valid = ~np.isnan(flux_spectrum)
             flux = '{:9.2f}'.format(flux_spectrum[flux_valid].mean()) if np.any(flux_valid) else ''
             target_dumps = ((self.sensor.get('Observation/target_index') == n) & self._time_keep).sum()
             descr.append('  %2d  %s  %s  %11s  %11s  %s  %5d  %s' %
-                         (n, target.name.ljust(name_len), target_type.ljust(8),
+                         (n, target.name.ljust(name_len), target.body_type.ljust(8),
                           ra, dec, tags.ljust(tag_len), target_dumps, flux))
         scans = self.sensor.get('Observation/scan_index')
         compscans = self.sensor.get('Observation/compscan_index')

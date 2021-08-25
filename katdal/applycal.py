@@ -225,7 +225,7 @@ def calibrate_flux(sensor, targets, gaincal_flux):
             continue
         # Find the target at the time of the gain solution (i.e. gain calibrator)
         target = targets[segment.start]
-        for name in [target.name] + target.aliases:
+        for name in target.names:
             flux = gaincal_flux.get(name, np.nan)
             # Scale the gains if a valid flux density was found for this target
             if flux > 0.0:
