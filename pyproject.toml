@@ -41,7 +41,7 @@ classifiers = [
 requires-python = ">=3.6"
 dependencies = [
     "numpy >= 1.12.0",
-    "katpoint >= 0.9, < 1",
+    "katpoint == 1.0a1",
     "h5py >= 2.3",
     "numba",
     "katsdptelstate[rdb] >= 0.10",
