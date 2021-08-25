@@ -1,13 +1,16 @@
 -c https://raw.githubusercontent.com/ska-sa/katsdpdockerbase/master/docker-base-build/base-requirements.txt
 
+astropy
 botocore
 cityhash
 dask[array]
 h5py
+katpoint==1.0a1
 numba
 numpy
 pyjwt
 requests
+sgp4==2.20
 
-katpoint @ git+https://github.com/ska-sa/katpoint
+# katpoint @ git+https://github.com/ska-telescope/katpoint
 katsdptelstate[rdb] @ git+https://github.com/ska-sa/katsdptelstate
