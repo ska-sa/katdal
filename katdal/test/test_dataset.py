@@ -93,9 +93,9 @@ class MinimalDataSet(DataSet):
             ant_az = []
             ant_el = []
             for segment, target in target_sensor.segments():
-                az, el = target.azel(timestamps[segment], ant)
-                ant_az.append(az)
-                ant_el.append(el)
+                azel = target.azel(timestamps[segment], ant)
+                ant_az.append(azel.az.rad)
+                ant_el.append(azel.alt.rad)
             sensors[f'Antennas/{ant.name}/az'] = np.concatenate(ant_az)
             sensors[f'Antennas/{ant.name}/el'] = np.concatenate(ant_el)
         array_ant = subarray.ants[0].array_reference_antenna()
@@ -177,21 +177,21 @@ class TestVirtualSensors:
     def test_timestamps(self):
         mjd = Timestamp(self.timestamps[0]).to_mjd()
         assert self.dataset.mjd[0] == mjd
-        lst = self.array_ant.local_sidereal_time(self.timestamps)
+        lst = self.array_ant.local_sidereal_time(self.timestamps).rad
         # Convert LST from radians (katpoint) to hours (katdal)
         assert_array_equal(self.dataset.lst, lst * (12 / np.pi))
 
     def test_pointing(self):
-        az, el = self.target.azel(self.timestamps, self.antennas[1])
-        assert_array_equal(self.dataset.az[:, 1], np.degrees(az))
-        assert_array_equal(self.dataset.el[:, 1], np.degrees(el))
-        ra, dec = self.target.radec(self.timestamps, self.antennas[0])
-        assert_array_almost_equal(self.dataset.ra[:, 0], np.degrees(ra), decimal=5)
-        assert_array_almost_equal(self.dataset.dec[:, 0], np.degrees(dec), decimal=5)
-        angle = self.target.parallactic_angle(self.timestamps, self.antennas[0])
+        azel = self.target.azel(self.timestamps, self.antennas[1])
+        assert_array_equal(self.dataset.az[:, 1], azel.az.deg)
+        assert_array_equal(self.dataset.el[:, 1], azel.alt.deg)
+        radec = self.target.radec(self.timestamps, self.antennas[0])
+        assert_array_almost_equal(self.dataset.ra[:, 0], radec.ra.deg, decimal=5)
+        assert_array_almost_equal(self.dataset.dec[:, 0], radec.dec.deg, decimal=5)
+        angle = self.target.parallactic_angle(self.timestamps, self.antennas[0]).deg
         # TODO: Check why this is so poor... see SR-1882 for progress on this
-        assert_array_almost_equal(self.dataset.parangle[:, 0], np.degrees(angle), decimal=0)
-        x, y = self.target.sphere_to_plane(az, el, self.timestamps, self.antennas[1])
+        assert_array_almost_equal(self.dataset.parangle[:, 0], angle, decimal=0)
+        x, y = self.target.sphere_to_plane(azel.az.rad, azel.alt.rad, self.timestamps, self.antennas[1])
         assert_array_equal(self.dataset.target_x[:, 1], np.degrees(x))
         assert_array_equal(self.dataset.target_y[:, 1], np.degrees(y))
 
