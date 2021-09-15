@@ -16,6 +16,7 @@
 
 """Tests for :py:mod:`katdal.dataset`."""
 
+import astropy.units as u
 import numpy as np
 from katpoint import Antenna, Target, Timestamp
 from numpy.testing import assert_array_almost_equal, assert_array_equal
@@ -151,18 +152,18 @@ class TestVirtualSensors:
         assert_array_equal(self.dataset.target_y[:, 1], np.degrees(y))
 
     def test_uvw(self):
-        u0, v0, w0 = self.target.uvw(self.antennas[0], self.timestamps, self.array_ant)
-        u1, v1, w1 = self.target.uvw(self.antennas[1], self.timestamps, self.array_ant)
-        u = u0 - u1
-        v = v0 - v1
-        w = w0 - w1
-        assert_array_equal(self.dataset.u[:, 4], u)
-        assert_array_equal(self.dataset.v[:, 4], v)
-        assert_array_equal(self.dataset.w[:, 4], w)
+        uvw0 = self.target.uvw(self.antennas[0], self.timestamps, self.array_ant)
+        uvw1 = self.target.uvw(self.antennas[1], self.timestamps, self.array_ant)
+        bl_u = uvw0.x - uvw1.x
+        bl_v = uvw0.y - uvw1.y
+        bl_w = uvw0.z - uvw1.z
+        assert_array_equal(self.dataset.u[:, 4] * u.m, bl_u)
+        assert_array_equal(self.dataset.v[:, 4] * u.m, bl_v)
+        assert_array_equal(self.dataset.w[:, 4] * u.m, bl_w)
         # Check that both H and V polarisations have the same (u, v, w)
-        assert_array_equal(self.dataset.u[:, 5], u)
-        assert_array_equal(self.dataset.v[:, 5], v)
-        assert_array_equal(self.dataset.w[:, 5], w)
+        assert_array_equal(self.dataset.u[:, 5] * u.m, bl_u)
+        assert_array_equal(self.dataset.v[:, 5] * u.m, bl_v)
+        assert_array_equal(self.dataset.w[:, 5] * u.m, bl_w)
 
     def test_selecting_antenna(self):
         self.dataset.select(ants='~m000')

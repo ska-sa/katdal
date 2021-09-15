@@ -22,8 +22,10 @@ import pathlib
 import time
 import urllib.parse
 
-import katpoint
 import numpy as np
+import astropy.units as u
+
+import katpoint
 
 logger = logging.getLogger(__name__)
 
@@ -275,17 +277,18 @@ def _calc_uvw_basis(cache, name, ant):
     """Calculate (u,v,w) basis vectors using sensor cache contents."""
     ant_group = f'Antennas/{ant}/'
     antenna = cache.get(ant_group + 'antenna')[0]
-    u = np.empty((len(cache.timestamps), 3))
-    v = np.empty((len(cache.timestamps), 3))
-    w = np.empty((len(cache.timestamps), 3))
+    basis_u = np.empty((len(cache.timestamps), 3))
+    basis_v = np.empty((len(cache.timestamps), 3))
+    basis_w = np.empty((len(cache.timestamps), 3))
     targets = cache.get('Observation/target')
     for segm, target in targets.segments():
         # The basis is a series of 3x3 matrices converting ENU to UVW
         basis = target.uvw_basis(cache.timestamps[segm], antenna)
         # Basis has shape (3, 3, T) which we split into 3 sensors of shape (T, 3)
-        u[segm], v[segm], w[segm] = basis.transpose(0, 2, 1)
-    new_sensors = {ant_group + 'basis_u': u, ant_group + 'basis_v': v,
-                   ant_group + 'basis_w': w}
+        basis_u[segm], basis_v[segm], basis_w[segm] = basis.transpose(0, 2, 1)
+    new_sensors = {ant_group + 'basis_u': basis_u,
+                   ant_group + 'basis_v': basis_v,
+                   ant_group + 'basis_w': basis_w}
     cache.update(new_sensors)
     return new_sensors[name]
 
@@ -296,8 +299,8 @@ def _calc_uvw_per_ant(cache, name, ant):
     antenna = cache.get(f'Antennas/{ant}/antenna')[0]
     basis = cache.get('Antennas/array/basis_' + name[-1])
     # Obtain baseline vector from array reference to specified antenna
-    baseline_m = array_antenna.baseline_toward(antenna)
-    coord = basis.dot(baseline_m)
+    baseline = array_antenna.baseline_toward(antenna)
+    coord = basis.dot(baseline.xyz).to_value(u.m)
     cache[name] = coord
     return coord
 
@@ -527,7 +530,7 @@ class DataSet:
                 ra = radec.ra.to_string(sep=':', unit='hour')
                 dec = radec.dec.to_string(sep=':')
             # Calculate average target flux over selected frequency band
-            flux_spectrum = target.flux_density(self.freqs / 1e6)
+            flux_spectrum = target.flux_density(self.freqs * u.Hz).to_value(u.Jy)
             flux_valid = ~np.isnan(flux_spectrum)
             flux = '{:9.2f}'.format(flux_spectrum[flux_valid].mean()) if np.any(flux_valid) else ''
             target_dumps = ((self.sensor.get('Observation/target_index') == n) & self._time_keep).sum()
@@ -557,26 +560,28 @@ class DataSet:
     def _fix_flux_freq_range(self):
         """Ensure that target flux density models are valid on data frequencies."""
         # Pad the minimum and maximum channel freqs with a few extra channels
-        min_freq = min((spw.channel_freqs.min() - 2 * spw.channel_width) / 1e6
+        min_freq = min((spw.channel_freqs.min() - 2 * spw.channel_width) * u.Hz
                        for spw in self.spectral_windows)
-        max_freq = max((spw.channel_freqs.max() + 2 * spw.channel_width) / 1e6
+        max_freq = max((spw.channel_freqs.max() + 2 * spw.channel_width) * u.Hz
                        for spw in self.spectral_windows)
         for target in self.catalogue:
             model = target.flux_model
             if not model:
                 continue
-            if min_freq < model.min_freq_MHz and \
-               min_freq > 0.6 * model.min_freq_MHz or \
-               max_freq > model.max_freq_MHz and \
-               max_freq < 1.6 * model.max_freq_MHz:
-                new_min_freq = min(min_freq, model.min_freq_MHz)
-                new_max_freq = max(max_freq, model.max_freq_MHz)
+            if min_freq < model.min_frequency and \
+               min_freq > 0.6 * model.min_frequency or \
+               max_freq > model.max_frequency and \
+               max_freq < 1.6 * model.max_frequency:
+                new_min_freq = min(min_freq, model.min_frequency)
+                new_max_freq = max(max_freq, model.max_frequency)
                 logger.warning('Extending flux density model frequency range '
                                'of %r from %d-%d MHz to %d-%d MHz', target.name,
-                               model.min_freq_MHz, model.max_freq_MHz,
-                               new_min_freq, new_max_freq)
-                model.min_freq_MHz = new_min_freq
-                model.max_freq_MHz = new_max_freq
+                               model.min_frequency.to_value(u.MHz),
+                               model.max_frequency.to_value(u.MHz),
+                               new_min_freq.to_value(u.MHz),
+                               new_max_freq.to_value(u.MHz))
+                model.min_frequency = new_min_freq
+                model.max_frequency = new_max_freq
 
     def _set_keep(self, time_keep=None, freq_keep=None, corrprod_keep=None,
                   weights_keep=None, flags_keep=None):
