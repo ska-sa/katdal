@@ -387,7 +387,7 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, weight_data, timest
     # values in this column. See
     # https://casa.nrao.edu/casadocs/casa-5-1.2/reference-material/data-weights
     # for further details
-    main_dict['WEIGHT_SPECTRUM'] = weight_data**-0.5
+    main_dict['SIGMA_SPECTRUM'] = weight_data**-0.5
     # Weight set by imaging task (e.g. uniform weighting) (float, 1-dim)
     # main_dict['IMAGING_WEIGHT'] = np.ones((num_vis_samples, 1), dtype=np.float32)
     # The sampling interval (double)
