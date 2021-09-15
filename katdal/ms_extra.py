@@ -219,6 +219,15 @@ def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
     dmgroup_spec[dm_group] = dmspec(desc["desc"])
     additional_columns.append(desc)
 
+    dm_group = 'SigmaSpectrum'
+    shape = [nchan, ncorr]
+    desc = tables.tablecreatearraycoldesc(
+        "SIGMA_SPECTRUM", 1.0, comment="Per-channel inverse sqrt weights",
+        options=4, valuetype='float', shape=shape, ndim=len(shape),
+        datamanagergroup=dm_group, datamanagertype='TiledColumnStMan')
+    dmgroup_spec[dm_group] = dmspec(desc["desc"])
+    additional_columns.append(desc)
+
     dm_group = 'ImagingWeight'
     shape = [nchan]
     desc = tables.tablecreatearraycoldesc(
@@ -372,6 +381,13 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, weight_data, timest
     main_dict['FLAG_ROW'] = np.zeros(num_vis_samples, dtype=np.uint8)
     # The visibility weights
     main_dict['WEIGHT_SPECTRUM'] = weight_data
+    # Inverse visibility weights
+    # note this column is used when computing calibration weights
+    # in CASA - WEIGHT_SPECTRUM may be modified based on the
+    # values in this column. See
+    # https://casa.nrao.edu/casadocs/casa-5-1.2/reference-material/data-weights
+    # for further details
+    main_dict['WEIGHT_SPECTRUM'] = weight_data**-0.5
     # Weight set by imaging task (e.g. uniform weighting) (float, 1-dim)
     # main_dict['IMAGING_WEIGHT'] = np.ones((num_vis_samples, 1), dtype=np.float32)
     # The sampling interval (double)
@@ -386,7 +402,8 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, weight_data, timest
     # Sequential scan number from on-line system (integer)
     main_dict['SCAN_NUMBER'] = scan_number
     # Estimated rms noise for channel with unity bandpass response (float, 1-dim)
-    main_dict['SIGMA'] = np.ones((num_vis_samples, num_pols), dtype=np.float32)
+    # See also comment for SIGMA_SPECTRUM for further details
+    main_dict['SIGMA'] = np.mean(weight_data**-0.5, axis=1)
     # ID for this observing state (integer)
     main_dict['STATE_ID'] = state_id
     # Modified Julian Dates in seconds (double)
@@ -397,7 +414,7 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, weight_data, timest
     main_dict['UVW'] = np.asarray(uvw_coordinates)
     # Weight for each polarisation spectrum (float, 1-dim). This is just
     # just filled with 1's, because the real weights are in WEIGHT_SPECTRUM.
-    main_dict['WEIGHT'] = np.ones((num_vis_samples, num_pols), dtype=np.float32)
+    main_dict['WEIGHT'] = np.mean(weight_data, axis=1)
     return main_dict
 
 
