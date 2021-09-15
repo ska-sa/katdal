@@ -403,7 +403,7 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, weight_data, timest
     main_dict['SCAN_NUMBER'] = scan_number
     # Estimated rms noise for channel with unity bandpass response (float, 1-dim)
     # See also comment for SIGMA_SPECTRUM for further details
-    main_dict['SIGMA'] = np.mean(weight_data**-0.5, axis=1)
+    main_dict['SIGMA'] = np.mean(weight_data, axis=1)**-0.5
     # ID for this observing state (integer)
     main_dict['STATE_ID'] = state_id
     # Modified Julian Dates in seconds (double)
