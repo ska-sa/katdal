@@ -17,10 +17,12 @@
 """Data accessor class for data and metadata from various sources in v4 format."""
 
 import logging
+import json
 
 import dask.array as da
 import katpoint
 import numpy as np
+import astropy.units as u
 
 from .applycal import (CAL_PRODUCT_TYPES, INVALID_GAIN, add_applycal_sensors,
                        apply_flags_correction, apply_vis_correction,
@@ -76,7 +78,7 @@ def _calc_azel(cache, name, ant):
     return sensor_data
 
 
-def _calc_delay(cache, name, inp):
+def _calc_applied_delay(cache, name, inp):
     """Extract virtual applied delay/phase sensors from raw CBF sensors."""
     # Obtain the relevant CBF attributes from the cache
     stream = cache.get('Correlator/antenna_channelised_voltage_stream')[0]
@@ -107,7 +109,7 @@ def _calc_delay(cache, name, inp):
     return delay_data if name.endswith('delay') else phase_data
 
 
-def _calc_gain(cache, name, inp):
+def _calc_applied_gain(cache, name, inp):
     """Extract virtual applied F-engine gain sensors from raw CBF sensors."""
     stream = cache.get('Correlator/antenna_channelised_voltage_stream')[0]
     # The real/imag parts are cast to int16 in the F-engine but the CBF sensor
@@ -118,12 +120,38 @@ def _calc_gain(cache, name, inp):
     return sensor_data
 
 
+def _calc_new_delay(cache, name, inp):
+    """Calculate delays using improved delay model."""
+    dc = cache.get('Correlator/delay_correction')[0]
+    if inp not in dc.inputs:
+        raise KeyError(f'Delay model has no input {inp}')
+    delay_adjustments = cache.get('Correlator/delay_adjustments')[0]
+    # XXX Reconcile this with the get_with_fallback approach in VisibilityDataV4.pressure etc.
+    pressure = cache['anc_air_pressure'] * u.hPa
+    temperature = cache['anc_air_temperature'] * u.deg_C
+    relative_humidity = cache['anc_air_relative_humidity'] / 100. * u.dimensionless_unscaled
+    targets = cache.get('Observation/target')
+    corrections = {i: np.zeros(len(cache.timestamps)) for i in dc.inputs}
+    for segm, target in targets.segments():
+        # XXX Add support for target offsets
+        corrs = dc.corrections(target, cache.timestamps[segm], None, pressure[segm],
+                               temperature[segm], relative_humidity[segm])[0]
+        for i, value in corrs.items():
+            # Ad hoc delay adjustments subtract from corrections; they add to delay model
+            corrections[i][segm] = value.to_value(u.s) - delay_adjustments.get(i, 0.0)
+    new_sensors = {f'Correlator/Inputs/{i}/new_delay': value
+                   for i, value in corrections.items()}
+    cache.update(new_sensors)
+    return new_sensors[name]
+
+
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel,
                         'Antennas/{ant}/el': _calc_azel,
-                        'Correlator/Inputs/{inp}/applied_delay': _calc_delay,
-                        'Correlator/Inputs/{inp}/applied_phase': _calc_delay,
-                        'Correlator/Inputs/{inp}/applied_gain': _calc_gain})
+                        'Correlator/Inputs/{inp}/applied_delay': _calc_applied_delay,
+                        'Correlator/Inputs/{inp}/applied_phase': _calc_applied_delay,
+                        'Correlator/Inputs/{inp}/applied_gain': _calc_applied_gain,
+                        'Correlator/Inputs/{inp}/new_delay': _calc_new_delay})
 
 DEFAULT_CAL_PRODUCTS = ('l1.K', 'l1.B', 'l1.G', 'l2.GPHASE')
 
@@ -369,6 +397,14 @@ class VisibilityDataV4(DataSet):
         if scale_factor_timestamp is not None:
             self.sensor['Correlator/scale_factor_timestamp'] = CategoricalData(
                [scale_factor_timestamp], all_dumps)
+        dc_params = json.loads(attrs['cbf_loaded_delay_correction'])
+        # Pick the best available tropospheric delay model instead of stored one
+        dc_params['tropospheric_model'] = 'SaastamoinenZenithDelay-GlobalMappingFunction'
+        dc = katpoint.DelayCorrection(json.dumps(dc_params))
+        self.sensor['Correlator/delay_correction'] = CategoricalData(
+            [dc], all_dumps)
+        self.sensor['Correlator/delay_adjustments'] = CategoricalData(
+            [attrs['cbf_delay_adjustments']], all_dumps)
 
         # ------ Extract spectral windows / frequencies ------
 
@@ -457,6 +493,7 @@ class VisibilityDataV4(DataSet):
         self.sensor['Observation/compscan_index'] = CategoricalData(list(range(len(label))),
                                                                     label.events)
         # Use target sensor of reference antenna to set the target for each scan
+        # XXX Tweak target sensor to match delay tracking changes in applied_delay
         target = self.sensor.get(f'Antennas/{self.ref_ant}/target')
         # Move target events onto the nearest scan start
         # ASSUMPTION: Number of targets <= number of scans
