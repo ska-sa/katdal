@@ -428,11 +428,6 @@ def main():
                        dumps=slice(options.quack, None))
 
         # The first step is to copy the blank template MS to our desired output
-        # (making sure it's not already there)
-        if os.path.exists(ms_name):
-            raise RuntimeError(f"MS '{ms_name}' already exists - please remove it "
-                               "before running this script")
-
         print("Will create MS output in " + ms_name)
 
         # Instructions to flag by elevation if requested
@@ -545,31 +540,38 @@ def main():
         field_names, field_centers, field_times = [], [], []
         obs_modes = ['UNKNOWN']
         total_size = 0
-
-        # Create the MeasurementSet
-        table_desc, dminfo = ms_extra.kat_ms_desc_and_dminfo(
+        dump_start = 0
+        if os.path.exists(ms_name):
+            print(f"MS '{ms_name}' already exists - continuing...")
+            nbaselines = dataset.shape[2]/4
+            nrows = ms_extra.table_rows(ms_name, verbose=options.verbose)
+            dump_start = int(nrows // nbaselines)
+        else:
+            # Create the MeasurementSet
+            table_desc, dminfo = ms_extra.kat_ms_desc_and_dminfo(
             nbl=nbl, nchan=nchan, ncorr=npol, model_data=options.model_data)
-        ms_extra.create_ms(ms_name, table_desc, dminfo)
 
-        ms_dict = {}
-        ms_dict['ANTENNA'] = ms_extra.populate_antenna_dict([ant.name for ant in dataset.ants],
-                                                            [ant.position_ecef for ant in dataset.ants],
-                                                            [ant.diameter for ant in dataset.ants])
-        ms_dict['FEED'] = ms_extra.populate_feed_dict(len(dataset.ants), num_receptors_per_feed=2)
-        ms_dict['DATA_DESCRIPTION'] = ms_extra.populate_data_description_dict()
-        ms_dict['POLARIZATION'] = ms_extra.populate_polarization_dict(ms_pols=pols_to_use,
-                                                                      circular=options.circular)
-        ms_dict['OBSERVATION'] = ms_extra.populate_observation_dict(
-            start_time, end_time, telescope_name, dataset.observer, dataset.experiment_id)
+            ms_extra.create_ms(ms_name, table_desc, dminfo)
 
-        # before resetting ms_dict, copy subset to caltable dictionary
-        if options.caltables:
-            caltable_dict = {}
-            caltable_dict['ANTENNA'] = ms_dict['ANTENNA']
-            caltable_dict['OBSERVATION'] = ms_dict['OBSERVATION']
+            ms_dict = {}
+            ms_dict['ANTENNA'] = ms_extra.populate_antenna_dict([ant.name for ant in dataset.ants],
+                                                                [ant.position_ecef for ant in dataset.ants],
+                                                                [ant.diameter for ant in dataset.ants])
+            ms_dict['FEED'] = ms_extra.populate_feed_dict(len(dataset.ants), num_receptors_per_feed=2)
+            ms_dict['DATA_DESCRIPTION'] = ms_extra.populate_data_description_dict()
+            ms_dict['POLARIZATION'] = ms_extra.populate_polarization_dict(ms_pols=pols_to_use,
+                                                                          circular=options.circular)
+            ms_dict['OBSERVATION'] = ms_extra.populate_observation_dict(
+                start_time, end_time, telescope_name, dataset.observer, dataset.experiment_id)
 
-        print("Writing static meta data...")
-        ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
+            # before resetting ms_dict, copy subset to caltable dictionary
+            if options.caltables:
+                caltable_dict = {}
+                caltable_dict['ANTENNA'] = ms_dict['ANTENNA']
+                caltable_dict['OBSERVATION'] = ms_dict['OBSERVATION']
+
+            print("Writing static meta data...")
+            ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
 
         # Pre-allocate memory buffers
         tsize = dump_av
@@ -645,11 +647,16 @@ def main():
                 # Iterate over time in some multiple of dump average
                 ntime = utc_seconds.size
                 ntime_av = 0
+                skipped = 0
 
                 for ltime in range(0, ntime - tsize + 1, tsize):
                     utime = ltime + tsize
                     tdiff = utime - ltime
                     out_freqs = dataset.channel_freqs
+                    if dump_start:
+                        dump_start -= 1
+                        skipped += 1
+                        continue
 
                     # load all visibility, weight and flag data
                     # for this scan's timestamps.

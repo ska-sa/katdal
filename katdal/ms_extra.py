@@ -42,6 +42,12 @@ def open_table(name, readonly=False, verbose=False, **kwargs):
     return tables.table(name, readonly=readonly, ack=verbose, **kwargs)
 
 
+def table_rows(name, readonly=True, verbose=False, **kwargs):
+    """Open casacore table and count how many dumps have been completed"""
+    with tables.table(name, readonly=readonly, ack=verbose, **kwargs) as t:
+        return t.nrows()
+
+
 def create_ms(filename, table_desc=None, dm_info=None):
     """Create an empty MS with the default expected sub-tables and columns."""
     with tables.default_ms(filename, table_desc, dm_info) as main_table:
