@@ -427,7 +427,6 @@ def main():
                        ants=dump_ants,
                        dumps=slice(options.quack, None))
 
-        # The first step is to copy the blank template MS to our desired output
         print("Will create MS output in " + ms_name)
 
         # Instructions to flag by elevation if requested
@@ -543,9 +542,10 @@ def main():
         dump_start = 0
         if os.path.exists(ms_name):
             print(f"MS '{ms_name}' already exists - continuing...")
-            nbaselines = dataset.shape[2]/4
-            nrows = ms_extra.table_rows(ms_name, verbose=options.verbose)
-            dump_start = int(nrows // nbaselines)
+            nblocks = dataset.nblocks
+            with ms_extra.open_table(ms_name, verbose=options.verbose) as t:
+                nrows = t.table_rows
+            dump_start = nrows // nblocks
         else:
             # Create the MeasurementSet
             table_desc, dminfo = ms_extra.kat_ms_desc_and_dminfo(
