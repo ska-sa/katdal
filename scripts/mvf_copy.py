@@ -39,10 +39,8 @@ from katdal.datasources import view_capture_stream
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('url', help='Dataset URL (or input RDB file path)')
-    parser.add_argument('-o', '--output', type=Path,
-                        default=Path.cwd() / 'archive',
-                        help='Output directory (defaults to "./archive")')
+    parser.add_argument('source', help='Dataset URL (or input RDB file path)')
+    parser.add_argument('dest', type=Path, help='Output directory')
     parser.add_argument('--corrprods',
                         help='Select correlation products (kwarg to katdal.DataSet.select). '
                         'Keeps all corrprods by default.')
@@ -68,7 +66,7 @@ def extra_flags(telstate, capture_block_id, stream_name):
 def main():
     args = parse_args()
 
-    d = katdal.open(args.url)
+    d = katdal.open(args.source)
     # XXX Simplify this once corrprods can accept slices as advertised
     kwargs = {}
     if args.corrprods is not None:
@@ -81,7 +79,7 @@ def main():
     stream = d.source.stream_name
     telstate = d.source.telstate
     corrprod_mask = d._corrprod_keep
-    rdb_filename = Path(urlparse(args.url).path).name
+    rdb_filename = Path(urlparse(args.source).path).name
 
     # Collect the usual L0 capture stream as well as extra L1 flag stream if available
     views = [telstate]
@@ -90,8 +88,8 @@ def main():
         views.append(telstate_extra_flags)
 
     out_n_baselines = corrprod_mask.sum()
-    os.makedirs(args.output / cbid, exist_ok=True)
-    out_store = NpyFileChunkStore(args.output)
+    os.makedirs(args.dest / cbid, exist_ok=True)
+    out_store = NpyFileChunkStore(args.dest)
     graphs = []
 
     # Iterate over all stream views, collecting chunk info and setting up Dask graphs
@@ -119,7 +117,7 @@ def main():
     telstate_stream.add('bls_ordering', d.corr_products)
 
     # Save filtered telstate to RDB file
-    with RDBWriter(args.output / cbid / rdb_filename) as rdbw:
+    with RDBWriter(args.dest / cbid / rdb_filename) as rdbw:
         rdbw.save(telstate.backend)
     # Transfer chunks to final resting place, filtering them along the way
     with ProgressBar():
