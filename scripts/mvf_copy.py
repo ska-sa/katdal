@@ -45,7 +45,7 @@ def parse_args():
                         help='Select correlation products (kwarg to katdal.DataSet.select). '
                         'Keeps all corrprods by default.')
     parser.add_argument('--workers', type=int, default=8 * dask.system.CPU_COUNT,
-                        help='Number of dask workers I/O [%(default)s]')
+                        help='Number of dask workers for parallel I/O [%(default)s]')
     args = parser.parse_args()
     return args
 

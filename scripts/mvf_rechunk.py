@@ -87,7 +87,7 @@ def parse_args():
         'a new chunking scheme may be specified. A chunking scheme is '
         'specified as the number of dumps and channels per chunk.')
     parser.add_argument('--workers', type=int, default=8*multiprocessing.cpu_count(),
-                        help='Number of dask workers I/O [%(default)s]')
+                        help='Number of dask workers for parallel I/O [%(default)s]')
     parser.add_argument('--streams', type=comma_list, metavar='STREAM,STREAM',
                         help='Streams to copy [all]')
     parser.add_argument('--s3-endpoint-url', help='URL where rechunked data will be uploaded')
