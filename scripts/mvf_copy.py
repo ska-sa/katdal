@@ -64,6 +64,32 @@ def extra_flag_streams(telstate, capture_block_id, stream_name):
     return telstate_extra_flags
 
 
+def stream_graphs(telstate, store, corrprod_mask, out_telstate, out_store):
+    """Prepare Dask graphs to copy all chunked arrays of a capture stream.
+
+    This returns a list of Dask graphs and also modifies `out_telstate` and
+    `out_store`.
+    """
+    out_n_baselines = corrprod_mask.sum()
+    out_chunk_info = {}
+    graphs = []
+    for array, info in telstate['chunk_info'].items():
+        array_name = store.join(info['prefix'], array)
+        darray = store.get_dask_array(array_name, info['chunks'], info['dtype'])
+        # Filter the correlation products if array has them
+        if darray.ndim == 3:
+            indices = (slice(None), slice(None), corrprod_mask)
+            # Try to turn fancy indexing into slices (works for autocorrs)
+            darray = dask_getitem(darray, indices)
+            info['chunks'] = info['chunks'][:2] + ((out_n_baselines,),)
+            info['shape'] = info['shape'][:2] + (out_n_baselines,)
+        out_store.create_array(array_name)
+        graphs.append(out_store.put_dask_array(array_name, darray))
+        out_chunk_info[array] = info
+    out_telstate[telstate.prefixes[0] + 'chunk_info'] = out_chunk_info
+    return graphs
+
+
 def main():
     args = parse_args()
 
@@ -75,7 +101,6 @@ def main():
     d.select(**kwargs)
 
     # Convenience variables
-    store = d.source.data.store
     cbid = d.source.capture_block_id
     stream = d.source.stream_name
     telstate = d.source.telstate
@@ -86,28 +111,13 @@ def main():
     telstate_overrides = katsdptelstate.TelescopeState()
     # Override bls_ordering in telstate (in stream namespace) to match dataset selection
     telstate_overrides.view(stream)['bls_ordering'] = d.corr_products
-    out_n_baselines = corrprod_mask.sum()
     os.makedirs(args.dest / cbid, exist_ok=True)
     out_store = NpyFileChunkStore(args.dest)
+    # Iterate over all stream views, setting up Dask graph for each chunked array
     graphs = []
-
-    # Iterate over all stream views, collecting chunk info and setting up Dask graphs
     for view in [telstate] + extra_flag_streams(telstate, cbid, stream):
-        out_chunk_info = {}
-        for array, info in view['chunk_info'].items():
-            array_name = store.join(info['prefix'], array)
-            darray = store.get_dask_array(array_name, info['chunks'], info['dtype'])
-            # Filter the correlation products if array has them
-            if darray.ndim == 3:
-                indices = (slice(None), slice(None), corrprod_mask)
-                # Try to turn fancy indexing into slices (works for autocorrs)
-                darray = dask_getitem(darray, indices)
-                info['chunks'] = info['chunks'][:2] + ((out_n_baselines,),)
-                info['shape'] = info['shape'][:2] + (out_n_baselines,)
-            out_store.create_array(array_name)
-            graphs.append(out_store.put_dask_array(array_name, darray))
-            out_chunk_info[array] = info
-        telstate_overrides[view.prefixes[0] + 'chunk_info'] = out_chunk_info
+        graphs.extend(stream_graphs(view, d.source.data.store, corrprod_mask,
+                                    telstate_overrides, out_store))
 
     # Save original telstate + overrides to new RDB file (without duplicate keys)
     unmodified_keys = set(telstate.keys()) - set(telstate_overrides.keys())
