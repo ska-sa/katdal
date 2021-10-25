@@ -75,7 +75,7 @@ cbid = d.source.capture_block_id
 stream = d.source.stream_name
 telstate = d.source.telstate
 corrprod_mask = d._corrprod_keep
-rdb_filename = Path(urlparse(d.url).path).name
+rdb_filename = Path(urlparse(args.url).path).name
 
 # Collect the usual L0 capture stream as well as extra L1 flag stream if available
 views = [telstate]
