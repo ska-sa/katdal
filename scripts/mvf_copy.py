@@ -23,16 +23,17 @@
 # 19 October 2021
 #
 
-import os
 import argparse
-from urllib.parse import urlparse
+import os
 from pathlib import Path
+from urllib.parse import urlparse
 
-import katdal
 import dask
 import dask.array as da
 from dask.diagnostics import ProgressBar
+import katsdptelstate
 from katsdptelstate.rdb_writer import RDBWriter
+import katdal
 from katdal.chunkstore_npy import NpyFileChunkStore
 from katdal.datasources import view_capture_stream
 from katdal.lazy_indexer import dask_getitem
@@ -89,6 +90,9 @@ def main():
     if telstate_extra_flags is not None:
         views.append(telstate_extra_flags)
 
+    telstate_overrides = katsdptelstate.TelescopeState()
+    # Override bls_ordering in telstate (in stream namespace) to match dataset selection
+    telstate_overrides.view(stream)['bls_ordering'] = d.corr_products
     out_n_baselines = corrprod_mask.sum()
     os.makedirs(args.dest / cbid, exist_ok=True)
     out_store = NpyFileChunkStore(args.dest)
@@ -110,16 +114,12 @@ def main():
             out_store.create_array(array_name)
             graphs.append(out_store.put_dask_array(array_name, darray))
             out_chunk_info[array] = info
-        view.delete('chunk_info')
-        view.add('chunk_info', out_chunk_info)
-    # Update bls_ordering in telstate (in stream namespace) to match dataset selection
-    telstate_stream = telstate.view(stream, exclusive=True)
-    telstate_stream.delete('bls_ordering')
-    telstate_stream.add('bls_ordering', d.corr_products)
+        telstate_overrides[view.prefixes[0] + 'chunk_info'] = out_chunk_info
 
-    # Save filtered telstate to RDB file
+    # Save original telstate + overrides to new RDB file
     with RDBWriter(args.dest / cbid / rdb_filename) as rdbw:
         rdbw.save(telstate.backend)
+        rdbw.save(telstate_overrides.backend)
     # Transfer chunks to final resting place, filtering them along the way
     with ProgressBar():
         errors = da.compute(*graphs, num_workers=args.workers)
