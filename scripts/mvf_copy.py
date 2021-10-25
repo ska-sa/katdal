@@ -52,16 +52,15 @@ def parse_args():
     return args
 
 
-def extra_flags(telstate, capture_block_id, stream_name):
-    """Look for an associated flag stream and return corresponding telstate view."""
+def extra_flag_streams(telstate, capture_block_id, stream_name):
+    """Look for associated flag streams and return corresponding telstate views."""
     # This is a simplified version of katdal.datasources._upgrade_flags
-    telstate_extra_flags = None
+    telstate_extra_flags = []
     for s in telstate.get('sdp_archived_streams', []):
         telstate_cs = view_capture_stream(telstate.root(), capture_block_id, s)
-        if telstate_cs.get('stream_type') != 'sdp.flags' or \
-           stream_name not in telstate_cs['src_streams']:
-            continue
-        telstate_extra_flags = telstate_cs
+        if telstate_cs.get('stream_type') == 'sdp.flags' and \
+           stream_name in telstate_cs['src_streams']:
+            telstate_extra_flags.append(telstate_cs)
     return telstate_extra_flags
 
 
@@ -84,12 +83,6 @@ def main():
     corrprod_mask = d._corrprod_keep
     rdb_filename = Path(urlparse(args.source).path).name
 
-    # Collect the usual L0 capture stream as well as extra L1 flag stream if available
-    views = [telstate]
-    telstate_extra_flags = extra_flags(telstate, cbid, stream)
-    if telstate_extra_flags is not None:
-        views.append(telstate_extra_flags)
-
     telstate_overrides = katsdptelstate.TelescopeState()
     # Override bls_ordering in telstate (in stream namespace) to match dataset selection
     telstate_overrides.view(stream)['bls_ordering'] = d.corr_products
@@ -99,7 +92,7 @@ def main():
     graphs = []
 
     # Iterate over all stream views, collecting chunk info and setting up Dask graphs
-    for view in views:
+    for view in [telstate] + extra_flag_streams(telstate, cbid, stream):
         out_chunk_info = {}
         for array, info in view['chunk_info'].items():
             array_name = store.join(info['prefix'], array)
