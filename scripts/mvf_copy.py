@@ -35,6 +35,7 @@ from dask.diagnostics import ProgressBar
 from katsdptelstate.rdb_writer import RDBWriter
 from katdal.chunkstore_npy import NpyFileChunkStore
 from katdal.datasources import view_capture_stream
+from katdal.lazy_indexer import dask_getitem
 
 
 def parse_args():
@@ -78,6 +79,7 @@ def main():
     cbid = d.source.capture_block_id
     stream = d.source.stream_name
     telstate = d.source.telstate
+    # XXX Replace private member with public corrprod index member when it exists
     corrprod_mask = d._corrprod_keep
     rdb_filename = Path(urlparse(args.source).path).name
 
@@ -102,8 +104,7 @@ def main():
             if darray.ndim == 3:
                 indices = (slice(None), slice(None), corrprod_mask)
                 # Try to turn fancy indexing into slices (works for autocorrs)
-                indices = katdal.lazy_indexer._simplify_index(indices, info['shape'])
-                darray = darray[indices]
+                darray = dask_getitem(darray, indices)
                 info['chunks'] = info['chunks'][:2] + ((out_n_baselines,),)
                 info['shape'] = info['shape'][:2] + (out_n_baselines,)
             out_store.create_array(array_name)
