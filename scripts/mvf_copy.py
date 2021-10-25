@@ -116,9 +116,10 @@ def main():
             out_chunk_info[array] = info
         telstate_overrides[view.prefixes[0] + 'chunk_info'] = out_chunk_info
 
-    # Save original telstate + overrides to new RDB file
+    # Save original telstate + overrides to new RDB file (without duplicate keys)
+    unmodified_keys = set(telstate.keys()) - set(telstate_overrides.keys())
     with RDBWriter(args.dest / cbid / rdb_filename) as rdbw:
-        rdbw.save(telstate.backend)
+        rdbw.save(telstate.backend, unmodified_keys)
         rdbw.save(telstate_overrides.backend)
     # Transfer chunks to final resting place, filtering them along the way
     with ProgressBar():
