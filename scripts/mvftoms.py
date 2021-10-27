@@ -541,10 +541,9 @@ def main():
         total_size = 0
         dump_start = 0
         if os.path.exists(ms_name):
-            print(f"MS '{ms_name}' already exists - continuing...")
             with ms_extra.open_table(ms_name, verbose=options.verbose) as t:
-                nrows = t.table_rows
-            dump_start = nrows // nbl
+                dump_start = t.nrows() // nbl
+            print(f"MS '{ms_name}' already exists - continuing at dump {dump_start}...")
         else:
             # Create the MeasurementSet
             table_desc, dminfo = ms_extra.kat_ms_desc_and_dminfo(
