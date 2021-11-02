@@ -539,11 +539,17 @@ def main():
         field_names, field_centers, field_times = [], [], []
         obs_modes = ['UNKNOWN']
         total_size = 0
-        dump_start = 0
+        ms_start_row = 0
+        rows_per_ms_chunk = nbl
+        ms_dumps_to_skip = 0
         if os.path.exists(ms_name):
             with ms_extra.open_table(ms_name, verbose=options.verbose) as t:
-                dump_start = t.nrows() // nbl
-            print(f"MS '{ms_name}' already exists - continuing at dump {dump_start}...")
+                existing_rows = t.nrows()
+            # Redo the last dump on disk since it's probably incomplete after a crash
+            ms_start_row = max(existing_rows - rows_per_ms_chunk, 0)
+            ms_dumps_to_skip = ms_start_row // rows_per_ms_chunk
+            print(f"MS '{ms_name}' already exists - "
+                  f"continuing at dump {ms_dumps_to_skip}...")
         else:
             # Create the MeasurementSet
             table_desc, dminfo = ms_extra.kat_ms_desc_and_dminfo(
@@ -594,7 +600,7 @@ def main():
         writer_process = multiprocessing.Process(
             target=ms_async.ms_writer_process,
             args=(work_queue, result_queue, options, dataset.ants, cp_info, ms_name,
-                  raw_vis_data, raw_weight_data, raw_flag_data))
+                  raw_vis_data, raw_weight_data, raw_flag_data, ms_start_row))
         writer_process.start()
 
         try:
@@ -645,15 +651,13 @@ def main():
                 # Iterate over time in some multiple of dump average
                 ntime = utc_seconds.size
                 ntime_av = 0
-                skipped = 0
 
                 for ltime in range(0, ntime - tsize + 1, tsize):
                     utime = ltime + tsize
                     tdiff = utime - ltime
                     out_freqs = dataset.channel_freqs
-                    if dump_start:
-                        dump_start -= 1
-                        skipped += 1
+                    if ms_dumps_to_skip:
+                        ms_dumps_to_skip -= 1
                         continue
 
                     # load all visibility, weight and flag data
