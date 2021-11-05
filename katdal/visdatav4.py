@@ -145,13 +145,22 @@ def _calc_new_delay(cache, name, inp):
     return new_sensors[name]
 
 
+def _calc_delay_upgrade(cache, name, inp):
+    """Calculate corrections that will upgrade delay tracking using a new model."""
+    new_corrections = cache[f'Correlator/Inputs/{inp}/new_delay']
+    old_corrections = cache[f'Correlator/Inputs/{inp}/applied_delay']
+    cache[name] = sensor_data = new_corrections - old_corrections
+    return sensor_data
+
+
 VIRTUAL_SENSORS = dict(DEFAULT_VIRTUAL_SENSORS)
 VIRTUAL_SENSORS.update({'Antennas/{ant}/az': _calc_azel,
                         'Antennas/{ant}/el': _calc_azel,
                         'Correlator/Inputs/{inp}/applied_delay': _calc_applied_delay,
                         'Correlator/Inputs/{inp}/applied_phase': _calc_applied_delay,
                         'Correlator/Inputs/{inp}/applied_gain': _calc_applied_gain,
-                        'Correlator/Inputs/{inp}/new_delay': _calc_new_delay})
+                        'Correlator/Inputs/{inp}/new_delay': _calc_new_delay,
+                        'Calibration/Corrections/l0/KRETRACK/{inp}': _calc_delay_upgrade})
 
 DEFAULT_CAL_PRODUCTS = ('l1.K', 'l1.B', 'l1.G', 'l2.GPHASE')
 
@@ -586,7 +595,7 @@ class VisibilityDataV4(DataSet):
             l1_stream = 'cal'
         # Register virtual sensors for all streams, noting their channelisation
         freqs = self.spectral_windows[0].channel_freqs
-        cal_freqs = {}
+        cal_freqs = {'l0': freqs}
         l1_attrs = _relative_view(attrs, l1_stream)
         l1_freqs = add_applycal_sensors(self.sensor, l1_attrs, freqs, cal_stream='l1',
                                         cal_substreams=[l1_stream], gaincal_flux=gaincal_flux)
