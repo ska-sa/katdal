@@ -112,23 +112,20 @@ def get_cal_product(cache, cal_stream, product_type):
     return cache.get(sensor_name)
 
 
-def calc_delay_correction(sensor, index, data_freqs):
+def calc_delay_correction(sensor, index):
     """Calculate correction sensor from delay calibration solution sensor.
 
-    Given the delay calibration solution `sensor`, this extracts the delay time
-    series of the input specified by `index` (in the form (pol, ant)) and
-    builds a categorical sensor for the corresponding complex correction terms
-    (channelised by `data_freqs`).
+    Given the delay calibration solution `sensor`, this extracts the delay
+    time series of the input specified by `index` (in the form (pol, ant)).
+    Since the delays produced by the cal pipeline are raw phase slopes, i.e.
+    `exp(2 pi j d f)`, it is already in the form of a correction. Note that
+    this correction sensor outputs delays and not complex gains.
 
     Invalid delays (NaNs) are replaced by zeros, since bandpass calibration
     still has a shot at fixing any residual delay.
     """
     delays = [np.nan_to_num(value[index]) for segm, value in sensor.segments()]
-    # Delays produced by cal pipeline are raw phase slopes, i.e. exp(2 pi j d f)
-    corrections = [np.exp(-2j * np.pi * d * data_freqs).astype('complex64')
-                   for d in delays]
-    corrections = [ComparableArrayWrapper(c) for c in corrections]
-    return CategoricalData(corrections, sensor.events)
+    return CategoricalData(delays, sensor.events)
 
 
 def calc_bandpass_correction(sensor, index, data_freqs, cal_freqs):
@@ -390,8 +387,7 @@ def add_applycal_sensors(cache, attrs, data_freqs, cal_stream, cal_substreams=No
             raise KeyError(f"No calibration solutions available for input '{inp}' - "
                            f'available ones are {sorted(cal_input_map.keys())}')
         if product_type == 'K':
-            correction_sensor = calc_delay_correction(product_sensor, index,
-                                                      data_freqs)
+            correction_sensor = calc_delay_correction(product_sensor, index)
         elif product_type == 'B':
             correction_sensor = calc_bandpass_correction(product_sensor, index,
                                                          data_freqs, cal_freqs)
@@ -440,9 +436,9 @@ class CorrectionParams:
         corrections to apply.
     channel_maps : dict
         A dictionary (indexed by cal product name) of functions (signature
-        `g = channel_map(g, channels)`) that map the frequency axis of the
-        cal product `g` onto the frequency axis of the visibility data, where
-        the vis frequency axis will be indexed by the slice `channels`.
+        `g = channel_map(g, channels)`) that map the cal product `g` onto
+        the frequency axis of the visibility data, where the vis frequency
+        axis will be indexed by the slice `channels`.
     """
     def __init__(self, inputs, input1_index, input2_index, corrections, channel_maps):
         self.inputs = inputs
@@ -485,8 +481,7 @@ def calc_correction_per_corrprod(dump, channels, params):
         channel_map = params.channel_maps[cal_product]
         for i in range(len(params.inputs)):
             sensor = product_corrections[i]
-            g_per_channel = sensor[dump]
-            g_per_input[i] *= channel_map(g_per_channel, channels)
+            g_per_input[i] *= channel_map(sensor[dump], channels)
     # Transpose to (channel, input) order, and ensure C ordering
     g_per_input = np.ascontiguousarray(g_per_input.T)
     g_per_cp = np.empty((n_channels, len(params.input1_index)), dtype='complex64')
@@ -580,15 +575,21 @@ def calc_correction(chunks, cache, corrprods, cal_products, data_freqs,
             corrections[cal_product] = corrections_per_product
             # Frequency configuration for *stream* (not necessarily for product)
             cal_stream_freqs = all_cal_freqs[cal_stream]
-            # Get number of frequency channels of *corrections* by inspecting it
-            # at first dump for each input and picking max to reject bad inputs.
+            # Get size of *corrections* by checking it at first dump
+            # for each input and picking max to reject bad inputs.
+            # It is typically the number of frequency channels.
             # Expected to be either 1, len(cal_stream_freqs) or len(data_freqs).
-            correction_n_chans = max([len(np.atleast_1d(corr_per_input[0]))
-                                      for corr_per_input in corrections_per_product])
-            if correction_n_chans == 1:
+            len_correction = max([len(np.atleast_1d(corr_per_input[0]))
+                                  for corr_per_input in corrections_per_product])
+            if product_type.startswith('K'):
+                assert len_correction == 1, 'Only supporting 1 delay / band for now'
+                # Turn delay into phase slope across selected channels
+                channel_maps[cal_product] = lambda delay, channels: np.exp(
+                    -2j * np.pi * delay * data_freqs[channels]).astype('complex64')
+            elif len_correction == 1:
                 # Scalar values will be broadcast by NumPy - no slicing required
                 channel_maps[cal_product] = lambda g, channels: g
-            elif correction_n_chans == len(data_freqs) and (
+            elif len_correction == len(data_freqs) and (
                     # This test indicates that correction frequencies either differ
                     # from those of cal stream (i.e. already interpolated), or the
                     # cal stream matches the data freqs to within 1 mHz anyway.

@@ -193,9 +193,13 @@ def create_sensor_cache(bandpass_parts=BANDPASS_PARTS):
 
 
 def delay_corrections(pol, ant):
-    """Figure out N_CHANS delay corrections given `pol` and `ant` indices."""
+    """Figure out delay corrections given `pol` and `ant` indices."""
     # Zero out missing delays (indicated by NaN)
-    delay = np.nan_to_num(create_delay(pol, ant))
+    return np.nan_to_num(create_delay(pol, ant))
+
+
+def delay_to_phase(delay):
+    """Map `delay` to a phase slope across frequency channels."""
     return np.exp(-2j * np.pi * delay * FREQS).astype('complex64')
 
 
@@ -236,7 +240,7 @@ def corrections_per_corrprod(dumps, channels, cal_products):
     gains_per_input = np.ones((len(dumps), N_CHANS, len(INPUTS)),
                               dtype='complex64')
     corrections = {
-        CAL_STREAM + '.K': np.array([delay_corrections(*input_map[inp])
+        CAL_STREAM + '.K': np.array([delay_to_phase(delay_corrections(*input_map[inp]))
                                      for inp in INPUTS]).T,
         CAL_STREAM + '.B': np.array([bandpass_corrections(*input_map[inp])
                                      for inp in INPUTS]).T,
@@ -376,11 +380,10 @@ class TestCorrectionPerInput:
 
     def test_calc_delay_correction(self):
         product_sensor = get_cal_product(self.cache, CAL_STREAM, 'K')
-        constant_bandpass = np.ones(N_CHANS, dtype='complex64')
         for n in range(len(ANTS)):
             for m in range(len(POLS)):
-                sensor = calc_delay_correction(product_sensor, (m, n), FREQS)
-                assert_array_equal(sensor[n], constant_bandpass)
+                sensor = calc_delay_correction(product_sensor, (m, n))
+                assert_array_equal(sensor[n], 0.)
                 assert_array_equal(sensor[10 + n], delay_corrections(m, n))
 
     def test_calc_bandpass_correction(self):
