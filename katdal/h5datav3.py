@@ -547,17 +547,20 @@ class H5DataV3(DataSet):
 
         # Use the activity sensor of reference antenna to partition the data set into scans (and to set their states)
         scan = self.sensor.get(f'Antennas/{self.ref_ant}/activity')
+        # Use labels to partition the data set into compound scans
+        try:
+            label = self.sensor.get('Observation/label')
+        except KeyError:
+            label = CategoricalData([''], [0, num_dumps])
+        # Use the target sensor of reference antenna to set the target for each scan
+        target = self.sensor.get(f'Antennas/{self.ref_ant}/target')
+
         # If the antenna starts slewing on the second dump, incorporate the first dump into the slew too.
         # This scenario typically occurs when the first target is only set after the first dump is received.
         # The workaround avoids putting the first dump in a scan by itself, typically with an irrelevant target.
         if len(scan) > 1 and scan.events[1] == 1 and scan[1] == 'slew':
             scan.events, scan.indices = scan.events[1:], scan.indices[1:]
             scan.events[0] = 0
-        # Use labels to partition the data set into compound scans
-        try:
-            label = self.sensor.get('Observation/label')
-        except KeyError:
-            label = CategoricalData([''], [0, num_dumps])
         # Discard empty labels (typically found in raster scans, where first scan has proper label and rest are empty)
         # However, if all labels are empty, keep them, otherwise whole data set will be one pathological compscan...
         if len(label.unique_values) > 1:
@@ -565,18 +568,12 @@ class H5DataV3(DataSet):
         # Create duplicate scan events where labels are set during a scan (i.e. not at start of scan)
         # ASSUMPTION: Number of scans >= number of labels (i.e. each label should introduce a new scan)
         scan.add_unmatched(label.events)
-        self.sensor['Observation/scan_state'] = scan
-        self.sensor['Observation/scan_index'] = CategoricalData(list(range(len(scan))), scan.events)
         # Move proper label events onto the nearest scan start
         # ASSUMPTION: Number of labels <= number of scans (i.e. only a single label allowed per scan)
         label.align(scan.events)
         # If one or more scans at start of data set have no corresponding label, add a default label for them
         if label.events[0] > 0:
             label.add(0, '')
-        self.sensor['Observation/label'] = label
-        self.sensor['Observation/compscan_index'] = CategoricalData(list(range(len(label))), label.events)
-        # Use the target sensor of reference antenna to set the target for each scan
-        target = self.sensor.get(f'Antennas/{self.ref_ant}/target')
         # RTS workaround: Remove an initial blank target (typically because the antenna is stopped at the start)
         if len(target) > 1 and target[0] == 'Nothing, special':
             target.events, target.indices = target.events[1:], target.indices[1:]
@@ -584,6 +581,11 @@ class H5DataV3(DataSet):
         # Move target events onto the nearest scan start
         # ASSUMPTION: Number of targets <= number of scans (i.e. only a single target allowed per scan)
         target.align(scan.events)
+
+        self.sensor['Observation/scan_state'] = scan
+        self.sensor['Observation/scan_index'] = CategoricalData(list(range(len(scan))), scan.events)
+        self.sensor['Observation/label'] = label
+        self.sensor['Observation/compscan_index'] = CategoricalData(list(range(len(label))), label.events)
         self.sensor['Observation/target'] = target
         self.sensor['Observation/target_index'] = CategoricalData(target.indices, target.events)
         # Set up catalogue containing all targets in file, with reference antenna as default antenna

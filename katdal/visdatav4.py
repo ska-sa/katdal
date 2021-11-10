@@ -418,6 +418,14 @@ class VisibilityDataV4(DataSet):
 
         # Use activity sensor of reference antenna to partition the data set into scans
         scan = self.sensor.get(f'Antennas/{self.ref_ant}/activity')
+        # Use labels to partition the data set into compound scans
+        try:
+            label = self.sensor.get('obs_label')
+        except KeyError:
+            label = CategoricalData([''], all_dumps)
+        # Use target sensor of reference antenna to set the target for each scan
+        target = self.sensor.get(f'Antennas/{self.ref_ant}/target')
+
         # If the antenna starts slewing on the second dump, incorporate the
         # first dump into the slew too. This scenario typically occurs when the
         # first target is only set after the first dump is received.
@@ -426,11 +434,6 @@ class VisibilityDataV4(DataSet):
         if len(scan) > 1 and scan.events[1] == 1 and scan[1] == 'slew':
             scan.events, scan.indices = scan.events[1:], scan.indices[1:]
             scan.events[0] = 0
-        # Use labels to partition the data set into compound scans
-        try:
-            label = self.sensor.get('obs_label')
-        except KeyError:
-            label = CategoricalData([''], all_dumps)
         # Discard empty labels (typically found in raster scans, where first
         # scan has proper label and rest are empty) However, if all labels are
         # empty, keep them, otherwise whole data set will be one pathological
@@ -442,9 +445,6 @@ class VisibilityDataV4(DataSet):
         # ASSUMPTION: Number of scans >= number of labels
         # (i.e. each label should introduce a new scan)
         scan.add_unmatched(label.events)
-        self.sensor['Observation/scan_state'] = scan
-        self.sensor['Observation/scan_index'] = CategoricalData(list(range(len(scan))),
-                                                                scan.events)
         # Move proper label events onto the nearest scan start
         # ASSUMPTION: Number of labels <= number of scans
         # (i.e. only a single label allowed per scan)
@@ -453,11 +453,6 @@ class VisibilityDataV4(DataSet):
         # add a default label for them
         if label.events[0] > 0:
             label.add(0, '')
-        self.sensor['Observation/label'] = label
-        self.sensor['Observation/compscan_index'] = CategoricalData(list(range(len(label))),
-                                                                    label.events)
-        # Use target sensor of reference antenna to set the target for each scan
-        target = self.sensor.get(f'Antennas/{self.ref_ant}/target')
         # Move target events onto the nearest scan start
         # ASSUMPTION: Number of targets <= number of scans
         # (i.e. only a single target allowed per scan)
@@ -480,6 +475,13 @@ class VisibilityDataV4(DataSet):
                 # Remove initial target from target.unique_values if not used
                 target.align(target.events)
             break
+
+        self.sensor['Observation/scan_state'] = scan
+        self.sensor['Observation/scan_index'] = CategoricalData(list(range(len(scan))),
+                                                                scan.events)
+        self.sensor['Observation/label'] = label
+        self.sensor['Observation/compscan_index'] = CategoricalData(list(range(len(label))),
+                                                                    label.events)
         self.sensor['Observation/target'] = target
         self.sensor['Observation/target_index'] = CategoricalData(target.indices,
                                                                   target.events)
