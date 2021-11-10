@@ -27,8 +27,8 @@ from .applycal import (CAL_PRODUCT_TYPES, INVALID_GAIN, add_applycal_sensors,
                        apply_weights_correction, calc_correction)
 from .categorical import CategoricalData, ComparableArrayWrapper
 from .dataset import (DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
-                      BrokenFile, DataSet, Subarray, _robust_target,
-                      _selection_to_list)
+                      BrokenFile, DataSet, Subarray)
+from .dataset_utils import robust_target, selection_to_list
 # FLAG_DESCRIPTIONS isn't used, but it's kept here for compatibility with
 # external code that might get it from here
 from .flags import DESCRIPTIONS as FLAG_DESCRIPTIONS  # noqa: F401
@@ -53,7 +53,7 @@ SENSOR_PROPS.update({
     '*noise_diode': {'categorical': True, 'greedy_values': (True,),
                      'initial_value': 0.0, 'transform': lambda x: x > 0.0},
     '*serial_number': {'initial_value': 0},
-    '*target': {'initial_value': '', 'transform': _robust_target},
+    '*target': {'initial_value': '', 'transform': robust_target},
     'obs_label': {'initial_value': '', 'allow_repeats': True},
     '*_product_G': {'initial_value': INVALID_GAIN},
     '*_product_GPHASE': {'initial_value': INVALID_GAIN},
@@ -159,8 +159,8 @@ def _relative_view(telstate, name):
 
 def _normalise_cal_products(products, cal_streams):
     """Expand user-supplied list of cal products into fully qualified versions."""
-    requested_cal_products = _selection_to_list(products, all=cal_streams,
-                                                default=DEFAULT_CAL_PRODUCTS)
+    requested_cal_products = selection_to_list(products, all=cal_streams,
+                                               default=DEFAULT_CAL_PRODUCTS)
     skip_missing_products = products in ('all', 'default') or any(
         '.' not in product for product in requested_cal_products)
     normalised_cal_products = []
@@ -577,7 +577,7 @@ class VisibilityDataV4(DataSet):
     @_flags_keep.setter
     def _flags_keep(self, names):
         # Ensure `names` is a sequence of valid flag names (or an empty list)
-        names = _selection_to_list(names, all=FLAG_NAMES)
+        names = selection_to_list(names, all=FLAG_NAMES)
         # Create boolean list for desired flags
         selection = np.zeros(8, dtype=np.uint8)
         assert len(FLAG_NAMES) == len(selection), \

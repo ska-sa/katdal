@@ -28,8 +28,8 @@ import numpy as np
 
 from .categorical import CategoricalData
 from .dataset import (DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
-                      BrokenFile, DataSet, Subarray, WrongVersion,
-                      _robust_target, _selection_to_list)
+                      BrokenFile, DataSet, Subarray, WrongVersion)
+from .dataset_utils import robust_target, selection_to_list
 from .flags import DESCRIPTIONS as FLAG_DESCRIPTIONS
 from .flags import NAMES as FLAG_NAMES
 from .lazy_indexer import LazyIndexer, LazyTransform
@@ -52,7 +52,7 @@ SENSOR_PROPS.update({
     '*noise_diode': {'categorical': True, 'greedy_values': (True,),
                      'initial_value': 0.0, 'transform': lambda x: x > 0.0},
     '*serial_number': {'initial_value': 0},
-    '*target': {'initial_value': '', 'transform': _robust_target},
+    '*target': {'initial_value': '', 'transform': robust_target},
 })
 
 SENSOR_ALIASES = {
@@ -885,7 +885,7 @@ class H5DataV3(DataSet):
     def _weights_keep(self, names):
         known_weights = [row[0] for row in getattr(self, '_weights_description', [])]
         # Ensure a sequence of weight names
-        names = _selection_to_list(names, all=known_weights)
+        names = selection_to_list(names, all=known_weights)
         # Create index list for desired weights
         selection = []
         for name in names:
@@ -916,7 +916,7 @@ class H5DataV3(DataSet):
             return
         known_flags = [row[0] for row in self._flags_description]
         # Ensure `names` is a sequence of valid flag names (or an empty list)
-        names = _selection_to_list(names, all=known_flags)
+        names = selection_to_list(names, all=known_flags)
         # Create boolean list for desired flags
         selection = np.zeros(8, dtype=np.uint8)
         assert len(known_flags) == len(selection), \

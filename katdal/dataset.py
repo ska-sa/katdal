@@ -24,6 +24,8 @@ import katpoint
 import numpy as np
 from katpoint import is_iterable, rad2deg
 
+from .dataset_utils import is_deselection, parse_url_or_path, selection_to_list
+
 logger = logging.getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------
@@ -692,7 +694,7 @@ class DataSet:
                 self._time_keep &= (self.sensor.timestamps[:] >= start_time)
                 self._time_keep &= (self.sensor.timestamps[:] <= end_time)
             elif k in ('scans', 'compscans'):
-                scans = _selection_to_list(v)
+                scans = selection_to_list(v)
                 scan_keep = np.zeros(len(self._time_keep), dtype=np.bool)
                 scan_sensor = self.sensor.get('Observation/scan_state' if k == 'scans' else 'Observation/label')
                 scan_index_sensor = self.sensor.get(f'Observation/{k[:-1]}_index')
@@ -756,9 +758,9 @@ class DataSet:
                         cp_keep[v] = True
                         self._corrprod_keep &= cp_keep
             elif k == 'ants':
-                ants = _selection_to_list(v)
+                ants = selection_to_list(v)
                 ant_names = [(ant.name if isinstance(ant, katpoint.Antenna) else ant) for ant in ants]
-                if _is_deselection(ant_names):
+                if is_deselection(ant_names):
                     ant_names = [ant_name[1:] for ant_name in ant_names]
                     self._corrprod_keep &= [(inpA[:-1] not in ant_names and inpB[:-1] not in ant_names)
                                             for inpA, inpB in self.subarrays[self.subarray].corr_products]
@@ -766,11 +768,11 @@ class DataSet:
                     self._corrprod_keep &= [(inpA[:-1] in ant_names and inpB[:-1] in ant_names)
                                             for inpA, inpB in self.subarrays[self.subarray].corr_products]
             elif k == 'inputs':
-                inps = _selection_to_list(v)
+                inps = selection_to_list(v)
                 self._corrprod_keep &= [(inpA in inps and inpB in inps)
                                         for inpA, inpB in self.subarrays[self.subarray].corr_products]
             elif k == 'pol':
-                pols = _selection_to_list(v)
+                pols = selection_to_list(v)
                 # Lower case and strip out empty strings
                 pols = [i.lower() for i in pols if i]
 

@@ -49,7 +49,7 @@ def parse_url_or_path(url_or_path):
     return url_parts
 
 
-def _robust_target(description):
+def robust_target(description):
     """Robust build of :class:`katpoint.Target` object from description string."""
     if not description:
         return katpoint.Target('Nothing, special')
@@ -60,7 +60,7 @@ def _robust_target(description):
         return katpoint.Target('Nothing, special')
 
 
-def _selection_to_list(names, **groups):
+def selection_to_list(names, **groups):
     """Normalise string of comma-separated names or sequence of names / objects.
 
     Parameters
@@ -88,7 +88,7 @@ def _selection_to_list(names, **groups):
         return [names]
 
 
-def _is_deselection(selectors):
+def is_deselection(selectors):
     """If all the selectors have a tilde ~ , then this is treated as a
      deselect and we are going to invert the selection.
      TODO: For version 1 release the deselector interface should just have a leading ~

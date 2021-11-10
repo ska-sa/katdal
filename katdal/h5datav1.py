@@ -27,8 +27,8 @@ import numpy as np
 from .categorical import CategoricalData
 from .concatdata import ConcatenatedLazyIndexer
 from .dataset import (DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
-                      BrokenFile, DataSet, Subarray, WrongVersion,
-                      _robust_target)
+                      BrokenFile, DataSet, Subarray, WrongVersion)
+from .dataset_utils import robust_target
 from .lazy_indexer import LazyIndexer, LazyTransform
 from .sensordata import RecordSensorGetter, SensorCache, to_str
 from .spectral_window import SpectralWindow
@@ -237,7 +237,7 @@ class H5DataV1(DataSet):
         self.sensor['Observation/label'] = label
         self.sensor['Observation/compscan_index'] = CategoricalData(list(range(len(label))), label.events)
         # Extract targets from compscan groups, replacing empty or bad descriptions with dummy target
-        target = CategoricalData([_robust_target(to_str(s.parent.attrs.get('target', '')))
+        target = CategoricalData([robust_target(to_str(s.parent.attrs.get('target', '')))
                                   for s in self._scan_groups], self._segments)
         target.align(compscan.events)
         self.sensor['Observation/target'] = target
