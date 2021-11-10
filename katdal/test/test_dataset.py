@@ -22,8 +22,7 @@ from nose.tools import assert_equal
 from numpy.testing import assert_array_almost_equal, assert_array_equal
 
 from katdal.categorical import CategoricalData
-from katdal.dataset import (DEFAULT_VIRTUAL_SENSORS, DataSet, Subarray,
-                            _selection_to_list, parse_url_or_path)
+from katdal.dataset import DEFAULT_VIRTUAL_SENSORS, DataSet, Subarray
 from katdal.sensordata import SensorCache
 from katdal.spectral_window import SpectralWindow
 
@@ -76,40 +75,6 @@ class MinimalDataSet(DataSet):
     @property
     def timestamps(self):
         return self._timestamps[self._time_keep]
-
-
-def test_parse_url_or_path():
-    # Normal URLs and empty strings pass right through
-    assert_equal(parse_url_or_path('https://archive/file').geturl(), 'https://archive/file')
-    assert_equal(parse_url_or_path('').geturl(), '')
-    # Relative paths are turned into absolute paths and gain a 'file' scheme
-    relative_file_url = parse_url_or_path('dir/filename.rdb')
-    assert_equal(relative_file_url.scheme, 'file')
-    parts = relative_file_url.path.rpartition('dir/filename.rdb')
-    assert len(parts[0]) > 0
-    assert_equal(parts[1], 'dir/filename.rdb')
-    assert len(parts[2]) == 0
-    # Absolute paths remain the same (just gaining a 'file' scheme)
-    absolute_file_url = parse_url_or_path('/dir/filename.rdb')
-    assert_equal(absolute_file_url.scheme, 'file')
-    assert_equal(absolute_file_url.path, '/dir/filename.rdb')
-
-
-def test_selection_to_list():
-    # Empty
-    assert_equal(_selection_to_list(''), [])
-    assert_equal(_selection_to_list([]), [])
-    # Names
-    assert_equal(_selection_to_list('a,b,c'), ['a', 'b', 'c'])
-    assert_equal(_selection_to_list('a, b,c'), ['a', 'b', 'c'])
-    assert_equal(_selection_to_list(['a', 'b', 'c']), ['a', 'b', 'c'])
-    assert_equal(_selection_to_list(('a', 'b', 'c')), ['a', 'b', 'c'])
-    assert_equal(_selection_to_list('a'), ['a'])
-    # Objects
-    assert_equal(_selection_to_list([1, 2, 3]), [1, 2, 3])
-    assert_equal(_selection_to_list(1), [1])
-    # Groups
-    assert_equal(_selection_to_list('all', all=['a', 'b']), ['a', 'b'])
 
 
 class TestVirtualSensors:
