@@ -16,9 +16,10 @@
 
 """Utility functions for data sets."""
 
+import copy
+import logging
 import pathlib
 import urllib.parse
-import logging
 
 import katpoint
 from katpoint import is_iterable
@@ -97,3 +98,72 @@ def is_deselection(selectors):
         if selector[0] != '~':
             return False
     return True
+
+
+def align_scans(scan, label, target):
+    """Align scan, compound scan and target boundaries.
+
+    Parameters
+    ----------
+    scan, label, target : :class:`~katdal.categorical.CategoricalData`
+        Sensors for scan activities, compound scan labels and targets
+
+    Returns
+    -------
+    scan, label, target : :class:`~katdal.categorical.CategoricalData`
+        Aligned sensors
+    """
+    # First copy the sensors to avoid modifying the originals
+    scan = copy.deepcopy(scan)
+    label = copy.deepcopy(label)
+    target = copy.deepcopy(target)
+    # If the antenna starts slewing on the second dump, incorporate the
+    # first dump into the slew too. This scenario typically occurs when the
+    # first target is only set after the first dump is received.
+    # The workaround avoids putting the first dump in a scan by itself,
+    # typically with an irrelevant target.
+    if len(scan) > 1 and scan.events[1] == 1 and scan[1] == 'slew':
+        scan.events, scan.indices = scan.events[1:], scan.indices[1:]
+        scan.events[0] = 0
+    # Discard empty labels (typically found in raster scans, where first
+    # scan has proper label and rest are empty) However, if all labels are
+    # empty, keep them, otherwise whole data set will be one pathological
+    # compscan...
+    if len(label.unique_values) > 1:
+        label.remove('')
+    # Create duplicate scan events where labels are set during a scan
+    # (i.e. not at start of scan)
+    # ASSUMPTION: Number of scans >= number of labels
+    # (i.e. each label should introduce a new scan)
+    scan.add_unmatched(label.events)
+    # Move proper label events onto the nearest scan start
+    # ASSUMPTION: Number of labels <= number of scans
+    # (i.e. only a single label allowed per scan)
+    label.align(scan.events)
+    # If one or more scans at start of data set have no corresponding label,
+    # add a default label for them
+    if label.events[0] > 0:
+        label.add(0, '')
+    # Move target events onto the nearest scan start
+    # ASSUMPTION: Number of targets <= number of scans
+    # (i.e. only a single target allowed per scan)
+    target.align(scan.events)
+    # Remove repeats introduced by scan alignment (e.g. when sequence of
+    # targets [A, B, A] becomes [A, A] if B and second A are in same scan)
+    target.remove_repeats()
+    # Remove initial target if antennas start in mode STOP
+    # (typically left over from previous capture block)
+    for segment, scan_state in scan.segments():
+        # Keep going until first non-STOP scan or a new target is set
+        if scan_state == 'stop' and target[segment.start] is target[0]:
+            continue
+        # Only remove initial target event if we move to a different target
+        if target[segment.start] is not target[0]:
+            # Only lose 1 event because target sensor doesn't allow repeats
+            target.events = target.events[1:]
+            target.indices = target.indices[1:]
+            target.events[0] = 0
+            # Remove initial target from target.unique_values if not used
+            target.align(target.events)
+        break
+    return scan, label, target

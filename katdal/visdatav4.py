@@ -28,7 +28,7 @@ from .applycal import (CAL_PRODUCT_TYPES, INVALID_GAIN, add_applycal_sensors,
 from .categorical import CategoricalData, ComparableArrayWrapper
 from .dataset import (DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
                       BrokenFile, DataSet, Subarray)
-from .dataset_utils import robust_target, selection_to_list
+from .dataset_utils import align_scans, robust_target, selection_to_list
 # FLAG_DESCRIPTIONS isn't used, but it's kept here for compatibility with
 # external code that might get it from here
 from .flags import DESCRIPTIONS as FLAG_DESCRIPTIONS  # noqa: F401
@@ -425,57 +425,8 @@ class VisibilityDataV4(DataSet):
             label = CategoricalData([''], all_dumps)
         # Use target sensor of reference antenna to set the target for each scan
         target = self.sensor.get(f'Antennas/{self.ref_ant}/target')
-
-        # If the antenna starts slewing on the second dump, incorporate the
-        # first dump into the slew too. This scenario typically occurs when the
-        # first target is only set after the first dump is received.
-        # The workaround avoids putting the first dump in a scan by itself,
-        # typically with an irrelevant target.
-        if len(scan) > 1 and scan.events[1] == 1 and scan[1] == 'slew':
-            scan.events, scan.indices = scan.events[1:], scan.indices[1:]
-            scan.events[0] = 0
-        # Discard empty labels (typically found in raster scans, where first
-        # scan has proper label and rest are empty) However, if all labels are
-        # empty, keep them, otherwise whole data set will be one pathological
-        # compscan...
-        if len(label.unique_values) > 1:
-            label.remove('')
-        # Create duplicate scan events where labels are set during a scan
-        # (i.e. not at start of scan)
-        # ASSUMPTION: Number of scans >= number of labels
-        # (i.e. each label should introduce a new scan)
-        scan.add_unmatched(label.events)
-        # Move proper label events onto the nearest scan start
-        # ASSUMPTION: Number of labels <= number of scans
-        # (i.e. only a single label allowed per scan)
-        label.align(scan.events)
-        # If one or more scans at start of data set have no corresponding label,
-        # add a default label for them
-        if label.events[0] > 0:
-            label.add(0, '')
-        # Move target events onto the nearest scan start
-        # ASSUMPTION: Number of targets <= number of scans
-        # (i.e. only a single target allowed per scan)
-        target.align(scan.events)
-        # Remove repeats introduced by scan alignment (e.g. when sequence of
-        # targets [A, B, A] becomes [A, A] if B and second A are in same scan)
-        target.remove_repeats()
-        # Remove initial target if antennas start in mode STOP
-        # (typically left over from previous capture block)
-        for segment, scan_state in scan.segments():
-            # Keep going until first non-STOP scan or a new target is set
-            if scan_state == 'stop' and target[segment.start] is target[0]:
-                continue
-            # Only remove initial target event if we move to a different target
-            if target[segment.start] is not target[0]:
-                # Only lose 1 event because target sensor doesn't allow repeats
-                target.events = target.events[1:]
-                target.indices = target.indices[1:]
-                target.events[0] = 0
-                # Remove initial target from target.unique_values if not used
-                target.align(target.events)
-            break
-
+        # Align the various sensors and store them as observation sensors
+        scan, label, target = align_scans(scan, label, target)
         self.sensor['Observation/scan_state'] = scan
         self.sensor['Observation/scan_index'] = CategoricalData(list(range(len(scan))),
                                                                 scan.events)
