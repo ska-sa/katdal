@@ -768,3 +768,111 @@ def sensor_to_categorical(sensor_timestamps, sensor_values, dump_midtimes,
         events = events[changes_value]
     # Last event is fixed at one-past-last-dump to indicate end of last segment
     return CategoricalData(sensor_values, np.r_[events, num_dumps])
+
+
+def tabulate_categorical(sensors, names=None, indent=0, pad=1):
+    """Represent multiple categorical sensors as a table in string form.
+
+    This is useful for debugging sensors and setting up unit tests.
+
+    Parameters
+    ----------
+    sensors : dict-like mapping str to :class:`CategoricalData`
+        Cache of categorical sensors
+    names : sequence of str, optional
+        Sequence of sensor names that will be output [defaults to all sensors]
+    indent : int, optional
+        Indent table by adding this many spaces at the start of every row
+    pad : int, optional
+        Extra whitespace between columns in table
+
+    Returns
+    -------
+    table : str
+        Tabular string representation with time as rows and sensors as columns
+
+    Notes
+    -----
+    The tabular string format is designed to be simple when used as a string
+    literal in unit tests. This is why it starts and ends with a newline (aligns
+    columns in the literal) and strips trailing whitespace (editor-friendly).
+    """
+    if names is None:
+        names = sensors.keys()
+    dump_heading = 'Dumps  '
+    dump_width = len(dump_heading) - 1
+    values = []
+    dumps = []
+    last_dumps = []
+    widths = [len(dump_heading)]
+    offsets = []
+    headings = []
+    # Collect sensor information
+    for name in names:
+        sensor = sensors.get(name)
+        sensor_dumps = sensor.events[:-1]
+        sensor_values = [sensor.unique_values[i] for i in sensor.indices]
+        # Indicate empty sensor value with uncommon " character
+        sensor_values = [(v if v != '' else '"') for v in sensor_values]
+        value_width = max(len(str(v)) for v in sensor_values)
+        offset = sum(widths)
+        width = max(len(name), value_width) + pad
+        values.extend(f'{v!s:{width}.{width}}' for v in sensor_values)
+        dumps.extend(sensor_dumps)
+        last_dumps.append(sensor.events[-1])
+        widths.append(width + 1)
+        offsets.extend(len(sensor_dumps) * [offset])
+        headings.append(f'{name!s:{width+1}.{width+1}}')
+    assert len(set(last_dumps)) == 1, 'Sensors cover different number of dumps'
+    # Assemble lines of text representing rows in a table (one per unique dump)
+    unique_dumps, dump_index = np.unique(dumps, return_inverse=True)
+    text_block = np.full((len(unique_dumps), sum(widths)), ' ')
+    for n, index in enumerate(dump_index):
+        dump = unique_dumps[index]
+        dump_string = f'{dump!s:{dump_width}.{dump_width}}'
+        text_block[index][:dump_width] = list(dump_string)
+        offset = offsets[n]
+        value = values[n]
+        slot = slice(offset, offset + len(value))
+        text_block[index][slot] = list(value)
+    title = dump_heading + ''.join(headings)
+    # Start and end with a newline, indent and strip trailing whitespace
+    header = ['', title.rstrip(), len(title) * '-']
+    body = [''.join(line).rstrip() for line in text_block]
+    footer = [str(last_dumps[0]), '']
+    return ('\n' + indent * ' ').join(header + body + footer)
+
+
+def parse_categorical_table(table):
+    """Turn tabular string representation back into categorical sensors.
+
+    Parameters
+    ----------
+    table : str
+        Tabular string representation produced by :func:`tabulate_categorical`
+
+    Returns
+    -------
+    sensors : dict mapping str to :class:`CategoricalData`
+        Cache of string-valued categorical sensors (no string evaluation)
+    """
+    lines = table.split('\n')[1:-1]
+    names = lines[0].split()[1:]
+    columns = [lines[0].index(name) for name in names] + [None]
+    sensors = {}
+    for line in lines[2:-1]:
+        dump = int(line[:columns[0]])
+        for name, start, stop in zip(names, columns[:-1], columns[1:]):
+            value = line[start:stop].strip()
+            if value == '':
+                continue
+            if value == '"':
+                value = ''
+            sensor = sensors.setdefault(name, [[], []])
+            sensor[0].append(value)
+            sensor[1].append(dump)
+    last_dump = int(lines[-1])
+    for name, sensor in sensors.items():
+        sensor[1].append(last_dump)
+        sensors[name] = CategoricalData(*sensor)
+    return sensors

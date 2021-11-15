@@ -17,9 +17,12 @@
 """Tests for :py:mod:`katdal.categorical`."""
 
 import numpy as np
+from nose.tools import assert_equal
 from numpy.testing import assert_array_equal
 
-from katdal.categorical import _single_event_per_dump, sensor_to_categorical
+from katdal.categorical import (_single_event_per_dump,
+                                parse_categorical_table, sensor_to_categorical,
+                                tabulate_categorical)
 
 
 def test_dump_to_event_parsing():
@@ -48,3 +51,28 @@ def test_categorical_sensor_creation():
                        'Sensor->categorical failed')
     assert_array_equal(categ.indices, [0, 1, 0, 1, 0],
                        'Sensor->categorical failed')
+
+
+TABLE = """
+Dumps  Label  Target  Scan
+-----------------------------
+0      "      A       track
+5      track          track
+306    track  B       track
+308                   slew
+353                   track
+652    track  C       track
+654                   slew
+666
+"""
+
+
+def test_tabulate_categorical():
+    sensors = parse_categorical_table(TABLE)
+    derived_table = tabulate_categorical(sensors)
+    assert_equal(derived_table, TABLE)
+    assert_equal(sensors['Label'][0], '')
+    assert_array_equal(sensors['Label'].events, [0, 5, 306, 652, 666])
+    assert_array_equal(sensors['Target'].events, [0, 306, 652, 666])
+    assert_array_equal(sensors['Scan'].events,
+                       [0, 5, 306, 308, 353, 652, 654, 666])
