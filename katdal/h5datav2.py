@@ -16,6 +16,7 @@
 
 """Data accessor class for HDF5 files produced by KAT-7 correlator."""
 
+import copy
 import logging
 import pathlib
 import secrets
@@ -340,6 +341,7 @@ class H5DataV2(DataSet):
         # Use labels to partition the data set into compound scans
         label = sensor_to_categorical(markup_group['labels']['timestamp'], to_str(markup_group['labels']['label'][:]),
                                       data_timestamps, self.dump_period, **SENSOR_PROPS['Observation/label'])
+        self.sensor['obs_label'] = copy.deepcopy(label)
         # Use the target sensor of reference antenna to set the target for each scan
         target = self.sensor.get(f'Antennas/{self.ref_ant}/target')
 

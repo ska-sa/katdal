@@ -16,6 +16,7 @@
 
 """Data accessor class for HDF5 files produced by RTS correlator."""
 
+import copy
 import logging
 import pathlib
 import secrets
@@ -552,6 +553,7 @@ class H5DataV3(DataSet):
             label = self.sensor.get('Observation/label')
         except KeyError:
             label = CategoricalData([''], [0, num_dumps])
+        self.sensor['obs_label'] = copy.deepcopy(label)
         # Use the target sensor of reference antenna to set the target for each scan
         target = self.sensor.get(f'Antennas/{self.ref_ant}/target')
 
