@@ -18,7 +18,9 @@
 
 from nose.tools import assert_equal
 
-from katdal.dataset_utils import parse_url_or_path, selection_to_list
+from katdal.categorical import parse_categorical_table, tabulate_categorical
+from katdal.dataset_utils import (align_scans, parse_url_or_path,
+                                  selection_to_list)
 
 
 def test_parse_url_or_path():
@@ -54,3 +56,39 @@ def test_selection_to_list():
     assert_equal(selection_to_list(1), [1])
     # Groups
     assert_equal(selection_to_list('all', all=['a', 'b']), ['a', 'b'])
+
+
+ALIGN_SCANS_TEST_CASES = [(
+    # extract_scan_alignment.py 1629113328_sdp_l0.full.rdb
+    # BEFORE
+    """
+    Dumps  Label   Target  Scan
+    ------------------------------
+    0      "       A       stop
+    4      track           slew
+    6                      track
+    14     raster          scan
+    183
+    """,
+    # AFTER
+    """
+    Dumps  Label   Target  Scan
+    ------------------------------
+    0      "       A       stop
+    4      track           slew
+    6                      track
+    14     raster          scan
+    183
+    """)
+]
+
+
+def test_align_scans():
+    names = 'Scan Label Target'.split()
+    for before, expected in ALIGN_SCANS_TEST_CASES:
+        indent = len(expected) - len(expected.lstrip()) - 1
+        sensors_in = parse_categorical_table(before)
+        sensors_out = align_scans(*(sensors_in[name] for name in names))
+        sensors_out = dict(zip(names, sensors_out))
+        actual = tabulate_categorical(sensors_out, list(sensors_in.keys()), indent)
+        assert_equal(actual, expected)
