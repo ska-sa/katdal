@@ -79,6 +79,88 @@ ALIGN_SCANS_TEST_CASES = [(
     6                      track
     14     raster          scan
     183
+    """), (
+    # extract_scan_alignment.py 1615463457_sdp_l0.full.rdb --dumps=70
+    # BEFORE
+    """
+    Dumps  Label                     Target  Scan
+    ------------------------------------------------
+    0      interferometric_pointing  A       slew
+    54                                       track
+    63                               B
+    64                                       slew
+    69                                       track
+    70
+    """,
+    # AFTER
+    """
+    Dumps  Label                     Target  Scan
+    ------------------------------------------------
+    0      interferometric_pointing  A       slew
+    54                                       track
+    64                               B       slew
+    69                                       track
+    70
+    """), (
+    # OPS-1631 / SPR1-1177
+    # extract_scan_alignment.py 1612141271_sdp_l0.full.rdb --dumps 666
+    # BEFORE
+    """
+    Dumps  Label  Target  Scan
+    -----------------------------
+    0      "      A       track
+    5      track
+    306    track
+    307           B
+    308                   slew
+    353                   track
+    652    track
+    653           C
+    654                   slew
+    666
+    """,
+    # AFTER
+    """
+    Dumps  Label  Target  Scan
+    -----------------------------
+    0      "      A       track
+    5      track          track
+    306    track  B       track
+    308                   slew
+    353                   track
+    652    track  C       track
+    654                   slew
+    666
+    """), (
+    # OPS-1631 / SPR1-1177
+    # extract_scan_alignment.py 1622455035_sdp_l0.full.rdb --dumps 1000
+    # BEFORE
+    """
+    Dumps  Label  Target  Scan
+    -----------------------------
+    0      "      A       slew
+    2      track          track
+    483    track
+    484           B
+    485                   slew
+    513                   track
+    992    track
+    993           C
+    994                   slew
+    1000
+    """,
+    # AFTER
+    """
+    Dumps  Label  Target  Scan
+    -----------------------------
+    0      "      A       slew
+    2      track          track
+    483    track  B       track
+    485                   slew
+    513                   track
+    992    track  C       track
+    994                   slew
+    1000
     """)
 ]
 
