@@ -1,6 +1,18 @@
 History
 =======
 
+0.19 (2021-11-23)
+-----------------
+* Support scans and non-radec targets like planets in mvftoms (#333)
+* Expose the raw flags of MVF4 datasets (#335)
+* Expose CBF F-engine sensors: applied delays, phases and gains (#338)
+* Verify that S3 bucket is not empty to detect datasets archived to tape (#344)
+* Populate SIGMA_SPECTRUM and redo SIGMA and WEIGHT in mvftoms (#347)
+* Have a sensible DataSet.name and also add a separate DataSet.url (#337)
+* Allow deselection of antennas using '~m0XX' (#340)
+* Allow nested DaskLazyIndexers (#336)
+* Fix mvftoms on macOS and Python 3.8+ (#339)
+
 0.18 (2021-04-20)
 -----------------
 * Switch to PyJWT 2 and Python 3.6, cleaning up Python 2 relics (#321 - #323)
