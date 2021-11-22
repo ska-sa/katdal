@@ -18,8 +18,9 @@
 
 # Update the antenna positions in the specified HDF5 file.
 
-import h5py
 import sys
+
+import h5py
 
 if len(sys.argv) < 2:
     print("Update antenna positions in the specified HDF5 file.\n\nUsage: fix_ant_positions.py <filename.h5>\n")

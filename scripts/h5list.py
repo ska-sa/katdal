@@ -23,9 +23,9 @@
 # 19 December 2011
 #
 
-import os
-import optparse
 import glob
+import optparse
+import os
 
 import katdal
 
