@@ -31,7 +31,7 @@ from .dataset import (DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
                       _selection_to_list)
 # FLAG_DESCRIPTIONS isn't used, but it's kept here for compatibility with
 # external code that might get it from here
-from .flags import DESCRIPTIONS as FLAG_DESCRIPTIONS
+from .flags import DESCRIPTIONS as FLAG_DESCRIPTIONS  # noqa: F401
 from .flags import NAMES as FLAG_NAMES  # noqa: F401
 from .lazy_indexer import DaskLazyIndexer
 from .sensordata import SensorCache, SimpleSensorGetter
