@@ -19,14 +19,15 @@
 import logging
 import re
 import threading
+
 try:
     from collections.abc import MutableMapping
 except ImportError:
     from collections import MutableMapping
 
-import numpy as np
 import katpoint
 import katsdptelstate
+import numpy as np
 import requests
 
 from .categorical import (ComparableArrayWrapper, infer_dtype,

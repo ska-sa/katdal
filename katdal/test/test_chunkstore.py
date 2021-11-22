@@ -16,15 +16,15 @@
 
 """Tests for :py:mod:`katdal.chunkstore`."""
 
-import numpy as np
-from numpy.testing import assert_array_equal
-from nose.tools import (assert_raises, assert_equal, assert_true,
-                        assert_false, assert_is_instance)
 import dask.array as da
+import numpy as np
+from nose.tools import (assert_equal, assert_false, assert_is_instance,
+                        assert_raises, assert_true)
+from numpy.testing import assert_array_equal
 
-from katdal.chunkstore import (ChunkStore, generate_chunks,
-                               StoreUnavailable, ChunkNotFound, BadChunk,
-                               PlaceholderChunk)
+from katdal.chunkstore import (BadChunk, ChunkNotFound, ChunkStore,
+                               PlaceholderChunk, StoreUnavailable,
+                               generate_chunks)
 
 
 class TestGenerateChunks:

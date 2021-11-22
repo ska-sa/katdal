@@ -17,13 +17,15 @@
 """Tests for :py:mod:`katdal.sensordata`."""
 
 from collections import OrderedDict
-
-import numpy as np
-from nose.tools import assert_equal, assert_in, assert_not_in, assert_raises, assert_is_instance
 from unittest import mock
 
-from katdal.sensordata import (SensorCache, SensorData, SimpleSensorGetter, to_str,
-                               remove_duplicates_and_invalid_values, telstate_decode)
+import numpy as np
+from nose.tools import (assert_equal, assert_in, assert_is_instance,
+                        assert_not_in, assert_raises)
+
+from katdal.sensordata import (SensorCache, SensorData, SimpleSensorGetter,
+                               remove_duplicates_and_invalid_values,
+                               telstate_decode, to_str)
 
 
 def assert_equal_typed(a, b):

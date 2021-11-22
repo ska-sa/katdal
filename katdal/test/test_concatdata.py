@@ -20,8 +20,8 @@ import numpy as np
 from nose.tools import assert_equal, assert_in, assert_not_in, assert_raises
 
 from katdal.categorical import CategoricalData
-from katdal.sensordata import SensorCache, SimpleSensorGetter
 from katdal.concatdata import ConcatenatedSensorCache
+from katdal.sensordata import SensorCache, SimpleSensorGetter
 
 
 class TestConcatenatedSensorCache:

@@ -17,14 +17,14 @@
 """Tests for :py:mod:`katdal.chunkstore_npy`."""
 
 import os
-import tempfile
 import shutil
+import tempfile
 
 from nose import SkipTest
 from nose.tools import assert_raises
 
-from katdal.chunkstore_npy import NpyFileChunkStore
 from katdal.chunkstore import StoreUnavailable
+from katdal.chunkstore_npy import NpyFileChunkStore
 from katdal.test.test_chunkstore import ChunkStoreTestBase
 
 

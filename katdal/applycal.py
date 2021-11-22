@@ -18,15 +18,14 @@
 
 import logging
 
-import numpy as np
 import dask.array as da
 import numba
+import numpy as np
 
 from .categorical import CategoricalData, ComparableArrayWrapper
+from .flags import POSTPROC
 from .sensordata import SensorGetter, SimpleSensorGetter
 from .spectral_window import SpectralWindow
-from .flags import POSTPROC
-
 
 # A constant indicating invalid / absent gain (typically due to flagged data)
 INVALID_GAIN = np.complex64(complex(np.nan, np.nan))

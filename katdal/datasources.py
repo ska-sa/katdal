@@ -16,21 +16,20 @@
 
 """Various sources of correlator data and metadata."""
 
-import urllib.parse
-import os.path
 import io
 import logging
+import os.path
+import urllib.parse
 
 import katsdptelstate
 import numpy as np
 
-from .sensordata import TelstateSensorGetter, TelstateToStr
-from .chunkstore_s3 import S3ChunkStore
-from .chunkstore_npy import NpyFileChunkStore
 from .chunkstore import ChunkStoreError
-from .vis_flags_weights import ChunkStoreVisFlagsWeights
+from .chunkstore_npy import NpyFileChunkStore
+from .chunkstore_s3 import S3ChunkStore
 from .dataset import parse_url_or_path
-
+from .sensordata import TelstateSensorGetter, TelstateToStr
+from .vis_flags_weights import ChunkStoreVisFlagsWeights
 
 logger = logging.getLogger(__name__)
 

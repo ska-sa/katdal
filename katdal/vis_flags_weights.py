@@ -19,17 +19,16 @@
 import itertools
 import logging
 
-import numpy as np
 import dask.array as da
+import numba
+import numpy as np
+import toolz
 from dask.array.rechunk import intersect_chunks
 from dask.highlevelgraph import HighLevelGraph
-import toolz
-import numba
 
 from .chunkstore import PlaceholderChunk
 from .flags import DATA_LOST
 from .van_vleck import autocorr_lookup_table
-
 
 logger = logging.getLogger(__name__)
 

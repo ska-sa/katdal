@@ -18,13 +18,13 @@
 
 import copy
 import threading
+from functools import partial, reduce
 from numbers import Integral
-from functools import reduce, partial
 
-import numpy as np
 import dask.array as da
 import dask.highlevelgraph
 import dask.optimization
+import numpy as np
 
 # TODO support advanced integer indexing with non-strictly increasing indices (i.e. out-of-order and duplicates)
 

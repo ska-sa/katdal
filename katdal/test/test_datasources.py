@@ -16,22 +16,22 @@
 
 """Tests for :py:mod:`katdal.datasources`."""
 
-import urllib.parse
-import tempfile
-import shutil
 import os
+import shutil
+import tempfile
+import urllib.parse
 
-import numpy as np
-from nose.tools import assert_raises
 import katsdptelstate
+import numpy as np
 from katsdptelstate.rdb_writer import RDBWriter
+from nose.tools import assert_raises
 
 from katdal.chunkstore_npy import NpyFileChunkStore
-from katdal.datasources import (TelstateDataSource, view_l0_capture_stream, open_data_source,
-                                DataSourceNotFound)
+from katdal.datasources import (DataSourceNotFound, TelstateDataSource,
+                                open_data_source, view_l0_capture_stream)
 from katdal.flags import DATA_LOST
-from katdal.vis_flags_weights import correct_autocorr_quantisation
 from katdal.test.test_vis_flags_weights import put_fake_dataset
+from katdal.vis_flags_weights import correct_autocorr_quantisation
 
 
 def _make_fake_stream(telstate, store, cbid, stream, shape,

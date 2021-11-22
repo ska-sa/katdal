@@ -16,7 +16,7 @@
 
 """A store of chunks (i.e. N-dimensional arrays) based on a dict of arrays."""
 
-from .chunkstore import ChunkStore, ChunkNotFound, BadChunk
+from .chunkstore import BadChunk, ChunkNotFound, ChunkStore
 
 
 class DictChunkStore(ChunkStore):

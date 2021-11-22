@@ -25,13 +25,13 @@ not be suited to other use cases. It is put into a separate module as a
 workaround for https://bugs.python.org/issue9914.
 """
 
-from collections import namedtuple
 import contextlib
 import multiprocessing
 import multiprocessing.sharedctypes
+from collections import namedtuple
 
-import numpy as np
 import katpoint
+import numpy as np
 
 from . import ms_extra
 

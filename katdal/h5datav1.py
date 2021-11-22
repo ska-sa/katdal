@@ -17,21 +17,21 @@
 """Data accessor class for HDF5 files produced by Fringe Finder correlator."""
 
 import logging
-import re
 import pathlib
+import re
 
-import numpy as np
 import h5py
 import katpoint
+import numpy as np
 
-from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray,
-                      DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
-                      _robust_target)
-from .spectral_window import SpectralWindow
-from .sensordata import RecordSensorGetter, SensorCache, to_str
 from .categorical import CategoricalData
-from .lazy_indexer import LazyIndexer, LazyTransform
 from .concatdata import ConcatenatedLazyIndexer
+from .dataset import (DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
+                      BrokenFile, DataSet, Subarray, WrongVersion,
+                      _robust_target)
+from .lazy_indexer import LazyIndexer, LazyTransform
+from .sensordata import RecordSensorGetter, SensorCache, to_str
+from .spectral_window import SpectralWindow
 
 logger = logging.getLogger(__name__)
 

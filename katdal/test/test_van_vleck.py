@@ -16,7 +16,7 @@
 
 import numpy as np
 
-from katdal.van_vleck import norm0_cdf, autocorr_lookup_table
+from katdal.van_vleck import autocorr_lookup_table, norm0_cdf
 
 
 def test_norm0_cdf():

@@ -18,8 +18,8 @@
 
 import math
 
-import numpy as np
 import numba
+import numpy as np
 
 
 @numba.vectorize(['f8(f8, f8)'], nopython=True, cache=True)

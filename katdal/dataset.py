@@ -16,17 +16,15 @@
 
 """Base class for accessing a visibility data set."""
 
-import time
 import logging
 import numbers
 import pathlib
+import time
 import urllib.parse
 
-import numpy as np
-
 import katpoint
+import numpy as np
 from katpoint import is_iterable, rad2deg
-
 
 logger = logging.getLogger(__name__)
 

@@ -24,10 +24,10 @@ import os
 import os.path
 from copy import deepcopy
 
-import numpy as np
-from pkg_resources import parse_version
 import casacore
+import numpy as np
 from casacore import tables
+from pkg_resources import parse_version
 
 # Perform python-casacore version checks
 pyc_ver = parse_version(casacore.__version__)

@@ -16,14 +16,14 @@
 
 """A store of chunks (i.e. N-dimensional arrays) based on NPY files."""
 
-import os
+import contextlib
 import errno
 import mmap
-import contextlib
+import os
 
 import numpy as np
 
-from .chunkstore import (ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk,
+from .chunkstore import (BadChunk, ChunkNotFound, ChunkStore, StoreUnavailable,
                          npy_header_and_body)
 
 

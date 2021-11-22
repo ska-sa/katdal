@@ -18,13 +18,13 @@
 
 import contextlib
 import functools
-import uuid
 import io
+import uuid
 
-import numpy as np
 import dask
 import dask.array as da
 import dask.highlevelgraph
+import numpy as np
 
 
 class ChunkStoreError(Exception):

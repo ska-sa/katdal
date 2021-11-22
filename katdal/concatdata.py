@@ -21,11 +21,12 @@ from functools import reduce
 
 import numpy as np
 
-from .lazy_indexer import LazyIndexer
-from .sensordata import SensorGetter, SensorData, SensorCache, dummy_sensor_getter
-from .categorical import (CategoricalData, unique_in_order,
-                          concatenate_categorical)
+from .categorical import (CategoricalData, concatenate_categorical,
+                          unique_in_order)
 from .dataset import DataSet
+from .lazy_indexer import LazyIndexer
+from .sensordata import (SensorCache, SensorData, SensorGetter,
+                         dummy_sensor_getter)
 
 
 class ConcatenationError(Exception):

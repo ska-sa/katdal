@@ -16,15 +16,15 @@
 
 """Tests for :py:mod:`katdal.dataset`."""
 
-from nose.tools import assert_equal
 import numpy as np
-from numpy.testing import assert_array_equal, assert_array_almost_equal
-from katpoint import Target, Antenna, Timestamp, rad2deg
+from katpoint import Antenna, Target, Timestamp, rad2deg
+from nose.tools import assert_equal
+from numpy.testing import assert_array_almost_equal, assert_array_equal
 
-from katdal.dataset import (_selection_to_list, DataSet, Subarray,
-                            DEFAULT_VIRTUAL_SENSORS, parse_url_or_path)
-from katdal.sensordata import SensorCache
 from katdal.categorical import CategoricalData
+from katdal.dataset import (DEFAULT_VIRTUAL_SENSORS, DataSet, Subarray,
+                            _selection_to_list, parse_url_or_path)
+from katdal.sensordata import SensorCache
 from katdal.spectral_window import SpectralWindow
 
 
