@@ -122,7 +122,7 @@ def parse_url_or_path(url_or_path):
     url_parts = urllib.parse.urlparse(url_or_path)
     # Assume filesystem path if there is no scheme (unless url is empty string)
     if not url_parts.scheme and url_parts.path:
-       # A file:// URL expects an absolute path (local paths can't be located)
+        # A file:// URL expects an absolute path (local paths can't be located)
         absolute_path = str(pathlib.Path(url_parts.path).absolute())
         # Note to self: namedtuple._replace is not a private method, despite the underscore!
         url_parts = url_parts._replace(scheme='file', path=absolute_path)
@@ -838,10 +838,10 @@ class DataSet:
                 if _is_deselection(ant_names):
                     ant_names = [ant_name[1:] for ant_name in ant_names]
                     self._corrprod_keep &= [(inpA[:-1] not in ant_names and inpB[:-1] not in ant_names)
-                                        for inpA, inpB in self.subarrays[self.subarray].corr_products]
+                                            for inpA, inpB in self.subarrays[self.subarray].corr_products]
                 else:
                     self._corrprod_keep &= [(inpA[:-1] in ant_names and inpB[:-1] in ant_names)
-                                        for inpA, inpB in self.subarrays[self.subarray].corr_products]
+                                            for inpA, inpB in self.subarrays[self.subarray].corr_products]
             elif k == 'inputs':
                 inps = _selection_to_list(v)
                 self._corrprod_keep &= [(inpA in inps and inpB in inps)

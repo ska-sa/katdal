@@ -16,7 +16,6 @@
 
 """Class for concatenating visibility data sets."""
 
-import os.path
 import itertools
 from functools import reduce
 

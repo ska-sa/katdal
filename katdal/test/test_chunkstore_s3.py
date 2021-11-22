@@ -37,7 +37,6 @@ import http.server
 import urllib.parse
 import contextlib
 import io
-import os
 import warnings
 import re
 import pathlib

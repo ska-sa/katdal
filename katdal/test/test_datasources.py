@@ -79,9 +79,9 @@ def _make_fake_stream(telstate, store, cbid, stream, shape,
 
 
 def make_fake_data_source(telstate, store, l0_shape, cbid='cb', l1_flags_shape=None,
-                         l0_chunk_overrides=None, l1_flags_chunk_overrides=None,
-                         l0_array_overrides=None, l1_flags_array_overrides=None,
-                         bls_ordering_override=None):
+                          l0_chunk_overrides=None, l1_flags_chunk_overrides=None,
+                          l0_array_overrides=None, l1_flags_array_overrides=None,
+                          bls_ordering_override=None):
     """Create a complete fake data source.
 
     The resulting telstate and chunk store are suitable for constructing
@@ -155,14 +155,11 @@ class TestTelstateDataSource:
         view, cbid, sn, l0_data, l1_flags_data = \
             make_fake_data_source(self.telstate, self.store, (20, 64, 40))
         with assert_raises(IndexError):
-            data_source = TelstateDataSource(view, cbid, sn, self.store,
-                                             preselect=dict(dumps=np.s_[[1, 2]]))
+            TelstateDataSource(view, cbid, sn, self.store, preselect=dict(dumps=np.s_[[1, 2]]))
         with assert_raises(IndexError):
-            data_source = TelstateDataSource(view, cbid, sn, self.store,
-                                             preselect=dict(dumps=np.s_[5:0:-1]))
+            TelstateDataSource(view, cbid, sn, self.store, preselect=dict(dumps=np.s_[5:0:-1]))
         with assert_raises(IndexError):
-            data_source = TelstateDataSource(view, cbid, sn, self.store,
-                                             preselect=dict(frequencies=np.s_[:]))
+            TelstateDataSource(view, cbid, sn, self.store, preselect=dict(frequencies=np.s_[:]))
 
     def test_preselect(self):
         view, cbid, sn, l0_data, l1_flags_data = \
@@ -251,7 +248,7 @@ class TestTelstateDataSource:
         l0_shape = (18, 16, 40)
         l1_flags_shape = (20, 8, 40)
         view, cbid, sn, _, _ = make_fake_data_source(self.telstate, self.store, l0_shape,
-                                                    l1_flags_shape=l1_flags_shape)
+                                                     l1_flags_shape=l1_flags_shape)
         with assert_raises(ValueError):
             TelstateDataSource(view, cbid, sn, self.store)
 

@@ -498,7 +498,7 @@ def calc_correction_per_corrprod(dump, channels, params):
 
 def _correction_block(block_info, params):
     """Calculate applycal correction for a single time-freq-baseline chunk."""
-    slices = tuple(slice(*l) for l in block_info[None]['array-location'])
+    slices = tuple(slice(*loc) for loc in block_info[None]['array-location'])
     block_shape = block_info[None]['chunk-shape']
     correction = np.empty(block_shape, np.complex64)
     # TODO: make calc_correction_per_corrprod multi-dump aware

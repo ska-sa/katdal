@@ -508,7 +508,7 @@ class ChunkStore:
                     stop_chunk -= 1
                     c = chunks[axis][stop_chunk]
                     shape[axis] -= c
-                chunks[axis] = chunks[axis][start_chunk : stop_chunk]
+                chunks[axis] = chunks[axis][start_chunk:stop_chunk]
                 if not chunks[axis]:
                     chunks[axis] = (0,)   # Dask doesn't allow empty chunk lists
                 index[axis] = slice(start, stop)

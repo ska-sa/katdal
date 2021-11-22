@@ -30,7 +30,6 @@ should not be used.
 import contextlib
 import os
 import pathlib
-import socket
 import subprocess
 import time
 import urllib.parse
