@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2018-2019, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2018-2021, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -25,13 +25,13 @@ not be suited to other use cases. It is put into a separate module as a
 workaround for https://bugs.python.org/issue9914.
 """
 
-from collections import namedtuple
 import contextlib
 import multiprocessing
 import multiprocessing.sharedctypes
+from collections import namedtuple
 
-import numpy as np
 import katpoint
+import numpy as np
 
 from . import ms_extra
 

@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2011-2019, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2011-2021, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -16,17 +16,17 @@
 
 """Class for concatenating visibility data sets."""
 
-import os.path
 import itertools
 from functools import reduce
 
 import numpy as np
 
-from .lazy_indexer import LazyIndexer
-from .sensordata import SensorGetter, SensorData, SensorCache, dummy_sensor_getter
-from .categorical import (CategoricalData, unique_in_order,
-                          concatenate_categorical)
+from .categorical import (CategoricalData, concatenate_categorical,
+                          unique_in_order)
 from .dataset import DataSet
+from .lazy_indexer import LazyIndexer
+from .sensordata import (SensorCache, SensorData, SensorGetter,
+                         dummy_sensor_getter)
 
 
 class ConcatenationError(Exception):

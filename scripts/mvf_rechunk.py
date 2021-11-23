@@ -2,21 +2,22 @@
 
 """Rechunk an existing MVF dataset"""
 
-import sys
-import os
-import re
 import argparse
 import multiprocessing
+import os
+import re
+import sys
 import urllib.parse
 
-from katsdptelstate.rdb_writer import RDBWriter
-import numpy as np
 import dask
 import dask.array as da
+import numpy as np
+from katsdptelstate.rdb_writer import RDBWriter
 
 from katdal.chunkstore import ChunkStoreError
 from katdal.chunkstore_npy import NpyFileChunkStore
-from katdal.datasources import TelstateDataSource, view_capture_stream, infer_chunk_store
+from katdal.datasources import (TelstateDataSource, infer_chunk_store,
+                                view_capture_stream)
 from katdal.flags import DATA_LOST
 
 

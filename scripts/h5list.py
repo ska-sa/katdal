@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 ################################################################################
-# Copyright (c) 2011-2019, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2011-2021, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -23,9 +23,9 @@
 # 19 December 2011
 #
 
-import os
-import optparse
 import glob
+import optparse
+import os
 
 import katdal
 

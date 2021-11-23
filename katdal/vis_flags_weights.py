@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2017-2019, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2017-2021, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -19,17 +19,16 @@
 import itertools
 import logging
 
-import numpy as np
 import dask.array as da
+import numba
+import numpy as np
+import toolz
 from dask.array.rechunk import intersect_chunks
 from dask.highlevelgraph import HighLevelGraph
-import toolz
-import numba
 
 from .chunkstore import PlaceholderChunk
 from .flags import DATA_LOST
 from .van_vleck import autocorr_lookup_table
-
 
 logger = logging.getLogger(__name__)
 

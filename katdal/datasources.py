@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2017-2019, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2017-2021, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -16,21 +16,20 @@
 
 """Various sources of correlator data and metadata."""
 
-import urllib.parse
-import os.path
 import io
 import logging
+import os.path
+import urllib.parse
 
 import katsdptelstate
 import numpy as np
 
-from .sensordata import TelstateSensorGetter, TelstateToStr
-from .chunkstore_s3 import S3ChunkStore
-from .chunkstore_npy import NpyFileChunkStore
 from .chunkstore import ChunkStoreError
-from .vis_flags_weights import ChunkStoreVisFlagsWeights
+from .chunkstore_npy import NpyFileChunkStore
+from .chunkstore_s3 import S3ChunkStore
 from .dataset import parse_url_or_path
-
+from .sensordata import TelstateSensorGetter, TelstateToStr
+from .vis_flags_weights import ChunkStoreVisFlagsWeights
 
 logger = logging.getLogger(__name__)
 

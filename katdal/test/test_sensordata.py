@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2018-2019, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2018-2021, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -17,13 +17,15 @@
 """Tests for :py:mod:`katdal.sensordata`."""
 
 from collections import OrderedDict
-
-import numpy as np
-from nose.tools import assert_equal, assert_in, assert_not_in, assert_raises, assert_is_instance
 from unittest import mock
 
-from katdal.sensordata import (SensorCache, SensorData, SimpleSensorGetter, to_str,
-                               remove_duplicates_and_invalid_values, telstate_decode)
+import numpy as np
+from nose.tools import (assert_equal, assert_in, assert_is_instance,
+                        assert_not_in, assert_raises)
+
+from katdal.sensordata import (SensorCache, SensorData, SimpleSensorGetter,
+                               remove_duplicates_and_invalid_values,
+                               telstate_decode, to_str)
 
 
 def assert_equal_typed(a, b):

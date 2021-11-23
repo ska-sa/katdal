@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2017-2019, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2017-2021, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -27,40 +27,40 @@ an older version is detected, the test will be skipped.
 .. _race condition: https://github.com/minio/minio/issues/6324
 """
 
-import os
-import tempfile
-import shutil
-import threading
-import time
-import socket
-import http.server
-import urllib.parse
 import contextlib
+import http.server
 import io
 import os
-import warnings
-import re
 import pathlib
-from urllib3.util.retry import Retry
+import re
+import shutil
+import socket
+import tempfile
+import threading
+import time
+import urllib.parse
+import warnings
 
-import numpy as np
-from numpy.testing import assert_array_equal
-from nose import SkipTest
-from nose.tools import assert_raises, assert_equal, assert_in, assert_not_in, timed
-import requests
 import jwt
 import katsdptelstate
+import numpy as np
+import requests
 from katsdptelstate.rdb_writer import RDBWriter
+from nose import SkipTest
+from nose.tools import (assert_equal, assert_in, assert_not_in, assert_raises,
+                        timed)
+from numpy.testing import assert_array_equal
+from urllib3.util.retry import Retry
 
-from katdal.chunkstore_s3 import (S3ChunkStore, _AWSAuth, read_array,
-                                  decode_jwt, InvalidToken, TruncatedRead,
-                                  _DEFAULT_SERVER_GLITCHES)
-from katdal.chunkstore import StoreUnavailable, ChunkNotFound
-from katdal.test.test_chunkstore import ChunkStoreTestBase
-from katdal.test.s3_utils import S3User, S3Server, MissingProgram
+from katdal.chunkstore import ChunkNotFound, StoreUnavailable
+from katdal.chunkstore_s3 import (_DEFAULT_SERVER_GLITCHES, InvalidToken,
+                                  S3ChunkStore, TruncatedRead, _AWSAuth,
+                                  decode_jwt, read_array)
 from katdal.datasources import TelstateDataSource
-from katdal.test.test_datasources import make_fake_data_source, assert_telstate_data_source_equal
-
+from katdal.test.s3_utils import MissingProgram, S3Server, S3User
+from katdal.test.test_chunkstore import ChunkStoreTestBase
+from katdal.test.test_datasources import (assert_telstate_data_source_equal,
+                                          make_fake_data_source)
 
 # Use a standard bucket for most tests to ensure valid bucket name (regex '^[0-9a-z.-]{3,63}$')
 BUCKET = 'katdal-unittest'

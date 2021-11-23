@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2017-2019, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2017-2021, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -16,15 +16,15 @@
 
 """Tests for :py:mod:`katdal.chunkstore`."""
 
-import numpy as np
-from numpy.testing import assert_array_equal
-from nose.tools import (assert_raises, assert_equal, assert_true, assert_false,
-                        assert_is_instance, assert_is_none)
 import dask.array as da
+import numpy as np
+from nose.tools import (assert_equal, assert_false, assert_is_instance,
+                        assert_raises, assert_true)
+from numpy.testing import assert_array_equal
 
-from katdal.chunkstore import (ChunkStore, generate_chunks,
-                               StoreUnavailable, ChunkNotFound, BadChunk,
-                               PlaceholderChunk)
+from katdal.chunkstore import (BadChunk, ChunkNotFound, ChunkStore,
+                               PlaceholderChunk, StoreUnavailable,
+                               generate_chunks)
 
 
 class TestGenerateChunks:

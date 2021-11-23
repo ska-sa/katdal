@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2011-2019, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2011-2021, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -19,14 +19,14 @@
 import logging as _logging
 import urllib.parse
 
-from .datasources import open_data_source
-from .dataset import DataSet, WrongVersion
-from .spectral_window import SpectralWindow
-from .lazy_indexer import LazyTransform, dask_getitem
 from .concatdata import ConcatenatedDataSet
+from .dataset import DataSet, WrongVersion  # noqa: F401
+from .datasources import open_data_source
 from .h5datav1 import H5DataV1
 from .h5datav2 import H5DataV2
 from .h5datav3 import H5DataV3
+from .lazy_indexer import LazyTransform, dask_getitem  # noqa: F401
+from .spectral_window import SpectralWindow  # noqa: F401
 from .visdatav4 import VisibilityDataV4
 
 

@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2017-2019, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2017-2021, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -18,13 +18,13 @@
 
 import contextlib
 import functools
-import uuid
 import io
+import uuid
 
-import numpy as np
 import dask
 import dask.array as da
 import dask.highlevelgraph
+import numpy as np
 
 
 class ChunkStoreError(Exception):
@@ -508,7 +508,7 @@ class ChunkStore:
                     stop_chunk -= 1
                     c = chunks[axis][stop_chunk]
                     shape[axis] -= c
-                chunks[axis] = chunks[axis][start_chunk : stop_chunk]
+                chunks[axis] = chunks[axis][start_chunk:stop_chunk]
                 if not chunks[axis]:
                     chunks[axis] = (0,)   # Dask doesn't allow empty chunk lists
                 index[axis] = slice(start, stop)

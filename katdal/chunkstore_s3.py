@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2017-2019, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2017-2021, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -16,33 +16,33 @@
 
 """A store of chunks (i.e. N-dimensional arrays) based on the Amazon S3 API."""
 
+import base64
 import contextlib
+import copy
+import hashlib
+import json
 import threading
+import time
+import urllib.error
 import urllib.parse
 import urllib.request
-import urllib.error
-import hashlib
-import base64
-import copy
-import json
-import time
 
+import jwt
 import numpy as np
 import requests
-import jwt
+
 try:
-    import botocore.credentials
     import botocore.auth
+    import botocore.credentials
 except ImportError:
     botocore = None
-from urllib3.util.retry import Retry
-from urllib3.response import HTTPResponse
 from urllib3.exceptions import MaxRetryError
+from urllib3.response import HTTPResponse
+from urllib3.util.retry import Retry
 
-from .chunkstore import (ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk,
+from .chunkstore import (BadChunk, ChunkNotFound, ChunkStore, StoreUnavailable,
                          npy_header_and_body)
 from .sensordata import to_str
-
 
 # Lifecycle policies unfortunately use XML encoding rather than JSON.
 # Following path of least resistance we simply .format() this string

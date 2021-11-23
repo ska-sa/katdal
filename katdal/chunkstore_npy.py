@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2017-2019, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2017-2021, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -16,14 +16,14 @@
 
 """A store of chunks (i.e. N-dimensional arrays) based on NPY files."""
 
-import os
+import contextlib
 import errno
 import mmap
-import contextlib
+import os
 
 import numpy as np
 
-from .chunkstore import (ChunkStore, StoreUnavailable, ChunkNotFound, BadChunk,
+from .chunkstore import (BadChunk, ChunkNotFound, ChunkStore, StoreUnavailable,
                          npy_header_and_body)
 
 

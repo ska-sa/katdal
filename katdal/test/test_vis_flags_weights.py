@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2018-2019, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2018-2021, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -16,23 +16,23 @@
 
 """Tests for :py:mod:`katdal.vis_flags_weights`."""
 
-import tempfile
-import shutil
+import itertools
 import os
 import random
-import itertools
+import shutil
+import tempfile
 
-import numpy as np
-from numpy.testing import assert_array_equal
-from nose.tools import assert_equal, assert_raises
 import dask.array as da
+import numpy as np
+from nose.tools import assert_equal, assert_raises
+from numpy.testing import assert_array_equal
 
 from katdal.chunkstore import generate_chunks
 from katdal.chunkstore_npy import NpyFileChunkStore
-from katdal.vis_flags_weights import (VisFlagsWeights, ChunkStoreVisFlagsWeights,
-                                      corrprod_to_autocorr)
-from katdal.van_vleck import autocorr_lookup_table
 from katdal.flags import DATA_LOST
+from katdal.van_vleck import autocorr_lookup_table
+from katdal.vis_flags_weights import (ChunkStoreVisFlagsWeights,
+                                      VisFlagsWeights, corrprod_to_autocorr)
 
 
 def test_vis_flags_weights():

@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2011-2019, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2011-2021, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -24,10 +24,10 @@ import os
 import os.path
 from copy import deepcopy
 
-import numpy as np
-from pkg_resources import parse_version
 import casacore
+import numpy as np
 from casacore import tables
+from pkg_resources import parse_version
 
 # Perform python-casacore version checks
 pyc_ver = parse_version(casacore.__version__)

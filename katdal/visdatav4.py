@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2017-2019, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2017-2021, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -18,25 +18,25 @@
 
 import logging
 
-import numpy as np
-import katpoint
 import dask.array as da
+import katpoint
+import numpy as np
 
-from .dataset import (DataSet, BrokenFile, Subarray, DEFAULT_SENSOR_PROPS,
-                      DEFAULT_VIRTUAL_SENSORS, _robust_target,
-                      _selection_to_list)
-from .vis_flags_weights import VisFlagsWeights
-from .spectral_window import SpectralWindow
-from .sensordata import SensorCache, SimpleSensorGetter
+from .applycal import (CAL_PRODUCT_TYPES, INVALID_GAIN, add_applycal_sensors,
+                       apply_flags_correction, apply_vis_correction,
+                       apply_weights_correction, calc_correction)
 from .categorical import CategoricalData, ComparableArrayWrapper
-from .lazy_indexer import DaskLazyIndexer
-from .applycal import (add_applycal_sensors, calc_correction,
-                       apply_vis_correction, apply_weights_correction,
-                       apply_flags_correction, CAL_PRODUCT_TYPES, INVALID_GAIN)
+from .dataset import (DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
+                      BrokenFile, DataSet, Subarray, _robust_target,
+                      _selection_to_list)
 # FLAG_DESCRIPTIONS isn't used, but it's kept here for compatibility with
 # external code that might get it from here
-from .flags import NAMES as FLAG_NAMES, DESCRIPTIONS as FLAG_DESCRIPTIONS   # noqa: F401
-
+from .flags import DESCRIPTIONS as FLAG_DESCRIPTIONS  # noqa: F401
+from .flags import NAMES as FLAG_NAMES  # noqa: F401
+from .lazy_indexer import DaskLazyIndexer
+from .sensordata import SensorCache, SimpleSensorGetter
+from .spectral_window import SpectralWindow
+from .vis_flags_weights import VisFlagsWeights
 
 logger = logging.getLogger(__name__)
 

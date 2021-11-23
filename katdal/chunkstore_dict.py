@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2017-2019, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2017-2021, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -16,7 +16,7 @@
 
 """A store of chunks (i.e. N-dimensional arrays) based on a dict of arrays."""
 
-from .chunkstore import ChunkStore, ChunkNotFound, BadChunk
+from .chunkstore import BadChunk, ChunkNotFound, ChunkStore
 
 
 class DictChunkStore(ChunkStore):

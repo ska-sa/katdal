@@ -1,5 +1,5 @@
 ###############################################################################
-# Copyright (c) 2018-2019, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2018-2021, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -18,15 +18,14 @@
 
 import logging
 
-import numpy as np
 import dask.array as da
 import numba
+import numpy as np
 
 from .categorical import CategoricalData, ComparableArrayWrapper
+from .flags import POSTPROC
 from .sensordata import SensorGetter, SimpleSensorGetter
 from .spectral_window import SpectralWindow
-from .flags import POSTPROC
-
 
 # A constant indicating invalid / absent gain (typically due to flagged data)
 INVALID_GAIN = np.complex64(complex(np.nan, np.nan))
@@ -72,10 +71,12 @@ def complex_interp(x, xi, yi, left=None, right=None):
     mag_left = phase_left = mag_right = phase_right = None
     if left is not None:
         mag_left = np.abs(left)
-        phase_left = np.unwrap([phase_i[0], np.angle(left)])[1]
+        with np.errstate(invalid='ignore'):
+            phase_left = np.unwrap([phase_i[0], np.angle(left)])[1]
     if right is not None:
         mag_right = np.abs(right)
-        phase_right = np.unwrap([phase_i[-1], np.angle(right)])[1]
+        with np.errstate(invalid='ignore'):
+            phase_right = np.unwrap([phase_i[-1], np.angle(right)])[1]
     # Interpolate magnitude and phase separately, and reassemble
     mag = np.interp(x, xi, mag_i, left=mag_left, right=mag_right)
     phase = np.interp(x, xi, phase_i, left=phase_left, right=phase_right)
@@ -496,7 +497,7 @@ def calc_correction_per_corrprod(dump, channels, params):
 
 def _correction_block(block_info, params):
     """Calculate applycal correction for a single time-freq-baseline chunk."""
-    slices = tuple(slice(*l) for l in block_info[None]['array-location'])
+    slices = tuple(slice(*loc) for loc in block_info[None]['array-location'])
     block_shape = block_info[None]['chunk-shape']
     correction = np.empty(block_shape, np.complex64)
     # TODO: make calc_correction_per_corrprod multi-dump aware

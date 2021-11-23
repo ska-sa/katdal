@@ -1,5 +1,5 @@
 ###############################################################################
-# Copyright (c) 2018-2019, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2018-2021, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -18,24 +18,24 @@
 
 from functools import partial
 
+import dask.array as da
 import katpoint
 import numpy as np
-from numpy.testing import assert_array_equal, assert_allclose
-from nose.tools import assert_raises, assert_equal
-import dask.array as da
+from nose.tools import assert_equal, assert_raises
+from numpy.testing import assert_allclose, assert_array_equal
 
-from katdal.spectral_window import SpectralWindow
-from katdal.sensordata import SensorCache, SimpleSensorGetter
-from katdal.categorical import (ComparableArrayWrapper, CategoricalData,
+from katdal.applycal import (INVALID_GAIN, add_applycal_sensors,
+                             apply_flags_correction, apply_vis_correction,
+                             apply_weights_correction,
+                             calc_bandpass_correction, calc_correction,
+                             calc_delay_correction, calc_gain_correction,
+                             calibrate_flux, complex_interp, get_cal_product)
+from katdal.categorical import (CategoricalData, ComparableArrayWrapper,
                                 sensor_to_categorical)
-from katdal.applycal import (complex_interp, get_cal_product, INVALID_GAIN,
-                             calc_delay_correction, calc_bandpass_correction,
-                             calc_gain_correction, apply_vis_correction,
-                             apply_weights_correction, apply_flags_correction,
-                             add_applycal_sensors, calc_correction, calibrate_flux)
 from katdal.flags import POSTPROC
+from katdal.sensordata import SensorCache, SimpleSensorGetter
+from katdal.spectral_window import SpectralWindow
 from katdal.visdatav4 import SENSOR_PROPS
-
 
 POLS = ['v', 'h']
 ANTS = ['m000', 'm001', 'm002', 'm003', 'm004']

@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2011-2019, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2011-2021, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -17,24 +17,25 @@
 """Data accessor class for HDF5 files produced by RTS correlator."""
 
 import logging
+import pathlib
 import secrets
 from collections import Counter
-import pathlib
 
-import numpy as np
 import h5py
 import katpoint
 import katsdptelstate
+import numpy as np
 
-from .dataset import (DataSet, WrongVersion, BrokenFile, Subarray,
-                      DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
-                      _robust_target, _selection_to_list)
-from .spectral_window import SpectralWindow
-from .sensordata import (SensorCache, RecordSensorGetter,
-                         H5TelstateSensorGetter, telstate_decode, to_str)
 from .categorical import CategoricalData
+from .dataset import (DEFAULT_SENSOR_PROPS, DEFAULT_VIRTUAL_SENSORS,
+                      BrokenFile, DataSet, Subarray, WrongVersion,
+                      _robust_target, _selection_to_list)
+from .flags import DESCRIPTIONS as FLAG_DESCRIPTIONS
+from .flags import NAMES as FLAG_NAMES
 from .lazy_indexer import LazyIndexer, LazyTransform
-from .flags import NAMES as FLAG_NAMES, DESCRIPTIONS as FLAG_DESCRIPTIONS
+from .sensordata import (H5TelstateSensorGetter, RecordSensorGetter,
+                         SensorCache, telstate_decode, to_str)
+from .spectral_window import SpectralWindow
 
 logger = logging.getLogger(__name__)
 

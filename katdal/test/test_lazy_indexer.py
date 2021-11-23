@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2017-2019, National Research Foundation (Square Kilometre Array)
+# Copyright (c) 2017-2021, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -16,15 +16,16 @@
 
 """Tests for :py:mod:`katdal.lazy_indexer`."""
 
-from numbers import Integral
 from functools import partial
+from numbers import Integral
 
-import numpy as np
 import dask.array as da
-from nose.tools import assert_raises, assert_equal
+import numpy as np
+from nose.tools import assert_equal, assert_raises
 
-from katdal.lazy_indexer import (_range_to_slice, _simplify_index,
-                                 _dask_oindex, dask_getitem, DaskLazyIndexer)
+from katdal.lazy_indexer import (DaskLazyIndexer, _dask_oindex,
+                                 _range_to_slice, _simplify_index,
+                                 dask_getitem)
 
 
 def slice_to_range(s, length):
