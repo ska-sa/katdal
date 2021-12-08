@@ -149,9 +149,7 @@ def _calc_delay_upgrade(cache, name, inp):
     """Calculate corrections that will upgrade delay tracking using a new model."""
     new_corrections = cache[f'Correlator/Inputs/{inp}/new_delay']
     old_corrections = cache[f'Correlator/Inputs/{inp}/applied_delay']
-    # cache[name] = sensor_data = new_corrections - old_corrections
-    # Flip the sign...
-    cache[name] = sensor_data = old_corrections - new_corrections
+    cache[name] = sensor_data = new_corrections - old_corrections
     return sensor_data
 
 
