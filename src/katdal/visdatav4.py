@@ -129,7 +129,7 @@ def _calc_new_delay(cache, name, inp):
     # XXX Reconcile this with the get_with_fallback approach in VisibilityDataV4.pressure etc.
     pressure = cache['anc_air_pressure'] * u.hPa
     temperature = cache['anc_air_temperature'] * u.deg_C
-    relative_humidity = cache['anc_air_relative_humidity'] / 100. * u.dimensionless_unscaled
+    relative_humidity = cache['anc_air_relative_humidity'] * u.percent
     targets = cache.get('Observation/target')
     corrections = {i: np.zeros(len(cache.timestamps)) for i in dc.inputs}
     for segm, target in targets.segments():
