@@ -258,13 +258,16 @@ class VisibilityDataV4(DataSet):
         Subset of the data to select. See :class:`.TelstateDataSource` for
         details. This selection is permanent, and further selections made
         by :meth:`.DataSet.select` are relative to this subset.
+    ant_overrides : dict or str, optional
+        Override the antenna objects by looking up their names in a dictionary
+        or text file
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
 
     """
     def __init__(self, source, ref_ant='', time_offset=0.0, applycal='',
                  gaincal_flux={}, sensor_store=None,
-                 preselect=None, **kwargs):
+                 preselect=None, ant_overrides=None, **kwargs):
         DataSet.__init__(self, source.name, ref_ant, time_offset, source.url)
         attrs = source.metadata.attrs
 
@@ -374,6 +377,18 @@ class VisibilityDataV4(DataSet):
         valid_ref_ants = cam_ants | {'array'}
         if self.ref_ant not in valid_ref_ants:
             raise KeyError(f"Unknown ref_ant '{self.ref_ant}', should be one of {valid_ref_ants}")
+
+        if ant_overrides is not None:
+            if isinstance(ant_overrides, str):
+                new_ants = open(ant_overrides).readlines()
+                ant_overrides = {}
+                for ant_description in new_ants:
+                    ant_description = ant_description.strip()
+                    if not ant_description or ant_description.startswith('#'):
+                        continue
+                    ant = katpoint.Antenna(ant_description)
+                    ant_overrides[ant.name] = ant
+            ants = [ant_overrides.get(ant.name, ant) for ant in ants]
 
         self.subarrays = subs = [Subarray(ants, corrprods)]
         self.sensor['Observation/subarray'] = CategoricalData(subs, all_dumps)
