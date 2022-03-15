@@ -149,6 +149,19 @@ def _add_offset_to_slices(func, offset):
     return func_with_offset
 
 
+def _put_map_blocks(chunk, block_info=None, store=None, array_name=None, offset=()):
+    """Adapt `put` to `map_blocks` interface."""
+    put = store.put_chunk_noraise
+    if offset:
+        put = _add_offset_to_slices(put, offset)
+    # Turn block info into slices specification
+    slices = tuple(slice(*loc) for loc in block_info[0]["array-location"])
+    success = put(array_name, slices, chunk)
+    # Turn scalar output into ndarray with same ndims as chunk
+    singleton_shape = chunk.ndim * (1,)
+    return np.full(singleton_shape, success)
+
+
 def npy_header_and_body(chunk):
     """Prepare a chunk for low-level writing.
 
@@ -533,23 +546,13 @@ class ChunkStore:
             Dask array of objects indicating success of transfer of each chunk
             (None indicates success, otherwise there is an exception object)
         """
-        put = self.put_chunk_noraise
-        if offset:
-            put = _add_offset_to_slices(put, offset)
-
-        def put_map_blocks(chunk, block_info=None):
-            """Adapt `put` to `map_blocks` interface."""
-            # Turn block info into slices specification
-            slices = tuple(slice(*loc) for loc in block_info[0]["array-location"])
-            success = put(array_name, slices, chunk)
-            # Turn scalar output into ndarray with same ndims as chunk
-            singleton_shape = chunk.ndim * (1,)
-            return np.full(singleton_shape, success)
-
         return da.map_blocks(
-            put_map_blocks,
+            _put_map_blocks,
             array,
             name=f'store-{array_name}-{offset}',
             dtype=object,
             chunks=array.ndim * (1,),
+            store=self,
+            array_name=array_name,
+            offset=offset,
         )
