@@ -131,6 +131,17 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
     return da.core.blockdims_from_blockshape(shape, dim_elements)
 
 
+def _graph_from_arraylike(array_name, chunks, getter):
+    """Create dask graph from chunk spec like the older :func:`da.core.getem`."""
+    try:
+        return da.core.graph_from_arraylike(
+            array_name, chunks, shape=None, name=array_name,
+            getitem=getter, inline_array=True
+        )
+    except AttributeError:
+        return da.core.getem(array_name, chunks, getter)
+
+
 def _add_offset_to_slices(func, offset):
     """Modify chunk get/put/has to add an offset to its `slices` parameter."""
     def func_with_offset(array_name, slices, *args, **kwargs):
@@ -520,7 +531,7 @@ class ChunkStore:
         if any(offset):
             getter = _add_offset_to_slices(getter, offset)
         # Use dask utility function that forms the core of da.from_array
-        dask_graph = da.core.getem(array_name, chunks, getter)
+        dask_graph = _graph_from_arraylike(array_name, chunks, getter)
         array = da.Array(dask_graph, array_name, chunks, dtype)
         return array[index]
 
