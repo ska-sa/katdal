@@ -19,11 +19,8 @@
 import contextlib
 import functools
 import io
-import uuid
 
-import dask
 import dask.array as da
-import dask.highlevelgraph
 import numpy as np
 
 
@@ -150,23 +147,6 @@ def _add_offset_to_slices(func, offset):
                               for (s, i) in zip(slices, offset))
         return func(array_name, offset_slices, *args, **kwargs)
     return func_with_offset
-
-
-def _scalar_to_chunk(func):
-    """Modify chunk get/put/has to turn a scalar return value into a chunk.
-
-    This modifies the given function so that it returns its result as an
-    ndarray with the same number of (singleton) dimensions as the corresponding
-    chunk to enable assembly into a dask array.
-    """
-
-    def func_returning_chunk(array_name, slices, *args, **kwargs):
-        """Turn scalar return value into chunk of appropriate dimension."""
-        value = func(array_name, slices, *args, **kwargs)
-        singleton_shape = len(slices) * (1,)
-        return np.full(singleton_shape, value)
-
-    return func_returning_chunk
 
 
 def npy_header_and_body(chunk):
@@ -553,19 +533,23 @@ class ChunkStore:
             Dask array of objects indicating success of transfer of each chunk
             (None indicates success, otherwise there is an exception object)
         """
-        # Give better names to these two very similar variables
-        in_name = array.name
-        out_name = array_name
-        # Make out_name unique to avoid clashes and caches
-        out_name = f'store-{out_name}-{offset}-{uuid.uuid4().hex}'
-        put = _scalar_to_chunk(self.put_chunk_noraise)
+        put = self.put_chunk_noraise
         if offset:
             put = _add_offset_to_slices(put, offset)
-        # Construct output graph on same chunks as input, but with new name
-        graph = da.core.getem(array_name, array.chunks, put, out_name=out_name)
-        # Set chunk parameter of put_chunk() to corresponding key in input array
-        graph = {k: v + ((in_name,) + k[1:],) for k, v in graph.items()}
-        dask_graph = dask.highlevelgraph.HighLevelGraph.from_collections(out_name, graph, [array])
-        # The success array has one element per chunk in the input array
-        out_chunks = tuple(len(c) * (1,) for c in array.chunks)
-        return da.Array(dask_graph, out_name, out_chunks, np.object)
+
+        def put_map_blocks(chunk, block_info=None):
+            """Adapt `put` to `map_blocks` interface."""
+            # Turn block info into slices specification
+            slices = tuple(slice(*loc) for loc in block_info[0]["array-location"])
+            success = put(array_name, slices, chunk)
+            # Turn scalar output into ndarray with same ndims as chunk
+            singleton_shape = chunk.ndim * (1,)
+            return np.full(singleton_shape, success)
+
+        return da.map_blocks(
+            put_map_blocks,
+            array,
+            name=f'store-{array_name}-{offset}',
+            dtype=object,
+            chunks=array.ndim * (1,),
+        )
