@@ -16,6 +16,12 @@
 
 """Tests for :py:mod:`katdal.chunkstore_dict`."""
 
+import time
+
+import numpy as np
+import dask.array as da
+from nose.tools import assert_less
+
 from katdal.chunkstore_dict import DictChunkStore
 from katdal.test.test_chunkstore import ChunkStoreTestBase
 
@@ -25,3 +31,32 @@ class TestDictChunkStore(ChunkStoreTestBase):
         self.store = DictChunkStore(**vars(self))
         # This store is prepopulated so missing chunks can't be checked
         self.preloaded_chunks = True
+
+
+def test_basic_overheads():
+    """Check overheads of creating and transferring dask array between stores."""
+    # The array is about 1 GB in size
+    shape = (100, 1000, 1000)
+    x = np.ones(shape)
+    y = np.zeros(shape)
+    store1 = DictChunkStore(x=x)
+    store2 = DictChunkStore(y=y)
+    # We have 1000 chunks of about 1 MB each
+    chunk_size = (1, 100, 1000)
+    chunks = da.core.normalize_chunks(chunk_size, shape)
+    # Check that the time to set up dask arrays is not grossly inflated
+    start_time = time.process_time()
+    dx = store1.get_dask_array('x', chunks, float)
+    py = store2.put_dask_array('y', dx)
+    setup_duration = time.process_time() - start_time
+    assert_less(setup_duration, 1.0)
+    # Use basic array copy as a reference
+    start_time = time.process_time()
+    y[:] = x
+    copy_duration = time.process_time() - start_time
+    # Check ChunkStore / dask overhead on top of basic memory copy
+    start_time = time.process_time()
+    success = py.compute()
+    dask_duration = time.process_time() - start_time
+    assert_less(dask_duration, 10 * copy_duration)
+    np.testing.assert_equal(success, None)
