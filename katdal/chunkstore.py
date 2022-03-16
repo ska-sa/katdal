@@ -132,8 +132,12 @@ def _graph_from_arraylike(array_name, chunks, getter):
     """Create dask graph from chunk spec like the older :func:`da.core.getem`."""
     try:
         return da.core.graph_from_arraylike(
-            array_name, chunks, shape=None, name=array_name,
-            getitem=getter, inline_array=True
+            array_name,
+            chunks,
+            shape=tuple(sum(c) for c in chunks),
+            name=array_name,
+            getitem=getter,
+            inline_array=True,
         )
     except AttributeError:
         return da.core.getem(array_name, chunks, getter)
