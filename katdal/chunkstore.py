@@ -132,19 +132,28 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
     return da.core.blockdims_from_blockshape(shape, dim_elements)
 
 
-def _graph_from_arraylike(array_name, chunks, getter):
-    """Create dask graph from chunk spec like the older :func:`da.core.getem`."""
+def _graph_from_chunks(array_name, chunks, getter, out_name):
+    """Create dask graph from chunk spec like the older :func:`da.core.getem`.
+
+    The basic graph structure (for a 1-D array) is:
+
+      {
+        (out_name, 0): (getter, array_name, (slice(start_0, end_0),)),
+        (out_name, 1): (getter, array_name, (slice(start_1, end_1),)),
+        ...
+      }
+    """
     try:
         return da.core.graph_from_arraylike(
             array_name,
             chunks,
             shape=tuple(sum(c) for c in chunks),
-            name=array_name,
+            name=out_name,
             getitem=getter,
             inline_array=True,
         )
     except AttributeError:
-        return da.core.getem(array_name, chunks, getter)
+        return da.core.getem(array_name, chunks, getter, out_name=out_name)
 
 
 def _add_offset_to_slices(func, offset):
@@ -535,9 +544,12 @@ class ChunkStore:
 
         if any(offset):
             getter = _add_offset_to_slices(getter, offset)
+        # The final name must differ from array_name, so pick deterministic hash
+        token = da.core.tokenize(self, chunks, dtype, index)
+        out_name = f'{array_name}-{offset}-{token}'
         # Use dask utility function that forms the core of da.from_array
-        dask_graph = _graph_from_arraylike(array_name, chunks, getter)
-        array = da.Array(dask_graph, array_name, chunks, dtype)
+        dask_graph = _graph_from_chunks(array_name, chunks, getter, out_name)
+        array = da.Array(dask_graph, out_name, chunks, dtype)
         return array[index]
 
     def put_dask_array(self, array_name, array, offset=()):
