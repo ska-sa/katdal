@@ -19,12 +19,8 @@
 import contextlib
 import functools
 import io
-import uuid
 
 import dask.array as da
-from dask.highlevelgraph import HighLevelGraph
-from dask.blockwise import blockwise as core_blockwise
-from dask.layers import ArraySliceDep
 import numpy as np
 
 
@@ -166,21 +162,17 @@ def _add_offset_to_slices(func, offset):
     return func_with_offset
 
 
-def _scalar_to_chunk(func):
-    """Modify chunk get/put/has to turn a scalar return value into a chunk.
-
-    This modifies the given function so that it returns its result as an
-    ndarray with the same number of (singleton) dimensions as the corresponding
-    chunk to enable assembly into a dask array.
-    """
-
-    def func_returning_chunk(array_name, slices, *args, **kwargs):
-        """Turn scalar return value into chunk of appropriate dimension."""
-        value = func(array_name, slices, *args, **kwargs)
-        singleton_shape = len(slices) * (1,)
-        return np.full(singleton_shape, value)
-
-    return func_returning_chunk
+def _put_map_blocks(chunk, block_info=None, store=None, array_name=None, offset=()):
+    """Adapt `put` to `map_blocks` interface."""
+    put = store.put_chunk_noraise
+    if offset:
+        put = _add_offset_to_slices(put, offset)
+    # Turn block info into slices specification
+    slices = tuple(slice(*loc) for loc in block_info[0]["array-location"])
+    success = put(array_name, slices, chunk)
+    # Turn scalar output into ndarray with same ndims as chunk
+    singleton_shape = chunk.ndim * (1,)
+    return np.full(singleton_shape, success)
 
 
 def npy_header_and_body(chunk):
@@ -570,27 +562,13 @@ class ChunkStore:
             Dask array of objects indicating success of transfer of each chunk
             (None indicates success, otherwise there is an exception object)
         """
-        # Make out_name unique to avoid clashes and caches
-        out_name = f'store-{array_name}-{offset}-{uuid.uuid4().hex}'
-        put = _scalar_to_chunk(self.put_chunk_noraise)
-        if offset:
-            put = _add_offset_to_slices(put, offset)
-        out_ind = tuple(range(array.ndim))
-        layer = core_blockwise(
-            # Function signature: put(array_name, slices, chunk)
-            put,
-            # Output: we want all output chunks
-            out_name, out_ind,
-            # Arg 1: the same array name is passed to all tasks, so no out_ind
-            array_name, None,
-            # Arg 2: produce slice spec per chunk on the fly
-            ArraySliceDep(array.chunks), out_ind,
-            # Arg 3: this represents a chunk of `array`
-            array.name, out_ind,
-            # We need to tell blockwise about the external array's shape
-            numblocks={array.name: array.numblocks},
+        return da.map_blocks(
+            _put_map_blocks,
+            array,
+            name=f'store-{array_name}-{offset}',
+            dtype=object,
+            chunks=array.ndim * (1,),
+            store=self,
+            array_name=array_name,
+            offset=offset,
         )
-        dask_graph = HighLevelGraph.from_collections(out_name, layer, [array])
-        # The success array has one element per chunk in the input array
-        out_chunks = tuple(len(c) * (1,) for c in array.chunks)
-        return da.Array(dask_graph, out_name, out_chunks, object)
