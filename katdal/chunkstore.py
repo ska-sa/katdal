@@ -17,7 +17,6 @@
 """Base class for accessing a store of chunks (i.e. N-dimensional arrays)."""
 
 import contextlib
-import functools
 import io
 
 import dask.array as da
@@ -128,28 +127,20 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
     return da.core.blockdims_from_blockshape(shape, dim_elements)
 
 
-def _graph_from_chunks(array_name, chunks, getter, out_name):
-    """Create dask graph from chunk spec like the older :func:`da.core.getem`.
+class _ArrayLikeGetter:
+    """Present an array-like interface to chunk getter function."""
+    def __init__(self, getter, array_name, chunks, dtype, **kwargs):
+        self.getter = getter
+        self.array_name = array_name
+        self.kwargs = kwargs
+        # Basic array-like attributes needed by :func:`dask.array.from_array`
+        self.shape = tuple(sum(c) for c in chunks)
+        self.ndim = len(self.shape)
+        self.dtype = np.dtype(dtype)
 
-    The basic graph structure (for a 1-D array) is:
-
-      {
-        (out_name, 0): (getter, array_name, (slice(start_0, end_0),)),
-        (out_name, 1): (getter, array_name, (slice(start_1, end_1),)),
-        ...
-      }
-    """
-    try:
-        return da.core.graph_from_arraylike(
-            array_name,
-            chunks,
-            shape=tuple(sum(c) for c in chunks),
-            name=out_name,
-            getitem=getter,
-            inline_array=True,
-        )
-    except AttributeError:
-        return da.core.getem(array_name, chunks, getter, out_name=out_name)
+    def __getitem__(self, slices):
+        """Call chunk getter on slices set up by :func:`dask.array.from_array`."""
+        return self.getter(self.array_name, slices, self.dtype, **self.kwargs)
 
 
 def _add_offset_to_slices(func, offset):
@@ -486,17 +477,16 @@ class ChunkStore:
         array : :class:`dask.array.Array` object
             Dask array of given dtype
         """
-        kwargs = {'dtype': dtype}
+        kwargs = {}
         if errors == 'placeholder':
-            get_func = self.get_chunk_or_placeholder
+            getter = self.get_chunk_or_placeholder
         elif errors == 'raise':
-            get_func = self.get_chunk
+            getter = self.get_chunk
         elif isinstance(errors, str):
             raise ValueError("Unexpected value for errors; expected 'placeholder', 'raise', or a number")
         else:
-            get_func = self.get_chunk_or_default
+            getter = self.get_chunk_or_default
             kwargs['default_value'] = errors
-        getter = functools.partial(get_func, **kwargs)
 
         if index:
             chunks = [list(c) for c in chunks]   # Make mutable
@@ -539,9 +529,8 @@ class ChunkStore:
         # The final name must differ from array_name, so pick deterministic hash
         token = da.core.tokenize(self, chunks, dtype, index)
         out_name = f'{array_name}-{offset}-{token}'
-        # Use dask utility function that forms the core of da.from_array
-        dask_graph = _graph_from_chunks(array_name, chunks, getter, out_name)
-        array = da.Array(dask_graph, out_name, chunks, dtype)
+        getter_shim = _ArrayLikeGetter(getter, array_name, chunks, dtype, **kwargs)
+        array = da.from_array(getter_shim, chunks, out_name)
         return array[index]
 
     def put_dask_array(self, array_name, array, offset=()):
