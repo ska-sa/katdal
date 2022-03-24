@@ -244,7 +244,7 @@ class ChunkStoreTestBase:
             else:
                 return chunk
 
-        return da.map_blocks(map_blocks_func, array)
+        return da.map_blocks(map_blocks_func, array, dtype=array.dtype)
 
     def test_dask_array_put_parts_get_whole(self):
         # Split big array into quarters along existing chunks and reassemble

@@ -129,6 +129,7 @@ def generate_chunks(shape, dtype, max_chunk_size, dims_to_split=None,
 
 class _ArrayLikeGetter:
     """Present an array-like interface to chunk getter function."""
+
     def __init__(self, getter, array_name, chunks, dtype, **kwargs):
         self.getter = getter
         self.array_name = array_name
@@ -530,7 +531,7 @@ class ChunkStore:
         token = da.core.tokenize(self, chunks, dtype, index)
         out_name = f'{array_name}-{offset}-{token}'
         getter_shim = _ArrayLikeGetter(getter, array_name, chunks, dtype, **kwargs)
-        array = da.from_array(getter_shim, chunks, out_name)
+        array = da.from_array(getter_shim, chunks, out_name, asarray=False)
         return array[index]
 
     def put_dask_array(self, array_name, array, offset=()):
