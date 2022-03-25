@@ -984,14 +984,17 @@ def populate_ms_dict(uvw_coordinates, vis_data, timestamps, antenna1_index, ante
 # ----------------- Write completed dictionary to MS file --------------------
 
 
-def write_rows(t, row_dict, verbose=True):
+def write_rows(t, row_dict, verbose=True, start_row=-1):
+    existing_rows = t.nrows()
     num_rows = list(row_dict.values())[0].shape[0]
-    # Append rows to the table by starting after the last row in table
-    startrow = t.nrows()
+    # By default, append rows to the table by starting after the last row
+    if start_row < 0:
+        start_row = existing_rows
     # Add the space required for this group of rows
-    t.addrows(num_rows)
+    new_rows = max(start_row + num_rows - existing_rows, 0)
+    t.addrows(new_rows)
     if verbose:
-        print(f"  added {num_rows} rows")
+        print(f"  added {new_rows} rows")
     for col_name, col_data in row_dict.items():
         if col_name not in t.colnames():
             if verbose:
@@ -1000,7 +1003,7 @@ def write_rows(t, row_dict, verbose=True):
         if col_data.dtype.kind == 'U':
             col_data = np.char.encode(col_data, encoding='utf-8')
         try:
-            t.putcol(col_name, col_data, startrow)
+            t.putcol(col_name, col_data, start_row)
         except RuntimeError as err:
             print("  error writing column '%s' with shape %s (%s)" %
                   (col_name, col_data.shape, err))
@@ -1008,6 +1011,7 @@ def write_rows(t, row_dict, verbose=True):
             if verbose:
                 print("  wrote column '%s' with shape %s" %
                       (col_name, col_data.shape))
+    return num_rows
 
 
 def write_dict(ms_dict, ms_name, verbose=True):
@@ -1027,7 +1031,7 @@ def write_dict(ms_dict, ms_name, verbose=True):
                 t = open_table('::'.join((ms_name, sub_table_name)))
             if verbose:
                 print("  opened successfully")
-            write_rows(t, row_dict, verbose)
+            write_rows(t, row_dict, verbose, start_row=0)
             t.close()
             if verbose:
                 print("  closed successfully")

@@ -57,7 +57,7 @@ EndOfScan = namedtuple('EndOfScan', [])
 
 def ms_writer_process(
         work_queue, result_queue, options, antennas, cp_info, ms_name,
-        raw_vis_data, raw_weight_data, raw_flag_data):
+        raw_vis_data, raw_weight_data, raw_flag_data, start_row):
     """
     Function to be run in a separate process for writing to a Measurement Set.
     The MS is assumed to have already been created with the appropriate
@@ -95,6 +95,8 @@ def ms_writer_process(
     raw_vis_data, raw_weight_data, raw_flag_data : :class:`RawArray`
         Circular buffers for the data, with shape
         (slots, time, baseline, channel, pol).
+    start_row : int
+        Row in Measurement Set where output will start
     """
 
     none_seen = False
@@ -177,7 +179,9 @@ def ms_writer_process(
                         big_scan_itr, model_data, corrected_data)
 
                     # Write data to MS.
-                    ms_extra.write_rows(main_table, main_dict, verbose=options.verbose)
+                    nrows = ms_extra.write_rows(main_table, main_dict,
+                                                options.verbose, start_row)
+                    start_row += nrows
 
                     # Calculate bytes written from the summed arrays in the dict
                     scan_size += sum(a.nbytes for a in main_dict.values()
