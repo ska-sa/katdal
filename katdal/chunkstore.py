@@ -144,6 +144,54 @@ class _ArrayLikeGetter:
         return self.getter(self.array_name, slices, self.dtype, **self.kwargs)
 
 
+def _prune_chunks(chunks, index, offset=()):
+    """Prune `chunks` spec, removing chunks completely outside slicing `index`.
+
+    Remove the parts of `chunks` that fall outside the slices in `index`.
+    This is done without changing the boundaries and sizes of existing chunks
+    (i.e. without rechunking the data). Instead, the `index` and `offset`
+    are adjusted to select the same data as before after a minimal set of
+    pre-existing chunks are retained.
+
+    This only supports the selection of contiguous regions in `index`.
+    In other words, all slices in `index` need to have unit steps.
+    """
+    chunks = [list(c) for c in chunks]   # Make mutable
+    shape = [sum(c) for c in chunks]
+    index = list(da.slicing.normalize_index(index, shape))
+    if not all(isinstance(idx, slice) and idx.step is None for idx in index):
+        raise IndexError('Only slices with unit step are valid indices in get_dask_array')
+    offset = list(offset) if offset else [0] * len(shape)
+    for axis in range(len(shape)):
+        if index[axis] == slice(None):
+            continue
+        start, stop, step = index[axis].indices(shape[axis])
+        assert step == 1
+        # Remove unneeded chunks from the ends
+        start_chunk = 0
+        while start_chunk < len(chunks[axis]) and chunks[axis][start_chunk] <= start:
+            c = chunks[axis][start_chunk]
+            offset[axis] += c
+            start -= c
+            stop -= c
+            shape[axis] -= c
+            start_chunk += 1
+        stop_chunk = len(chunks[axis])
+        while stop_chunk > start_chunk and chunks[axis][stop_chunk - 1] <= shape[axis] - stop:
+            stop_chunk -= 1
+            c = chunks[axis][stop_chunk]
+            shape[axis] -= c
+        chunks[axis] = chunks[axis][start_chunk:stop_chunk]
+        if not chunks[axis]:
+            chunks[axis] = (0,)   # Dask doesn't allow empty chunk lists
+        index[axis] = slice(start, stop)
+    # Go back to tuples
+    chunks = tuple(tuple(c) for c in chunks)
+    index = tuple(index)
+    offset = tuple(offset)
+    return chunks, index, offset
+
+
 def _add_offset_to_slices(func, offset):
     """Modify chunk get/put/has to add an offset to its `slices` parameter."""
     def func_with_offset(array_name, slices, *args, **kwargs):
@@ -488,43 +536,12 @@ class ChunkStore:
         else:
             getter = self.get_chunk_or_default
             kwargs['default_value'] = errors
-
         if index:
-            chunks = [list(c) for c in chunks]   # Make mutable
-            shape = [sum(c) for c in chunks]
-            index = list(da.slicing.normalize_index(index, shape))
-            if not all(isinstance(idx, slice) and idx.step is None
-                       for idx in index):
-                raise IndexError('Only slices with unit step are valid indices in get_dask_array')
-            offset = list(offset) if offset else [0] * len(shape)
-            for axis in range(len(shape)):
-                if index[axis] == slice(None):
-                    continue
-                start, stop, step = index[axis].indices(shape[axis])
-                assert step == 1
-                # Remove unneeded chunks from the ends
-                start_chunk = 0
-                while start_chunk < len(chunks[axis]) and chunks[axis][start_chunk] <= start:
-                    c = chunks[axis][start_chunk]
-                    offset[axis] += c
-                    start -= c
-                    stop -= c
-                    shape[axis] -= c
-                    start_chunk += 1
-                stop_chunk = len(chunks[axis])
-                while stop_chunk > start_chunk and chunks[axis][stop_chunk - 1] <= shape[axis] - stop:
-                    stop_chunk -= 1
-                    c = chunks[axis][stop_chunk]
-                    shape[axis] -= c
-                chunks[axis] = chunks[axis][start_chunk:stop_chunk]
-                if not chunks[axis]:
-                    chunks[axis] = (0,)   # Dask doesn't allow empty chunk lists
-                index[axis] = slice(start, stop)
-            # Go back to tuples
-            chunks = tuple(tuple(c) for c in chunks)
-            index = tuple(index)
-            offset = tuple(offset)
-
+            # XXX For now, _prune_chunks can't handle non-zero offsets as input...
+            # This is not a big deal, since offsets are really meant for put_dask_array
+            # and even then not used much, while `index` only applies to get_dask_array.
+            assert offset == ()
+            chunks, index, offset = _prune_chunks(chunks, index)
         if any(offset):
             getter = _add_offset_to_slices(getter, offset)
         # The final name must differ from array_name, so pick deterministic hash
