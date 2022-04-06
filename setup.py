@@ -54,7 +54,7 @@ setup(name='katdal',
       setup_requires=['katversion'],
       use_katversion=True,
       install_requires=['numpy >= 1.12.0', 'katpoint >= 0.9, < 1', 'h5py >= 2.3',
-                        'numba', 'katsdptelstate[rdb] >= 0.10', 'dask[array] >= 1.2.1',
+                        'numba', 'katsdptelstate[rdb] >= 0.10', 'dask[array] >= 2021.1.0',
                         'requests >= 2.18.0', 'pyjwt >= 2', 'cityhash >= 0.2.2'],
       extras_require={
           'ms': ['python-casacore >= 2.2.1'],

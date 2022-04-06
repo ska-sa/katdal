@@ -548,7 +548,18 @@ class ChunkStore:
         token = da.core.tokenize(self, chunks, dtype, index)
         out_name = f'{array_name}-{offset}-{token}'
         getter_shim = _ArrayLikeGetter(getter, array_name, chunks, dtype, **kwargs)
-        array = da.from_array(getter_shim, chunks, out_name, asarray=False)
+        array = da.from_array(
+            getter_shim,
+            chunks,
+            out_name,
+            # Don't cast chunks to ndarray because some of them may be `PlaceholderChunk`s
+            asarray=False,
+            # Set custom getter anyway to prevent slice fusion during graph optimisation,
+            # which ends up calling chunk store with wrong chunks.
+            getitem=_ArrayLikeGetter.__getitem__,
+            # Dask 2022.04.0 ignores the custom getter unless this is True
+            inline_array=True
+        )
         return array[index]
 
     def put_dask_array(self, array_name, array, offset=()):
