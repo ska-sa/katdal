@@ -19,6 +19,7 @@
 import contextlib
 import io
 
+import dask
 import dask.array as da
 import numpy as np
 
@@ -139,7 +140,7 @@ class _ArrayLikeGetter:
         self.ndim = len(self.shape)
         self.dtype = np.dtype(dtype)
 
-    def __getitem__(self, slices):
+    def __getitem__(self, slices, asarray=False, lock=None):
         """Call chunk getter on slices set up by :func:`dask.array.from_array`."""
         return self.getter(self.array_name, slices, self.dtype, **self.kwargs)
 
@@ -526,7 +527,7 @@ class ChunkStore:
         array : :class:`dask.array.Array` object
             Dask array of given dtype
         """
-        kwargs = {}
+        getter_kwargs = {}
         if errors == 'placeholder':
             getter = self.get_chunk_or_placeholder
         elif errors == 'raise':
@@ -535,7 +536,7 @@ class ChunkStore:
             raise ValueError("Unexpected value for errors; expected 'placeholder', 'raise', or a number")
         else:
             getter = self.get_chunk_or_default
-            kwargs['default_value'] = errors
+            getter_kwargs['default_value'] = errors
         if index:
             # XXX For now, _prune_chunks can't handle non-zero offsets as input...
             # This is not a big deal, since offsets are really meant for put_dask_array
@@ -547,7 +548,12 @@ class ChunkStore:
         # The final name must differ from array_name, so pick deterministic hash
         token = da.core.tokenize(self, chunks, dtype, index)
         out_name = f'{array_name}-{offset}-{token}'
-        getter_shim = _ArrayLikeGetter(getter, array_name, chunks, dtype, **kwargs)
+        getter_shim = _ArrayLikeGetter(getter, array_name, chunks, dtype, **getter_kwargs)
+        from_array_kwargs = {}
+        # XXX Once we depend on dask>=2021.1.0, just set the keyword argument explicitly
+        if dask.utils.has_keyword(da.from_array, 'inline_array'):
+            # Dask 2022.04.0 ignores the custom getter unless this is True
+            from_array_kwargs['inline_array'] = True
         array = da.from_array(
             getter_shim,
             chunks,
@@ -557,8 +563,7 @@ class ChunkStore:
             # Set custom getter anyway to prevent slice fusion during graph optimisation,
             # which ends up calling chunk store with wrong chunks.
             getitem=_ArrayLikeGetter.__getitem__,
-            # Dask 2022.04.0 ignores the custom getter unless this is True
-            inline_array=True
+            **from_array_kwargs,
         )
         return array[index]
 
