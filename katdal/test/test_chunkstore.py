@@ -103,6 +103,7 @@ def test_prune_chunks():
     assert_equal(new_chunks, ((10, 10, 10), (2, 2), (40,)))
     assert_equal(new_index, np.s_[3:24, 0:4, 10:40])
     assert_equal(new_offset, (10, 0, 0))
+    assert_raises(IndexError, _prune_chunks, chunks, np.s_[13:34:2, ::-1, :])
 
 
 class TestChunkStore:
