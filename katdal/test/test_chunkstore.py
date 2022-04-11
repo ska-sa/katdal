@@ -24,7 +24,7 @@ from numpy.testing import assert_array_equal
 
 from katdal.chunkstore import (BadChunk, ChunkNotFound, ChunkStore,
                                PlaceholderChunk, StoreUnavailable,
-                               generate_chunks)
+                               generate_chunks, _prune_chunks)
 
 
 class TestGenerateChunks:
@@ -89,6 +89,21 @@ class TestGenerateChunks:
                                  dims_to_split=(1, 17), power_of_two=True,
                                  max_dim_elements={0: 2, 1: 50})
         assert_equal(chunks, ((10,), 1024 * (8,), (144,)))
+
+
+def test_prune_chunks():
+    """Test the `_prune_chunks` internal function."""
+    chunks = ((10, 10, 10, 10), (2, 2, 2), (40,))
+    # The chunk start-stop boundaries on each axis are:
+    # ((0, 10, 20, 30, 40), (0, 2, 4, 6), (0, 40))
+    index = np.s_[13:34, :4, 10:]
+    new_chunks, new_index, new_offset = _prune_chunks(chunks, index)
+    # The new chunk start-stop boundaries on each axis are:
+    # ((10, 20, 30, 40), (0, 2, 4), (0, 40))
+    assert_equal(new_chunks, ((10, 10, 10), (2, 2), (40,)))
+    assert_equal(new_index, np.s_[3:24, 0:4, 10:40])
+    assert_equal(new_offset, (10, 0, 0))
+    assert_raises(IndexError, _prune_chunks, chunks, np.s_[13:34:2, ::-1, :])
 
 
 class TestChunkStore:
@@ -244,7 +259,7 @@ class ChunkStoreTestBase:
             else:
                 return chunk
 
-        return da.map_blocks(map_blocks_func, array)
+        return da.map_blocks(map_blocks_func, array, dtype=array.dtype)
 
     def test_dask_array_put_parts_get_whole(self):
         # Split big array into quarters along existing chunks and reassemble
