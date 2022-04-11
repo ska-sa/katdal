@@ -25,7 +25,7 @@
 
 import argparse
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
 import dask
@@ -106,11 +106,12 @@ def main():
     telstate = d.source.telstate
     # XXX Replace private member with public corrprod index member when it exists
     corrprod_mask = d._corrprod_keep
-    rdb_filename = Path(urlparse(args.source).path).name
+    rdb_filename = PurePosixPath(urlparse(args.source).path).name
 
     telstate_overrides = katsdptelstate.TelescopeState()
     # Override bls_ordering in telstate (in stream namespace) to match dataset selection
     telstate_overrides.view(stream)['bls_ordering'] = d.corr_products
+    telstate_overrides.view(stream)['n_bls'] = len(d.corr_products)
     os.makedirs(args.dest / cbid, exist_ok=True)
     out_store = NpyFileChunkStore(args.dest)
     # Iterate over all stream views, setting up Dask graph for each chunked array
