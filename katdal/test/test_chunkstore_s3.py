@@ -55,7 +55,7 @@ from urllib3.util.retry import Retry
 from katdal.chunkstore import ChunkNotFound, StoreUnavailable
 from katdal.chunkstore_s3 import (_DEFAULT_SERVER_GLITCHES, InvalidToken,
                                   S3ChunkStore, TruncatedRead, _AWSAuth,
-                                  decode_jwt, read_array)
+                                  AuthorisationFailed, decode_jwt, read_array)
 from katdal.datasources import TelstateDataSource
 from katdal.test.s3_utils import MissingProgram, S3Server, S3User
 from katdal.test.test_chunkstore import ChunkStoreTestBase
@@ -283,9 +283,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         x = np.arange(5)
         self.store.create_array('private/x')
         self.store.put_chunk('private/x', slices, x)
-        # Ceph RGW returns 403 for missing chunks too so we see ChunkNotFound
-        # The ChunkNotFound then triggers a bucket list that raises StoreUnavailable
-        with assert_raises(StoreUnavailable):
+        with assert_raises(AuthorisationFailed):
             reader.get_chunk('private/x', slices, x.dtype)
 
         # Now a public-read array
