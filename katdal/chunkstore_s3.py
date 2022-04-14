@@ -537,11 +537,9 @@ class S3ChunkStore(ChunkStore):
                     if content_type in ('application/xml', 'text/xml', 'text/plain'):
                         msg += f'\nDetails of server response: {response.text}'
                     # Raise the appropriate exception
-                    if status == 401:
+                    if status in (401, 403):
                         raise AuthorisationFailed(msg)
-                    elif status in (403, 404):
-                        # Ceph RGW returns 403 for missing keys due to our bucket policy
-                        # (see https://tracker.ceph.com/issues/38638 for discussion)
+                    elif status == 404:
                         raise S3ObjectNotFound(msg)
                     elif self._retries.is_retry(method, status):
                         raise S3ServerGlitch(msg, status)
