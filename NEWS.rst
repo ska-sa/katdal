@@ -1,6 +1,13 @@
 History
 =======
 
+0.20 (2022-04-14)
+-----------------
+* Fix support for dask >= 2022.01.1 in ChunkStore (#351)
+* Allow mvftoms to continue with partial MS after an interruption (#348)
+* New mvf_copy.py script that can be used to extract autocorrelations only (#349)
+* Treat Ceph 403 errors properly in S3ChunkStore (#352)
+
 0.19 (2021-11-23)
 -----------------
 * Support scans and non-radec targets like planets in mvftoms (#333)
