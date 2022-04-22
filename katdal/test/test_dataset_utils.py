@@ -59,13 +59,97 @@ def test_selection_to_list():
 
 
 ALIGN_SCANS_TEST_CASES = [(
-    # extract_scan_alignment.py 1629113328_sdp_l0.full.rdb
+    # Basic well-aligned tracks (nothing to do)
+    # BEFORE
+    """
+    Dumps  Label  Target  Scan
+    -----------------------------
+    0      track  A       slew
+    6                     track
+    16     track  B       slew
+    20                    track
+    100
+    """,
+    # AFTER
+    """
+    Dumps  Label  Target  Scan
+    -----------------------------
+    0      track  A       slew
+    6                     track
+    16     track  B       slew
+    20                    track
+    100
+    """), (
+    # Fix the first dump when we start slewing on the second dump.
+    # This is mostly for older datasets that used antenna activity
+    # for scans and could still be tracking the previous target A.
+    # BEFORE
+    """
+    Dumps  Label  Target  Scan
+    -----------------------------
+    0             A       track
+    1      track  B       slew
+    6                     track
+    100
+    """,
+    # AFTER
+    """
+    Dumps  Label  Target  Scan
+    -----------------------------
+    0      track  B       slew
+    6                     track
+    100
+    """), (
+    # Discard empty labels (after first dump, which could have default empty label)
+    # BEFORE
+    """
+    Dumps  Label   Target  Scan
+    -----------------------------
+    0      raster  A       slew
+    2                      scan
+    12     "               slew
+    14                     scan
+    100
+    """,
+    # AFTER
+    """
+    Dumps  Label   Target  Scan
+    -----------------------------
+    0      raster  A       slew
+    2                      scan
+    12                     slew
+    14                     scan
+    100
+    """), (
+    # Don't discard empty labels when that's all there is though
+    # BEFORE
+    """
+    Dumps  Label  Target  Scan
+    ----------------------------
+    0      "      A       slew
+    2                     scan
+    12     "              slew
+    14                    scan
+    100
+    """,
+    # AFTER
+    """
+    Dumps  Label  Target  Scan
+    ----------------------------
+    0      "      A       slew
+    2                     scan
+    12     "              slew
+    14                    scan
+    100
+    """), (
+    # extract_scan_alignment.py 1629113328_sdp_l0.full.rdb (modified)
+    # Basic alignment, plus a default label and leftover target on initial scan
     # BEFORE
     """
     Dumps  Label   Target  Scan
     ------------------------------
-    0      "       A       stop
-    4      track           slew
+    0              A       stop
+    4      track   B       slew
     6                      track
     14     raster          scan
     183
@@ -74,7 +158,7 @@ ALIGN_SCANS_TEST_CASES = [(
     """
     Dumps  Label   Target  Scan
     ------------------------------
-    0      "       A       stop
+    0      "       B       stop
     4      track           slew
     6                      track
     14     raster          scan
@@ -104,6 +188,7 @@ ALIGN_SCANS_TEST_CASES = [(
     """), (
     # OPS-1631 / SPR1-1177
     # extract_scan_alignment.py 1612141271_sdp_l0.full.rdb --dumps 666
+    # Two-dump glitch tracks at 306 and 652
     # BEFORE
     """
     Dumps  Label  Target  Scan
@@ -134,6 +219,7 @@ ALIGN_SCANS_TEST_CASES = [(
     """), (
     # OPS-1631 / SPR1-1177
     # extract_scan_alignment.py 1622455035_sdp_l0.full.rdb --dumps 1000
+    # Two-dump glitch tracks at 483 and 992
     # BEFORE
     """
     Dumps  Label  Target  Scan
