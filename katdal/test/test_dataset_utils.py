@@ -172,5 +172,7 @@ def test_align_scans():
         sensors_in = parse_categorical_table(before)
         sensors_out = align_scans(*(sensors_in[name] for name in names))
         sensors_out = dict(zip(names, sensors_out))
-        actual = tabulate_categorical(sensors_out, list(sensors_in.keys()), indent)
+        # Output the sensor names in the same order as in the expected output
+        expected_names = expected.strip().split('\n')[0].split()[1:]
+        actual = tabulate_categorical(sensors_out, expected_names, indent)
         assert_equal(actual, expected)
