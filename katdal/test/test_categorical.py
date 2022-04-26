@@ -20,9 +20,49 @@ import numpy as np
 from nose.tools import assert_equal
 from numpy.testing import assert_array_equal
 
-from katdal.categorical import (_single_event_per_dump,
+from katdal.categorical import (CategoricalData, _single_event_per_dump,
                                 parse_categorical_table, sensor_to_categorical,
                                 tabulate_categorical)
+
+
+def categorical_from_string(s):
+    """Turn sequence of characters `s` into a categorical sensor.
+
+    Each sensor value is a single non-blank character, and its event dump
+    corresponds to its position in the input string. Spaces / blanks are
+    therefore ignored (except to determine event locations).
+    """
+    non_blanks = [(n, char) for n, char in enumerate(list(s)) if char != " "]
+    events, values = zip(*non_blanks)
+    return CategoricalData(values, events + (len(s),))
+
+
+def categorical_to_string(sensor):
+    """Turn character-based categorical `sensor` into a string.
+
+    The sensor value strings are padded by the appropriate number of spaces
+    so that the values are located at their corresponding event dumps in
+    the string, e.g. '  A   B   C' for events at [2, 6, 10].
+    """
+    s = sensor.events[-1] * [' ']
+    for segment, char in sensor.segments():
+        s[segment.start] = char
+    return ''.join(s)
+
+
+def test_quick_and_dirty_categorical_from_string():
+    s = 'a  b'
+    sensor = categorical_from_string(s)
+    assert_array_equal(sensor.unique_values, ['a', 'b'])
+    assert_array_equal(sensor.events, [0, 3, 4])
+    assert_array_equal(sensor.indices, [0, 1])
+    assert_equal(categorical_to_string(sensor), s)
+    s = '  0    1    0    1  '
+    sensor = categorical_from_string(s)
+    assert_array_equal(sensor.unique_values, ['0', '1'])
+    assert_array_equal(sensor.events, [2, 7, 12, 17, 20])
+    assert_array_equal(sensor.indices, [0, 1, 0, 1])
+    assert_equal(categorical_to_string(sensor), s)
 
 
 def test_dump_to_event_parsing():
