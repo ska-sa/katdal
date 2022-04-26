@@ -20,9 +20,10 @@ import numpy as np
 from nose.tools import assert_equal
 from numpy.testing import assert_array_equal
 
-from katdal.categorical import (CategoricalData, _single_event_per_dump,
-                                parse_categorical_table, sensor_to_categorical,
-                                tabulate_categorical)
+from katdal.categorical import (
+    CategoricalData, concatenate_categorical, _single_event_per_dump,
+    sensor_to_categorical, tabulate_categorical, parse_categorical_table,
+)
 
 
 def categorical_from_string(s):
@@ -63,6 +64,79 @@ def test_quick_and_dirty_categorical_from_string():
     assert_array_equal(sensor.events, [2, 7, 12, 17, 20])
     assert_array_equal(sensor.indices, [0, 1, 0, 1])
     assert_equal(categorical_to_string(sensor), s)
+
+
+def test_categorical_data_add_remove():
+    x = 'A    B     C    A      B    C     '
+    sensor = categorical_from_string(x)
+    sensor.add(2)
+    y = 'A A  B     C    A      B    C     '
+    assert_equal(categorical_to_string(sensor), y)
+    sensor.add(7, 'D')
+    y = 'A A  B D   C    A      B    C     '
+    assert_equal(categorical_to_string(sensor), y)
+    sensor.add(11, 'E')
+    y = 'A A  B D   E    A      B    C     '
+    assert_equal(categorical_to_string(sensor), y)
+    sensor.remove('B')
+    y = 'A A    D   E    A           C     '
+    assert_equal(categorical_to_string(sensor), y)
+    sensor.remove_repeats()
+    y = 'A      D   E    A           C     '
+    assert_equal(categorical_to_string(sensor), y)
+
+
+def test_categorical_data_add_unmatched():
+    x = 'A    B     C    A      B    C     '
+    sensor = categorical_from_string(x)
+    # All alignment events are within `match_dist` of existing events: no change
+    s = '^     ^   ^     ^     ^      ^    '
+    align_sensor = categorical_from_string(s)
+    sensor.add_unmatched(align_sensor.events, match_dist=1)
+    assert_equal(categorical_to_string(sensor), x)
+    sensor.add_unmatched(align_sensor.events, match_dist=0)
+    # Now some alignment events are unmatched: add extra events
+    x = 'A    B     C    A      B    C     '
+    y = 'A    BB   BC    A     AB    CC    '
+    s = '^     ^   ^     ^     ^      ^    '
+    assert_equal(categorical_to_string(sensor), y)
+
+
+def test_categorical_data_align():
+    x = 'A    B     C    A      B    C     '
+    sensor = categorical_from_string(x)
+    s = '^         ^     ^     ^      ^    '
+    align_sensor = categorical_from_string(s)
+    sensor.align(align_sensor.events)
+    # Move events to nearest alignment event / segment start,
+    # keeping the last one if they land on top of each other
+    x = 'A    B     C    A      B    C     '
+    y = 'B         C     A     B      C    '
+    s = '^         ^     ^     ^      ^    '
+    assert_equal(categorical_to_string(sensor), y)
+    s = '^         ^      ^            ^   '
+    align_sensor = categorical_from_string(s)
+    sensor.align(align_sensor.events)
+    # In this case all A's are overridden by B's after alignment
+    x = 'A    B     C    A      B    C     '
+    y = 'B         C      B            C   '
+    s = '^         ^      ^            ^   '
+    assert_equal(categorical_to_string(sensor), y)
+
+
+def test_categorical_data_partition():
+    x = 'A    B     C    A      B    C     '
+    sensor = categorical_from_string(x)
+    s = '^        ^    ^                   '
+    align_sensor = categorical_from_string(s)
+    # Cut up sensor at alignment events / segment starts
+    sensors = sensor.partition(align_sensor.events)
+    parts = ['A    B   ', 'B C  ', 'C A      B    C     ']
+    for part, part_sensor in zip(parts, sensors):
+        assert_equal(categorical_to_string(part_sensor), part)
+    # Put parts back together again to obtain original sensor
+    concat_sensor = concatenate_categorical(sensors)
+    assert_equal(categorical_to_string(concat_sensor), x)
 
 
 def test_dump_to_event_parsing():
