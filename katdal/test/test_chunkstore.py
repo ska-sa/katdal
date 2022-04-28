@@ -117,11 +117,11 @@ class TestChunkStore:
     def test_metadata_validation(self):
         store = ChunkStore()
         # Bad slice specifications
-        assert_raises(BadChunk, store.chunk_metadata, "x", 3)
-        assert_raises(BadChunk, store.chunk_metadata, "x", [3, 2])
-        assert_raises(BadChunk, store.chunk_metadata, "x", slice(10))
-        assert_raises(BadChunk, store.chunk_metadata, "x", [slice(10)])
-        assert_raises(BadChunk, store.chunk_metadata, "x", [slice(0, 10, 2)])
+        assert_raises(TypeError, store.chunk_metadata, "x", 3)
+        assert_raises(TypeError, store.chunk_metadata, "x", [3, 2])
+        assert_raises(TypeError, store.chunk_metadata, "x", slice(10))
+        assert_raises(TypeError, store.chunk_metadata, "x", [slice(10)])
+        assert_raises(TypeError, store.chunk_metadata, "x", [slice(0, 10, 2)])
         # Chunk mismatch
         assert_raises(BadChunk, store.chunk_metadata, "x", [slice(0, 10, 1)],
                       chunk=np.ones(11))
@@ -242,7 +242,7 @@ class ChunkStoreTestBase:
     def test_put_chunk_noraise(self):
         name = self.array_name('x')
         self.store.create_array(name)
-        result = self.store.put_chunk_noraise(name, (1, 2), [])
+        result = self.store.put_chunk_noraise(name, (slice(1, 2),), np.ones(4))
         assert_is_instance(result, BadChunk)
 
     def test_dask_array_basic(self):
