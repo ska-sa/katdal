@@ -100,15 +100,19 @@ class TestChunkStoreVisFlagsWeights:
     def teardown_class(cls):
         shutil.rmtree(cls.tempdir)
 
-    def test_construction(self):
-        # Put fake dataset into chunk store
+    def _make_basic_dataset(self):
         store = NpyFileChunkStore(self.tempdir)
         prefix = 'cb1'
         shape = (10, 64, 30)
         data, chunk_info = put_fake_dataset(store, prefix, shape)
-        vfw = ChunkStoreVisFlagsWeights(store, chunk_info)
         weights = data['weights'] * data['weights_channel'][..., np.newaxis]
+        return store, chunk_info, data, weights
+
+    def test_construction(self):
+        # Put fake dataset into chunk store
+        store, chunk_info, data, weights = self._make_basic_dataset()
         # Check that data is as expected when accessed via VisFlagsWeights
+        vfw = ChunkStoreVisFlagsWeights(store, chunk_info)
         assert_equal(vfw.shape, data['correlator_data'].shape)
         assert_array_equal(vfw.vis.compute(), data['correlator_data'])
         assert_array_equal(vfw.flags.compute(), data['flags'])
@@ -117,13 +121,9 @@ class TestChunkStoreVisFlagsWeights:
 
     def test_index(self):
         # Put fake dataset into chunk store
-        store = NpyFileChunkStore(self.tempdir)
-        prefix = 'cb1'
-        shape = (10, 64, 30)
-        data, chunk_info = put_fake_dataset(store, prefix, shape)
+        store, chunk_info, data, weights = self._make_basic_dataset()
         index = np.s_[2:5, -20:]
         vfw = ChunkStoreVisFlagsWeights(store, chunk_info, index=index)
-        weights = data['weights'] * data['weights_channel'][..., np.newaxis]
         assert_array_equal(vfw.vis.compute(), data['correlator_data'][index])
         assert_array_equal(vfw.flags.compute(), data['flags'][index])
         assert_array_equal(vfw.weights.compute(), weights[index])
