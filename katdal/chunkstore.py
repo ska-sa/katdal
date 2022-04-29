@@ -41,7 +41,7 @@ class ChunkNotFound(KeyError, ChunkStoreError):
 
 
 class BadChunk(ValueError, ChunkStoreError):
-    """The chunk is malformed, e.g. bad dtype or slices, wrong buffer size."""
+    """The chunk is malformed, e.g. bad dtype, actual shape differs from requested."""
 
 
 class PlaceholderChunk:
@@ -160,7 +160,7 @@ def _prune_chunks(chunks, index, offset=()):
     chunks = [list(c) for c in chunks]   # Make mutable
     shape = [sum(c) for c in chunks]
     index = list(da.slicing.normalize_index(index, shape))
-    if not all(isinstance(idx, slice) and idx.step is None for idx in index):
+    if not all(isinstance(idx, slice) and idx.step in (1, None) for idx in index):
         raise IndexError('Only slices with unit step are valid indices in get_dask_array')
     offset = list(offset) if offset else [0] * len(shape)
     for axis in range(len(shape)):
@@ -299,9 +299,11 @@ class ChunkStore:
 
         Raises
         ------
+        :exc:`TypeError`
+            If `slices` is not a sequence of slice(start, stop, 1) objects
         :exc:`chunkstore.BadChunk`
-            If requested `dtype` does not match underlying parent array dtype,
-            `slices` has wrong specification or stored buffer has wrong size
+            If requested `dtype` does not match underlying parent array dtype
+            or stored buffer has wrong size / shape compared to `slices`
         :exc:`chunkstore.StoreUnavailable`
             If interaction with chunk store failed (offline, bad auth, bad config)
         :exc:`chunkstore.ChunkNotFound`
@@ -354,8 +356,10 @@ class ChunkStore:
 
         Raises
         ------
+        :exc:`TypeError`
+            If `slices` is not a sequence of slice(start, stop, 1) objects
         :exc:`chunkstore.BadChunk`
-            If `slices` is wrong or its shape does not match that of `chunk`
+            If the shape implied by `slices` does not match that of `chunk`
         :exc:`chunkstore.StoreUnavailable`
             If interaction with chunk store failed (offline, bad auth, bad config)
         :exc:`chunkstore.ChunkNotFound`
@@ -444,19 +448,21 @@ class ChunkStore:
 
         Raises
         ------
+        :exc:`TypeError`
+            If `slices` is not a sequence of slice(start, stop, 1) objects
         :exc:`chunkstore.BadChunk`
-            If `slices` has wrong specification or its shape does not match
-            that of `chunk`, or any dtype contains objects
+            If the shape implied by `slices` does not match that of `chunk`,
+            or any dtype contains objects
 
         """
         try:
             shape = tuple(s.stop - s.start for s in slices)
         except (TypeError, AttributeError):
-            raise BadChunk(f'Array {array_name!r}: chunk ID should be '
-                           f'a sequence of slice objects, not {slices}')
+            raise TypeError(f'Array {array_name!r}: chunk ID should be a sequence '
+                            f'of slice(start, stop) objects, not {slices}')
         # Verify that all slice strides are unity (i.e. it's a "simple" slice)
         if not all([s.step in (1, None) for s in slices]):
-            raise BadChunk(f'Array {array_name!r}: chunk ID {slices} contains non-unit strides')
+            raise TypeError(f'Array {array_name!r}: chunk ID {slices} contains non-unit strides')
         # Construct chunk name from array_name + slices
         chunk_name = cls.join(array_name, cls.chunk_id_str(slices))
         if chunk is not None and chunk.shape != shape:

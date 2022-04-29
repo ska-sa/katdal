@@ -31,6 +31,7 @@ from katdal.chunkstore import generate_chunks
 from katdal.chunkstore_npy import NpyFileChunkStore
 from katdal.flags import DATA_LOST
 from katdal.van_vleck import autocorr_lookup_table
+from katdal.lazy_indexer import DaskLazyIndexer
 from katdal.vis_flags_weights import (ChunkStoreVisFlagsWeights,
                                       VisFlagsWeights, corrprod_to_autocorr)
 
@@ -100,15 +101,19 @@ class TestChunkStoreVisFlagsWeights:
     def teardown_class(cls):
         shutil.rmtree(cls.tempdir)
 
-    def test_construction(self):
-        # Put fake dataset into chunk store
+    def _make_basic_dataset(self):
         store = NpyFileChunkStore(self.tempdir)
         prefix = 'cb1'
         shape = (10, 64, 30)
         data, chunk_info = put_fake_dataset(store, prefix, shape)
-        vfw = ChunkStoreVisFlagsWeights(store, chunk_info)
         weights = data['weights'] * data['weights_channel'][..., np.newaxis]
+        return store, chunk_info, data, weights
+
+    def test_construction(self):
+        # Put fake dataset into chunk store
+        store, chunk_info, data, weights = self._make_basic_dataset()
         # Check that data is as expected when accessed via VisFlagsWeights
+        vfw = ChunkStoreVisFlagsWeights(store, chunk_info)
         assert_equal(vfw.shape, data['correlator_data'].shape)
         assert_array_equal(vfw.vis.compute(), data['correlator_data'])
         assert_array_equal(vfw.flags.compute(), data['flags'])
@@ -117,16 +122,36 @@ class TestChunkStoreVisFlagsWeights:
 
     def test_index(self):
         # Put fake dataset into chunk store
-        store = NpyFileChunkStore(self.tempdir)
-        prefix = 'cb1'
-        shape = (10, 64, 30)
-        data, chunk_info = put_fake_dataset(store, prefix, shape)
+        store, chunk_info, data, weights = self._make_basic_dataset()
         index = np.s_[2:5, -20:]
         vfw = ChunkStoreVisFlagsWeights(store, chunk_info, index=index)
-        weights = data['weights'] * data['weights_channel'][..., np.newaxis]
         assert_array_equal(vfw.vis.compute(), data['correlator_data'][index])
         assert_array_equal(vfw.flags.compute(), data['flags'][index])
         assert_array_equal(vfw.weights.compute(), weights[index])
+
+    def test_lazy_indexer_interaction(self):
+        # Put fake dataset into chunk store
+        store, chunk_info, data, weights = self._make_basic_dataset()
+        vfw = ChunkStoreVisFlagsWeights(store, chunk_info)
+        # Check that the combination of DaskLazyIndexer and VisFlagsWeights works
+        vis_indexer = DaskLazyIndexer(vfw.vis)
+        flags_indexer = DaskLazyIndexer(vfw.flags)
+        weights_indexer = DaskLazyIndexer(vfw.weights)
+        assert_array_equal(vis_indexer[:], data['correlator_data'])
+        assert_array_equal(flags_indexer[:], data['flags'])
+        assert_array_equal(weights_indexer[:], weights)
+        # Probe the case where we select a small portion of the data, which
+        # has a different code path and also represents what mvftoms does.
+        assert_array_equal(vis_indexer[0], data['correlator_data'][0])
+        assert_array_equal(flags_indexer[0], data['flags'][0])
+        assert_array_equal(weights_indexer[0], weights[0])
+        # Also check fancy indexing to complete the set
+        dumps = np.ones(vfw.shape[0], dtype=bool)
+        dumps[2:5] = False
+        dumps[8:] = False
+        assert_array_equal(vis_indexer[dumps], data['correlator_data'][dumps])
+        assert_array_equal(flags_indexer[dumps], data['flags'][dumps])
+        assert_array_equal(weights_indexer[dumps], weights[dumps])
 
     def test_van_vleck(self):
         ants = 7
