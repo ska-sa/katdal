@@ -1,6 +1,10 @@
 History
 =======
 
+0.20.1 (2022-04-29)
+-------------------
+* Fix broken `dataset.vis[n]` due to DaskLazyIndexer / ChunkStore interaction (#355)
+
 0.20 (2022-04-14)
 -----------------
 * Fix support for dask >= 2022.01.1 in ChunkStore (#351)
