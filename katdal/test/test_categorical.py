@@ -88,50 +88,46 @@ def test_categorical_data_add_remove():
 
 def test_categorical_data_add_unmatched():
     x = 'A    B     C    A      B    C     '
-    sensor = categorical_from_string(x)
-    # All alignment events are within `match_dist` of existing events: no change
-    s = '^     ^   ^     ^     ^      ^    '
-    align_sensor = categorical_from_string(s)
-    sensor.add_unmatched(align_sensor.events, match_dist=1)
-    assert_equal(categorical_to_string(sensor), x)
-    sensor.add_unmatched(align_sensor.events, match_dist=0)
-    # Now some alignment events are unmatched: add extra events
-    x = 'A    B     C    A      B    C     '
     y = 'A    BB   BC    A     AB    CC    '
     s = '^     ^   ^     ^     ^      ^    '
+    sensor = categorical_from_string(x)
+    align_sensor = categorical_from_string(s)
+    # All alignment events are within `match_dist` of existing events: no change
+    sensor.add_unmatched(align_sensor.events, match_dist=1)
+    assert_equal(categorical_to_string(sensor), x)
+    # Now some alignment events are unmatched: add extra events
+    sensor.add_unmatched(align_sensor.events, match_dist=0)
     assert_equal(categorical_to_string(sensor), y)
 
 
 def test_categorical_data_align():
-    x = 'A    B     C    A      B    C     '
-    sensor = categorical_from_string(x)
-    s = '^         ^     ^     ^      ^    '
-    align_sensor = categorical_from_string(s)
-    sensor.align(align_sensor.events)
     # Move events to nearest alignment event / segment start,
     # keeping the last one if they land on top of each other
     x = 'A    B     C    A      B    C     '
     y = 'B         C     A     B      C    '
     s = '^         ^     ^     ^      ^    '
-    assert_equal(categorical_to_string(sensor), y)
-    s = '^         ^      ^            ^   '
+    sensor = categorical_from_string(x)
     align_sensor = categorical_from_string(s)
     sensor.align(align_sensor.events)
+    assert_equal(categorical_to_string(sensor), y)
     # In this case all A's are overridden by B's after alignment
     x = 'A    B     C    A      B    C     '
     y = 'B         C      B            C   '
     s = '^         ^      ^            ^   '
+    sensor = categorical_from_string(x)
+    align_sensor = categorical_from_string(s)
+    sensor.align(align_sensor.events)
     assert_equal(categorical_to_string(sensor), y)
 
 
 def test_categorical_data_partition():
     x = 'A    B     C    A      B    C     '
-    sensor = categorical_from_string(x)
     s = '^        ^    ^                   '
+    parts = ['A    B   ', 'B C  ', 'C A      B    C     ']
+    sensor = categorical_from_string(x)
     align_sensor = categorical_from_string(s)
     # Cut up sensor at alignment events / segment starts
     sensors = sensor.partition(align_sensor.events)
-    parts = ['A    B   ', 'B C  ', 'C A      B    C     ']
     for part, part_sensor in zip(parts, sensors):
         assert_equal(categorical_to_string(part_sensor), part)
     # Put parts back together again to obtain original sensor
