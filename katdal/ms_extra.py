@@ -228,16 +228,6 @@ def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
     dmgroup_spec[dm_group] = dmspec(desc["desc"])
     additional_columns.append(desc)
 
-    dm_group = 'ImagingWeight'
-    shape = [nchan]
-    desc = tables.tablecreatearraycoldesc(
-        "IMAGING_WEIGHT", 0,
-        comment="Weight set by imaging task (e.g. uniform weighting)",
-        options=4, valuetype='float', shape=shape, ndim=len(shape),
-        datamanagergroup=dm_group, datamanagertype='TiledColumnStMan')
-    dmgroup_spec[dm_group] = dmspec(desc["desc"])
-    additional_columns.append(desc)
-
     # Add MODEL_DATA and CORRECTED_DATA if requested
     if model_data:
         dm_group = 'ModelData'
@@ -388,8 +378,6 @@ def populate_main_dict(uvw_coordinates, vis_data, flag_data, weight_data, timest
     # https://casadocs.readthedocs.io/en/stable/notebooks/data_weights.html
     # for further details
     main_dict['SIGMA_SPECTRUM'] = weight_data ** -0.5
-    # Weight set by imaging task (e.g. uniform weighting) (float, 1-dim)
-    # main_dict['IMAGING_WEIGHT'] = np.ones((num_vis_samples, 1), dtype=np.float32)
     # The sampling interval (double)
     main_dict['INTERVAL'] = integrate_length * np.ones(num_vis_samples)
     # The model data column (complex, 3-dim)
