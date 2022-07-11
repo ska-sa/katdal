@@ -42,6 +42,7 @@ def open_table(name, readonly=False, verbose=False, **kwargs):
     return tables.table(name, readonly=readonly, ack=verbose, **kwargs)
 
 
+# TODO: change interface to `create_ms(filename, nchan, npol, model_data=False)`
 def create_ms(filename, table_desc=None, dm_info=None):
     """Create an empty MS with the default expected sub-tables and columns."""
     with tables.default_ms(filename, table_desc, dm_info) as main_table:
@@ -100,24 +101,35 @@ MS_TO_NP_TYPE_MAP = {
 }
 
 
+# TODO: make this private and remove `nbl` parameter
 def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
-    """
-    Creates Table Description and Data Manager Information objects that
-    describe a MeasurementSet suitable for holding MeerKAT data.
+    """Describe the structure of a MeerKAT MeasurementSet.
 
-    Creates additional DATA, IMAGING_WEIGHT and possibly
-    MODEL_DATA and CORRECTED_DATA columns.
+    This creates Table Description and Data Manager Information objects
+    that describe a MeasurementSet suitable for holding MeerKAT data,
+    adding various large columns (DATA, WEIGHT_SPECTRUM, SIGMA_SPECTRUM,
+    and possibly MODEL_DATA and CORRECTED_DATA). The output can be used
+    as input to :func:`casacore.tables.default_ms` to create a new empty MS.
 
     Columns are given fixed shapes defined by the arguments to this function.
 
-    :param nbl: Number of baselines.
-    :param nchan: Number of channels.
-    :param ncorr: Number of correlation products.
-    :param model_data: Boolean indicated whether MODEL_DATA and CORRECTED_DATA
-                        should be added to the Measurement Set.
-    :return: Returns a tuple containing a table description describing
-            the extra columns and hypercolumns, as well as a Data Manager
-            description.
+    Parameters
+    ----------
+    nbl : int
+        Number of baselines (not used)
+    nchan : int
+        Number of frequency channels
+    ncorr : int
+        Number of polarisation correlation products (e.g. HH, VV, HV, VH)
+    model_data : bool, optional
+        True if MODEL_DATA and CORRECTED_DATA columns should be added to MS
+
+    Returns
+    -------
+    desc : dict mapping str to dict
+        Table description describing the extra columns and hypercolumns
+    dminfo : dict mapping str to dict
+        Data Manager Information description
     """
     # Columns that will be modified. We want to keep things like their
     # keywords, dims and shapes.
