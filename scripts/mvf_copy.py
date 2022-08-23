@@ -46,6 +46,7 @@ def parse_args():
     parser.add_argument('--corrprods',
                         help='Select correlation products (kwarg to katdal.DataSet.select). '
                         'Keeps all corrprods by default.')
+    parser.add_argument('--pol', help='Select polarisation terms')
     parser.add_argument('--workers', type=int, default=8 * dask.system.CPU_COUNT,
                         help='Number of dask workers for parallel I/O [%(default)s]')
     args = parser.parse_args()
@@ -98,6 +99,8 @@ def main():
     kwargs = {}
     if args.corrprods is not None:
         kwargs['corrprods'] = args.corrprods
+    if args.pol is not None:
+        kwargs['pol'] = args.pol
     d.select(**kwargs)
 
     # Convenience variables
