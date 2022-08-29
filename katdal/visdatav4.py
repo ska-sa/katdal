@@ -261,13 +261,16 @@ class VisibilityDataV4(DataSet):
     ant_overrides : dict or str, optional
         Override the antenna objects by looking up their names in a dictionary
         or text file
+    target_overrides : :class:`katpoint.Catalogue` or str, optional
+        Override the target objects by looking up their names in a catalogue
+        or text file (but don't change their tags)
     kwargs : dict, optional
         Extra keyword arguments, typically meant for other formats and ignored
 
     """
     def __init__(self, source, ref_ant='', time_offset=0.0, applycal='',
-                 gaincal_flux={}, sensor_store=None,
-                 preselect=None, ant_overrides=None, **kwargs):
+                 gaincal_flux={}, sensor_store=None, preselect=None,
+                 ant_overrides=None, target_overrides=None, **kwargs):
         DataSet.__init__(self, source.name, ref_ant, time_offset, source.url)
         attrs = source.metadata.attrs
 
@@ -541,6 +544,21 @@ class VisibilityDataV4(DataSet):
                 # Remove initial target from target.unique_values if not used
                 target.align(target.events)
             break
+
+        if target_overrides is not None:
+            if isinstance(target_overrides, str):
+                target_overrides = katpoint.Catalogue(open(target_overrides))
+            new_targets = []
+            for tgt in target.unique_values:
+                new_target = target_overrides[tgt.name]
+                if new_target is None:
+                    new_target = tgt
+                else:
+                    new_target = katpoint.Target(new_target,
+                                                 user_tags=tgt.user_tags)
+                new_targets.append(new_target)
+            target.unique_values = new_targets
+
         self.sensor['Observation/target'] = target
         self.sensor['Observation/target_index'] = CategoricalData(target.indices,
                                                                   target.events)
