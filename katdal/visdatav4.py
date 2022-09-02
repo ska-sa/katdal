@@ -425,6 +425,21 @@ class VisibilityDataV4(DataSet):
             self.sensor['Correlator/scale_factor_timestamp'] = CategoricalData(
                [scale_factor_timestamp], all_dumps)
         dc_params = json.loads(attrs['cbf_loaded_delay_correction'])
+        # Override the antennas inside the correlator delay model to improve KRETRACK
+        if ant_overrides is not None:
+            ant_models = {}
+            for ant in ants:
+                model = katpoint.DelayModel(ant.delay_model)
+                # If reference positions agree, keep model to avoid small rounding errors
+                if array_ant.position_wgs84 != ant.ref_position_wgs84:
+                    # Remap antenna ENU offset to the common reference position
+                    enu = katpoint.ecef_to_enu(*array_ant.position_wgs84, *ant.position_ecef)
+                    model['POS_E'] = enu[0]
+                    model['POS_N'] = enu[1]
+                    model['POS_U'] = enu[2]
+                ant_models[ant.name] = model.description
+            dc_params['ant_models'] = ant_models
+            dc_params['ref_ant'] = array_ant.description
         # Pick the best available tropospheric delay model instead of stored one
         dc_params['tropospheric_model'] = 'SaastamoinenZenithDelay-GlobalMappingFunction'
         dc = katpoint.DelayCorrection(json.dumps(dc_params))
