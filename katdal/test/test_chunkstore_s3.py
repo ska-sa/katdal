@@ -76,6 +76,14 @@ RETRY = Retry(connect=1, read=1, status=3, backoff_factor=0.1,
               raise_on_status=False, status_forcelist=_DEFAULT_SERVER_GLITCHES)
 SUGGESTED_STATUS_DELAY = 0.1
 READ_PAUSE = 0.1
+# Dummy private key for ES256 algorithm (taken from PyJWT unit tests)
+JWT_PRIVATE_KEY = """
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg2nninfu2jMHDwAbn
+9oERUhRADS6duQaJEadybLaa0YShRANCAAQfMBxRZKUYEdy5/fLdGI2tYj6kTr50
+PZPt8jOD23rAR7dhtNpG1ojqopmH0AH5wEXadgk8nLCT4cAPK59Qp9Ek
+-----END PRIVATE KEY-----
+"""
 
 
 @contextlib.contextmanager
@@ -154,13 +162,9 @@ class TestReadArray:
         self._truncate_and_fail_to_read(-1, 2)
 
 
-def encode_jwt(header, payload, signature=86 * 'x'):
-    """Generate JWT token with encoded signature (dummy ES256 one by default)."""
-    # Don't specify algorithm='ES256' here since that needs cryptography package
-    # This generates an Unsecured JWS without a signature: '<header>.<payload>.'
-    header_payload = jwt.encode(payload, '', algorithm='none', headers=header)
-    # Now tack on a signature that nominally matches the header
-    return header_payload + signature
+def encode_jwt(header, payload):
+    """Generate JWT token with encoded signature (expects ES256 algorithm)."""
+    return jwt.encode(payload, JWT_PRIVATE_KEY, headers=header)
 
 
 class TestTokenUtils:

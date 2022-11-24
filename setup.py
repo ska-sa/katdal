@@ -61,4 +61,4 @@ setup(name='katdal',
           's3': [],
           's3credentials': ['botocore']
       },
-      tests_require=['nose'])
+      tests_require=['nose', 'cryptography'])
