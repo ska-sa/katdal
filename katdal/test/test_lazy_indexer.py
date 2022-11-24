@@ -21,7 +21,7 @@ from numbers import Integral
 
 import dask.array as da
 import numpy as np
-from nose.tools import assert_equal, assert_raises
+from nose.tools import assert_raises
 
 from katdal.lazy_indexer import (DaskLazyIndexer, _dask_oindex,
                                  _range_to_slice, _simplify_index,
@@ -39,7 +39,7 @@ class TestRangeToSlice:
         s = slice(start, stop, step)
         length = max(start, 0 if stop is None else stop) + 1
         r = slice_to_range(s, length)
-        assert_equal(_range_to_slice(r), s)
+        assert _range_to_slice(r) == s
 
     def test_basic_slices(self):
         # For testing both `start` and `stop` need to be non-negative
@@ -264,7 +264,7 @@ class TestDaskLazyIndexer:
         indexer = DaskLazyIndexer(self.data_dask, transforms=transforms)
         expected = 'x | transform1 | <lambda> | Transform3 | transform1'
         expected += f' -> {indexer.shape} {indexer.dtype}'
-        assert_equal(str(indexer), expected)
+        assert str(indexer) == expected
         # Simply exercise repr - no need to check result
         repr(indexer)
 

@@ -21,7 +21,7 @@ from functools import partial
 import dask.array as da
 import katpoint
 import numpy as np
-from nose.tools import assert_equal, assert_raises
+from nose.tools import assert_raises
 from numpy.testing import assert_allclose, assert_array_equal
 
 from katdal.applycal import (INVALID_GAIN, add_applycal_sensors,
@@ -261,7 +261,7 @@ def corrections_per_corrprod(dumps, channels, cal_products):
 def assert_categorical_data_equal(actual, desired):
     """Assert that two :class:`CategoricalData` objects are equal."""
     assert_array_equal(actual.events, desired.events)
-    assert_equal(len(actual.unique_values), len(desired.unique_values))
+    assert len(actual.unique_values) == len(desired.unique_values)
     for a, d in zip(actual.unique_values, desired.unique_values):
         assert_array_equal(a, d)
 
@@ -301,7 +301,7 @@ class TestComplexInterp:
     def test_complex64_interpolation(self):
         yi = self.yi_unit.astype(np.complex64)
         y = complex_interp(self.x, self.xi, yi)
-        assert_equal(y.dtype, yi.dtype)
+        assert y.dtype == yi.dtype
         assert_allclose(np.abs(y), 1.0, rtol=1e-7)
 
     def test_left_right(self):
@@ -423,12 +423,12 @@ class TestVirtualCorrectionSensors:
         n_virtuals_before = len(cache.virtual)
         add_applycal_sensors(cache, {}, [], CAL_STREAM, gaincal_flux=None)
         n_virtuals_after = len(cache.virtual)
-        assert_equal(n_virtuals_after, n_virtuals_before)
+        assert n_virtuals_after == n_virtuals_before
         attrs = ATTRS.copy()
         del attrs['center_freq']
         add_applycal_sensors(self.cache, attrs, FREQS, CAL_STREAM, gaincal_flux=None)
         n_virtuals_after = len(cache.virtual)
-        assert_equal(n_virtuals_after, n_virtuals_before)
+        assert n_virtuals_after == n_virtuals_before
 
     def test_delay_sensors(self, stream=CAL_STREAM):
         for n, ant in enumerate(ANTS):
@@ -526,7 +526,7 @@ class TestCalcCorrection:
         chunks = da.core.normalize_chunks((10, 5, -1), shape)
         final_cal_products, corrections = calc_correction(
             chunks, self.cache, CORRPRODS, CAL_PRODUCTS, FREQS, {'cal': CAL_FREQS})
-        assert_equal(set(final_cal_products), set(CAL_PRODUCTS))
+        assert set(final_cal_products) == set(CAL_PRODUCTS)
         corrections = corrections[dump:dump+1, channels].compute()
         expected_corrections = corrections_per_corrprod([dump], channels,
                                                         final_cal_products)
@@ -539,8 +539,8 @@ class TestCalcCorrection:
         chunks = da.core.normalize_chunks((10, 5, -1), shape)
         final_cal_products, corrections = calc_correction(
             chunks, self.cache, CORRPRODS, [], FREQS, {'cal': CAL_FREQS})
-        assert_equal(final_cal_products, [])
-        assert_equal(corrections, None)
+        assert final_cal_products == []
+        assert corrections is None
         with assert_raises(ValueError):
             calc_correction(chunks, self.cache, CORRPRODS, ['INVALID'], FREQS,
                             {'cal': CAL_FREQS})
@@ -548,8 +548,8 @@ class TestCalcCorrection:
         final_cal_products, corrections = calc_correction(
             chunks, self.cache, CORRPRODS, [unknown], FREQS, {'cal': CAL_FREQS},
             skip_missing_products=True)
-        assert_equal(final_cal_products, [])
-        assert_equal(corrections, None)
+        assert final_cal_products == []
+        assert corrections is None
         cal_products = CAL_PRODUCTS + [unknown]
         with assert_raises(KeyError):
             calc_correction(chunks, self.cache, CORRPRODS, cal_products, FREQS,
@@ -557,7 +557,7 @@ class TestCalcCorrection:
         final_cal_products, corrections = calc_correction(
             chunks, self.cache, CORRPRODS, cal_products, FREQS, {'cal': CAL_FREQS},
             skip_missing_products=True)
-        assert_equal(set(final_cal_products), set(CAL_PRODUCTS))
+        assert set(final_cal_products) == set(CAL_PRODUCTS)
         corrections = corrections[dump:dump+1, channels].compute()
         expected_corrections = corrections_per_corrprod([dump], channels,
                                                         final_cal_products)

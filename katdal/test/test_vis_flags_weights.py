@@ -24,7 +24,7 @@ import tempfile
 
 import dask.array as da
 import numpy as np
-from nose.tools import assert_equal, assert_raises
+from nose.tools import assert_raises
 from numpy.testing import assert_array_equal
 
 from katdal.chunkstore import generate_chunks
@@ -114,11 +114,11 @@ class TestChunkStoreVisFlagsWeights:
         store, chunk_info, data, weights = self._make_basic_dataset()
         # Check that data is as expected when accessed via VisFlagsWeights
         vfw = ChunkStoreVisFlagsWeights(store, chunk_info)
-        assert_equal(vfw.shape, data['correlator_data'].shape)
+        assert vfw.shape == data['correlator_data'].shape
         assert_array_equal(vfw.vis.compute(), data['correlator_data'])
         assert_array_equal(vfw.flags.compute(), data['flags'])
         assert_array_equal(vfw.weights.compute(), weights)
-        assert_equal(vfw.unscaled_weights, None)
+        assert vfw.unscaled_weights is None
 
     def test_index(self):
         # Put fake dataset into chunk store
@@ -220,7 +220,7 @@ class TestChunkStoreVisFlagsWeights:
         # Check that data is as expected when accessed via VisFlagsWeights
         vfw = ChunkStoreVisFlagsWeights(store, chunk_info, corrprods,
                                         stored_weights_are_scaled=False)
-        assert_equal(vfw.shape, data['correlator_data'].shape)
+        assert vfw.shape == data['correlator_data'].shape
         assert_array_equal(vfw.vis.compute(), data['correlator_data'])
         assert_array_equal(vfw.flags.compute(), data['flags'])
         assert_array_equal(vfw.weights.compute(), stored_weights * expected_scale)
@@ -229,7 +229,7 @@ class TestChunkStoreVisFlagsWeights:
         # Check that scaled raw weights are also accepted
         vfw = ChunkStoreVisFlagsWeights(store, chunk_info, corrprods,
                                         stored_weights_are_scaled=True)
-        assert_equal(vfw.shape, data['correlator_data'].shape)
+        assert vfw.shape == data['correlator_data'].shape
         assert_array_equal(vfw.vis.compute(), data['correlator_data'])
         assert_array_equal(vfw.flags.compute(), data['flags'])
         assert_array_equal(vfw.weights.compute(), stored_weights)
@@ -253,8 +253,8 @@ class TestChunkStoreVisFlagsWeights:
                 chunk_name, shape = store.chunk_metadata(array_name, culled_slice)
                 os.remove(os.path.join(store.path, chunk_name) + '.npy')
         vfw = ChunkStoreVisFlagsWeights(store, chunk_info)
-        assert_equal(vfw.store, store)
-        assert_equal(vfw.vis_prefix, prefix)
+        assert vfw.store == store
+        assert vfw.vis_prefix == prefix
         # Check that (only) missing chunks have been replaced by zeros
         vis = data['correlator_data']
         for culled_slice in missing_chunks['correlator_data']:

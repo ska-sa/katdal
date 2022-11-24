@@ -18,8 +18,7 @@
 
 import dask.array as da
 import numpy as np
-from nose.tools import (assert_equal, assert_false, assert_is_instance,
-                        assert_raises, assert_true)
+from nose.tools import assert_raises
 from numpy.testing import assert_array_equal
 
 from katdal.chunkstore import (BadChunk, ChunkNotFound, ChunkStore,
@@ -37,58 +36,58 @@ class TestGenerateChunks:
     def test_basic(self):
         # Basic check
         chunks = generate_chunks(self.shape, self.dtype, 3e6)
-        assert_equal(chunks, (10 * (1,), 4 * (2048,), (144,)))
+        assert chunks == (10 * (1,), 4 * (2048,), (144,))
         # Uneven chunks in the final split
         chunks = generate_chunks(self.shape, self.dtype, 1e6)
-        assert_equal(chunks, (10 * (1,), 10 * (819,) + (2,), (144,)))
+        assert chunks == (10 * (1,), 10 * (819,) + (2,), (144,))
 
     def test_corner_cases(self):
         # Corner case: don't select any dimensions to split -> one chunk
         chunks = generate_chunks(self.shape, self.dtype, 1e6, ())
-        assert_equal(chunks, ((10,), (8192,), (144,)))
+        assert chunks == ((10,), (8192,), (144,))
         # Corner case: all bytes results in one chunk
         chunks = generate_chunks(self.shape, self.dtype, self.nbytes)
-        assert_equal(chunks, ((10,), (8192,), (144,)))
+        assert chunks == ((10,), (8192,), (144,))
         # Corner case: one byte less than the full size results in a split
         chunks = generate_chunks(self.shape, self.dtype, self.nbytes - 1)
-        assert_equal(chunks, ((5, 5), (8192,), (144,)))
+        assert chunks == ((5, 5), (8192,), (144,))
 
     def test_power_of_two(self):
         # Check power_of_two
         chunks = generate_chunks(self.shape, self.dtype, 1e6,
                                  dims_to_split=[1], power_of_two=True)
-        assert_equal(chunks, ((10,), 128 * (64,), (144,)))
+        assert chunks == ((10,), 128 * (64,), (144,))
         chunks = generate_chunks(self.shape, self.dtype, self.nbytes / 16,
                                  dims_to_split=[1], power_of_two=True)
-        assert_equal(chunks, ((10,), 16 * (512,), (144,)))
+        assert chunks == ((10,), 16 * (512,), (144,))
         # Check power_of_two when dimension is not a power-of-two itself
         shape = (10, 32768 - 2048, 144)
         chunks = generate_chunks(shape, self.dtype, self.nbytes / 10,
                                  dims_to_split=(0, 1), power_of_two=True)
-        assert_equal(chunks, (10 * (1,), 3 * (8192,) + (6144,), (144,)))
+        assert chunks == (10 * (1,), 3 * (8192,) + (6144,), (144,))
         # Check swapping the order of dims_to_split
         chunks = generate_chunks(shape, self.dtype, self.nbytes / 10,
                                  dims_to_split=(1, 0), power_of_two=True)
-        assert_equal(chunks, ((10,), 60 * (512,), (144,)))
+        assert chunks == ((10,), 60 * (512,), (144,))
 
     def test_max_dim_elements(self):
         chunks = generate_chunks(self.shape, self.dtype, 150000,
                                  dims_to_split=(0, 1), power_of_two=True,
                                  max_dim_elements={1: 50})
-        assert_equal(chunks, ((4, 4, 2), 256 * (32,), (144,)))
+        assert chunks == ((4, 4, 2), 256 * (32,), (144,))
         # Case where max_dim_elements forces chunks to be smaller than
         # max_chunk_size.
         chunks = generate_chunks(self.shape, self.dtype, 1e6,
                                  dims_to_split=(0, 1), power_of_two=True,
                                  max_dim_elements={0: 4, 1: 50})
-        assert_equal(chunks, ((4, 4, 2), 256 * (32,), (144,)))
+        assert chunks == ((4, 4, 2), 256 * (32,), (144,))
 
     def test_max_dim_elements_ignore(self):
         """Elements not in `dims_to_split` are ignored"""
         chunks = generate_chunks(self.shape, self.dtype, 150000,
                                  dims_to_split=(1, 17), power_of_two=True,
                                  max_dim_elements={0: 2, 1: 50})
-        assert_equal(chunks, ((10,), 1024 * (8,), (144,)))
+        assert chunks == ((10,), 1024 * (8,), (144,))
 
 
 def test_prune_chunks():
@@ -100,9 +99,9 @@ def test_prune_chunks():
     new_chunks, new_index, new_offset = _prune_chunks(chunks, index)
     # The new chunk start-stop boundaries on each axis are:
     # ((10, 20, 30, 40), (0, 2, 4), (0, 40))
-    assert_equal(new_chunks, ((10, 10, 10), (2, 2), (40,)))
-    assert_equal(new_index, np.s_[3:24, 0:4, 10:40])
-    assert_equal(new_offset, (10, 0, 0))
+    assert new_chunks == ((10, 10, 10), (2, 2), (40,))
+    assert new_index == np.s_[3:24, 0:4, 10:40]
+    assert new_offset == (10, 0, 0)
     assert_raises(IndexError, _prune_chunks, chunks, np.s_[13:34:2, ::-1, :])
 
 
@@ -212,13 +211,13 @@ class ChunkStoreTestBase:
         assert_raises(ChunkNotFound, self.store.get_chunk, *args)
         zeros = self.store.get_chunk_or_default(*args)
         assert_array_equal(zeros, np.zeros(shape, dtype))
-        assert_equal(zeros.dtype, dtype)
+        assert zeros.dtype == dtype
         ones = self.store.get_chunk_or_default(*args, default_value=1)
         assert_array_equal(ones, np.ones(shape, dtype))
         placeholder = self.store.get_chunk_or_placeholder(*args)
-        assert_is_instance(placeholder, PlaceholderChunk)
-        assert_equal(placeholder.shape, shape)
-        assert_equal(placeholder.dtype, dtype)
+        assert isinstance(placeholder, PlaceholderChunk)
+        assert placeholder.shape == shape
+        assert placeholder.dtype == dtype
 
     def test_chunk_bool_1dim_and_too_small(self):
         # Check basic put + get on 1-D bool
@@ -246,7 +245,7 @@ class ChunkStoreTestBase:
         name = self.array_name('x')
         self.store.create_array(name)
         result = self.store.put_chunk_noraise(name, (slice(1, 2),), np.ones(4))
-        assert_is_instance(result, BadChunk)
+        assert isinstance(result, BadChunk)
 
     def test_dask_array_basic(self):
         self.put_dask_array('big_y')
@@ -275,8 +274,8 @@ class ChunkStoreTestBase:
             pull = self.store.get_dask_array(array_name, dask_array.chunks,
                                              dask_array.dtype, offset, errors=17)
             array_retrieved = pull.compute()
-            assert_equal(array_retrieved.shape, dask_array.shape)
-            assert_equal(array_retrieved.dtype, dask_array.dtype)
+            assert array_retrieved.shape == dask_array.shape
+            assert array_retrieved.dtype == dask_array.dtype
             assert_array_equal(array_retrieved[np.s_[3:8, 30:60, 0:2]], 17,
                                f'Missing chunk in {array_name} not replaced by default value')
 
@@ -291,8 +290,8 @@ class ChunkStoreTestBase:
             # numpy arrays. So we have to remap them.
             pull = self._placeholder_to_default(pull, 17)
             array_retrieved = pull.compute()
-            assert_equal(array_retrieved.shape, dask_array.shape)
-            assert_equal(array_retrieved.dtype, dask_array.dtype)
+            assert array_retrieved.shape == dask_array.shape
+            assert array_retrieved.dtype == dask_array.dtype
             assert_array_equal(array_retrieved[np.s_[3:8, 30:60, 0:2]], 17,
                                "Missing chunk in {} not replaced by default value"
                                .format(array_name))
@@ -334,12 +333,12 @@ class ChunkStoreTestBase:
 
     def _test_mark_complete(self, name):
         try:
-            assert_false(self.store.is_complete(name))
+            assert not self.store.is_complete(name)
         except NotImplementedError:
             pass
         else:
             self.store.mark_complete(name)
-            assert_true(self.store.is_complete(name))
+            assert self.store.is_complete(name)
 
     def test_mark_complete_array(self):
         self._test_mark_complete(self.array_name('completetest'))

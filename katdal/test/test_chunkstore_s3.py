@@ -47,8 +47,7 @@ import numpy as np
 import requests
 from katsdptelstate.rdb_writer import RDBWriter
 from nose import SkipTest
-from nose.tools import (assert_equal, assert_in, assert_not_in, assert_raises,
-                        timed)
+from nose.tools import assert_raises, timed
 from numpy.testing import assert_array_equal
 from urllib3.util.retry import Retry
 
@@ -111,7 +110,7 @@ class TestReadArray:
         out = read_array(fp)
         np.testing.assert_equal(array, out)
         # Check that Fortran order was preserved
-        assert_equal(array.strides, out.strides)
+        assert array.strides == out.strides
 
     def testSimple(self):
         self._test(np.arange(20))
@@ -175,7 +174,7 @@ class TestTokenUtils:
         payload = {'exp': 9234567890, 'iss': 'kat', 'prefix': ['123']}
         token = encode_jwt(payload)
         claims = decode_jwt(token)
-        assert_equal(payload, claims)
+        assert payload == claims
         # Token has invalid characters
         assert_raises(InvalidToken, decode_jwt, '** bad token **')
         # Token has invalid structure
@@ -202,7 +201,7 @@ class TestTokenUtils:
         # Check that it works without expiry date too
         del payload['exp']
         claims = decode_jwt(encode_jwt(payload))
-        assert_equal(payload, claims)
+        assert payload == claims
 
 
 class TestS3ChunkStore(ChunkStoreTestBase):
@@ -348,10 +347,10 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             self.store.get_chunk(f'{BUCKET}-empty/x', slices, dtype)
         # Check that the standard bucket has not been verified yet
         bucket_url = urllib.parse.urljoin(self.store._url, BUCKET)
-        assert_not_in(bucket_url, self.store._verified_buckets)
+        assert bucket_url not in self.store._verified_buckets
         # Check that the standard bucket remains verified after initial check
         self.test_chunk_non_existent()
-        assert_in(bucket_url, self.store._verified_buckets)
+        assert bucket_url in self.store._verified_buckets
 
 
 class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):

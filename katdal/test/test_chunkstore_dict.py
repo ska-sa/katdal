@@ -20,7 +20,6 @@ import time
 
 import numpy as np
 import dask.array as da
-from nose.tools import assert_less
 
 from katdal.chunkstore_dict import DictChunkStore
 from katdal.test.test_chunkstore import ChunkStoreTestBase
@@ -49,7 +48,7 @@ def test_basic_overheads():
     dx = store1.get_dask_array('x', chunks, float)
     py = store2.put_dask_array('y', dx)
     setup_duration = time.process_time() - start_time
-    assert_less(setup_duration, 1.0)
+    assert setup_duration < 1.0
     # Use basic array copy as a reference
     start_time = time.process_time()
     y[:] = x
@@ -58,5 +57,5 @@ def test_basic_overheads():
     start_time = time.process_time()
     success = py.compute()
     dask_duration = time.process_time() - start_time
-    assert_less(dask_duration, 10 * copy_duration)
+    assert dask_duration < 10 * copy_duration
     np.testing.assert_equal(success, None)
