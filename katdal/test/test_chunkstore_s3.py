@@ -162,18 +162,18 @@ class TestReadArray:
         self._truncate_and_fail_to_read(-1, 2)
 
 
-def encode_jwt(header, payload):
-    """Generate JWT token with encoded signature (expects ES256 algorithm)."""
-    return jwt.encode(payload, JWT_PRIVATE_KEY, headers=header)
+def encode_jwt(payload):
+    """Generate JWT token with ES256-encoded signature."""
+    header = {'alg': 'ES256', 'typ': 'JWT'}
+    return jwt.encode(payload, JWT_PRIVATE_KEY, algorithm='ES256', headers=header)
 
 
 class TestTokenUtils:
     """Test token utility and validation functions."""
 
     def test_jwt_broken_token(self):
-        header = {'alg': 'ES256', 'typ': 'JWT'}
         payload = {'exp': 9234567890, 'iss': 'kat', 'prefix': ['123']}
-        token = encode_jwt(header, payload)
+        token = encode_jwt(payload)
         claims = decode_jwt(token)
         assert_equal(payload, claims)
         # Token has invalid characters
@@ -191,18 +191,17 @@ class TestTokenUtils:
         assert_raises(InvalidToken, decode_jwt, token + token[-4:])
 
     def test_jwt_expired_token(self):
-        header = {'alg': 'ES256', 'typ': 'JWT'}
         payload = {'exp': 0, 'iss': 'kat', 'prefix': ['123']}
-        token = encode_jwt(header, payload)
+        token = encode_jwt(payload)
         assert_raises(InvalidToken, decode_jwt, token)
         # Check that expiration time is not-too-large integer
         payload['exp'] = 1.2
-        assert_raises(InvalidToken, decode_jwt, encode_jwt(header, payload))
+        assert_raises(InvalidToken, decode_jwt, encode_jwt(payload))
         payload['exp'] = 12345678901234567890
-        assert_raises(InvalidToken, decode_jwt, encode_jwt(header, payload))
+        assert_raises(InvalidToken, decode_jwt, encode_jwt(payload))
         # Check that it works without expiry date too
         del payload['exp']
-        claims = decode_jwt(encode_jwt(header, payload))
+        claims = decode_jwt(encode_jwt(payload))
         assert_equal(payload, claims)
 
 
@@ -532,7 +531,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         elif url != cls.httpd.target:
             raise RuntimeError('Cannot use multiple target URLs with http proxy')
         # The token authorises the standard bucket and anything starting with PREFIX
-        token = encode_jwt({'alg': 'ES256', 'typ': 'JWT'}, {'prefix': [BUCKET, PREFIX]})
+        token = encode_jwt({'prefix': [BUCKET, PREFIX]})
         kwargs.setdefault('token', token)
         return super().prepare_store_args(cls.proxy_url, credentials=None, **kwargs)
 
