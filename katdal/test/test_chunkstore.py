@@ -103,7 +103,8 @@ def test_prune_chunks():
     assert new_chunks == ((10, 10, 10), (2, 2), (40,))
     assert new_index == np.s_[3:24, 0:4, 10:40]
     assert new_offset == (10, 0, 0)
-    pytest.raises(IndexError, _prune_chunks, chunks, np.s_[13:34:2, ::-1, :])
+    with pytest.raises(IndexError):
+        _prune_chunks(chunks, np.s_[13:34:2, ::-1, :])
 
 
 class TestChunkStore:
@@ -111,26 +112,34 @@ class TestChunkStore:
 
     def test_put_get(self):
         store = ChunkStore()
-        pytest.raises(NotImplementedError, store.get_chunk, 1, 2, 3)
-        pytest.raises(NotImplementedError, store.put_chunk, 1, 2, 3)
+        with pytest.raises(NotImplementedError):
+            store.get_chunk(1, 2, 3)
+        with pytest.raises(NotImplementedError):
+            store.put_chunk(1, 2, 3)
 
     def test_metadata_validation(self):
         store = ChunkStore()
         # Bad slice specifications
-        pytest.raises(TypeError, store.chunk_metadata, "x", 3)
-        pytest.raises(TypeError, store.chunk_metadata, "x", [3, 2])
-        pytest.raises(TypeError, store.chunk_metadata, "x", slice(10))
-        pytest.raises(TypeError, store.chunk_metadata, "x", [slice(10)])
-        pytest.raises(TypeError, store.chunk_metadata, "x", [slice(0, 10, 2)])
+        with pytest.raises(TypeError):
+            store.chunk_metadata("x", 3)
+        with pytest.raises(TypeError):
+            store.chunk_metadata("x", [3, 2])
+        with pytest.raises(TypeError):
+            store.chunk_metadata("x", slice(10))
+        with pytest.raises(TypeError):
+            store.chunk_metadata("x", [slice(10)])
+        with pytest.raises(TypeError):
+            store.chunk_metadata("x", [slice(0, 10, 2)])
         # Chunk mismatch
-        pytest.raises(BadChunk, store.chunk_metadata, "x", [slice(0, 10, 1)],
-                      chunk=np.ones(11))
-        pytest.raises(BadChunk, store.chunk_metadata, "x", (), chunk=np.ones(5))
+        with pytest.raises(BadChunk):
+            store.chunk_metadata("x", [slice(0, 10, 1)], chunk=np.ones(11))
+        with pytest.raises(BadChunk):
+            store.chunk_metadata("x", (), chunk=np.ones(5))
         # Bad dtype
-        pytest.raises(BadChunk, store.chunk_metadata, "x", [slice(0, 10, 1)],
-                      chunk=np.array(10 * [{}]))
-        pytest.raises(BadChunk, store.chunk_metadata, "x", [slice(0, 2)],
-                      dtype=np.dtype(object))
+        with pytest.raises(BadChunk):
+            store.chunk_metadata("x", [slice(0, 10, 1)], chunk=np.array(10 * [{}]))
+        with pytest.raises(BadChunk):
+            store.chunk_metadata("x", [slice(0, 2)], dtype=np.dtype(object))
 
     def test_standard_errors(self):
         error_map = {ZeroDivisionError: StoreUnavailable,
@@ -213,7 +222,8 @@ class ChunkStoreTestBase:
         dtype = np.dtype(float)
         args = (array_name, slices, dtype)
         shape = tuple(s.stop - s.start for s in slices)
-        pytest.raises(ChunkNotFound, self.store.get_chunk, *args)
+        with pytest.raises(ChunkNotFound):
+            self.store.get_chunk(*args)
         zeros = self.store.get_chunk_or_default(*args)
         assert_array_equal(zeros, np.zeros(shape, dtype))
         assert zeros.dtype == dtype
@@ -230,7 +240,8 @@ class ChunkStoreTestBase:
         s = (slice(3, 5),)
         self.put_get_chunk('x', s)
         # Stored object has fewer bytes than expected (and wrong dtype)
-        pytest.raises(BadChunk, self.store.get_chunk, name, s, self.arrays['y'].dtype)
+        with pytest.raises(BadChunk):
+            self.store.get_chunk(name, s, self.arrays['y'].dtype)
 
     def test_chunk_float_3dim_and_too_large(self):
         # Check basic put + get on 3-D float
@@ -238,7 +249,8 @@ class ChunkStoreTestBase:
         s = (slice(3, 7), slice(2, 5), slice(1, 2))
         self.put_get_chunk('y', s)
         # Stored object has more bytes than expected (and wrong dtype)
-        pytest.raises(BadChunk, self.store.get_chunk, name, s, self.arrays['x'].dtype)
+        with pytest.raises(BadChunk):
+            self.store.get_chunk(name, s, self.arrays['x'].dtype)
 
     def test_chunk_zero_size(self):
         # Try a chunk with zero size

@@ -177,28 +177,37 @@ class TestTokenUtils:
         claims = decode_jwt(token)
         assert payload == claims
         # Token has invalid characters
-        pytest.raises(InvalidToken, decode_jwt, '** bad token **')
+        with pytest.raises(InvalidToken, match=r'does not have exactly two dots'):
+            decode_jwt('** bad token **')
         # Token has invalid structure
-        pytest.raises(InvalidToken, decode_jwt, token.replace('.', ''))
+        with pytest.raises(InvalidToken, match=r'does not have exactly two dots'):
+            decode_jwt(token.replace('.', ''))
         # Token header failed to decode
-        pytest.raises(InvalidToken, decode_jwt, token[1:])
+        with pytest.raises(InvalidToken, match=r'Could not decode'):
+            decode_jwt(token[1:])
         # Token payload failed to decode
         h, p, s = token.split('.')
-        pytest.raises(InvalidToken, decode_jwt, '.'.join((h, p[:-1], s)))
+        with pytest.raises(InvalidToken, match=r'Could not decode'):
+            decode_jwt('.'.join((h, p[:-1], s)))
         # Token signature failed to decode or wrong length
-        pytest.raises(InvalidToken, decode_jwt, token[:-1])
-        pytest.raises(InvalidToken, decode_jwt, token[:-2])
-        pytest.raises(InvalidToken, decode_jwt, token + token[-4:])
+        with pytest.raises(InvalidToken, match=r'too short'):
+            decode_jwt(token[:-1])
+        with pytest.raises(InvalidToken, match=r'too short'):
+            decode_jwt(token[:-2])
+        with pytest.raises(InvalidToken, match=r'too long'):
+            decode_jwt(token + token[-4:])
 
     def test_jwt_expired_token(self):
         payload = {'exp': 0, 'iss': 'kat', 'prefix': ['123']}
-        token = encode_jwt(payload)
-        pytest.raises(InvalidToken, decode_jwt, token)
+        with pytest.raises(InvalidToken, match=r'Token expired at 01-Jan-1970'):
+            decode_jwt(encode_jwt(payload))
         # Check that expiration time is not-too-large integer
-        payload['exp'] = 1.2
-        pytest.raises(InvalidToken, decode_jwt, encode_jwt(payload))
+        payload['exp'] = '1.2'
+        with pytest.raises(InvalidToken, match=r'Expiration time must be an integer'):
+            decode_jwt(encode_jwt(payload))
         payload['exp'] = 12345678901234567890
-        pytest.raises(InvalidToken, decode_jwt, encode_jwt(payload))
+        with pytest.raises(InvalidToken, match=r'an integer that is not too large'):
+            decode_jwt(encode_jwt(payload))
         # Check that it works without expiry date too
         del payload['exp']
         claims = decode_jwt(encode_jwt(payload))

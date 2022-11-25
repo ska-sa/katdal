@@ -49,7 +49,8 @@ class TestNpyFileChunkStore(ChunkStoreTestBase):
                 shutil.rmtree(entry.path)
 
     def test_store_unavailable(self):
-        pytest.raises(StoreUnavailable, NpyFileChunkStore, 'hahahahahaha')
+        with pytest.raises(StoreUnavailable):
+            NpyFileChunkStore('hahahahahaha')
 
 
 class TestNpyFileChunkStoreDirectWrite(TestNpyFileChunkStore):
