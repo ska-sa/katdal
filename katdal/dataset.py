@@ -418,14 +418,14 @@ class DataSet:
         self.spw = -1
         self.channel_width = 0.0
         self.freqs = self.channel_freqs = np.empty(0)
-        self.channels = np.empty(0, dtype=np.int)
+        self.channels = np.empty(0, dtype=int)
 
         self.dump_period = 0.0
         self.sensor = {}
         self.catalogue = katpoint.Catalogue()
         self.start_time = katpoint.Timestamp(0.0)
         self.end_time = katpoint.Timestamp(0.0)
-        self.dumps = np.empty(0, dtype=np.int)
+        self.dumps = np.empty(0, dtype=int)
         self.scan_indices = []
         self.compscan_indices = []
         self.target_indices = []

@@ -197,7 +197,7 @@ def unique_in_order(elements, return_inverse=False):
         if return_inverse:
             inverse = [lookup[element] for element in elements]
     # Force inverse to int dtype in case it is an empty array (float otherwise)
-    return (unique_elements, np.array(inverse, dtype=np.int)) \
+    return (unique_elements, np.array(inverse, dtype=int)) \
         if return_inverse else unique_elements
 
 

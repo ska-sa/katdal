@@ -338,7 +338,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
 
     def test_missing_or_empty_buckets(self):
         slices = (slice(0, 1),)
-        dtype = np.dtype(np.float)
+        dtype = np.dtype(float)
         # Without create_array the bucket is missing
         with assert_raises(StoreUnavailable):
             self.store.get_chunk(f'{BUCKET}-missing/x', slices, dtype)

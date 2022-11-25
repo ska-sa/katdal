@@ -130,7 +130,7 @@ class TestChunkStore:
         assert_raises(BadChunk, store.chunk_metadata, "x", [slice(0, 10, 1)],
                       chunk=np.array(10 * [{}]))
         assert_raises(BadChunk, store.chunk_metadata, "x", [slice(0, 2)],
-                      dtype=np.dtype(np.object))
+                      dtype=np.dtype(object))
 
     def test_standard_errors(self):
         error_map = {ZeroDivisionError: StoreUnavailable,
@@ -210,7 +210,7 @@ class ChunkStoreTestBase:
     def test_chunk_non_existent(self):
         array_name = self.array_name('haha')
         slices = (slice(0, 1),)
-        dtype = np.dtype(np.float)
+        dtype = np.dtype(float)
         args = (array_name, slices, dtype)
         shape = tuple(s.stop - s.start for s in slices)
         assert_raises(ChunkNotFound, self.store.get_chunk, *args)

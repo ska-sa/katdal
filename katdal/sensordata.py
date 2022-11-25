@@ -270,7 +270,7 @@ class H5TelstateSensorGetter(RecordSensorGetter):
         values = [_h5_telstate_unpack(s) for s in self._data['value']]
         # Figure out dtype and wrap any objects
         dtype = infer_dtype(values)
-        if dtype == np.object:
+        if dtype == object:
             values = [ComparableArrayWrapper(value) for value in values]
         return SensorData(self.name, timestamp, to_str(np.asarray(values)))
 
@@ -378,7 +378,7 @@ class TelstateSensorGetter(SensorGetter):
     def get(self):
         values, times = zip(*self._telstate.get_range(self.name, st=0))
         dtype = infer_dtype(values)
-        if dtype == np.object:
+        if dtype == object:
             values = [ComparableArrayWrapper(v) for v in values]
         return SensorData(self.name, np.asarray(times), np.asarray(values))
 
@@ -485,7 +485,7 @@ def dummy_sensor_getter(name, value=None, dtype=np.float64, timestamp=0.0):
             value = False
     else:
         dtype = infer_dtype([value])
-    if dtype == np.object:
+    if dtype == object:
         value = ComparableArrayWrapper(value)
     return SimpleSensorGetter(name, np.array([timestamp]), np.array([value]))
 

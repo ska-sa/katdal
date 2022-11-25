@@ -43,9 +43,9 @@ def test_vis_flags_weights():
         VisFlagsWeights(np.ones((1, 2, 3)), np.ones((1, 2, 3)), np.ones((1, 2, 3)), np.ones((1, 2, 4)))
 
 
-def ramp(shape, offset=1.0, slope=1.0, dtype=np.float_):
+def ramp(shape, offset=1.0, slope=1.0, dtype=np.float64):
     """Generate a multidimensional ramp of values of the given dtype."""
-    x = offset + slope * np.arange(np.prod(shape), dtype=np.float_)
+    x = offset + slope * np.arange(np.prod(shape), dtype=np.float64)
     return x.astype(dtype).reshape(shape)
 
 
