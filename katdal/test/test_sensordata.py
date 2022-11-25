@@ -99,7 +99,7 @@ class TestSensorCache:
             cache_data[name] = sd
         return cache_data
 
-    def setup(self):
+    def setup_method(self):
         self.cache = SensorCache(self._cache_data(), timestamps=np.arange(10.), dump_period=1.0)
 
     def test_extract_float(self):

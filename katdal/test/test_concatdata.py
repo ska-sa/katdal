@@ -33,7 +33,7 @@ class TestConcatenatedSensorCache:
             cache_data[name] = sd
         return SensorCache(cache_data, timestamps, 2.0)
 
-    def setup(self):
+    def setup_method(self):
         self.timestamps1 = np.arange(100.0, 110.0, 2.0)
         self.timestamps2 = np.arange(1000.0, 1006.0, 2.0)
         sensors1 = [

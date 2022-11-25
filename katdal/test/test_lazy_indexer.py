@@ -66,7 +66,7 @@ class TestRangeToSlice:
 
 class TestSimplifyIndex:
     """Test the :func:`~katdal.lazy_indexer._simplify_index` function."""
-    def setup(self):
+    def setup_method(self):
         self.shape = (3, 4, 5)
         self.data = np.arange(np.product(self.shape)).reshape(self.shape)
 
@@ -176,7 +176,7 @@ UNEVEN = [False, True, True, True, False, False, True, True, False, True]
 
 class TestDaskGetitem:
     """Test the :func:`~katdal.lazy_indexer.dask_getitem` function."""
-    def setup(self):
+    def setup_method(self):
         shape = (10, 20, 30, 40)
         self.data = np.arange(np.product(shape)).reshape(shape)
         self.data_dask = da.from_array(self.data, chunks=(2, 5, 2, 5))
@@ -246,7 +246,7 @@ class TestDaskGetitem:
 
 class TestDaskLazyIndexer:
     """Test the :class:`~katdal.lazy_indexer.DaskLazyIndexer` class."""
-    def setup(self):
+    def setup_method(self):
         shape = (10, 20, 30)
         self.data = np.arange(np.product(shape)).reshape(shape)
         self.data_dask = da.from_array(self.data, chunks=(1, 4, 5), name='x')

@@ -124,12 +124,12 @@ def assert_telstate_data_source_equal(source1, source2):
 
 
 class TestTelstateDataSource:
-    def setup(self):
+    def setup_method(self):
         self.tempdir = tempfile.mkdtemp()
         self.store = NpyFileChunkStore(self.tempdir)
         self.telstate = katsdptelstate.TelescopeState()
 
-    def teardown(self):
+    def teardown_method(self):
         shutil.rmtree(self.tempdir)
 
     def test_basic_timestamps(self):

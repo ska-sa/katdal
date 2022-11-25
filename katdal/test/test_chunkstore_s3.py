@@ -252,7 +252,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             cls.minio.close()
         shutil.rmtree(cls.tempdir)
 
-    def setup(self):
+    def setup_method(self):
         # The server is a class-level fixture (for efficiency), so state can
         # leak between tests. Prevent that by removing any existing objects.
         # It's easier to do that by manipulating the filesystem directly than

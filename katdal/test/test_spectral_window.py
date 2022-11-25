@@ -23,7 +23,7 @@ from katdal.spectral_window import SpectralWindow
 
 
 class TestSpectralWindow:
-    def setUp(self):
+    def setup_method(self):
         self.lsb = SpectralWindow(1000.0, 10.0, 6, sideband=-1, product='lsb')
         self.usb = SpectralWindow(1000.0, 10.0, 6, sideband=1, band='X')
         self.odd = SpectralWindow(1000.0, 10.0, 5, sideband=1)

@@ -41,7 +41,7 @@ class TestNpyFileChunkStore(ChunkStoreTestBase):
     def teardown_class(cls):
         shutil.rmtree(cls.tempdir)
 
-    def setup(self):
+    def setup_method(self):
         # Clean out data created by previous tests
         for entry in os.scandir(self.tempdir):
             if not entry.name.startswith('.') and entry.is_dir():

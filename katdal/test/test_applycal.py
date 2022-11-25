@@ -268,7 +268,7 @@ def assert_categorical_data_equal(actual, desired):
 
 class TestComplexInterp:
     """Test the :func:`~katdal.applycal.complex_interp` function."""
-    def setup(self):
+    def setup_method(self):
         self.xi = np.arange(1., 10.)
         self.yi_unit = np.exp(2j * np.pi * self.xi / 10.)
         rs = np.random.RandomState(1234)
@@ -317,7 +317,7 @@ class TestComplexInterp:
 
 class TestCalProductAccess:
     """Test the :func:`~katdal.applycal.*_cal_product` functions."""
-    def setup(self):
+    def setup_method(self):
         self.cache = create_sensor_cache()
         add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM, gaincal_flux=None)
 
@@ -370,7 +370,7 @@ class TestCalProductAccess:
 
 class TestCorrectionPerInput:
     """Test the :func:`~katdal.applycal.calc_*_correction` functions."""
-    def setup(self):
+    def setup_method(self):
         self.cache = create_sensor_cache()
         add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM, gaincal_flux=None)
 
@@ -414,7 +414,7 @@ class TestCorrectionPerInput:
 
 class TestVirtualCorrectionSensors:
     """Test :func:`~katdal.applycal.add_applycal_sensors` function."""
-    def setup(self):
+    def setup_method(self):
         self.cache = create_sensor_cache()
         add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM, gaincal_flux=None)
 
@@ -485,7 +485,7 @@ class TestVirtualCorrectionSensors:
 class TestCalibrateFlux:
     """Test :func:`~katdal.applycal.calibrate_flux` function."""
 
-    def setup(self):
+    def setup_method(self):
         gains = create_product(create_gain)
         self.sensor = create_categorical_sensor(GAIN_EVENTS, gains, INVALID_GAIN)
         calibrated_gains = create_product(partial(create_gain, fluxes=True))
@@ -513,7 +513,7 @@ class TestCalibrateFlux:
 
 class TestCalcCorrection:
     """Test :func:`~katdal.applycal.calc_correction` function."""
-    def setup(self):
+    def setup_method(self):
         self.cache = create_sensor_cache()
         # Include fluxcal, which is also done in corrections_per_corrprod
         add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM,
@@ -566,7 +566,7 @@ class TestCalcCorrection:
 
 class TestApplyCal:
     """Test :func:`~katdal.applycal.apply_vis_correction` and friends"""
-    def setup(self):
+    def setup_method(self):
         self.cache = create_sensor_cache()
         add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM, gaincal_flux=None)
 

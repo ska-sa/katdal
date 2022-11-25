@@ -112,7 +112,7 @@ def test_selection_to_list():
 
 
 class TestVirtualSensors:
-    def setup(self):
+    def setup_method(self):
         self.target = Target('PKS1934-638, radec, 19:39, -63:42')
         self.antennas = [Antenna('m000, -30:42:39.8, 21:26:38.0, 1086.6, 13.5, '
                                  '-8.264 -207.29 8.5965'),
