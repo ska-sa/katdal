@@ -46,7 +46,6 @@ import katsdptelstate
 import numpy as np
 import requests
 from katsdptelstate.rdb_writer import RDBWriter
-from nose import SkipTest
 from nose.tools import timed
 import pytest
 from numpy.testing import assert_array_equal
@@ -229,7 +228,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             # as the socket held open by get_free_port, Mac OS is not.
             cls.minio = S3Server(host, port, pathlib.Path(cls.tempdir), S3User(*cls.credentials))
         except MissingProgram as exc:
-            raise SkipTest(str(exc))
+            pytest.skip(str(exc))
         return cls.minio.url
 
     @classmethod

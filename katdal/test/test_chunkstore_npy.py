@@ -20,7 +20,6 @@ import os
 import shutil
 import tempfile
 
-from nose import SkipTest
 import pytest
 
 from katdal.chunkstore import StoreUnavailable
@@ -64,5 +63,5 @@ class TestNpyFileChunkStoreDirectWrite(TestNpyFileChunkStore):
             cls.store = NpyFileChunkStore(cls.tempdir, direct_write=True)
         except StoreUnavailable as e:
             if 'not supported' in str(e):
-                raise SkipTest(str(e))
+                pytest.skip(str(e))
             raise
