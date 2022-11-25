@@ -47,7 +47,8 @@ import numpy as np
 import requests
 from katsdptelstate.rdb_writer import RDBWriter
 from nose import SkipTest
-from nose.tools import assert_raises, timed
+from nose.tools import timed
+import pytest
 from numpy.testing import assert_array_equal
 from urllib3.util.retry import Retry
 
@@ -132,7 +133,7 @@ class TestReadArray:
     def testBadVersion(self):
         data = b'\x93NUMPY\x03\x04'     # Version 3.4
         fp = io.BytesIO(data)
-        with assert_raises(ValueError):
+        with pytest.raises(ValueError):
             read_array(fp)
 
     def testPickled(self):
@@ -140,7 +141,7 @@ class TestReadArray:
         fp = io.BytesIO()
         np.save(fp, array)
         fp.seek(0)
-        with assert_raises(ValueError):
+        with pytest.raises(ValueError):
             read_array(fp)
 
     def _truncate_and_fail_to_read(self, *args):
@@ -149,7 +150,7 @@ class TestReadArray:
         fp.seek(*args)
         fp.truncate()
         fp.seek(0)
-        with assert_raises(TruncatedRead):
+        with pytest.raises(TruncatedRead):
             read_array(fp)
 
     def testShort(self):
@@ -176,28 +177,28 @@ class TestTokenUtils:
         claims = decode_jwt(token)
         assert payload == claims
         # Token has invalid characters
-        assert_raises(InvalidToken, decode_jwt, '** bad token **')
+        pytest.raises(InvalidToken, decode_jwt, '** bad token **')
         # Token has invalid structure
-        assert_raises(InvalidToken, decode_jwt, token.replace('.', ''))
+        pytest.raises(InvalidToken, decode_jwt, token.replace('.', ''))
         # Token header failed to decode
-        assert_raises(InvalidToken, decode_jwt, token[1:])
+        pytest.raises(InvalidToken, decode_jwt, token[1:])
         # Token payload failed to decode
         h, p, s = token.split('.')
-        assert_raises(InvalidToken, decode_jwt, '.'.join((h, p[:-1], s)))
+        pytest.raises(InvalidToken, decode_jwt, '.'.join((h, p[:-1], s)))
         # Token signature failed to decode or wrong length
-        assert_raises(InvalidToken, decode_jwt, token[:-1])
-        assert_raises(InvalidToken, decode_jwt, token[:-2])
-        assert_raises(InvalidToken, decode_jwt, token + token[-4:])
+        pytest.raises(InvalidToken, decode_jwt, token[:-1])
+        pytest.raises(InvalidToken, decode_jwt, token[:-2])
+        pytest.raises(InvalidToken, decode_jwt, token + token[-4:])
 
     def test_jwt_expired_token(self):
         payload = {'exp': 0, 'iss': 'kat', 'prefix': ['123']}
         token = encode_jwt(payload)
-        assert_raises(InvalidToken, decode_jwt, token)
+        pytest.raises(InvalidToken, decode_jwt, token)
         # Check that expiration time is not-too-large integer
         payload['exp'] = 1.2
-        assert_raises(InvalidToken, decode_jwt, encode_jwt(payload))
+        pytest.raises(InvalidToken, decode_jwt, encode_jwt(payload))
         payload['exp'] = 12345678901234567890
-        assert_raises(InvalidToken, decode_jwt, encode_jwt(payload))
+        pytest.raises(InvalidToken, decode_jwt, encode_jwt(payload))
         # Check that it works without expiry date too
         del payload['exp']
         claims = decode_jwt(encode_jwt(payload))
@@ -287,7 +288,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         x = np.arange(5)
         self.store.create_array('private/x')
         self.store.put_chunk('private/x', slices, x)
-        with assert_raises(AuthorisationFailed):
+        with pytest.raises(AuthorisationFailed):
             reader.get_chunk('private/x', slices, x.dtype)
 
         # Now a public-read array
@@ -304,12 +305,12 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         with get_free_port(host) as port:
             url = f'http://{host}:{port}/'
             store = S3ChunkStore(url, timeout=0.1, retries=0)
-            with assert_raises(StoreUnavailable):
+            with pytest.raises(StoreUnavailable):
                 store.is_complete('store_is_not_listening_on_that_port')
 
     def test_token_without_https(self):
         # Don't allow users to leak their tokens by accident
-        with assert_raises(StoreUnavailable):
+        with pytest.raises(StoreUnavailable):
             S3ChunkStore('http://apparently.invalid/', token='secrettoken')
 
     def test_mark_complete_top_level(self):
@@ -340,11 +341,11 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         slices = (slice(0, 1),)
         dtype = np.dtype(float)
         # Without create_array the bucket is missing
-        with assert_raises(StoreUnavailable):
+        with pytest.raises(StoreUnavailable):
             self.store.get_chunk(f'{BUCKET}-missing/x', slices, dtype)
         self.store.create_array(f'{BUCKET}-empty/x')
         # Without put_chunk the bucket is empty
-        with assert_raises(StoreUnavailable):
+        with pytest.raises(StoreUnavailable):
             self.store.get_chunk(f'{BUCKET}-empty/x', slices, dtype)
         # Check that the standard bucket has not been verified yet
         bucket_url = urllib.parse.urljoin(self.store._url, BUCKET)
@@ -546,7 +547,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         pass
 
     def test_unauthorised_bucket(self):
-        with assert_raises(InvalidToken):
+        with pytest.raises(InvalidToken):
             self.store.is_complete('unauthorised_bucket')
 
     def _put_chunk(self, suggestion):
@@ -580,7 +581,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         chunk, slices, array_name = self._put_chunk(
             'please-respond-with-502-for-1.2-seconds')
         # After 0.9 seconds the client gives up and returns with failure 0.1 s later
-        with assert_raises(ChunkNotFound):
+        with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
 
     @timed(0.6 + 0.2)
@@ -610,7 +611,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         chunk, slices, array_name = self._put_chunk(
             'please-truncate-read-after-60-bytes-for-0.8-seconds')
         # After 0.6 seconds the client gives up
-        with assert_raises(ChunkNotFound):
+        with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
 
     @timed(READ_PAUSE + 0.2)

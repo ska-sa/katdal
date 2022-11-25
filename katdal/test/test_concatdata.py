@@ -17,7 +17,7 @@
 """Tests for :py:mod:`katdal.concatdata`."""
 
 import numpy as np
-from nose.tools import assert_raises
+import pytest
 
 from katdal.categorical import CategoricalData
 from katdal.concatdata import ConcatenatedSensorCache
@@ -102,7 +102,7 @@ class TestConcatenatedSensorCache:
         np.testing.assert_array_equal(values.value, [3.0])
 
     def test_missing_sensor(self):
-        with assert_raises(KeyError):
+        with pytest.raises(KeyError):
             self.cache['sir_not_appearing_in_this_cache']
 
     def test_partially_extract(self):

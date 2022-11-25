@@ -21,7 +21,7 @@ from numbers import Integral
 
 import dask.array as da
 import numpy as np
-from nose.tools import assert_raises
+import pytest
 
 from katdal.lazy_indexer import (DaskLazyIndexer, _dask_oindex,
                                  _range_to_slice, _simplify_index,
@@ -52,15 +52,15 @@ class TestRangeToSlice:
         self._check_slice(0, 10, 5)   # any two elements (has stop = 2 * step)
 
     def test_negative_elements(self):
-        with assert_raises(ValueError):
+        with pytest.raises(ValueError):
             _range_to_slice([-1, -2, -3, -4])
 
     def test_zero_increments(self):
-        with assert_raises(ValueError):
+        with pytest.raises(ValueError):
             _range_to_slice([1, 1, 1, 1])
 
     def test_uneven_increments(self):
-        with assert_raises(ValueError):
+        with pytest.raises(ValueError):
             _range_to_slice([1, 1, 2, 3, 5, 8, 13])
 
 
@@ -77,10 +77,10 @@ class TestSimplifyIndex:
         np.testing.assert_array_equal(actual, expected)
 
     def _test_index_error(self, indices):
-        with assert_raises(IndexError):
+        with pytest.raises(IndexError):
             simplified = _simplify_index(indices, self.data.shape)
             self.data[simplified]
-        with assert_raises(IndexError):
+        with pytest.raises(IndexError):
             self.data[indices]
 
     def test_1d(self):

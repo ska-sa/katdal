@@ -20,7 +20,7 @@ from collections import OrderedDict
 from unittest import mock
 
 import numpy as np
-from nose.tools import assert_raises
+import pytest
 
 from katdal.sensordata import (SensorCache, SensorData, SimpleSensorGetter,
                                remove_duplicates_and_invalid_values,
@@ -168,11 +168,11 @@ class TestSensorCache:
         assert calculate_value.call_count == 1
         # If your parameter values contain underscores, don't use it as delimiter
         params = {'ant': 'm000', 'param1': 'one', 'param2': 'two_three'}
-        with assert_raises(AssertionError):
+        with pytest.raises(AssertionError):
             self.cache.get(template.format(**params))
         template = 'Antennas/{ant}/{param1}/{param2}'
         # The updated template has not yet been added to the cache
-        with assert_raises(KeyError):
+        with pytest.raises(KeyError):
             self.cache.get(template.format(**params))
         self.cache.virtual[template] = _check_sensor
         value = self.cache.get(template.format(**params))

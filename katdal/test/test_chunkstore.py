@@ -18,8 +18,8 @@
 
 import dask.array as da
 import numpy as np
-from nose.tools import assert_raises
 from numpy.testing import assert_array_equal
+import pytest
 
 from katdal.chunkstore import (BadChunk, ChunkNotFound, ChunkStore,
                                PlaceholderChunk, StoreUnavailable,
@@ -103,7 +103,7 @@ def test_prune_chunks():
     assert new_chunks == ((10, 10, 10), (2, 2), (40,))
     assert new_index == np.s_[3:24, 0:4, 10:40]
     assert new_offset == (10, 0, 0)
-    assert_raises(IndexError, _prune_chunks, chunks, np.s_[13:34:2, ::-1, :])
+    pytest.raises(IndexError, _prune_chunks, chunks, np.s_[13:34:2, ::-1, :])
 
 
 class TestChunkStore:
@@ -111,35 +111,35 @@ class TestChunkStore:
 
     def test_put_get(self):
         store = ChunkStore()
-        assert_raises(NotImplementedError, store.get_chunk, 1, 2, 3)
-        assert_raises(NotImplementedError, store.put_chunk, 1, 2, 3)
+        pytest.raises(NotImplementedError, store.get_chunk, 1, 2, 3)
+        pytest.raises(NotImplementedError, store.put_chunk, 1, 2, 3)
 
     def test_metadata_validation(self):
         store = ChunkStore()
         # Bad slice specifications
-        assert_raises(TypeError, store.chunk_metadata, "x", 3)
-        assert_raises(TypeError, store.chunk_metadata, "x", [3, 2])
-        assert_raises(TypeError, store.chunk_metadata, "x", slice(10))
-        assert_raises(TypeError, store.chunk_metadata, "x", [slice(10)])
-        assert_raises(TypeError, store.chunk_metadata, "x", [slice(0, 10, 2)])
+        pytest.raises(TypeError, store.chunk_metadata, "x", 3)
+        pytest.raises(TypeError, store.chunk_metadata, "x", [3, 2])
+        pytest.raises(TypeError, store.chunk_metadata, "x", slice(10))
+        pytest.raises(TypeError, store.chunk_metadata, "x", [slice(10)])
+        pytest.raises(TypeError, store.chunk_metadata, "x", [slice(0, 10, 2)])
         # Chunk mismatch
-        assert_raises(BadChunk, store.chunk_metadata, "x", [slice(0, 10, 1)],
+        pytest.raises(BadChunk, store.chunk_metadata, "x", [slice(0, 10, 1)],
                       chunk=np.ones(11))
-        assert_raises(BadChunk, store.chunk_metadata, "x", (), chunk=np.ones(5))
+        pytest.raises(BadChunk, store.chunk_metadata, "x", (), chunk=np.ones(5))
         # Bad dtype
-        assert_raises(BadChunk, store.chunk_metadata, "x", [slice(0, 10, 1)],
+        pytest.raises(BadChunk, store.chunk_metadata, "x", [slice(0, 10, 1)],
                       chunk=np.array(10 * [{}]))
-        assert_raises(BadChunk, store.chunk_metadata, "x", [slice(0, 2)],
+        pytest.raises(BadChunk, store.chunk_metadata, "x", [slice(0, 2)],
                       dtype=np.dtype(object))
 
     def test_standard_errors(self):
         error_map = {ZeroDivisionError: StoreUnavailable,
                      LookupError: ChunkNotFound}
         store = ChunkStore(error_map)
-        with assert_raises(StoreUnavailable):
+        with pytest.raises(StoreUnavailable):
             with store._standard_errors():
                 1 / 0
-        with assert_raises(ChunkNotFound):
+        with pytest.raises(ChunkNotFound):
             with store._standard_errors():
                 {}['ha']
 
@@ -213,7 +213,7 @@ class ChunkStoreTestBase:
         dtype = np.dtype(float)
         args = (array_name, slices, dtype)
         shape = tuple(s.stop - s.start for s in slices)
-        assert_raises(ChunkNotFound, self.store.get_chunk, *args)
+        pytest.raises(ChunkNotFound, self.store.get_chunk, *args)
         zeros = self.store.get_chunk_or_default(*args)
         assert_array_equal(zeros, np.zeros(shape, dtype))
         assert zeros.dtype == dtype
@@ -230,7 +230,7 @@ class ChunkStoreTestBase:
         s = (slice(3, 5),)
         self.put_get_chunk('x', s)
         # Stored object has fewer bytes than expected (and wrong dtype)
-        assert_raises(BadChunk, self.store.get_chunk, name, s, self.arrays['y'].dtype)
+        pytest.raises(BadChunk, self.store.get_chunk, name, s, self.arrays['y'].dtype)
 
     def test_chunk_float_3dim_and_too_large(self):
         # Check basic put + get on 3-D float
@@ -238,7 +238,7 @@ class ChunkStoreTestBase:
         s = (slice(3, 7), slice(2, 5), slice(1, 2))
         self.put_get_chunk('y', s)
         # Stored object has more bytes than expected (and wrong dtype)
-        assert_raises(BadChunk, self.store.get_chunk, name, s, self.arrays['x'].dtype)
+        pytest.raises(BadChunk, self.store.get_chunk, name, s, self.arrays['x'].dtype)
 
     def test_chunk_zero_size(self):
         # Try a chunk with zero size
@@ -286,7 +286,7 @@ class ChunkStoreTestBase:
 
             pull = self.store.get_dask_array(array_name, dask_array.chunks,
                                              dask_array.dtype, offset, errors='raise')
-            with assert_raises(ChunkNotFound):
+            with pytest.raises(ChunkNotFound):
                 pull.compute()
 
             pull = self.store.get_dask_array(array_name, dask_array.chunks,

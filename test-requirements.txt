@@ -5,3 +5,4 @@ coverage
 cryptography==38.0.3
 nose
 pycparser==2.21                        # via cffi
+pytest

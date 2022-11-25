@@ -24,8 +24,8 @@ import tempfile
 
 import dask.array as da
 import numpy as np
-from nose.tools import assert_raises
 from numpy.testing import assert_array_equal
+import pytest
 
 from katdal.chunkstore import generate_chunks
 from katdal.chunkstore_npy import NpyFileChunkStore
@@ -37,9 +37,9 @@ from katdal.vis_flags_weights import (ChunkStoreVisFlagsWeights,
 
 
 def test_vis_flags_weights():
-    with assert_raises(ValueError):
+    with pytest.raises(ValueError):
         VisFlagsWeights(np.ones((1, 2, 3)), np.ones((1, 2, 3)), np.ones((1, 2, 4)))
-    with assert_raises(ValueError):
+    with pytest.raises(ValueError):
         VisFlagsWeights(np.ones((1, 2, 3)), np.ones((1, 2, 3)), np.ones((1, 2, 3)), np.ones((1, 2, 4)))
 
 
@@ -178,7 +178,7 @@ class TestChunkStoreVisFlagsWeights:
         corrected_vfw = ChunkStoreVisFlagsWeights(store, chunk_info, corrprods, van_vleck='autocorr')
         assert_array_equal(corrected_vfw.vis.compute(), expected_vis)
         # Check parameter validation
-        with assert_raises(ValueError):
+        with pytest.raises(ValueError):
             ChunkStoreVisFlagsWeights(store, chunk_info, corrprods, van_vleck='blah')
 
     def test_weight_power_scale(self):

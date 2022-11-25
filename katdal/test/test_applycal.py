@@ -21,8 +21,8 @@ from functools import partial
 import dask.array as da
 import katpoint
 import numpy as np
-from nose.tools import assert_raises
 from numpy.testing import assert_allclose, assert_array_equal
+import pytest
 
 from katdal.applycal import (INVALID_GAIN, add_applycal_sensors,
                              apply_flags_correction, apply_vis_correction,
@@ -354,7 +354,7 @@ class TestCalProductAccess:
             del cache[f'Calibration/Products/{CAL_STREAM}/B']
         # All parts gone triggers a KeyError
         del cache[CAL_STREAM + '_product_B' + str(BANDPASS_PARTS - 1)]
-        with assert_raises(KeyError):
+        with pytest.raises(KeyError):
             get_cal_product(cache, CAL_STREAM, 'B')
 
     def test_get_cal_product_gain(self):
@@ -461,17 +461,17 @@ class TestVirtualCorrectionSensors:
 
     def test_unknown_inputs_and_products(self):
         known_input = ANTS[0] + POLS[0]
-        with assert_raises(KeyError):
+        with pytest.raises(KeyError):
             self.cache.get(f'Calibration/Corrections/{CAL_STREAM}/K/unknown')
-        with assert_raises(KeyError):
+        with pytest.raises(KeyError):
             self.cache.get(f'Calibration/Corrections/{CAL_STREAM}/unknown/{known_input}')
-        with assert_raises(KeyError):
+        with pytest.raises(KeyError):
             self.cache.get(f'Calibration/Corrections/{CAL_STREAM}/K_unknown/{known_input}')
-        with assert_raises(KeyError):
+        with pytest.raises(KeyError):
             self.cache.get('Calibration/Corrections/unknown/K/' + known_input)
-        with assert_raises(KeyError):
+        with pytest.raises(KeyError):
             self.cache.get(f'Calibration/Products/{CAL_STREAM}/K_unknown')
-        with assert_raises(KeyError):
+        with pytest.raises(KeyError):
             self.cache.get('Calibration/Products/unknown/K')
 
     def test_indirect_cal_product(self):
@@ -541,7 +541,7 @@ class TestCalcCorrection:
             chunks, self.cache, CORRPRODS, [], FREQS, {'cal': CAL_FREQS})
         assert final_cal_products == []
         assert corrections is None
-        with assert_raises(ValueError):
+        with pytest.raises(ValueError):
             calc_correction(chunks, self.cache, CORRPRODS, ['INVALID'], FREQS,
                             {'cal': CAL_FREQS})
         unknown = CAL_STREAM + '.UNKNOWN'
@@ -551,7 +551,7 @@ class TestCalcCorrection:
         assert final_cal_products == []
         assert corrections is None
         cal_products = CAL_PRODUCTS + [unknown]
-        with assert_raises(KeyError):
+        with pytest.raises(KeyError):
             calc_correction(chunks, self.cache, CORRPRODS, cal_products, FREQS,
                             {'cal': CAL_FREQS}, skip_missing_products=False)
         final_cal_products, corrections = calc_correction(

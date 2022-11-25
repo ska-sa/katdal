@@ -21,7 +21,7 @@ import shutil
 import tempfile
 
 from nose import SkipTest
-from nose.tools import assert_raises
+import pytest
 
 from katdal.chunkstore import StoreUnavailable
 from katdal.chunkstore_npy import NpyFileChunkStore
@@ -49,7 +49,7 @@ class TestNpyFileChunkStore(ChunkStoreTestBase):
                 shutil.rmtree(entry.path)
 
     def test_store_unavailable(self):
-        assert_raises(StoreUnavailable, NpyFileChunkStore, 'hahahahahaha')
+        pytest.raises(StoreUnavailable, NpyFileChunkStore, 'hahahahahaha')
 
 
 class TestNpyFileChunkStoreDirectWrite(TestNpyFileChunkStore):
