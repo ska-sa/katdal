@@ -28,10 +28,11 @@ from katdal.chunkstore import (BadChunk, ChunkNotFound, ChunkStore,
 
 class TestGenerateChunks:
     """Test the `generate_chunks` function."""
-    def __init__(self):
-        self.shape = (10, 8192, 144)
-        self.dtype = np.complex64
-        self.nbytes = np.prod(self.shape) * np.dtype(self.dtype).itemsize
+    @classmethod
+    def setup_class(cls):
+        cls.shape = (10, 8192, 144)
+        cls.dtype = np.complex64
+        cls.nbytes = np.prod(cls.shape) * np.dtype(cls.dtype).itemsize
 
     def test_basic(self):
         # Basic check
@@ -143,20 +144,24 @@ class TestChunkStore:
                 {}['ha']
 
 
+def generate_arrays():
+    """Generate arrays with differently sized dtypes and dimensions as test data."""
+    return dict(
+        x=np.ones(10, dtype=np.bool),
+        y=np.arange(96.).reshape(8, 6, 2),
+        z=np.array(2.),
+        big_y=np.arange(960.).reshape(8, 60, 2),
+        big_y2=np.arange(960).reshape(8, 60, 2),
+    )
+
+
 class ChunkStoreTestBase:
     """Standard tests performed on all types of ChunkStore."""
 
     # Instance of store instantiated once per class via class-level fixture
     store = None
-
-    def __init__(self):
-        # Pick arrays with differently sized dtypes and dimensions
-        self.x = np.ones(10, dtype=np.bool)
-        self.y = np.arange(96.).reshape(8, 6, 2)
-        self.z = np.array(2.)
-        self.big_y = np.arange(960.).reshape(8, 60, 2)
-        self.big_y2 = np.arange(960).reshape(8, 60, 2)
-        self.preloaded_chunks = False
+    preloaded_chunks = False
+    arrays = {}
 
     def array_name(self, name):
         return name
@@ -164,7 +169,7 @@ class ChunkStoreTestBase:
     def put_get_chunk(self, var_name, slices):
         """Put a single chunk into store, get it back and compare."""
         array_name = self.array_name(var_name)
-        chunk = getattr(self, var_name)[slices]
+        chunk = self.arrays[var_name][slices]
         self.store.create_array(array_name)
         self.store.put_chunk(array_name, slices, chunk)
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
@@ -173,7 +178,7 @@ class ChunkStoreTestBase:
     def make_dask_array(self, var_name, slices=()):
         """Turn (part of) an existing ndarray into a dask array."""
         array_name = self.array_name(var_name)
-        array = getattr(self, var_name)
+        array = self.arrays[var_name]
         # The chunking is determined by full array to keep things predictable
         chunks = generate_chunks(array.shape, array.dtype, array.nbytes / 10.)
         dask_array = da.from_array(array, chunks)[slices]
@@ -225,7 +230,7 @@ class ChunkStoreTestBase:
         s = (slice(3, 5),)
         self.put_get_chunk('x', s)
         # Stored object has fewer bytes than expected (and wrong dtype)
-        assert_raises(BadChunk, self.store.get_chunk, name, s, self.y.dtype)
+        assert_raises(BadChunk, self.store.get_chunk, name, s, self.arrays['y'].dtype)
 
     def test_chunk_float_3dim_and_too_large(self):
         # Check basic put + get on 3-D float
@@ -233,7 +238,7 @@ class ChunkStoreTestBase:
         s = (slice(3, 7), slice(2, 5), slice(1, 2))
         self.put_get_chunk('y', s)
         # Stored object has more bytes than expected (and wrong dtype)
-        assert_raises(BadChunk, self.store.get_chunk, name, s, self.x.dtype)
+        assert_raises(BadChunk, self.store.get_chunk, name, s, self.arrays['x'].dtype)
 
     def test_chunk_zero_size(self):
         # Try a chunk with zero size
@@ -315,7 +320,7 @@ class ChunkStoreTestBase:
             np.s_[5:5, 31:31]
         ]   # TODO: use pytest.mark.parametrize when converted to pytest
 
-        expected = self.big_y2.copy()
+        expected = self.arrays['big_y2'].copy()
         if not self.preloaded_chunks:
             expected[3:8, 30:60, 0:2] = 17
         for index in indices:

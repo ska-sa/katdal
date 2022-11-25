@@ -25,7 +25,7 @@ from nose.tools import assert_raises
 
 from katdal.chunkstore import StoreUnavailable
 from katdal.chunkstore_npy import NpyFileChunkStore
-from katdal.test.test_chunkstore import ChunkStoreTestBase
+from katdal.test.test_chunkstore import ChunkStoreTestBase, generate_arrays
 
 
 class TestNpyFileChunkStore(ChunkStoreTestBase):
@@ -34,6 +34,7 @@ class TestNpyFileChunkStore(ChunkStoreTestBase):
     @classmethod
     def setup_class(cls):
         """Create temp dir to store NPY files and build ChunkStore on that."""
+        cls.arrays = generate_arrays()
         cls.tempdir = tempfile.mkdtemp()
         cls.store = NpyFileChunkStore(cls.tempdir)
 

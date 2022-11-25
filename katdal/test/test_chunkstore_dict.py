@@ -22,12 +22,13 @@ import numpy as np
 import dask.array as da
 
 from katdal.chunkstore_dict import DictChunkStore
-from katdal.test.test_chunkstore import ChunkStoreTestBase
+from katdal.test.test_chunkstore import ChunkStoreTestBase, generate_arrays
 
 
 class TestDictChunkStore(ChunkStoreTestBase):
     def setup_method(self):
-        self.store = DictChunkStore(**vars(self))
+        self.arrays = generate_arrays()
+        self.store = DictChunkStore(**self.arrays)
         # This store is prepopulated so missing chunks can't be checked
         self.preloaded_chunks = True
 

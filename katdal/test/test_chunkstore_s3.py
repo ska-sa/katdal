@@ -57,7 +57,7 @@ from katdal.chunkstore_s3 import (_DEFAULT_SERVER_GLITCHES, InvalidToken,
                                   AuthorisationFailed, decode_jwt, read_array)
 from katdal.datasources import TelstateDataSource
 from katdal.test.s3_utils import MissingProgram, S3Server, S3User
-from katdal.test.test_chunkstore import ChunkStoreTestBase
+from katdal.test.test_chunkstore import ChunkStoreTestBase, generate_arrays
 from katdal.test.test_datasources import (assert_telstate_data_source_equal,
                                           make_fake_data_source)
 
@@ -233,6 +233,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
     @classmethod
     def setup_class(cls):
         """Start minio service running on temp dir, and ChunkStore on that."""
+        cls.arrays = generate_arrays()
         cls.credentials = ('access*key', 'secret*key')
         cls.tempdir = tempfile.mkdtemp()
         cls.minio = None
@@ -553,7 +554,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         var_name = 'x'
         slices = (slice(3, 5),)
         array_name = self.array_name(var_name)
-        chunk = getattr(self, var_name)[slices]
+        chunk = self.arrays[var_name][slices]
         self.store.create_array(array_name)
         self.store.put_chunk(array_name, slices, chunk)
         return chunk, slices, self.store.join(array_name, suggestion)
