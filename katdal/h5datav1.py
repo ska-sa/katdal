@@ -131,7 +131,7 @@ class H5DataV1(DataSet):
         self.dump_period = 1.0 / corr_group.attrs['dump_rate_hz']
         self._segments = np.cumsum([0] + [len(s['timestamps']) for s in self._scan_groups])
         num_dumps = self._segments[-1]
-        self._time_keep = np.ones(num_dumps, dtype=np.bool)
+        self._time_keep = np.ones(num_dumps, dtype=bool)
         data_timestamps = self.timestamps
         if data_timestamps[0] < 1e9:
             logger.warning("File '%s' has invalid first correlator timestamp (%f)", filename, data_timestamps[0])
@@ -421,7 +421,7 @@ class H5DataV1(DataSet):
         """
         # Tell the user that there are no flags in the h5 file
         logger.warning("No flags in HDF5 v1 data files, returning array of zero flags")
-        falses = LazyTransform('falses', lambda data, keep: np.zeros_like(data, dtype=np.bool), dtype=np.bool)
+        falses = LazyTransform('falses', lambda data, keep: np.zeros_like(data, dtype=bool), dtype=bool)
         return ConcatenatedLazyIndexer(self._vis_indexers(), transforms=[falses])
 
     @property

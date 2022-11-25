@@ -231,7 +231,7 @@ class H5DataV2(DataSet):
         data_timestamps += 0.5 * self.dump_period + self.time_offset
         if data_timestamps[0] < 1e9:
             logger.warning("File '%s' has invalid first correlator timestamp (%f)", filename, data_timestamps[0])
-        self._time_keep = np.ones(num_dumps, dtype=np.bool)
+        self._time_keep = np.ones(num_dumps, dtype=bool)
         self.start_time = katpoint.Timestamp(data_timestamps[0] - 0.5 * self.dump_period)
         self.end_time = katpoint.Timestamp(data_timestamps[-1] + 0.5 * self.dump_period)
         self._keepdims = keepdims
@@ -563,7 +563,7 @@ class H5DataV2(DataSet):
         time_keep = self._time_keep
         # If there is a duplicate final dump, these lengths don't match -> ignore last dump in file
         if len(time_keep) == len(dataset) - 1:
-            time_keep = np.zeros(len(dataset), dtype=np.bool)
+            time_keep = np.zeros(len(dataset), dtype=bool)
             time_keep[:len(self._time_keep)] = self._time_keep
         stage1 = (time_keep, self._freq_keep, self._corrprod_keep)
 
@@ -646,7 +646,7 @@ class H5DataV2(DataSet):
             """Use flagmask to blank out the flags we don't want."""
             # Then convert uint8 to bool -> if any flag bits set, flag is set
             return np.bool_(np.bitwise_and(self._flags_select, flags))
-        extract = LazyTransform('extract_flags', transform, dtype=np.bool)
+        extract = LazyTransform('extract_flags', transform, dtype=bool)
         return self._vislike_indexer(self._flags, extract)
 
     @property

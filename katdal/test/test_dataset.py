@@ -59,9 +59,9 @@ class MinimalDataSet(DataSet):
         sensors['Observation/label'] = constant_sensor('track')
 
         self._timestamps = timestamps
-        self._time_keep = np.full(num_dumps, True, dtype=np.bool_)
-        self._freq_keep = np.full(num_chans, True, dtype=np.bool_)
-        self._corrprod_keep = np.full(num_corrprods, True, dtype=np.bool_)
+        self._time_keep = np.full(num_dumps, True, dtype=bool)
+        self._freq_keep = np.full(num_chans, True, dtype=bool)
+        self._corrprod_keep = np.full(num_corrprods, True, dtype=bool)
         self.dump_period = dump_period
         self.start_time = Timestamp(timestamps[0] - 0.5 * dump_period)
         self.end_time = Timestamp(timestamps[-1] + 0.5 * dump_period)

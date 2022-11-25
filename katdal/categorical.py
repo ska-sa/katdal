@@ -318,7 +318,7 @@ class CategoricalData:
             # Convert slice notation to the corresponding sequence of dump indices
             key = list(range(*key.indices(self.events[-1])))
         # Convert sequence of bools (one per dump) to sequence of indices where key is True
-        elif np.asarray(key).dtype == np.bool and len(np.asarray(key)) == self.events[-1]:
+        elif np.asarray(key).dtype == bool and len(np.asarray(key)) == self.events[-1]:
             key = np.nonzero(key)[0]
         indices = self._lookup(key)
         # Interpret indices as either a sequence of ints or a single int
@@ -352,7 +352,7 @@ class CategoricalData:
     def _bool_per_dump(self, bool_per_value):
         """Turn list of bools per unique value into an array of bools per dump."""
         bool_per_event = np.atleast_1d(np.array(bool_per_value)[self.indices])
-        bool_per_dump = np.empty(self.events[-1], dtype=np.bool)
+        bool_per_dump = np.empty(self.events[-1], dtype=bool)
         for n, (start, end) in enumerate(zip(self.events[:-1], self.events[1:])):
             bool_per_dump[start:end] = bool_per_event[n]
         return bool_per_dump

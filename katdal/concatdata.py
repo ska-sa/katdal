@@ -151,7 +151,7 @@ class ConcatenatedLazyIndexer(LazyIndexer):
             # Anything else is advanced indexing via bool or integer sequences
             keep_head = np.atleast_1d(keep_head)
             # A boolean mask is simpler to handle (no repeated or out-of-order indexing) - partition mask over indexers
-            if keep_head.dtype == np.bool and len(keep_head) == len(self):
+            if keep_head.dtype == bool and len(keep_head) == len(self):
                 chunks = []
                 for ind in range(len(self.indexers)):
                     chunk_start = indexer_starts[ind]
@@ -519,7 +519,7 @@ class ConcatenatedDataSet(DataSet):
         self.dump_period = dump_periods[0]
         self._segments = np.cumsum([0] + [len(d.sensor.timestamps) for d in datasets])
         # Keep main time selection mask at top level and ensure that underlying datasets use slice views of main one
-        self._set_keep(time_keep=np.ones(self._segments[-1], dtype=np.bool))
+        self._set_keep(time_keep=np.ones(self._segments[-1], dtype=bool))
         self.start_time = min([d.start_time for d in datasets])
         self.end_time = max([d.end_time for d in datasets])
 

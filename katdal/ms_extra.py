@@ -95,7 +95,7 @@ MS_TO_NP_TYPE_MAP = {
     'INT': np.int32,
     'FLOAT': np.float32,
     'DOUBLE': np.float64,
-    'BOOLEAN': np.bool,
+    'BOOLEAN': np.bool_,
     'COMPLEX': np.complex64,
     'DCOMPLEX': np.complex128
 }

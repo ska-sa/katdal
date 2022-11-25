@@ -147,7 +147,7 @@ class TestChunkStore:
 def generate_arrays():
     """Generate arrays with differently sized dtypes and dimensions as test data."""
     return dict(
-        x=np.ones(10, dtype=np.bool),
+        x=np.ones(10, dtype=bool),
         y=np.arange(96.).reshape(8, 6, 2),
         z=np.array(2.),
         big_y=np.arange(960.).reshape(8, 60, 2),

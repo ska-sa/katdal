@@ -209,7 +209,7 @@ class TestDaskGetitem:
         self._test_with(np.s_[[0], [-1, -2, -3, -4, -5], :, [8, 6, 4, 2, 0]])
 
     def test_evenly_spaced_booleans(self):
-        pick_one = np.zeros(40, dtype=np.bool_)
+        pick_one = np.zeros(40, dtype=bool)
         pick_one[6] = True
         self._test_with(np.s_[:, [True, False] * 10, pick_one[:30], :])
         self._test_with(np.s_[:, [False, True] * 10, :, pick_one])

@@ -46,8 +46,8 @@ def _average_visibilities(vis, weight, flag, timeav, chanav, flagav):
         vis_sum = np.empty(bl_step, vis.dtype)
         vis_weight_sum = np.empty(bl_step, vis.dtype)
         weight_sum = np.empty(bl_step, weight.dtype)
-        flag_any = np.empty(bl_step, np.bool_)
-        flag_all = np.empty(bl_step, np.bool_)
+        flag_any = np.empty(bl_step, dtype=bool)
+        flag_all = np.empty(bl_step, dtype=bool)
         for av_t in range(0, av_n_time):
             tstart = av_t * timeav
             for bstart in range(0, n_bl, bl_step):

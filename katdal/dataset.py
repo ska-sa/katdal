@@ -742,11 +742,11 @@ class DataSet:
                 self._selection.pop(key, None)
         # Since the number of freqs / corrprods may change due to spw / subarray, create these flags afresh
         if 'F' in reset:
-            self._freq_keep = np.ones(self.spectral_windows[self.spw].num_chans, dtype=np.bool)
+            self._freq_keep = np.ones(self.spectral_windows[self.spw].num_chans, dtype=bool)
             for key in freq_selectors:
                 self._selection.pop(key, None)
         if 'B' in reset:
-            self._corrprod_keep = np.ones(len(self.subarrays[self.subarray].corr_products), dtype=np.bool)
+            self._corrprod_keep = np.ones(len(self.subarrays[self.subarray].corr_products), dtype=bool)
             for key in corrprod_selectors:
                 self._selection.pop(key, None)
         # Now add the new selection criteria to the list (after the existing ones were kept or culled)
@@ -755,10 +755,10 @@ class DataSet:
         for k, v in self._selection.items():
             # Selections that affect time axis
             if k == 'dumps':
-                if np.asarray(v).dtype == np.bool:
+                if np.asarray(v).dtype == bool:
                     self._time_keep &= v
                 else:
-                    dump_keep = np.zeros(len(self._time_keep), dtype=np.bool)
+                    dump_keep = np.zeros(len(self._time_keep), dtype=bool)
                     dump_keep[v] = True
                     self._time_keep &= dump_keep
             elif k == 'timerange':
@@ -768,7 +768,7 @@ class DataSet:
                 self._time_keep &= (self.sensor.timestamps[:] <= end_time)
             elif k in ('scans', 'compscans'):
                 scans = _selection_to_list(v)
-                scan_keep = np.zeros(len(self._time_keep), dtype=np.bool)
+                scan_keep = np.zeros(len(self._time_keep), dtype=bool)
                 scan_sensor = self.sensor.get('Observation/scan_state' if k == 'scans' else 'Observation/label')
                 scan_index_sensor = self.sensor.get(f'Observation/{k[:-1]}_index')
                 for scan in scans:
@@ -781,7 +781,7 @@ class DataSet:
                 self._time_keep &= scan_keep
             elif k == 'targets':
                 targets = v if is_iterable(v) else [v]
-                target_keep = np.zeros(len(self._time_keep), dtype=np.bool)
+                target_keep = np.zeros(len(self._time_keep), dtype=bool)
                 target_index_sensor = self.sensor.get('Observation/target_index')
                 for t in targets:
                     try:
@@ -799,10 +799,10 @@ class DataSet:
                 self._time_keep &= target_keep
             # Selections that affect frequency axis
             elif k == 'channels':
-                if np.asarray(v).dtype == np.bool:
+                if np.asarray(v).dtype == bool:
                     self._freq_keep &= v
                 else:
-                    chan_keep = np.zeros(len(self._freq_keep), dtype=np.bool)
+                    chan_keep = np.zeros(len(self._freq_keep), dtype=bool)
                     chan_keep[v] = True
                     self._freq_keep &= chan_keep
             elif k == 'freqrange':
@@ -824,10 +824,10 @@ class DataSet:
                         all_corrprods = self.subarrays[self.subarray].corr_products
                         v = v.tolist()
                         v = np.array([list(cp) in v for cp in all_corrprods])
-                    if np.asarray(v).dtype == np.bool:
+                    if np.asarray(v).dtype == bool:
                         self._corrprod_keep &= v
                     else:
-                        cp_keep = np.zeros(len(self._corrprod_keep), dtype=np.bool)
+                        cp_keep = np.zeros(len(self._corrprod_keep), dtype=bool)
                         cp_keep[v] = True
                         self._corrprod_keep &= cp_keep
             elif k == 'ants':
@@ -852,7 +852,7 @@ class DataSet:
                 # Proceed if we have a selection
                 if len(pols) > 0:
                     # If given a selection assume we keep nothing
-                    keep = np.zeros(self._corrprod_keep.shape, dtype=np.bool)
+                    keep = np.zeros(self._corrprod_keep.shape, dtype=bool)
 
                     # or separate polarisation selections together
                     for polAB in pols:
