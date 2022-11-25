@@ -214,7 +214,7 @@ def telstate_decode(raw, no_decode=()):
     The return value is also passed through :func:`to_str`.
     """
     if isinstance(raw, (np.void, np.ndarray)):
-        return to_str(katsdptelstate.decode_value(raw.tostring()))
+        return to_str(katsdptelstate.decode_value(raw.tobytes()))
     raw_str = to_str(raw)
     if raw_str in no_decode:
         return raw_str
