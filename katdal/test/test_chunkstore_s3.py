@@ -74,6 +74,7 @@ RETRY = Retry(connect=1, read=3, status=3, backoff_factor=0.1,
               raise_on_status=False, status_forcelist=_DEFAULT_SERVER_GLITCHES)
 SUGGESTED_STATUS_DELAY = 0.1
 READ_PAUSE = 0.1
+TEST_DURATION_TOLERANCE = 0.2
 # Dummy private key for ES256 algorithm (taken from PyJWT unit tests)
 JWT_PRIVATE_KEY = """
 -----BEGIN PRIVATE KEY-----
@@ -212,26 +213,32 @@ class TestTokenUtils:
         assert payload == claims
 
 
-class TimeExpired(AssertionError):
-    """Test took too long to complete."""
+class UnexpectedDuration(AssertionError):
+    """Test took either too short or too long to complete."""
 
 
-def timed(limit):
-    """Test must finish within specified time limit to pass.
+def duration(minimum, maximum=None):
+    """Test must finish within `minimum` to `maximum` seconds to pass.
 
     Example use::
 
-      @timed(.1)
+      @duration(.2, .3)
       def test_that_fails():
-          time.sleep(.2)
+          time.sleep(.4)
+
+    The default `maximum` differs from `minimum` by a small tolerance.
     """
+    if maximum is None:
+        maximum = minimum + TEST_DURATION_TOLERANCE
+
     def decorate(func):
         def newfunc(*arg, **kw):
             start = time.time()
             result = func(*arg, **kw)
-            end = time.time()
-            if end - start > limit:
-                raise TimeExpired(f"Test time limit of {limit:g} seconds exceeded")
+            duration = time.time() - start
+            if not minimum <= duration <= maximum:
+                raise UnexpectedDuration(f"Test took {duration:g} seconds, which is "
+                                         f"outside the range [{minimum:g}, {maximum:g}]")
             return result
         return newfunc
     return decorate
@@ -331,7 +338,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         y = reader.get_chunk('public/x', slices, x.dtype)
         np.testing.assert_array_equal(x, y)
 
-    @timed(0.1 + 0.2)
+    @duration(0.1)
     def test_store_unavailable_unresponsive_server(self):
         host = '127.0.0.1'
         with get_free_port(host) as port:
@@ -592,7 +599,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         self.store.put_chunk(array_name, slices, chunk)
         return chunk, slices, self.store.join(array_name, suggestion)
 
-    @timed(0.9 + 0.2)
+    @duration(0.9)
     def test_recover_from_server_errors(self):
         chunk, slices, array_name = self._put_chunk(
             'please-respond-with-500-for-0.8-seconds')
@@ -608,7 +615,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         # 0.9 - success!
         self.store.get_chunk(array_name, slices, chunk.dtype)
 
-    @timed(0.9 + 0.4)
+    @duration(0.9, 0.9 + 0.4)
     def test_persistent_server_errors(self):
         chunk, slices, array_name = self._put_chunk(
             'please-respond-with-502-for-1.2-seconds')
@@ -616,7 +623,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
 
-    @timed(0.6 + 0.2)
+    @duration(0.6)
     def test_recover_from_read_truncated_within_npy_header(self):
         chunk, slices, array_name = self._put_chunk(
             'please-truncate-read-after-60-bytes-for-0.4-seconds')
@@ -631,14 +638,14 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Truncated read not recovered')
 
-    @timed(0.6 + 0.2)
+    @duration(0.6)
     def test_recover_from_read_truncated_within_npy_array(self):
         chunk, slices, array_name = self._put_chunk(
             'please-truncate-read-after-129-bytes-for-0.4-seconds')
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Truncated read not recovered')
 
-    @timed(0.6 + 0.4)
+    @duration(0.6, 0.6 + 0.4)
     def test_persistent_truncated_reads(self):
         chunk, slices, array_name = self._put_chunk(
             'please-truncate-read-after-60-bytes-for-0.8-seconds')
@@ -646,13 +653,13 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
 
-    @timed(READ_PAUSE + 0.2)
+    @duration(READ_PAUSE)
     def test_handle_read_paused_within_npy_header(self):
         chunk, slices, array_name = self._put_chunk('please-pause-read-after-60-bytes')
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Paused read failed')
 
-    @timed(READ_PAUSE + 0.2)
+    @duration(READ_PAUSE)
     def test_handle_read_paused_within_npy_array(self):
         chunk, slices, array_name = self._put_chunk('please-pause-read-after-129-bytes')
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
