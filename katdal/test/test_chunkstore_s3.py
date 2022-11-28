@@ -46,7 +46,6 @@ import katsdptelstate
 import numpy as np
 import requests
 from katsdptelstate.rdb_writer import RDBWriter
-from nose.tools import timed
 import pytest
 from numpy.testing import assert_array_equal
 from urllib3.util.retry import Retry
@@ -211,6 +210,31 @@ class TestTokenUtils:
         del payload['exp']
         claims = decode_jwt(encode_jwt(payload))
         assert payload == claims
+
+
+class TimeExpired(AssertionError):
+    """Test took too long to complete."""
+
+
+def timed(limit):
+    """Test must finish within specified time limit to pass.
+
+    Example use::
+
+      @timed(.1)
+      def test_that_fails():
+          time.sleep(.2)
+    """
+    def decorate(func):
+        def newfunc(*arg, **kw):
+            start = time.time()
+            result = func(*arg, **kw)
+            end = time.time()
+            if end - start > limit:
+                raise TimeExpired(f"Test time limit of {limit:g} seconds exceeded")
+            return result
+        return newfunc
+    return decorate
 
 
 class TestS3ChunkStore(ChunkStoreTestBase):
