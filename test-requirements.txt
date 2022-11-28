@@ -1,6 +1,7 @@
 -c https://raw.githubusercontent.com/ska-sa/katsdpdockerbase/master/docker-base-build/base-requirements.txt
 
 cffi==1.15.1                           # via cryptography
+coverage
 cryptography==38.0.3
 pycparser==2.21                        # via cffi
 pytest
