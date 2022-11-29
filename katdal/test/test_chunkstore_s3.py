@@ -338,7 +338,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         y = reader.get_chunk('public/x', slices, x.dtype)
         np.testing.assert_array_equal(x, y)
 
-    @duration(0.1)
+    @duration(0.0, 0.1 + TEST_DURATION_TOLERANCE)
     def test_store_unavailable_unresponsive_server(self):
         host = '127.0.0.1'
         with get_free_port(host) as port:
