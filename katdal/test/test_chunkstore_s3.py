@@ -458,6 +458,10 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
             if key.lower() not in HOP_HEADERS.union({'date', 'server'}):
                 self.send_header(key, value)
         self.end_headers()
+        # Quit early if there is no data to write to avoid broken pipes (since the client
+        # might stop listening if it knows nothing more is coming, like in a PUT response).
+        if len(content) == 0:
+            return
         if pause:
             self.wfile.write(content[:glitch_location])
             # The wfile object should be an unbuffered _SocketWriter but flush anyway
