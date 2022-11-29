@@ -264,6 +264,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
                 shutil.rmtree(entry.path)
         # Also get rid of the cache of verified buckets
         self.store._verified_buckets.clear()
+        print(f"Chunk store: {self.store_url}, S3 server: {self.s3_url}")
 
     def array_name(self, name):
         """Ensure that bucket is authorised and has valid name."""
