@@ -122,7 +122,7 @@ class S3Server:
 
         with contextlib.ExitStack() as exit_stack:
             exit_stack.callback(self._process.terminate)
-            health_url = urllib.parse.urljoin(self.url, '/minio/health/live')
+            health_url = urllib.parse.urljoin(self.url, '/minio/health/ready')
             for i in range(100):
                 try:
                     with requests.get(health_url) as resp:
