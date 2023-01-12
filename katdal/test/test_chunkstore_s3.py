@@ -55,6 +55,7 @@ from katdal.chunkstore_s3 import (_DEFAULT_SERVER_GLITCHES, InvalidToken,
                                   S3ChunkStore, TruncatedRead, _AWSAuth,
                                   AuthorisationFailed, decode_jwt, read_array)
 from katdal.datasources import TelstateDataSource
+from katdal.test.conftest import check_durations
 from katdal.test.s3_utils import MissingProgram, S3Server, S3User
 from katdal.test.test_chunkstore import ChunkStoreTestBase, generate_arrays
 from katdal.test.test_datasources import (assert_telstate_data_source_equal,
@@ -227,6 +228,7 @@ def duration(minimum, maximum=None):
           time.sleep(.4)
 
     The default `maximum` differs from `minimum` by a small tolerance.
+    The check only happens if the module-level variable `check_durations` is True.
     """
     if maximum is None:
         maximum = minimum + TEST_DURATION_TOLERANCE
@@ -236,7 +238,7 @@ def duration(minimum, maximum=None):
             start = time.time()
             result = func(*arg, **kw)
             duration = time.time() - start
-            if not minimum <= duration <= maximum:
+            if check_durations and not minimum <= duration <= maximum:
                 raise UnexpectedDuration(f"Test took {duration:g} seconds, which is "
                                          f"outside the range [{minimum:g}, {maximum:g}]")
             return result
