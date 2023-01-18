@@ -126,7 +126,12 @@ class S3Server:
             for i in range(100):
                 try:
                     with requests.get(health_url) as resp:
-                        if resp.ok:
+                        if (
+                            # Server is up...
+                            resp.ok
+                            # and initialised, therefore ready for requests
+                            and resp.headers.get('X-Minio-Server-Status') != 'offline'
+                        ):
                             break
                 except requests.ConnectionError:
                     pass
