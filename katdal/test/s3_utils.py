@@ -104,8 +104,8 @@ class S3Server:
 
         env = os.environ.copy()
         env['MINIO_BROWSER'] = 'off'
-        env['MINIO_ACCESS_KEY'] = self.user.access_key
-        env['MINIO_SECRET_KEY'] = self.user.secret_key
+        env['MINIO_ROOT_USER'] = self.user.access_key
+        env['MINIO_ROOT_PASSWORD'] = self.user.secret_key
         try:
             self._process = subprocess.Popen(
                 [
