@@ -104,8 +104,8 @@ class S3Server:
 
         env = os.environ.copy()
         env['MINIO_BROWSER'] = 'off'
-        env['MINIO_ACCESS_KEY'] = self.user.access_key
-        env['MINIO_SECRET_KEY'] = self.user.secret_key
+        env['MINIO_ROOT_USER'] = self.user.access_key
+        env['MINIO_ROOT_PASSWORD'] = self.user.secret_key
         try:
             self._process = subprocess.Popen(
                 [
@@ -122,11 +122,16 @@ class S3Server:
 
         with contextlib.ExitStack() as exit_stack:
             exit_stack.callback(self._process.terminate)
-            health_url = urllib.parse.urljoin(self.url, '/minio/health/live')
+            health_url = urllib.parse.urljoin(self.url, '/minio/health/ready')
             for i in range(100):
                 try:
                     with requests.get(health_url) as resp:
-                        if resp.ok:
+                        if (
+                            # Server is up...
+                            resp.ok
+                            # and initialised, therefore ready for requests
+                            and resp.headers.get('X-Minio-Server-Status') != 'offline'
+                        ):
                             break
                 except requests.ConnectionError:
                     pass

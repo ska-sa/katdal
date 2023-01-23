@@ -188,7 +188,10 @@ class ChunkStoreTestBase:
         push = self.store.put_dask_array(array_name, dask_array, offset)
         results = push.compute()
         divisions_per_dim = [len(c) for c in dask_array.chunks]
-        assert_array_equal(results, np.full(divisions_per_dim, None))
+        try:
+            assert_array_equal(results, np.full(divisions_per_dim, None))
+        except AssertionError as exc:
+            raise AssertionError(f"Bad put_dask_array: {var_name} {slices} {results.tolist()}") from exc
 
     def get_dask_array(self, var_name, slices=()):
         """Get (part of) an array from store via dask and compare."""

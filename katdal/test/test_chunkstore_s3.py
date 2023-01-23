@@ -68,14 +68,22 @@ BUCKET = 'katdal-unittest'
 PREFIX = '1234567890'
 # Pick quick but different timeouts and retries for unit tests:
 #  - The effective connect timeout is 5.0 (initial) + 5.0 (1 retry) = 10 seconds
-#  - The effective read timeout is 0.4 + 0.4 = 0.8 seconds
+#  - The effective read timeout is 2.0 + 3 * 2.0 + 0.1 * (0 + 2 + 4) = 8.6 seconds
 #  - The effective status timeout is 0.1 * (0 + 2 + 4) = 0.6 seconds, or
 #    4 * 0.1 + 0.6 = 1.0 second if the suggestions use SUGGESTED_STATUS_DELAY
-TIMEOUT = (5.0, 0.4)
-RETRY = Retry(connect=1, read=1, status=3, backoff_factor=0.1,
+TIMEOUT = (5.0, 2.0)
+RETRY = Retry(connect=1, read=3, status=3, backoff_factor=0.1,
               raise_on_status=False, status_forcelist=_DEFAULT_SERVER_GLITCHES)
 SUGGESTED_STATUS_DELAY = 0.1
 READ_PAUSE = 0.1
+# Dummy private key for ES256 algorithm (taken from PyJWT unit tests)
+JWT_PRIVATE_KEY = """
+-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg2nninfu2jMHDwAbn
+9oERUhRADS6duQaJEadybLaa0YShRANCAAQfMBxRZKUYEdy5/fLdGI2tYj6kTr50
+PZPt8jOD23rAR7dhtNpG1ojqopmH0AH5wEXadgk8nLCT4cAPK59Qp9Ek
+-----END PRIVATE KEY-----
+"""
 
 
 @contextlib.contextmanager
@@ -154,22 +162,18 @@ class TestReadArray:
         self._truncate_and_fail_to_read(-1, 2)
 
 
-def encode_jwt(header, payload, signature=86 * 'x'):
-    """Generate JWT token with encoded signature (dummy ES256 one by default)."""
-    # Don't specify algorithm='ES256' here since that needs cryptography package
-    # This generates an Unsecured JWS without a signature: '<header>.<payload>.'
-    header_payload = jwt.encode(payload, '', algorithm='none', headers=header)
-    # Now tack on a signature that nominally matches the header
-    return header_payload + signature
+def encode_jwt(payload):
+    """Generate JWT token with ES256-encoded signature."""
+    header = {'alg': 'ES256', 'typ': 'JWT'}
+    return jwt.encode(payload, JWT_PRIVATE_KEY, algorithm='ES256', headers=header)
 
 
 class TestTokenUtils:
     """Test token utility and validation functions."""
 
     def test_jwt_broken_token(self):
-        header = {'alg': 'ES256', 'typ': 'JWT'}
         payload = {'exp': 9234567890, 'iss': 'kat', 'prefix': ['123']}
-        token = encode_jwt(header, payload)
+        token = encode_jwt(payload)
         claims = decode_jwt(token)
         assert_equal(payload, claims)
         # Token has invalid characters
@@ -187,18 +191,17 @@ class TestTokenUtils:
         assert_raises(InvalidToken, decode_jwt, token + token[-4:])
 
     def test_jwt_expired_token(self):
-        header = {'alg': 'ES256', 'typ': 'JWT'}
         payload = {'exp': 0, 'iss': 'kat', 'prefix': ['123']}
-        token = encode_jwt(header, payload)
+        token = encode_jwt(payload)
         assert_raises(InvalidToken, decode_jwt, token)
         # Check that expiration time is not-too-large integer
         payload['exp'] = 1.2
-        assert_raises(InvalidToken, decode_jwt, encode_jwt(header, payload))
+        assert_raises(InvalidToken, decode_jwt, encode_jwt(payload))
         payload['exp'] = 12345678901234567890
-        assert_raises(InvalidToken, decode_jwt, encode_jwt(header, payload))
+        assert_raises(InvalidToken, decode_jwt, encode_jwt(payload))
         # Check that it works without expiry date too
         del payload['exp']
-        claims = decode_jwt(encode_jwt(header, payload))
+        claims = decode_jwt(encode_jwt(payload))
         assert_equal(payload, claims)
 
 
@@ -261,6 +264,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
                 shutil.rmtree(entry.path)
         # Also get rid of the cache of verified buckets
         self.store._verified_buckets.clear()
+        print(f"Chunk store: {self.store_url}, S3 server: {self.s3_url}")
 
     def array_name(self, name):
         """Ensure that bucket is authorised and has valid name."""
@@ -455,6 +459,10 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
             if key.lower() not in HOP_HEADERS.union({'date', 'server'}):
                 self.send_header(key, value)
         self.end_headers()
+        # Quit early if there is no data to write to avoid broken pipes (since the client
+        # might stop listening if it knows nothing more is coming, like in a PUT response).
+        if len(content) == 0:
+            return
         if pause:
             self.wfile.write(content[:glitch_location])
             # The wfile object should be an unbuffered _SocketWriter but flush anyway
@@ -528,7 +536,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         elif url != cls.httpd.target:
             raise RuntimeError('Cannot use multiple target URLs with http proxy')
         # The token authorises the standard bucket and anything starting with PREFIX
-        token = encode_jwt({'alg': 'ES256', 'typ': 'JWT'}, {'prefix': [BUCKET, PREFIX]})
+        token = encode_jwt({'prefix': [BUCKET, PREFIX]})
         kwargs.setdefault('token', token)
         return super().prepare_store_args(cls.proxy_url, credentials=None, **kwargs)
 
