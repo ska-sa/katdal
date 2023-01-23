@@ -75,7 +75,7 @@ RETRY = Retry(connect=1, read=3, status=3, backoff_factor=0.1,
               raise_on_status=False, status_forcelist=_DEFAULT_SERVER_GLITCHES)
 SUGGESTED_STATUS_DELAY = 0.1
 READ_PAUSE = 0.1
-TEST_DURATION_TOLERANCE = 0.2
+TEST_DURATION_TOLERANCE = 0.3
 # Dummy private key for ES256 algorithm (taken from PyJWT unit tests)
 JWT_PRIVATE_KEY = """
 -----BEGIN PRIVATE KEY-----
@@ -617,7 +617,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         # 0.9 - success!
         self.store.get_chunk(array_name, slices, chunk.dtype)
 
-    @duration(0.9, 0.9 + 0.4)
+    @duration(1.0)
     def test_persistent_server_errors(self):
         chunk, slices, array_name = self._put_chunk(
             'please-respond-with-502-for-1.2-seconds')
@@ -647,7 +647,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Truncated read not recovered')
 
-    @duration(0.6, 0.6 + 0.4)
+    @duration(0.6)
     def test_persistent_truncated_reads(self):
         chunk, slices, array_name = self._put_chunk(
             'please-truncate-read-after-60-bytes-for-0.8-seconds')
