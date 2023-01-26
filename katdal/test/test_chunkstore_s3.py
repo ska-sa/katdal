@@ -235,9 +235,9 @@ def duration(minimum, maximum=None):
 
     def decorate(func):
         def newfunc(*arg, **kw):
-            start = time.time()
+            start = time.monotonic()
             result = func(*arg, **kw)
-            duration = time.time() - start
+            duration = time.monotonic() - start
             if check_durations and not minimum <= duration <= maximum:
                 raise UnexpectedDuration(f"Test took {duration:g} seconds, which is "
                                          f"outside the range [{minimum:g}, {maximum:g}]")
