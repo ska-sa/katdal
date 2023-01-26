@@ -317,36 +317,38 @@ class ChunkStoreTestBase:
         self.put_dask_array('big_y2', np.s_[3:8, 30:60, 0:2])
         self.get_dask_array('big_y2')
 
-    def test_get_dask_array_index(self):
-        # Load most but not all of the array, to test error handling
-        self.put_dask_array('big_y2', np.s_[0:3,  0:30, 0:2])
-        self.put_dask_array('big_y2', np.s_[3:8,  0:30, 0:2])
-        self.put_dask_array('big_y2', np.s_[0:3, 30:60, 0:2])
-        array_name, dask_array, offset = self.make_dask_array('big_y2')
-        indices = [
+    @pytest.mark.parametrize(
+        "index",
+        [
             (),
             np.s_[:, :],
             np.s_[0:8, 0:60, 0:2],
             np.s_[..., 0:1],
             np.s_[5:6, 29:31],
-            np.s_[5:5, 31:31]
-        ]   # TODO: use pytest.mark.parametrize when converted to pytest
+            np.s_[5:5, 31:31],
+        ]
+    )
+    def test_get_dask_array_index(self, index):
+        # Load most but not all of the array, to test error handling
+        self.put_dask_array('big_y2', np.s_[0:3,  0:30, 0:2])
+        self.put_dask_array('big_y2', np.s_[3:8,  0:30, 0:2])
+        self.put_dask_array('big_y2', np.s_[0:3, 30:60, 0:2])
+        array_name, dask_array, offset = self.make_dask_array('big_y2')
 
         expected = self.arrays['big_y2'].copy()
         if not self.preloaded_chunks:
             expected[3:8, 30:60, 0:2] = 17
-        for index in indices:
-            pull = self.store.get_dask_array(array_name, dask_array.chunks,
-                                             dask_array.dtype, offset, index=index, errors=17)
-            array_retrieved = pull.compute()
-            np.testing.assert_array_equal(array_retrieved, expected[index])
-            # Now test placeholders, to ensure that placeholder slicing works
-            pull = self.store.get_dask_array(array_name, dask_array.chunks,
-                                             dask_array.dtype, offset, index=index,
-                                             errors='placeholder')
-            pull = self._placeholder_to_default(pull, 17)
-            array_retrieved = pull.compute()
-            np.testing.assert_array_equal(array_retrieved, expected[index])
+        pull = self.store.get_dask_array(array_name, dask_array.chunks,
+                                         dask_array.dtype, offset, index=index, errors=17)
+        array_retrieved = pull.compute()
+        np.testing.assert_array_equal(array_retrieved, expected[index])
+        # Now test placeholders, to ensure that placeholder slicing works
+        pull = self.store.get_dask_array(array_name, dask_array.chunks,
+                                         dask_array.dtype, offset, index=index,
+                                         errors='placeholder')
+        pull = self._placeholder_to_default(pull, 17)
+        array_retrieved = pull.compute()
+        np.testing.assert_array_equal(array_retrieved, expected[index])
 
     def _test_mark_complete(self, name):
         try:
