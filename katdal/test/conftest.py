@@ -29,10 +29,8 @@ def pytest_runtest_makereport(item, call):
         and report.passed
         and not minimum <= report.duration <= maximum
     ):
-        time_range = [minimum, maximum]
         # Mark test as failed and report the timing discrepancy
         report.outcome = 'failed'
-        report.longrepr = f"""
-        Test took {report.duration:g} seconds, which is outside the range {time_range}
-        """
+        report.longrepr = (f"\nTest took {report.duration:g} seconds, "
+                           f"which is outside the range [{minimum:g}, {maximum:g}]\n")
     return report
