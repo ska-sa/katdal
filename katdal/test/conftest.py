@@ -1,18 +1,38 @@
 import pytest
 
-check_durations = False
+TEST_DURATION_TOLERANCE = 0.1
 
 
 def pytest_addoption(parser):
     parser.addoption(
         "--check-durations",
         action="store_true",
-        help="Verify how long some tests run (the ones with @duration decorator)",
+        help="Verify how long some tests run (the ones with an `expected_duration` mark)",
     )
 
 
-def pytest_configure(config):
-    # Save option at module level to be imported into standard function decorator,
-    # which seems much simpler than the fixture route.
-    global check_durations
-    check_durations = config.getoption("--check-durations", default=False)
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Optionally override pytest report creation to verify test duration."""
+    report = (yield).get_result()
+    # Only continue if the user requests this and the test has an expected_duration mark
+    check_durations = item.config.getoption("--check-durations", default=False)
+    mark = item.get_closest_marker("expected_duration")
+    if not check_durations or mark is None:
+        return report
+    # The test will take at least as long as the expected duration and probably a bit longer
+    minimum = mark.args[0]
+    maximum = minimum + TEST_DURATION_TOLERANCE
+    # Only verify duration if the test itself passes (and we are in the 'call' phase of test)
+    if (
+        report.when == 'call'
+        and report.passed
+        and not minimum <= report.duration <= maximum
+    ):
+        time_range = [minimum, maximum]
+        # Mark test as failed and report the timing discrepancy
+        report.outcome = 'failed'
+        report.longrepr = f"""
+        Test took {report.duration:g} seconds, which is outside the range {time_range}
+        """
+    return report

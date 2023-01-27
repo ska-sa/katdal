@@ -35,6 +35,7 @@ import pathlib
 import re
 import shutil
 import socket
+import sys
 import tempfile
 import threading
 import time
@@ -55,7 +56,6 @@ from katdal.chunkstore_s3 import (_DEFAULT_SERVER_GLITCHES, InvalidToken,
                                   S3ChunkStore, TruncatedRead, _AWSAuth,
                                   AuthorisationFailed, decode_jwt, read_array)
 from katdal.datasources import TelstateDataSource
-from katdal.test.conftest import check_durations
 from katdal.test.s3_utils import MissingProgram, S3Server, S3User
 from katdal.test.test_chunkstore import ChunkStoreTestBase, generate_arrays
 from katdal.test.test_datasources import (assert_telstate_data_source_equal,
@@ -75,7 +75,6 @@ RETRY = Retry(connect=1, read=3, status=3, backoff_factor=0.1,
               raise_on_status=False, status_forcelist=_DEFAULT_SERVER_GLITCHES)
 SUGGESTED_STATUS_DELAY = 0.1
 READ_PAUSE = 0.1
-TEST_DURATION_TOLERANCE = 0.3
 # Dummy private key for ES256 algorithm (taken from PyJWT unit tests)
 JWT_PRIVATE_KEY = """
 -----BEGIN PRIVATE KEY-----
@@ -214,38 +213,6 @@ class TestTokenUtils:
         assert payload == claims
 
 
-class UnexpectedDuration(AssertionError):
-    """Test took either too short or too long to complete."""
-
-
-def duration(minimum, maximum=None):
-    """Test must finish within `minimum` to `maximum` seconds to pass.
-
-    Example use::
-
-      @duration(.2, .3)
-      def test_that_fails():
-          time.sleep(.4)
-
-    The default `maximum` differs from `minimum` by a small tolerance.
-    The check only happens if the module-level variable `check_durations` is True.
-    """
-    if maximum is None:
-        maximum = minimum + TEST_DURATION_TOLERANCE
-
-    def decorate(func):
-        def newfunc(*arg, **kw):
-            start = time.monotonic()
-            result = func(*arg, **kw)
-            duration = time.monotonic() - start
-            if check_durations and not minimum <= duration <= maximum:
-                raise UnexpectedDuration(f"Test took {duration:g} seconds, which is "
-                                         f"outside the range [{minimum:g}, {maximum:g}]")
-            return result
-        return newfunc
-    return decorate
-
-
 class TestS3ChunkStore(ChunkStoreTestBase):
     """Test S3 functionality against an actual (minio) S3 service."""
 
@@ -340,7 +307,9 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         y = reader.get_chunk('public/x', slices, x.dtype)
         np.testing.assert_array_equal(x, y)
 
-    @duration(0.0, 0.1 + TEST_DURATION_TOLERANCE)
+    # If you connect to localhost on a port that is not listening, you
+    # immediately get a "connection refused" response on Linux (but not on macOS)
+    @pytest.mark.expected_duration(0.0 if sys.platform == 'linux' else 0.1)
     def test_store_unavailable_unresponsive_server(self):
         host = '127.0.0.1'
         with get_free_port(host) as port:
@@ -601,7 +570,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         self.store.put_chunk(array_name, slices, chunk)
         return chunk, slices, self.store.join(array_name, suggestion)
 
-    @duration(0.9)
+    @pytest.mark.expected_duration(0.9)
     def test_recover_from_server_errors(self):
         chunk, slices, array_name = self._put_chunk(
             'please-respond-with-500-for-0.8-seconds')
@@ -617,7 +586,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         # 0.9 - success!
         self.store.get_chunk(array_name, slices, chunk.dtype)
 
-    @duration(1.0)
+    @pytest.mark.expected_duration(1.0)
     def test_persistent_server_errors(self):
         chunk, slices, array_name = self._put_chunk(
             'please-respond-with-502-for-1.2-seconds')
@@ -625,7 +594,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
 
-    @duration(0.6)
+    @pytest.mark.expected_duration(0.6)
     def test_recover_from_read_truncated_within_npy_header(self):
         chunk, slices, array_name = self._put_chunk(
             'please-truncate-read-after-60-bytes-for-0.4-seconds')
@@ -640,14 +609,14 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Truncated read not recovered')
 
-    @duration(0.6)
+    @pytest.mark.expected_duration(0.6)
     def test_recover_from_read_truncated_within_npy_array(self):
         chunk, slices, array_name = self._put_chunk(
             'please-truncate-read-after-129-bytes-for-0.4-seconds')
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Truncated read not recovered')
 
-    @duration(0.6)
+    @pytest.mark.expected_duration(0.6)
     def test_persistent_truncated_reads(self):
         chunk, slices, array_name = self._put_chunk(
             'please-truncate-read-after-60-bytes-for-0.8-seconds')
@@ -655,13 +624,13 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
 
-    @duration(READ_PAUSE)
+    @pytest.mark.expected_duration(READ_PAUSE)
     def test_handle_read_paused_within_npy_header(self):
         chunk, slices, array_name = self._put_chunk('please-pause-read-after-60-bytes')
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Paused read failed')
 
-    @duration(READ_PAUSE)
+    @pytest.mark.expected_duration(READ_PAUSE)
     def test_handle_read_paused_within_npy_array(self):
         chunk, slices, array_name = self._put_chunk('please-pause-read-after-129-bytes')
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
