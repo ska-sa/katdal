@@ -24,8 +24,8 @@ import tempfile
 
 import dask.array as da
 import numpy as np
-from nose.tools import assert_equal, assert_raises
 from numpy.testing import assert_array_equal
+import pytest
 
 from katdal.chunkstore import generate_chunks
 from katdal.chunkstore_npy import NpyFileChunkStore
@@ -37,15 +37,15 @@ from katdal.vis_flags_weights import (ChunkStoreVisFlagsWeights,
 
 
 def test_vis_flags_weights():
-    with assert_raises(ValueError):
+    with pytest.raises(ValueError):
         VisFlagsWeights(np.ones((1, 2, 3)), np.ones((1, 2, 3)), np.ones((1, 2, 4)))
-    with assert_raises(ValueError):
+    with pytest.raises(ValueError):
         VisFlagsWeights(np.ones((1, 2, 3)), np.ones((1, 2, 3)), np.ones((1, 2, 3)), np.ones((1, 2, 4)))
 
 
-def ramp(shape, offset=1.0, slope=1.0, dtype=np.float_):
+def ramp(shape, offset=1.0, slope=1.0, dtype=np.float64):
     """Generate a multidimensional ramp of values of the given dtype."""
-    x = offset + slope * np.arange(np.prod(shape), dtype=np.float_)
+    x = offset + slope * np.arange(np.prod(shape), dtype=np.float64)
     return x.astype(dtype).reshape(shape)
 
 
@@ -114,11 +114,11 @@ class TestChunkStoreVisFlagsWeights:
         store, chunk_info, data, weights = self._make_basic_dataset()
         # Check that data is as expected when accessed via VisFlagsWeights
         vfw = ChunkStoreVisFlagsWeights(store, chunk_info)
-        assert_equal(vfw.shape, data['correlator_data'].shape)
+        assert vfw.shape == data['correlator_data'].shape
         assert_array_equal(vfw.vis.compute(), data['correlator_data'])
         assert_array_equal(vfw.flags.compute(), data['flags'])
         assert_array_equal(vfw.weights.compute(), weights)
-        assert_equal(vfw.unscaled_weights, None)
+        assert vfw.unscaled_weights is None
 
     def test_index(self):
         # Put fake dataset into chunk store
@@ -178,7 +178,7 @@ class TestChunkStoreVisFlagsWeights:
         corrected_vfw = ChunkStoreVisFlagsWeights(store, chunk_info, corrprods, van_vleck='autocorr')
         assert_array_equal(corrected_vfw.vis.compute(), expected_vis)
         # Check parameter validation
-        with assert_raises(ValueError):
+        with pytest.raises(ValueError):
             ChunkStoreVisFlagsWeights(store, chunk_info, corrprods, van_vleck='blah')
 
     def test_weight_power_scale(self):
@@ -220,7 +220,7 @@ class TestChunkStoreVisFlagsWeights:
         # Check that data is as expected when accessed via VisFlagsWeights
         vfw = ChunkStoreVisFlagsWeights(store, chunk_info, corrprods,
                                         stored_weights_are_scaled=False)
-        assert_equal(vfw.shape, data['correlator_data'].shape)
+        assert vfw.shape == data['correlator_data'].shape
         assert_array_equal(vfw.vis.compute(), data['correlator_data'])
         assert_array_equal(vfw.flags.compute(), data['flags'])
         assert_array_equal(vfw.weights.compute(), stored_weights * expected_scale)
@@ -229,7 +229,7 @@ class TestChunkStoreVisFlagsWeights:
         # Check that scaled raw weights are also accepted
         vfw = ChunkStoreVisFlagsWeights(store, chunk_info, corrprods,
                                         stored_weights_are_scaled=True)
-        assert_equal(vfw.shape, data['correlator_data'].shape)
+        assert vfw.shape == data['correlator_data'].shape
         assert_array_equal(vfw.vis.compute(), data['correlator_data'])
         assert_array_equal(vfw.flags.compute(), data['flags'])
         assert_array_equal(vfw.weights.compute(), stored_weights)
@@ -253,8 +253,8 @@ class TestChunkStoreVisFlagsWeights:
                 chunk_name, shape = store.chunk_metadata(array_name, culled_slice)
                 os.remove(os.path.join(store.path, chunk_name) + '.npy')
         vfw = ChunkStoreVisFlagsWeights(store, chunk_info)
-        assert_equal(vfw.store, store)
-        assert_equal(vfw.vis_prefix, prefix)
+        assert vfw.store == store
+        assert vfw.vis_prefix == prefix
         # Check that (only) missing chunks have been replaced by zeros
         vis = data['correlator_data']
         for culled_slice in missing_chunks['correlator_data']:

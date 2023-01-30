@@ -17,14 +17,13 @@
 """Tests for :py:mod:`katdal.spectral_window`."""
 
 import numpy as np
-from nose.tools import assert_equal
 from numpy.testing import assert_array_almost_equal, assert_array_equal
 
 from katdal.spectral_window import SpectralWindow
 
 
 class TestSpectralWindow:
-    def setUp(self):
+    def setup_method(self):
         self.lsb = SpectralWindow(1000.0, 10.0, 6, sideband=-1, product='lsb')
         self.usb = SpectralWindow(1000.0, 10.0, 6, sideband=1, band='X')
         self.odd = SpectralWindow(1000.0, 10.0, 5, sideband=1)
@@ -35,10 +34,10 @@ class TestSpectralWindow:
                                       bandwidth=230.0)
 
     def test_width_properties(self):
-        assert_equal(self.lsb.channel_width, 10.0)
-        assert_equal(self.lsb.bandwidth, 60.0)
-        assert_equal(self.inexact.channel_width, 230.0 / 14)
-        assert_equal(self.inexact.bandwidth, 230.0)
+        assert self.lsb.channel_width == 10.0
+        assert self.lsb.bandwidth == 60.0
+        assert self.inexact.channel_width == 230.0 / 14
+        assert self.inexact.bandwidth == 230.0
 
     def test_channel_freqs(self):
         assert_array_equal(self.lsb.channel_freqs,
@@ -50,8 +49,8 @@ class TestSpectralWindow:
         assert_array_almost_equal(self.inexact.channel_freqs,
                                   np.arange(14) * 230.0 / 14 + 885.0)
         # Check that the exactly representable values are exact
-        assert_equal(self.inexact.channel_freqs[0], 885.0)
-        assert_equal(self.inexact.channel_freqs[7], 1000.0)
+        assert self.inexact.channel_freqs[0] == 885.0
+        assert self.inexact.channel_freqs[7] == 1000.0
 
     def test_repr(self):
         # Just a smoke test to check that it doesn't crash
@@ -61,14 +60,14 @@ class TestSpectralWindow:
     def test_subrange(self):
         lsb_sub = self.lsb.subrange(0, 3)
         assert_array_equal(lsb_sub.channel_freqs, [1030.0, 1020.0, 1010.0])
-        assert_equal(lsb_sub.product, self.lsb.product)
+        assert lsb_sub.product == self.lsb.product
         usb_sub = self.usb.subrange(2, 6)
         assert_array_equal(usb_sub.channel_freqs,
                            [990.0, 1000.0, 1010.0, 1020.0])
-        assert_equal(usb_sub.band, self.usb.band)
+        assert usb_sub.band == self.usb.band
         # Check that updated bandwidth doesn't have rounding errors
         inexact_sub = self.inexact.subrange(0, 7)
-        assert_equal(inexact_sub.bandwidth, 115.0)
+        assert inexact_sub.bandwidth == 115.0
 
     def test_rechannelise_same(self):
         lsb = self.lsb.rechannelise(6)

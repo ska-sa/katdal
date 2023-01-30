@@ -35,6 +35,7 @@ import pathlib
 import re
 import shutil
 import socket
+import sys
 import tempfile
 import threading
 import time
@@ -46,9 +47,7 @@ import katsdptelstate
 import numpy as np
 import requests
 from katsdptelstate.rdb_writer import RDBWriter
-from nose import SkipTest
-from nose.tools import (assert_equal, assert_in, assert_not_in, assert_raises,
-                        timed)
+import pytest
 from numpy.testing import assert_array_equal
 from urllib3.util.retry import Retry
 
@@ -58,7 +57,7 @@ from katdal.chunkstore_s3 import (_DEFAULT_SERVER_GLITCHES, InvalidToken,
                                   AuthorisationFailed, decode_jwt, read_array)
 from katdal.datasources import TelstateDataSource
 from katdal.test.s3_utils import MissingProgram, S3Server, S3User
-from katdal.test.test_chunkstore import ChunkStoreTestBase
+from katdal.test.test_chunkstore import ChunkStoreTestBase, generate_arrays
 from katdal.test.test_datasources import (assert_telstate_data_source_equal,
                                           make_fake_data_source)
 
@@ -111,7 +110,7 @@ class TestReadArray:
         out = read_array(fp)
         np.testing.assert_equal(array, out)
         # Check that Fortran order was preserved
-        assert_equal(array.strides, out.strides)
+        assert array.strides == out.strides
 
     def testSimple(self):
         self._test(np.arange(20))
@@ -133,7 +132,7 @@ class TestReadArray:
     def testBadVersion(self):
         data = b'\x93NUMPY\x03\x04'     # Version 3.4
         fp = io.BytesIO(data)
-        with assert_raises(ValueError):
+        with pytest.raises(ValueError):
             read_array(fp)
 
     def testPickled(self):
@@ -141,7 +140,7 @@ class TestReadArray:
         fp = io.BytesIO()
         np.save(fp, array)
         fp.seek(0)
-        with assert_raises(ValueError):
+        with pytest.raises(ValueError):
             read_array(fp)
 
     def _truncate_and_fail_to_read(self, *args):
@@ -150,7 +149,7 @@ class TestReadArray:
         fp.seek(*args)
         fp.truncate()
         fp.seek(0)
-        with assert_raises(TruncatedRead):
+        with pytest.raises(TruncatedRead):
             read_array(fp)
 
     def testShort(self):
@@ -175,34 +174,43 @@ class TestTokenUtils:
         payload = {'exp': 9234567890, 'iss': 'kat', 'prefix': ['123']}
         token = encode_jwt(payload)
         claims = decode_jwt(token)
-        assert_equal(payload, claims)
+        assert payload == claims
         # Token has invalid characters
-        assert_raises(InvalidToken, decode_jwt, '** bad token **')
+        with pytest.raises(InvalidToken, match=r'does not have exactly two dots'):
+            decode_jwt('** bad token **')
         # Token has invalid structure
-        assert_raises(InvalidToken, decode_jwt, token.replace('.', ''))
+        with pytest.raises(InvalidToken, match=r'does not have exactly two dots'):
+            decode_jwt(token.replace('.', ''))
         # Token header failed to decode
-        assert_raises(InvalidToken, decode_jwt, token[1:])
+        with pytest.raises(InvalidToken, match=r'Could not decode'):
+            decode_jwt(token[1:])
         # Token payload failed to decode
         h, p, s = token.split('.')
-        assert_raises(InvalidToken, decode_jwt, '.'.join((h, p[:-1], s)))
+        with pytest.raises(InvalidToken, match=r'Could not decode'):
+            decode_jwt('.'.join((h, p[:-1], s)))
         # Token signature failed to decode or wrong length
-        assert_raises(InvalidToken, decode_jwt, token[:-1])
-        assert_raises(InvalidToken, decode_jwt, token[:-2])
-        assert_raises(InvalidToken, decode_jwt, token + token[-4:])
+        with pytest.raises(InvalidToken, match=r'too short'):
+            decode_jwt(token[:-1])
+        with pytest.raises(InvalidToken, match=r'too short'):
+            decode_jwt(token[:-2])
+        with pytest.raises(InvalidToken, match=r'too long'):
+            decode_jwt(token + token[-4:])
 
     def test_jwt_expired_token(self):
         payload = {'exp': 0, 'iss': 'kat', 'prefix': ['123']}
-        token = encode_jwt(payload)
-        assert_raises(InvalidToken, decode_jwt, token)
+        with pytest.raises(InvalidToken, match=r'Token expired at 01-Jan-1970'):
+            decode_jwt(encode_jwt(payload))
         # Check that expiration time is not-too-large integer
-        payload['exp'] = 1.2
-        assert_raises(InvalidToken, decode_jwt, encode_jwt(payload))
+        payload['exp'] = '1.2'
+        with pytest.raises(InvalidToken, match=r'Expiration time must be an integer'):
+            decode_jwt(encode_jwt(payload))
         payload['exp'] = 12345678901234567890
-        assert_raises(InvalidToken, decode_jwt, encode_jwt(payload))
+        with pytest.raises(InvalidToken, match=r'an integer that is not too large'):
+            decode_jwt(encode_jwt(payload))
         # Check that it works without expiry date too
         del payload['exp']
         claims = decode_jwt(encode_jwt(payload))
-        assert_equal(payload, claims)
+        assert payload == claims
 
 
 class TestS3ChunkStore(ChunkStoreTestBase):
@@ -220,7 +228,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             # as the socket held open by get_free_port, Mac OS is not.
             cls.minio = S3Server(host, port, pathlib.Path(cls.tempdir), S3User(*cls.credentials))
         except MissingProgram as exc:
-            raise SkipTest(str(exc))
+            pytest.skip(str(exc))
         return cls.minio.url
 
     @classmethod
@@ -234,6 +242,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
     @classmethod
     def setup_class(cls):
         """Start minio service running on temp dir, and ChunkStore on that."""
+        cls.arrays = generate_arrays()
         cls.credentials = ('access*key', 'secret*key')
         cls.tempdir = tempfile.mkdtemp()
         cls.minio = None
@@ -253,7 +262,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             cls.minio.close()
         shutil.rmtree(cls.tempdir)
 
-    def setup(self):
+    def setup_method(self):
         # The server is a class-level fixture (for efficiency), so state can
         # leak between tests. Prevent that by removing any existing objects.
         # It's easier to do that by manipulating the filesystem directly than
@@ -287,7 +296,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         x = np.arange(5)
         self.store.create_array('private/x')
         self.store.put_chunk('private/x', slices, x)
-        with assert_raises(AuthorisationFailed):
+        with pytest.raises(AuthorisationFailed):
             reader.get_chunk('private/x', slices, x.dtype)
 
         # Now a public-read array
@@ -298,18 +307,20 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         y = reader.get_chunk('public/x', slices, x.dtype)
         np.testing.assert_array_equal(x, y)
 
-    @timed(0.1 + 0.2)
+    # If you connect to localhost on a port that is not listening, you
+    # immediately get a "connection refused" response on Linux (but not on macOS)
+    @pytest.mark.expected_duration(0.0 if sys.platform == 'linux' else 0.1)
     def test_store_unavailable_unresponsive_server(self):
         host = '127.0.0.1'
         with get_free_port(host) as port:
             url = f'http://{host}:{port}/'
             store = S3ChunkStore(url, timeout=0.1, retries=0)
-            with assert_raises(StoreUnavailable):
+            with pytest.raises(StoreUnavailable):
                 store.is_complete('store_is_not_listening_on_that_port')
 
     def test_token_without_https(self):
         # Don't allow users to leak their tokens by accident
-        with assert_raises(StoreUnavailable):
+        with pytest.raises(StoreUnavailable):
             S3ChunkStore('http://apparently.invalid/', token='secrettoken')
 
     def test_mark_complete_top_level(self):
@@ -338,20 +349,20 @@ class TestS3ChunkStore(ChunkStoreTestBase):
 
     def test_missing_or_empty_buckets(self):
         slices = (slice(0, 1),)
-        dtype = np.dtype(np.float)
+        dtype = np.dtype(float)
         # Without create_array the bucket is missing
-        with assert_raises(StoreUnavailable):
+        with pytest.raises(StoreUnavailable):
             self.store.get_chunk(f'{BUCKET}-missing/x', slices, dtype)
         self.store.create_array(f'{BUCKET}-empty/x')
         # Without put_chunk the bucket is empty
-        with assert_raises(StoreUnavailable):
+        with pytest.raises(StoreUnavailable):
             self.store.get_chunk(f'{BUCKET}-empty/x', slices, dtype)
         # Check that the standard bucket has not been verified yet
         bucket_url = urllib.parse.urljoin(self.store._url, BUCKET)
-        assert_not_in(bucket_url, self.store._verified_buckets)
+        assert bucket_url not in self.store._verified_buckets
         # Check that the standard bucket remains verified after initial check
         self.test_chunk_non_existent()
-        assert_in(bucket_url, self.store._verified_buckets)
+        assert bucket_url in self.store._verified_buckets
 
 
 class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
@@ -546,7 +557,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         pass
 
     def test_unauthorised_bucket(self):
-        with assert_raises(InvalidToken):
+        with pytest.raises(InvalidToken):
             self.store.is_complete('unauthorised_bucket')
 
     def _put_chunk(self, suggestion):
@@ -554,12 +565,12 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         var_name = 'x'
         slices = (slice(3, 5),)
         array_name = self.array_name(var_name)
-        chunk = getattr(self, var_name)[slices]
+        chunk = self.arrays[var_name][slices]
         self.store.create_array(array_name)
         self.store.put_chunk(array_name, slices, chunk)
         return chunk, slices, self.store.join(array_name, suggestion)
 
-    @timed(0.9 + 0.2)
+    @pytest.mark.expected_duration(0.9)
     def test_recover_from_server_errors(self):
         chunk, slices, array_name = self._put_chunk(
             'please-respond-with-500-for-0.8-seconds')
@@ -575,15 +586,15 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         # 0.9 - success!
         self.store.get_chunk(array_name, slices, chunk.dtype)
 
-    @timed(0.9 + 0.4)
+    @pytest.mark.expected_duration(1.0)
     def test_persistent_server_errors(self):
         chunk, slices, array_name = self._put_chunk(
             'please-respond-with-502-for-1.2-seconds')
         # After 0.9 seconds the client gives up and returns with failure 0.1 s later
-        with assert_raises(ChunkNotFound):
+        with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
 
-    @timed(0.6 + 0.2)
+    @pytest.mark.expected_duration(0.6)
     def test_recover_from_read_truncated_within_npy_header(self):
         chunk, slices, array_name = self._put_chunk(
             'please-truncate-read-after-60-bytes-for-0.4-seconds')
@@ -598,28 +609,28 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Truncated read not recovered')
 
-    @timed(0.6 + 0.2)
+    @pytest.mark.expected_duration(0.6)
     def test_recover_from_read_truncated_within_npy_array(self):
         chunk, slices, array_name = self._put_chunk(
             'please-truncate-read-after-129-bytes-for-0.4-seconds')
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Truncated read not recovered')
 
-    @timed(0.6 + 0.4)
+    @pytest.mark.expected_duration(0.6)
     def test_persistent_truncated_reads(self):
         chunk, slices, array_name = self._put_chunk(
             'please-truncate-read-after-60-bytes-for-0.8-seconds')
         # After 0.6 seconds the client gives up
-        with assert_raises(ChunkNotFound):
+        with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
 
-    @timed(READ_PAUSE + 0.2)
+    @pytest.mark.expected_duration(READ_PAUSE)
     def test_handle_read_paused_within_npy_header(self):
         chunk, slices, array_name = self._put_chunk('please-pause-read-after-60-bytes')
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Paused read failed')
 
-    @timed(READ_PAUSE + 0.2)
+    @pytest.mark.expected_duration(READ_PAUSE)
     def test_handle_read_paused_within_npy_array(self):
         chunk, slices, array_name = self._put_chunk('please-pause-read-after-129-bytes')
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)

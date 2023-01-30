@@ -18,9 +18,8 @@
 
 import dask.array as da
 import numpy as np
-from nose.tools import (assert_equal, assert_false, assert_is_instance,
-                        assert_raises, assert_true)
 from numpy.testing import assert_array_equal
+import pytest
 
 from katdal.chunkstore import (BadChunk, ChunkNotFound, ChunkStore,
                                PlaceholderChunk, StoreUnavailable,
@@ -29,66 +28,67 @@ from katdal.chunkstore import (BadChunk, ChunkNotFound, ChunkStore,
 
 class TestGenerateChunks:
     """Test the `generate_chunks` function."""
-    def __init__(self):
-        self.shape = (10, 8192, 144)
-        self.dtype = np.complex64
-        self.nbytes = np.prod(self.shape) * np.dtype(self.dtype).itemsize
+    @classmethod
+    def setup_class(cls):
+        cls.shape = (10, 8192, 144)
+        cls.dtype = np.complex64
+        cls.nbytes = np.prod(cls.shape) * np.dtype(cls.dtype).itemsize
 
     def test_basic(self):
         # Basic check
         chunks = generate_chunks(self.shape, self.dtype, 3e6)
-        assert_equal(chunks, (10 * (1,), 4 * (2048,), (144,)))
+        assert chunks == (10 * (1,), 4 * (2048,), (144,))
         # Uneven chunks in the final split
         chunks = generate_chunks(self.shape, self.dtype, 1e6)
-        assert_equal(chunks, (10 * (1,), 10 * (819,) + (2,), (144,)))
+        assert chunks == (10 * (1,), 10 * (819,) + (2,), (144,))
 
     def test_corner_cases(self):
         # Corner case: don't select any dimensions to split -> one chunk
         chunks = generate_chunks(self.shape, self.dtype, 1e6, ())
-        assert_equal(chunks, ((10,), (8192,), (144,)))
+        assert chunks == ((10,), (8192,), (144,))
         # Corner case: all bytes results in one chunk
         chunks = generate_chunks(self.shape, self.dtype, self.nbytes)
-        assert_equal(chunks, ((10,), (8192,), (144,)))
+        assert chunks == ((10,), (8192,), (144,))
         # Corner case: one byte less than the full size results in a split
         chunks = generate_chunks(self.shape, self.dtype, self.nbytes - 1)
-        assert_equal(chunks, ((5, 5), (8192,), (144,)))
+        assert chunks == ((5, 5), (8192,), (144,))
 
     def test_power_of_two(self):
         # Check power_of_two
         chunks = generate_chunks(self.shape, self.dtype, 1e6,
                                  dims_to_split=[1], power_of_two=True)
-        assert_equal(chunks, ((10,), 128 * (64,), (144,)))
+        assert chunks == ((10,), 128 * (64,), (144,))
         chunks = generate_chunks(self.shape, self.dtype, self.nbytes / 16,
                                  dims_to_split=[1], power_of_two=True)
-        assert_equal(chunks, ((10,), 16 * (512,), (144,)))
+        assert chunks == ((10,), 16 * (512,), (144,))
         # Check power_of_two when dimension is not a power-of-two itself
         shape = (10, 32768 - 2048, 144)
         chunks = generate_chunks(shape, self.dtype, self.nbytes / 10,
                                  dims_to_split=(0, 1), power_of_two=True)
-        assert_equal(chunks, (10 * (1,), 3 * (8192,) + (6144,), (144,)))
+        assert chunks == (10 * (1,), 3 * (8192,) + (6144,), (144,))
         # Check swapping the order of dims_to_split
         chunks = generate_chunks(shape, self.dtype, self.nbytes / 10,
                                  dims_to_split=(1, 0), power_of_two=True)
-        assert_equal(chunks, ((10,), 60 * (512,), (144,)))
+        assert chunks == ((10,), 60 * (512,), (144,))
 
     def test_max_dim_elements(self):
         chunks = generate_chunks(self.shape, self.dtype, 150000,
                                  dims_to_split=(0, 1), power_of_two=True,
                                  max_dim_elements={1: 50})
-        assert_equal(chunks, ((4, 4, 2), 256 * (32,), (144,)))
+        assert chunks == ((4, 4, 2), 256 * (32,), (144,))
         # Case where max_dim_elements forces chunks to be smaller than
         # max_chunk_size.
         chunks = generate_chunks(self.shape, self.dtype, 1e6,
                                  dims_to_split=(0, 1), power_of_two=True,
                                  max_dim_elements={0: 4, 1: 50})
-        assert_equal(chunks, ((4, 4, 2), 256 * (32,), (144,)))
+        assert chunks == ((4, 4, 2), 256 * (32,), (144,))
 
     def test_max_dim_elements_ignore(self):
         """Elements not in `dims_to_split` are ignored"""
         chunks = generate_chunks(self.shape, self.dtype, 150000,
                                  dims_to_split=(1, 17), power_of_two=True,
                                  max_dim_elements={0: 2, 1: 50})
-        assert_equal(chunks, ((10,), 1024 * (8,), (144,)))
+        assert chunks == ((10,), 1024 * (8,), (144,))
 
 
 def test_prune_chunks():
@@ -100,10 +100,11 @@ def test_prune_chunks():
     new_chunks, new_index, new_offset = _prune_chunks(chunks, index)
     # The new chunk start-stop boundaries on each axis are:
     # ((10, 20, 30, 40), (0, 2, 4), (0, 40))
-    assert_equal(new_chunks, ((10, 10, 10), (2, 2), (40,)))
-    assert_equal(new_index, np.s_[3:24, 0:4, 10:40])
-    assert_equal(new_offset, (10, 0, 0))
-    assert_raises(IndexError, _prune_chunks, chunks, np.s_[13:34:2, ::-1, :])
+    assert new_chunks == ((10, 10, 10), (2, 2), (40,))
+    assert new_index == np.s_[3:24, 0:4, 10:40]
+    assert new_offset == (10, 0, 0)
+    with pytest.raises(IndexError):
+        _prune_chunks(chunks, np.s_[13:34:2, ::-1, :])
 
 
 class TestChunkStore:
@@ -111,37 +112,56 @@ class TestChunkStore:
 
     def test_put_get(self):
         store = ChunkStore()
-        assert_raises(NotImplementedError, store.get_chunk, 1, 2, 3)
-        assert_raises(NotImplementedError, store.put_chunk, 1, 2, 3)
+        with pytest.raises(NotImplementedError):
+            store.get_chunk(1, 2, 3)
+        with pytest.raises(NotImplementedError):
+            store.put_chunk(1, 2, 3)
 
     def test_metadata_validation(self):
         store = ChunkStore()
         # Bad slice specifications
-        assert_raises(TypeError, store.chunk_metadata, "x", 3)
-        assert_raises(TypeError, store.chunk_metadata, "x", [3, 2])
-        assert_raises(TypeError, store.chunk_metadata, "x", slice(10))
-        assert_raises(TypeError, store.chunk_metadata, "x", [slice(10)])
-        assert_raises(TypeError, store.chunk_metadata, "x", [slice(0, 10, 2)])
+        with pytest.raises(TypeError):
+            store.chunk_metadata("x", 3)
+        with pytest.raises(TypeError):
+            store.chunk_metadata("x", [3, 2])
+        with pytest.raises(TypeError):
+            store.chunk_metadata("x", slice(10))
+        with pytest.raises(TypeError):
+            store.chunk_metadata("x", [slice(10)])
+        with pytest.raises(TypeError):
+            store.chunk_metadata("x", [slice(0, 10, 2)])
         # Chunk mismatch
-        assert_raises(BadChunk, store.chunk_metadata, "x", [slice(0, 10, 1)],
-                      chunk=np.ones(11))
-        assert_raises(BadChunk, store.chunk_metadata, "x", (), chunk=np.ones(5))
+        with pytest.raises(BadChunk):
+            store.chunk_metadata("x", [slice(0, 10, 1)], chunk=np.ones(11))
+        with pytest.raises(BadChunk):
+            store.chunk_metadata("x", (), chunk=np.ones(5))
         # Bad dtype
-        assert_raises(BadChunk, store.chunk_metadata, "x", [slice(0, 10, 1)],
-                      chunk=np.array(10 * [{}]))
-        assert_raises(BadChunk, store.chunk_metadata, "x", [slice(0, 2)],
-                      dtype=np.dtype(np.object))
+        with pytest.raises(BadChunk):
+            store.chunk_metadata("x", [slice(0, 10, 1)], chunk=np.array(10 * [{}]))
+        with pytest.raises(BadChunk):
+            store.chunk_metadata("x", [slice(0, 2)], dtype=np.dtype(object))
 
     def test_standard_errors(self):
         error_map = {ZeroDivisionError: StoreUnavailable,
                      LookupError: ChunkNotFound}
         store = ChunkStore(error_map)
-        with assert_raises(StoreUnavailable):
+        with pytest.raises(StoreUnavailable):
             with store._standard_errors():
                 1 / 0
-        with assert_raises(ChunkNotFound):
+        with pytest.raises(ChunkNotFound):
             with store._standard_errors():
                 {}['ha']
+
+
+def generate_arrays():
+    """Generate arrays with differently sized dtypes and dimensions as test data."""
+    return dict(
+        x=np.ones(10, dtype=bool),
+        y=np.arange(96.).reshape(8, 6, 2),
+        z=np.array(2.),
+        big_y=np.arange(960.).reshape(8, 60, 2),
+        big_y2=np.arange(960).reshape(8, 60, 2),
+    )
 
 
 class ChunkStoreTestBase:
@@ -149,15 +169,8 @@ class ChunkStoreTestBase:
 
     # Instance of store instantiated once per class via class-level fixture
     store = None
-
-    def __init__(self):
-        # Pick arrays with differently sized dtypes and dimensions
-        self.x = np.ones(10, dtype=np.bool)
-        self.y = np.arange(96.).reshape(8, 6, 2)
-        self.z = np.array(2.)
-        self.big_y = np.arange(960.).reshape(8, 60, 2)
-        self.big_y2 = np.arange(960).reshape(8, 60, 2)
-        self.preloaded_chunks = False
+    preloaded_chunks = False
+    arrays = {}
 
     def array_name(self, name):
         return name
@@ -165,7 +178,7 @@ class ChunkStoreTestBase:
     def put_get_chunk(self, var_name, slices):
         """Put a single chunk into store, get it back and compare."""
         array_name = self.array_name(var_name)
-        chunk = getattr(self, var_name)[slices]
+        chunk = self.arrays[var_name][slices]
         self.store.create_array(array_name)
         self.store.put_chunk(array_name, slices, chunk)
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
@@ -174,7 +187,7 @@ class ChunkStoreTestBase:
     def make_dask_array(self, var_name, slices=()):
         """Turn (part of) an existing ndarray into a dask array."""
         array_name = self.array_name(var_name)
-        array = getattr(self, var_name)
+        array = self.arrays[var_name]
         # The chunking is determined by full array to keep things predictable
         chunks = generate_chunks(array.shape, array.dtype, array.nbytes / 10.)
         dask_array = da.from_array(array, chunks)[slices]
@@ -206,19 +219,20 @@ class ChunkStoreTestBase:
     def test_chunk_non_existent(self):
         array_name = self.array_name('haha')
         slices = (slice(0, 1),)
-        dtype = np.dtype(np.float)
+        dtype = np.dtype(float)
         args = (array_name, slices, dtype)
         shape = tuple(s.stop - s.start for s in slices)
-        assert_raises(ChunkNotFound, self.store.get_chunk, *args)
+        with pytest.raises(ChunkNotFound):
+            self.store.get_chunk(*args)
         zeros = self.store.get_chunk_or_default(*args)
         assert_array_equal(zeros, np.zeros(shape, dtype))
-        assert_equal(zeros.dtype, dtype)
+        assert zeros.dtype == dtype
         ones = self.store.get_chunk_or_default(*args, default_value=1)
         assert_array_equal(ones, np.ones(shape, dtype))
         placeholder = self.store.get_chunk_or_placeholder(*args)
-        assert_is_instance(placeholder, PlaceholderChunk)
-        assert_equal(placeholder.shape, shape)
-        assert_equal(placeholder.dtype, dtype)
+        assert isinstance(placeholder, PlaceholderChunk)
+        assert placeholder.shape == shape
+        assert placeholder.dtype == dtype
 
     def test_chunk_bool_1dim_and_too_small(self):
         # Check basic put + get on 1-D bool
@@ -226,7 +240,8 @@ class ChunkStoreTestBase:
         s = (slice(3, 5),)
         self.put_get_chunk('x', s)
         # Stored object has fewer bytes than expected (and wrong dtype)
-        assert_raises(BadChunk, self.store.get_chunk, name, s, self.y.dtype)
+        with pytest.raises(BadChunk):
+            self.store.get_chunk(name, s, self.arrays['y'].dtype)
 
     def test_chunk_float_3dim_and_too_large(self):
         # Check basic put + get on 3-D float
@@ -234,7 +249,8 @@ class ChunkStoreTestBase:
         s = (slice(3, 7), slice(2, 5), slice(1, 2))
         self.put_get_chunk('y', s)
         # Stored object has more bytes than expected (and wrong dtype)
-        assert_raises(BadChunk, self.store.get_chunk, name, s, self.x.dtype)
+        with pytest.raises(BadChunk):
+            self.store.get_chunk(name, s, self.arrays['x'].dtype)
 
     def test_chunk_zero_size(self):
         # Try a chunk with zero size
@@ -246,7 +262,7 @@ class ChunkStoreTestBase:
         name = self.array_name('x')
         self.store.create_array(name)
         result = self.store.put_chunk_noraise(name, (slice(1, 2),), np.ones(4))
-        assert_is_instance(result, BadChunk)
+        assert isinstance(result, BadChunk)
 
     def test_dask_array_basic(self):
         self.put_dask_array('big_y')
@@ -275,14 +291,14 @@ class ChunkStoreTestBase:
             pull = self.store.get_dask_array(array_name, dask_array.chunks,
                                              dask_array.dtype, offset, errors=17)
             array_retrieved = pull.compute()
-            assert_equal(array_retrieved.shape, dask_array.shape)
-            assert_equal(array_retrieved.dtype, dask_array.dtype)
+            assert array_retrieved.shape == dask_array.shape
+            assert array_retrieved.dtype == dask_array.dtype
             assert_array_equal(array_retrieved[np.s_[3:8, 30:60, 0:2]], 17,
                                f'Missing chunk in {array_name} not replaced by default value')
 
             pull = self.store.get_dask_array(array_name, dask_array.chunks,
                                              dask_array.dtype, offset, errors='raise')
-            with assert_raises(ChunkNotFound):
+            with pytest.raises(ChunkNotFound):
                 pull.compute()
 
             pull = self.store.get_dask_array(array_name, dask_array.chunks,
@@ -291,8 +307,8 @@ class ChunkStoreTestBase:
             # numpy arrays. So we have to remap them.
             pull = self._placeholder_to_default(pull, 17)
             array_retrieved = pull.compute()
-            assert_equal(array_retrieved.shape, dask_array.shape)
-            assert_equal(array_retrieved.dtype, dask_array.dtype)
+            assert array_retrieved.shape == dask_array.shape
+            assert array_retrieved.dtype == dask_array.dtype
             assert_array_equal(array_retrieved[np.s_[3:8, 30:60, 0:2]], 17,
                                "Missing chunk in {} not replaced by default value"
                                .format(array_name))
@@ -301,45 +317,47 @@ class ChunkStoreTestBase:
         self.put_dask_array('big_y2', np.s_[3:8, 30:60, 0:2])
         self.get_dask_array('big_y2')
 
-    def test_get_dask_array_index(self):
-        # Load most but not all of the array, to test error handling
-        self.put_dask_array('big_y2', np.s_[0:3,  0:30, 0:2])
-        self.put_dask_array('big_y2', np.s_[3:8,  0:30, 0:2])
-        self.put_dask_array('big_y2', np.s_[0:3, 30:60, 0:2])
-        array_name, dask_array, offset = self.make_dask_array('big_y2')
-        indices = [
+    @pytest.mark.parametrize(
+        "index",
+        [
             (),
             np.s_[:, :],
             np.s_[0:8, 0:60, 0:2],
             np.s_[..., 0:1],
             np.s_[5:6, 29:31],
-            np.s_[5:5, 31:31]
-        ]   # TODO: use pytest.mark.parametrize when converted to pytest
+            np.s_[5:5, 31:31],
+        ]
+    )
+    def test_get_dask_array_index(self, index):
+        # Load most but not all of the array, to test error handling
+        self.put_dask_array('big_y2', np.s_[0:3,  0:30, 0:2])
+        self.put_dask_array('big_y2', np.s_[3:8,  0:30, 0:2])
+        self.put_dask_array('big_y2', np.s_[0:3, 30:60, 0:2])
+        array_name, dask_array, offset = self.make_dask_array('big_y2')
 
-        expected = self.big_y2.copy()
+        expected = self.arrays['big_y2'].copy()
         if not self.preloaded_chunks:
             expected[3:8, 30:60, 0:2] = 17
-        for index in indices:
-            pull = self.store.get_dask_array(array_name, dask_array.chunks,
-                                             dask_array.dtype, offset, index=index, errors=17)
-            array_retrieved = pull.compute()
-            np.testing.assert_array_equal(array_retrieved, expected[index])
-            # Now test placeholders, to ensure that placeholder slicing works
-            pull = self.store.get_dask_array(array_name, dask_array.chunks,
-                                             dask_array.dtype, offset, index=index,
-                                             errors='placeholder')
-            pull = self._placeholder_to_default(pull, 17)
-            array_retrieved = pull.compute()
-            np.testing.assert_array_equal(array_retrieved, expected[index])
+        pull = self.store.get_dask_array(array_name, dask_array.chunks,
+                                         dask_array.dtype, offset, index=index, errors=17)
+        array_retrieved = pull.compute()
+        np.testing.assert_array_equal(array_retrieved, expected[index])
+        # Now test placeholders, to ensure that placeholder slicing works
+        pull = self.store.get_dask_array(array_name, dask_array.chunks,
+                                         dask_array.dtype, offset, index=index,
+                                         errors='placeholder')
+        pull = self._placeholder_to_default(pull, 17)
+        array_retrieved = pull.compute()
+        np.testing.assert_array_equal(array_retrieved, expected[index])
 
     def _test_mark_complete(self, name):
         try:
-            assert_false(self.store.is_complete(name))
+            assert not self.store.is_complete(name)
         except NotImplementedError:
             pass
         else:
             self.store.mark_complete(name)
-            assert_true(self.store.is_complete(name))
+            assert self.store.is_complete(name)
 
     def test_mark_complete_array(self):
         self._test_mark_complete(self.array_name('completetest'))

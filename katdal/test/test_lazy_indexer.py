@@ -21,7 +21,7 @@ from numbers import Integral
 
 import dask.array as da
 import numpy as np
-from nose.tools import assert_equal, assert_raises
+import pytest
 
 from katdal.lazy_indexer import (DaskLazyIndexer, _dask_oindex,
                                  _range_to_slice, _simplify_index,
@@ -39,7 +39,7 @@ class TestRangeToSlice:
         s = slice(start, stop, step)
         length = max(start, 0 if stop is None else stop) + 1
         r = slice_to_range(s, length)
-        assert_equal(_range_to_slice(r), s)
+        assert _range_to_slice(r) == s
 
     def test_basic_slices(self):
         # For testing both `start` and `stop` need to be non-negative
@@ -52,21 +52,21 @@ class TestRangeToSlice:
         self._check_slice(0, 10, 5)   # any two elements (has stop = 2 * step)
 
     def test_negative_elements(self):
-        with assert_raises(ValueError):
+        with pytest.raises(ValueError):
             _range_to_slice([-1, -2, -3, -4])
 
     def test_zero_increments(self):
-        with assert_raises(ValueError):
+        with pytest.raises(ValueError):
             _range_to_slice([1, 1, 1, 1])
 
     def test_uneven_increments(self):
-        with assert_raises(ValueError):
+        with pytest.raises(ValueError):
             _range_to_slice([1, 1, 2, 3, 5, 8, 13])
 
 
 class TestSimplifyIndex:
     """Test the :func:`~katdal.lazy_indexer._simplify_index` function."""
-    def setup(self):
+    def setup_method(self):
         self.shape = (3, 4, 5)
         self.data = np.arange(np.product(self.shape)).reshape(self.shape)
 
@@ -77,10 +77,10 @@ class TestSimplifyIndex:
         np.testing.assert_array_equal(actual, expected)
 
     def _test_index_error(self, indices):
-        with assert_raises(IndexError):
+        with pytest.raises(IndexError):
             simplified = _simplify_index(indices, self.data.shape)
             self.data[simplified]
-        with assert_raises(IndexError):
+        with pytest.raises(IndexError):
             self.data[indices]
 
     def test_1d(self):
@@ -176,7 +176,7 @@ UNEVEN = [False, True, True, True, False, False, True, True, False, True]
 
 class TestDaskGetitem:
     """Test the :func:`~katdal.lazy_indexer.dask_getitem` function."""
-    def setup(self):
+    def setup_method(self):
         shape = (10, 20, 30, 40)
         self.data = np.arange(np.product(shape)).reshape(shape)
         self.data_dask = da.from_array(self.data, chunks=(2, 5, 2, 5))
@@ -209,7 +209,7 @@ class TestDaskGetitem:
         self._test_with(np.s_[[0], [-1, -2, -3, -4, -5], :, [8, 6, 4, 2, 0]])
 
     def test_evenly_spaced_booleans(self):
-        pick_one = np.zeros(40, dtype=np.bool_)
+        pick_one = np.zeros(40, dtype=bool)
         pick_one[6] = True
         self._test_with(np.s_[:, [True, False] * 10, pick_one[:30], :])
         self._test_with(np.s_[:, [False, True] * 10, :, pick_one])
@@ -246,7 +246,7 @@ class TestDaskGetitem:
 
 class TestDaskLazyIndexer:
     """Test the :class:`~katdal.lazy_indexer.DaskLazyIndexer` class."""
-    def setup(self):
+    def setup_method(self):
         shape = (10, 20, 30)
         self.data = np.arange(np.product(shape)).reshape(shape)
         self.data_dask = da.from_array(self.data, chunks=(1, 4, 5), name='x')
@@ -264,7 +264,7 @@ class TestDaskLazyIndexer:
         indexer = DaskLazyIndexer(self.data_dask, transforms=transforms)
         expected = 'x | transform1 | <lambda> | Transform3 | transform1'
         expected += f' -> {indexer.shape} {indexer.dtype}'
-        assert_equal(str(indexer), expected)
+        assert str(indexer) == expected
         # Simply exercise repr - no need to check result
         repr(indexer)
 

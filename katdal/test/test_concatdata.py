@@ -17,7 +17,7 @@
 """Tests for :py:mod:`katdal.concatdata`."""
 
 import numpy as np
-from nose.tools import assert_equal, assert_in, assert_not_in, assert_raises
+import pytest
 
 from katdal.categorical import CategoricalData
 from katdal.concatdata import ConcatenatedSensorCache
@@ -33,7 +33,7 @@ class TestConcatenatedSensorCache:
             cache_data[name] = sd
         return SensorCache(cache_data, timestamps, 2.0)
 
-    def setup(self):
+    def setup_method(self):
         self.timestamps1 = np.arange(100.0, 110.0, 2.0)
         self.timestamps2 = np.arange(1000.0, 1006.0, 2.0)
         sensors1 = [
@@ -63,7 +63,7 @@ class TestConcatenatedSensorCache:
 
     def test_categorical(self):
         data = self.cache.get('cat')
-        assert_equal(data.unique_values, ['hello', 'world', 'again'])
+        assert data.unique_values == ['hello', 'world', 'again']
         H = 'hello'
         W = 'world'
         A = 'again'
@@ -102,7 +102,7 @@ class TestConcatenatedSensorCache:
         np.testing.assert_array_equal(values.value, [3.0])
 
     def test_missing_sensor(self):
-        with assert_raises(KeyError):
+        with pytest.raises(KeyError):
             self.cache['sir_not_appearing_in_this_cache']
 
     def test_partially_extract(self):
@@ -114,7 +114,7 @@ class TestConcatenatedSensorCache:
         data = CategoricalData(['x', 'y', 'x'], [0, 2, 4, 8])
         self.cache['dog'] = data
         ans = self.cache.get('dog')
-        assert_equal(data.unique_values, ans.unique_values)
+        assert data.unique_values == ans.unique_values
         np.testing.assert_array_equal(data.events, ans.events)
         np.testing.assert_array_equal(data.indices, ans.indices)
 
@@ -125,14 +125,14 @@ class TestConcatenatedSensorCache:
         np.testing.assert_array_equal(data, ans)
 
     def test_len(self):
-        assert_equal(len(self.cache), 4)
+        assert len(self.cache) == 4
 
     def test_keys(self):
-        assert_equal(sorted(self.cache.keys()), ['cat', 'float_missing', 'foo', 'int_missing'])
+        assert sorted(self.cache.keys()) == ['cat', 'float_missing', 'foo', 'int_missing']
 
     def test_contains(self):
-        assert_in('cat', self.cache)
-        assert_in('float_missing', self.cache)
-        assert_in('int_missing', self.cache)
-        assert_not_in('dog', self.cache)
-        assert_not_in('', self.cache)
+        assert 'cat' in self.cache
+        assert 'float_missing' in self.cache
+        assert 'int_missing' in self.cache
+        assert 'dog' not in self.cache
+        assert '' not in self.cache

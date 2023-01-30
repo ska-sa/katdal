@@ -20,8 +20,7 @@ from collections import OrderedDict
 from unittest import mock
 
 import numpy as np
-from nose.tools import (assert_equal, assert_in, assert_is_instance,
-                        assert_not_in, assert_raises)
+import pytest
 
 from katdal.sensordata import (SensorCache, SensorData, SimpleSensorGetter,
                                remove_duplicates_and_invalid_values,
@@ -29,8 +28,8 @@ from katdal.sensordata import (SensorCache, SensorData, SimpleSensorGetter,
 
 
 def assert_equal_typed(a, b):
-    assert_equal(a, b)
-    assert_equal(type(a), type(b))
+    assert a == b
+    assert type(a) == type(b)
 
 
 class TestToStr:
@@ -100,7 +99,7 @@ class TestSensorCache:
             cache_data[name] = sd
         return cache_data
 
-    def setup(self):
+    def setup_method(self):
         self.cache = SensorCache(self._cache_data(), timestamps=np.arange(10.), dump_period=1.0)
 
     def test_extract_float(self):
@@ -118,28 +117,28 @@ class TestSensorCache:
             self._cache_data(), timestamps=np.arange(10.), dump_period=1.0,
             aliases={'zz': 'at'})
         # Check that adding the alias didn't lead to extraction
-        assert_is_instance(self.cache.get('czz', extract=False), SimpleSensorGetter)
+        assert isinstance(self.cache.get('czz', extract=False), SimpleSensorGetter)
         np.testing.assert_array_equal(self.cache['czz'], self.cache['cat'])
 
     def test_len(self):
-        assert_equal(len(self.cache), 2)
+        assert len(self.cache) == 2
 
     def test_keys(self):
-        assert_equal(sorted(self.cache.keys()), ['cat', 'foo'])
+        assert sorted(self.cache.keys()) == ['cat', 'foo']
 
     def test_contains(self):
-        assert_in('cat', self.cache)
-        assert_in('foo', self.cache)
-        assert_not_in('dog', self.cache)
+        assert 'cat' in self.cache
+        assert 'foo' in self.cache
+        assert 'dog' not in self.cache
         template = 'Antennas/{ant}/{param1}_{param2}'
         self.cache.virtual[template] = lambda x: None
-        assert_not_in(template, self.cache)
+        assert template not in self.cache
 
     def test_setitem_delitem(self):
         self.cache['bar'] = SimpleSensorGetter('bar', np.array([1.0]), np.array([0.0]))
         np.testing.assert_array_equal(self.cache['bar'], np.zeros(10))
         del self.cache['bar']
-        assert_not_in('bar', self.cache)
+        assert 'bar' not in self.cache
 
     def test_sensor_time_offset(self):
         data = self.cache.get('foo', extract=True, time_offset=-1.0)
@@ -150,7 +149,7 @@ class TestSensorCache:
 
         def _check_sensor(cache, name, **kwargs):
             """Check that virtual sensor function gets the expected parameters."""
-            assert_equal(kwargs, params)
+            assert kwargs == params
             calculate_value()
             value = kwargs['param2']
             cache[name] = value
@@ -161,24 +160,24 @@ class TestSensorCache:
         template = 'Antennas/{ant}/{param1}_{param2}'
         self.cache.virtual[template] = _check_sensor
         value = self.cache.get(template.format(**params))
-        assert_equal(value, params['param2'])
-        assert_equal(calculate_value.call_count, 1)
+        assert value == params['param2']
+        assert calculate_value.call_count == 1
         # Check that the value was taken from the cache the second time around
         value = self.cache.get(template.format(**params))
-        assert_equal(value, params['param2'])
-        assert_equal(calculate_value.call_count, 1)
+        assert value == params['param2']
+        assert calculate_value.call_count == 1
         # If your parameter values contain underscores, don't use it as delimiter
         params = {'ant': 'm000', 'param1': 'one', 'param2': 'two_three'}
-        with assert_raises(AssertionError):
+        with pytest.raises(AssertionError):
             self.cache.get(template.format(**params))
         template = 'Antennas/{ant}/{param1}/{param2}'
         # The updated template has not yet been added to the cache
-        with assert_raises(KeyError):
+        with pytest.raises(KeyError):
             self.cache.get(template.format(**params))
         self.cache.virtual[template] = _check_sensor
         value = self.cache.get(template.format(**params))
-        assert_equal(value, params['param2'])
-        assert_equal(calculate_value.call_count, 2)
+        assert value == params['param2']
+        assert calculate_value.call_count == 2
 
     # TODO: more tests required:
     # - extract=False
@@ -194,6 +193,6 @@ def test_sensor_cleanup():
     status = np.array(['unknown', 'nominal', 'nominal', 'nominal', 'warn', 'error', 'nominal'])
     dirty = SensorData('test', timestamp, value, status)
     clean = remove_duplicates_and_invalid_values(dirty)
-    assert_equal(clean.status, None)
+    assert clean.status is None
     np.testing.assert_array_equal(clean.value, np.array(['a', 'b', 'd']))
     np.testing.assert_array_equal(clean.timestamp, np.array([0.0, 2.0, 3.0]))

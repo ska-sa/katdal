@@ -18,7 +18,6 @@
 
 import numpy as np
 from katpoint import Antenna, Target, Timestamp, rad2deg
-from nose.tools import assert_equal
 from numpy.testing import assert_array_almost_equal, assert_array_equal
 
 from katdal.categorical import CategoricalData
@@ -60,9 +59,9 @@ class MinimalDataSet(DataSet):
         sensors['Observation/label'] = constant_sensor('track')
 
         self._timestamps = timestamps
-        self._time_keep = np.full(num_dumps, True, dtype=np.bool_)
-        self._freq_keep = np.full(num_chans, True, dtype=np.bool_)
-        self._corrprod_keep = np.full(num_corrprods, True, dtype=np.bool_)
+        self._time_keep = np.full(num_dumps, True, dtype=bool)
+        self._freq_keep = np.full(num_chans, True, dtype=bool)
+        self._corrprod_keep = np.full(num_corrprods, True, dtype=bool)
         self.dump_period = dump_period
         self.start_time = Timestamp(timestamps[0] - 0.5 * dump_period)
         self.end_time = Timestamp(timestamps[-1] + 0.5 * dump_period)
@@ -80,40 +79,40 @@ class MinimalDataSet(DataSet):
 
 def test_parse_url_or_path():
     # Normal URLs and empty strings pass right through
-    assert_equal(parse_url_or_path('https://archive/file').geturl(), 'https://archive/file')
-    assert_equal(parse_url_or_path('').geturl(), '')
+    assert parse_url_or_path('https://archive/file').geturl() == 'https://archive/file'
+    assert parse_url_or_path('').geturl() == ''
     # Relative paths are turned into absolute paths and gain a 'file' scheme
     relative_file_url = parse_url_or_path('dir/filename.rdb')
-    assert_equal(relative_file_url.scheme, 'file')
+    assert relative_file_url.scheme == 'file'
     parts = relative_file_url.path.rpartition('dir/filename.rdb')
     assert len(parts[0]) > 0
-    assert_equal(parts[1], 'dir/filename.rdb')
+    assert parts[1] == 'dir/filename.rdb'
     assert len(parts[2]) == 0
     # Absolute paths remain the same (just gaining a 'file' scheme)
     absolute_file_url = parse_url_or_path('/dir/filename.rdb')
-    assert_equal(absolute_file_url.scheme, 'file')
-    assert_equal(absolute_file_url.path, '/dir/filename.rdb')
+    assert absolute_file_url.scheme == 'file'
+    assert absolute_file_url.path == '/dir/filename.rdb'
 
 
 def test_selection_to_list():
     # Empty
-    assert_equal(_selection_to_list(''), [])
-    assert_equal(_selection_to_list([]), [])
+    assert _selection_to_list('') == []
+    assert _selection_to_list([]) == []
     # Names
-    assert_equal(_selection_to_list('a,b,c'), ['a', 'b', 'c'])
-    assert_equal(_selection_to_list('a, b,c'), ['a', 'b', 'c'])
-    assert_equal(_selection_to_list(['a', 'b', 'c']), ['a', 'b', 'c'])
-    assert_equal(_selection_to_list(('a', 'b', 'c')), ['a', 'b', 'c'])
-    assert_equal(_selection_to_list('a'), ['a'])
+    assert _selection_to_list('a,b,c') == ['a', 'b', 'c']
+    assert _selection_to_list('a, b,c') == ['a', 'b', 'c']
+    assert _selection_to_list(['a', 'b', 'c']) == ['a', 'b', 'c']
+    assert _selection_to_list(('a', 'b', 'c')) == ['a', 'b', 'c']
+    assert _selection_to_list('a') == ['a']
     # Objects
-    assert_equal(_selection_to_list([1, 2, 3]), [1, 2, 3])
-    assert_equal(_selection_to_list(1), [1])
+    assert _selection_to_list([1, 2, 3]) == [1, 2, 3]
+    assert _selection_to_list(1) == [1]
     # Groups
-    assert_equal(_selection_to_list('all', all=['a', 'b']), ['a', 'b'])
+    assert _selection_to_list('all', all=['a', 'b']) == ['a', 'b']
 
 
 class TestVirtualSensors:
-    def setup(self):
+    def setup_method(self):
         self.target = Target('PKS1934-638, radec, 19:39, -63:42')
         self.antennas = [Antenna('m000, -30:42:39.8, 21:26:38.0, 1086.6, 13.5, '
                                  '-8.264 -207.29 8.5965'),
@@ -132,7 +131,7 @@ class TestVirtualSensors:
 
     def test_timestamps(self):
         mjd = Timestamp(self.timestamps[0]).to_mjd()
-        assert_equal(self.dataset.mjd[0], mjd)
+        assert self.dataset.mjd[0] == mjd
         lst = self.array_ant.local_sidereal_time(self.timestamps)
         # Convert LST from radians (katpoint) to hours (katdal)
         assert_array_equal(self.dataset.lst, lst * (12 / np.pi))

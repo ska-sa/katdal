@@ -299,7 +299,7 @@ class LazyIndexer:
             else:
                 dim_keep = np.atleast_1d(dim_keep)
                 # Turn boolean mask into integer indices (True means keep that index), or None if all is True
-                if dim_keep.dtype == np.bool and len(dim_keep) == dim_len:
+                if dim_keep.dtype == bool and len(dim_keep) == dim_len:
                     dim_keep = np.nonzero(dim_keep)[0] if not dim_keep.all() else None
             self._lookup.append(dim_keep)
         # Shape of data array after first-stage indexing and before transformation
@@ -391,7 +391,7 @@ class LazyIndexer:
                 # Anything else is advanced indexing via bool or integer sequences
                 dim_keep = np.atleast_1d(dim_keep)
                 # Turn boolean mask into integer indices (True means keep that index)
-                if dim_keep.dtype == np.bool and len(dim_keep) == dim_len:
+                if dim_keep.dtype == bool and len(dim_keep) == dim_len:
                     dim_keep = np.nonzero(dim_keep)[0]
                 elif not np.all(dim_keep == np.unique(dim_keep)):
                     raise TypeError('LazyIndexer cannot handle duplicate or unsorted advanced integer indices')

@@ -24,7 +24,7 @@ import urllib.parse
 import katsdptelstate
 import numpy as np
 from katsdptelstate.rdb_writer import RDBWriter
-from nose.tools import assert_raises
+import pytest
 
 from katdal.chunkstore_npy import NpyFileChunkStore
 from katdal.datasources import (DataSourceNotFound, TelstateDataSource,
@@ -124,12 +124,12 @@ def assert_telstate_data_source_equal(source1, source2):
 
 
 class TestTelstateDataSource:
-    def setup(self):
+    def setup_method(self):
         self.tempdir = tempfile.mkdtemp()
         self.store = NpyFileChunkStore(self.tempdir)
         self.telstate = katsdptelstate.TelescopeState()
 
-    def teardown(self):
+    def teardown_method(self):
         shutil.rmtree(self.tempdir)
 
     def test_basic_timestamps(self):
@@ -154,11 +154,11 @@ class TestTelstateDataSource:
     def test_bad_preselect(self):
         view, cbid, sn, l0_data, l1_flags_data = \
             make_fake_data_source(self.telstate, self.store, (20, 64, 40))
-        with assert_raises(IndexError):
+        with pytest.raises(IndexError):
             TelstateDataSource(view, cbid, sn, self.store, preselect=dict(dumps=np.s_[[1, 2]]))
-        with assert_raises(IndexError):
+        with pytest.raises(IndexError):
             TelstateDataSource(view, cbid, sn, self.store, preselect=dict(dumps=np.s_[5:0:-1]))
-        with assert_raises(IndexError):
+        with pytest.raises(IndexError):
             TelstateDataSource(view, cbid, sn, self.store, preselect=dict(frequencies=np.s_[:]))
 
     def test_preselect(self):
@@ -249,7 +249,7 @@ class TestTelstateDataSource:
         l1_flags_shape = (20, 8, 40)
         view, cbid, sn, _, _ = make_fake_data_source(self.telstate, self.store, l0_shape,
                                                      l1_flags_shape=l1_flags_shape)
-        with assert_raises(ValueError):
+        with pytest.raises(ValueError):
             TelstateDataSource(view, cbid, sn, self.store)
 
     def test_van_vleck(self):
@@ -265,7 +265,7 @@ class TestTelstateDataSource:
         expected_vis = correct_autocorr_quantisation(raw_vis, view['bls_ordering'])
         np.testing.assert_array_equal(corrected_vis.compute(), expected_vis.compute())
         # Check parameter validation
-        with assert_raises(ValueError):
+        with pytest.raises(ValueError):
             TelstateDataSource(view, cbid, sn, self.store, van_vleck='blah')
 
     def test_construction_from_url(self):
@@ -289,9 +289,9 @@ class TestTelstateDataSource:
         source_from_url = TelstateDataSource.from_url(url, chunk_store=self.store)
         assert_telstate_data_source_equal(source_from_url, source_direct)
         # Check invalid URLs
-        with assert_raises(DataSourceNotFound):
+        with pytest.raises(DataSourceNotFound):
             open_data_source('ftp://unsupported')
-        with assert_raises(DataSourceNotFound):
+        with pytest.raises(DataSourceNotFound):
             open_data_source(rdb_filename[:-4])
         source_name = f'{cbid}_{sn}'
         assert source_from_file.name == source_name

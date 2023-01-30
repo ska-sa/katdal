@@ -21,8 +21,8 @@ from functools import partial
 import dask.array as da
 import katpoint
 import numpy as np
-from nose.tools import assert_equal, assert_raises
 from numpy.testing import assert_allclose, assert_array_equal
+import pytest
 
 from katdal.applycal import (INVALID_GAIN, add_applycal_sensors,
                              apply_flags_correction, apply_vis_correction,
@@ -261,14 +261,14 @@ def corrections_per_corrprod(dumps, channels, cal_products):
 def assert_categorical_data_equal(actual, desired):
     """Assert that two :class:`CategoricalData` objects are equal."""
     assert_array_equal(actual.events, desired.events)
-    assert_equal(len(actual.unique_values), len(desired.unique_values))
+    assert len(actual.unique_values) == len(desired.unique_values)
     for a, d in zip(actual.unique_values, desired.unique_values):
         assert_array_equal(a, d)
 
 
 class TestComplexInterp:
     """Test the :func:`~katdal.applycal.complex_interp` function."""
-    def setup(self):
+    def setup_method(self):
         self.xi = np.arange(1., 10.)
         self.yi_unit = np.exp(2j * np.pi * self.xi / 10.)
         rs = np.random.RandomState(1234)
@@ -301,7 +301,7 @@ class TestComplexInterp:
     def test_complex64_interpolation(self):
         yi = self.yi_unit.astype(np.complex64)
         y = complex_interp(self.x, self.xi, yi)
-        assert_equal(y.dtype, yi.dtype)
+        assert y.dtype == yi.dtype
         assert_allclose(np.abs(y), 1.0, rtol=1e-7)
 
     def test_left_right(self):
@@ -317,7 +317,7 @@ class TestComplexInterp:
 
 class TestCalProductAccess:
     """Test the :func:`~katdal.applycal.*_cal_product` functions."""
-    def setup(self):
+    def setup_method(self):
         self.cache = create_sensor_cache()
         add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM, gaincal_flux=None)
 
@@ -354,7 +354,7 @@ class TestCalProductAccess:
             del cache[f'Calibration/Products/{CAL_STREAM}/B']
         # All parts gone triggers a KeyError
         del cache[CAL_STREAM + '_product_B' + str(BANDPASS_PARTS - 1)]
-        with assert_raises(KeyError):
+        with pytest.raises(KeyError):
             get_cal_product(cache, CAL_STREAM, 'B')
 
     def test_get_cal_product_gain(self):
@@ -370,7 +370,7 @@ class TestCalProductAccess:
 
 class TestCorrectionPerInput:
     """Test the :func:`~katdal.applycal.calc_*_correction` functions."""
-    def setup(self):
+    def setup_method(self):
         self.cache = create_sensor_cache()
         add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM, gaincal_flux=None)
 
@@ -414,7 +414,7 @@ class TestCorrectionPerInput:
 
 class TestVirtualCorrectionSensors:
     """Test :func:`~katdal.applycal.add_applycal_sensors` function."""
-    def setup(self):
+    def setup_method(self):
         self.cache = create_sensor_cache()
         add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM, gaincal_flux=None)
 
@@ -423,12 +423,12 @@ class TestVirtualCorrectionSensors:
         n_virtuals_before = len(cache.virtual)
         add_applycal_sensors(cache, {}, [], CAL_STREAM, gaincal_flux=None)
         n_virtuals_after = len(cache.virtual)
-        assert_equal(n_virtuals_after, n_virtuals_before)
+        assert n_virtuals_after == n_virtuals_before
         attrs = ATTRS.copy()
         del attrs['center_freq']
         add_applycal_sensors(self.cache, attrs, FREQS, CAL_STREAM, gaincal_flux=None)
         n_virtuals_after = len(cache.virtual)
-        assert_equal(n_virtuals_after, n_virtuals_before)
+        assert n_virtuals_after == n_virtuals_before
 
     def test_delay_sensors(self, stream=CAL_STREAM):
         for n, ant in enumerate(ANTS):
@@ -461,17 +461,17 @@ class TestVirtualCorrectionSensors:
 
     def test_unknown_inputs_and_products(self):
         known_input = ANTS[0] + POLS[0]
-        with assert_raises(KeyError):
+        with pytest.raises(KeyError):
             self.cache.get(f'Calibration/Corrections/{CAL_STREAM}/K/unknown')
-        with assert_raises(KeyError):
+        with pytest.raises(KeyError):
             self.cache.get(f'Calibration/Corrections/{CAL_STREAM}/unknown/{known_input}')
-        with assert_raises(KeyError):
+        with pytest.raises(KeyError):
             self.cache.get(f'Calibration/Corrections/{CAL_STREAM}/K_unknown/{known_input}')
-        with assert_raises(KeyError):
+        with pytest.raises(KeyError):
             self.cache.get('Calibration/Corrections/unknown/K/' + known_input)
-        with assert_raises(KeyError):
+        with pytest.raises(KeyError):
             self.cache.get(f'Calibration/Products/{CAL_STREAM}/K_unknown')
-        with assert_raises(KeyError):
+        with pytest.raises(KeyError):
             self.cache.get('Calibration/Products/unknown/K')
 
     def test_indirect_cal_product(self):
@@ -485,7 +485,7 @@ class TestVirtualCorrectionSensors:
 class TestCalibrateFlux:
     """Test :func:`~katdal.applycal.calibrate_flux` function."""
 
-    def setup(self):
+    def setup_method(self):
         gains = create_product(create_gain)
         self.sensor = create_categorical_sensor(GAIN_EVENTS, gains, INVALID_GAIN)
         calibrated_gains = create_product(partial(create_gain, fluxes=True))
@@ -513,7 +513,7 @@ class TestCalibrateFlux:
 
 class TestCalcCorrection:
     """Test :func:`~katdal.applycal.calc_correction` function."""
-    def setup(self):
+    def setup_method(self):
         self.cache = create_sensor_cache()
         # Include fluxcal, which is also done in corrections_per_corrprod
         add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM,
@@ -526,7 +526,7 @@ class TestCalcCorrection:
         chunks = da.core.normalize_chunks((10, 5, -1), shape)
         final_cal_products, corrections = calc_correction(
             chunks, self.cache, CORRPRODS, CAL_PRODUCTS, FREQS, {'cal': CAL_FREQS})
-        assert_equal(set(final_cal_products), set(CAL_PRODUCTS))
+        assert set(final_cal_products) == set(CAL_PRODUCTS)
         corrections = corrections[dump:dump+1, channels].compute()
         expected_corrections = corrections_per_corrprod([dump], channels,
                                                         final_cal_products)
@@ -539,25 +539,25 @@ class TestCalcCorrection:
         chunks = da.core.normalize_chunks((10, 5, -1), shape)
         final_cal_products, corrections = calc_correction(
             chunks, self.cache, CORRPRODS, [], FREQS, {'cal': CAL_FREQS})
-        assert_equal(final_cal_products, [])
-        assert_equal(corrections, None)
-        with assert_raises(ValueError):
+        assert final_cal_products == []
+        assert corrections is None
+        with pytest.raises(ValueError):
             calc_correction(chunks, self.cache, CORRPRODS, ['INVALID'], FREQS,
                             {'cal': CAL_FREQS})
         unknown = CAL_STREAM + '.UNKNOWN'
         final_cal_products, corrections = calc_correction(
             chunks, self.cache, CORRPRODS, [unknown], FREQS, {'cal': CAL_FREQS},
             skip_missing_products=True)
-        assert_equal(final_cal_products, [])
-        assert_equal(corrections, None)
+        assert final_cal_products == []
+        assert corrections is None
         cal_products = CAL_PRODUCTS + [unknown]
-        with assert_raises(KeyError):
+        with pytest.raises(KeyError):
             calc_correction(chunks, self.cache, CORRPRODS, cal_products, FREQS,
                             {'cal': CAL_FREQS}, skip_missing_products=False)
         final_cal_products, corrections = calc_correction(
             chunks, self.cache, CORRPRODS, cal_products, FREQS, {'cal': CAL_FREQS},
             skip_missing_products=True)
-        assert_equal(set(final_cal_products), set(CAL_PRODUCTS))
+        assert set(final_cal_products) == set(CAL_PRODUCTS)
         corrections = corrections[dump:dump+1, channels].compute()
         expected_corrections = corrections_per_corrprod([dump], channels,
                                                         final_cal_products)
@@ -566,7 +566,7 @@ class TestCalcCorrection:
 
 class TestApplyCal:
     """Test :func:`~katdal.applycal.apply_vis_correction` and friends"""
-    def setup(self):
+    def setup_method(self):
         self.cache = create_sensor_cache()
         add_applycal_sensors(self.cache, ATTRS, FREQS, CAL_STREAM, gaincal_flux=None)
 
