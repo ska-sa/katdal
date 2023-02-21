@@ -46,7 +46,14 @@ def parse_args():
     parser.add_argument('--corrprods',
                         help='Select correlation products (kwarg to katdal.DataSet.select). '
                         'Keeps all corrprods by default.')
-    parser.add_argument('--pol', help='Select polarisation terms')
+    parser.add_argument('--pol', help='Select polarisation terms '
+                        '(kwarg to katdal.DataSet.select). Keeps all pols by default.')
+    parser.add_argument('--scans',
+                        help='Select scans (kwarg to katdal.DataSet.select). '
+                        'Keeps all scans by default.')
+    parser.add_argument('--targets',
+                        help='Select targets (kwarg to katdal.DataSet.select). '
+                        'Keeps all targets by default.')
     parser.add_argument('--workers', type=int, default=8 * dask.system.CPU_COUNT,
                         help='Number of dask workers for parallel I/O [%(default)s]')
     args = parser.parse_args()
@@ -101,6 +108,12 @@ def main():
         kwargs['corrprods'] = args.corrprods
     if args.pol is not None:
         kwargs['pol'] = args.pol
+    if args.scans is not None:
+        kwargs['scans'] = args.scans
+    if args.targets is not None:
+        target_names = args.targets.split(',')
+        kwargs['targets'] = [target for n in target_names
+                             for target in d.catalogue._targets_with_name(n)]
     d.select(**kwargs)
 
     # Convenience variables
