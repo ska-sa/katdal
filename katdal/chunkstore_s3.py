@@ -36,7 +36,12 @@ try:
     import botocore.credentials
 except ImportError:
     botocore = None
-from urllib3.exceptions import MaxRetryError
+try:
+    # XXX A deprecated alias of TimeoutError since Python 3.10
+    from socket import timeout as SocketTimeoutError
+except ImportError:
+    SocketTimeoutError = TimeoutError
+from urllib3.exceptions import MaxRetryError, ReadTimeoutError
 from urllib3.response import HTTPResponse
 from urllib3.util.retry import Retry
 
@@ -82,9 +87,10 @@ class S3ObjectNotFound(ChunkNotFound):
 class S3ServerGlitch(ChunkNotFound):
     """S3 chunk store responded with an HTTP error deemed to be temporary."""
 
-    def __init__(self, msg, status_code):
+    def __init__(self, msg, status_code, error=None):
         super().__init__(msg)
         self.status_code = status_code
+        self.error = error
 
 
 class TruncatedRead(ValueError):
@@ -553,6 +559,16 @@ class S3ChunkStore(ChunkStore):
                     glitch_error = S3ServerGlitch(prefix + str(trunc_error),
                                                   _TRUNCATED_HTTP_STATUS_CODE)
                     raise glitch_error from trunc_error
+                except SocketTimeoutError as timeout_error:
+                    prefix = f'Chunk {chunk_name!r}: ' if chunk_name else ''
+                    try:
+                        read_timeout = kwargs['timeout'][1]
+                    except TypeError:
+                        read_timeout = kwargs['timeout']
+                    msg = prefix + f'Read timed out - socket idle for {read_timeout} seconds'
+                    retry_error = ReadTimeoutError(response.raw._pool, response.url, msg)
+                    glitch_error = S3ServerGlitch(msg, status, retry_error)
+                    raise glitch_error from timeout_error
 
     def complete_request(self, method, url, chunk_name='',
                          process=lambda response: None, **kwargs):
@@ -594,13 +610,14 @@ class S3ChunkStore(ChunkStore):
                 with self.request(method, url, chunk_name, **kwargs) as response:
                     result = process(response)
             except S3ServerGlitch as e:
-                # Retry based on status of response until we run out of retries
+                # Retry based on status of response (or error) until we run out of retries
                 response = HTTPResponse(status=e.status_code)
                 try:
-                    retries = retries.increment(method, url, response)
+                    retries = retries.increment(method, url, response, e.error)
                 except MaxRetryError:
                     # Raise the final straw that broke the retry camel's back
-                    raise e from None
+                    msg = f'{e} [after {len(retries.history)} retries]'
+                    raise S3ServerGlitch(msg, e.status_code, e.error) from e.error
                 else:
                     retries.sleep(response)
             else:

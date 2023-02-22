@@ -273,6 +273,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
                 shutil.rmtree(entry.path)
         # Also get rid of the cache of verified buckets
         self.store._verified_buckets.clear()
+        self.store.timeout = TIMEOUT
         print(f"Chunk store: {self.store_url}, S3 server: {self.s3_url}")
 
     def array_name(self, name):
@@ -635,3 +636,36 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         chunk, slices, array_name = self._put_chunk('please-pause-read-after-129-bytes')
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Paused read failed')
+
+    # SOCKET TIMEOUTS
+    #
+    # With a read timeout of 0.09 seconds and the RETRY settings of 3 read retries and
+    # backoff factor of 0.1 s, we get the following timeline (indexed by seconds):
+    # 0.00 - access chunk for the first time
+    # 0.09 - response is 200 but socket times out after 0.09 seconds, immediately try again
+    # 0.18 - retry #1, response is 200 but socket stalls, back off for 2 * 0.1 seconds
+    # 0.47 - retry #2, response is 200 but socket stalls, back off for 4 * 0.1 seconds
+    # 0.87 - retry #3 (the final attempt) - server should now be fixed
+    # 0.87 - success!
+
+    @pytest.mark.expected_duration(0.87)
+    def test_recover_from_socket_timeout_within_npy_header(self):
+        chunk, slices, array_name = self._put_chunk('please-pause-read-after-60-bytes-for-0.8-seconds')
+        self.store.timeout = (5.0, 0.09)
+        chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
+        assert_array_equal(chunk_retrieved, chunk, 'Retried read failed')
+
+    @pytest.mark.expected_duration(0.87)
+    def test_recover_from_socket_timeout_within_npy_array(self):
+        chunk, slices, array_name = self._put_chunk('please-pause-read-after-129-bytes-for-0.8-seconds')
+        self.store.timeout = (5.0, 0.09)
+        chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
+        assert_array_equal(chunk_retrieved, chunk, 'Retried read failed')
+
+    @pytest.mark.expected_duration(0.96)
+    def test_persistent_socket_timeouts(self):
+        chunk, slices, array_name = self._put_chunk('please-pause-read-after-129-bytes-for-1.0-seconds')
+        self.store.timeout = (5.0, 0.09)
+        # The final retry starts at 0.87 seconds and the client gives up 0.09 seconds later
+        with pytest.raises(ChunkNotFound):
+            self.store.get_chunk(array_name, slices, chunk.dtype)
