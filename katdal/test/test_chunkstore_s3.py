@@ -609,17 +609,13 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
     # 0.6 - retry #3 (the final attempt) - server should now be fixed
     # 0.6 - success!
 
+    # The NPY file has a 128-byte header, followed by the array data itself.
+    # Check both parts, since they are read somewhat differently (read vs readinto).
+    @pytest.mark.parametrize('nbytes', [60, 129])
     @pytest.mark.expected_duration(0.6)
-    def test_recover_from_read_truncated_within_npy_header(self):
-        chunk, slices, array_name = self._put_chunk(
-            'please-truncate-read-after-60-bytes-for-0.4-seconds')
-        chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
-        assert_array_equal(chunk_retrieved, chunk, 'Truncated read not recovered')
-
-    @pytest.mark.expected_duration(0.6)
-    def test_recover_from_read_truncated_within_npy_array(self):
-        chunk, slices, array_name = self._put_chunk(
-            'please-truncate-read-after-129-bytes-for-0.4-seconds')
+    def test_recover_from_truncated_read(self, nbytes):
+        suggestion = f'please-truncate-read-after-{nbytes}-bytes-for-0.4-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Truncated read not recovered')
 
@@ -631,15 +627,11 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
 
+    @pytest.mark.parametrize('nbytes', [60, 129])  # check both NPY header and array itself
     @pytest.mark.expected_duration(READ_PAUSE)
-    def test_handle_read_paused_within_npy_header(self):
-        chunk, slices, array_name = self._put_chunk('please-pause-read-after-60-bytes')
-        chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
-        assert_array_equal(chunk_retrieved, chunk, 'Paused read failed')
-
-    @pytest.mark.expected_duration(READ_PAUSE)
-    def test_handle_read_paused_within_npy_array(self):
-        chunk, slices, array_name = self._put_chunk('please-pause-read-after-129-bytes')
+    def test_handle_paused_read(self, nbytes):
+        suggestion = f'please-pause-read-after-{nbytes}-bytes'
+        chunk, slices, array_name = self._put_chunk(suggestion)
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Paused read failed')
 
@@ -654,23 +646,19 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
     # 0.87 - retry #3 (the final attempt) - server should now be fixed
     # 0.87 - success!
 
+    @pytest.mark.parametrize('nbytes', [60, 129])  # check both NPY header and array itself
     @pytest.mark.expected_duration(0.87)
-    def test_recover_from_socket_timeout_within_npy_header(self):
-        chunk, slices, array_name = self._put_chunk('please-pause-read-after-60-bytes-for-0.8-seconds')
-        self.store.timeout = (5.0, 0.09)
-        chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
-        assert_array_equal(chunk_retrieved, chunk, 'Retried read failed')
-
-    @pytest.mark.expected_duration(0.87)
-    def test_recover_from_socket_timeout_within_npy_array(self):
-        chunk, slices, array_name = self._put_chunk('please-pause-read-after-129-bytes-for-0.8-seconds')
+    def test_recover_from_socket_timeout(self, nbytes):
+        suggestion = f'please-pause-read-after-{nbytes}-bytes-for-0.8-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
         self.store.timeout = (5.0, 0.09)
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Retried read failed')
 
     @pytest.mark.expected_duration(0.96)
     def test_persistent_socket_timeouts(self):
-        chunk, slices, array_name = self._put_chunk('please-pause-read-after-129-bytes-for-1.0-seconds')
+        suggestion = 'please-pause-read-after-129-bytes-for-1.0-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
         self.store.timeout = (5.0, 0.09)
         # The final retry starts at 0.87 seconds and the client gives up 0.09 seconds later
         with pytest.raises(ChunkNotFound):
