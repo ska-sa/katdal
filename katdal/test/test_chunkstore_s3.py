@@ -571,20 +571,23 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         self.store.put_chunk(array_name, slices, chunk)
         return chunk, slices, self.store.join(array_name, suggestion)
 
+    # 50x STATUSES
+    #
+    # With the RETRY settings of 3 status retries, backoff factor of 0.1 s
+    # and SUGGESTED_STATUS_DELAY of 0.1 s we get the following timeline
+    # (indexed by seconds):
+    # 0.0 - access chunk for the first time
+    # 0.1 - response is 500, immediately try again (retry #1)
+    # 0.2 - response is 500, back off for 2 * 0.1 seconds
+    # 0.4 - retry #2
+    # 0.5 - response is 500, back off for 4 * 0.1 seconds
+    # 0.9 - retry #3 (the final attempt) - server should now be fixed
+    # 0.9 - success!
+
     @pytest.mark.expected_duration(0.9)
     def test_recover_from_server_errors(self):
         chunk, slices, array_name = self._put_chunk(
             'please-respond-with-500-for-0.8-seconds')
-        # With the RETRY settings of 3 status retries, backoff factor of 0.1 s
-        # and SUGGESTED_STATUS_DELAY of 0.1 s we get the following timeline
-        # (indexed by seconds):
-        # 0.0 - access chunk for the first time
-        # 0.1 - response is 500, immediately try again (retry #1)
-        # 0.2 - response is 500, back off for 2 * 0.1 seconds
-        # 0.4 - retry #2
-        # 0.5 - response is 500, back off for 4 * 0.1 seconds
-        # 0.9 - retry #3 (the final attempt) - server should now be fixed
-        # 0.9 - success!
         self.store.get_chunk(array_name, slices, chunk.dtype)
 
     @pytest.mark.expected_duration(1.0)
@@ -595,18 +598,21 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
 
+    # TRUNCATED READS
+    #
+    # With the RETRY settings of 3 status retries and backoff factor of 0.1 s
+    # we get the following timeline (indexed by seconds):
+    # 0.0 - access chunk for the first time
+    # 0.0 - response is 200 but truncated, immediately try again (retry #1)
+    # 0.0 - response is 200 but truncated, back off for 2 * 0.1 seconds
+    # 0.2 - retry #2, response is 200 but truncated, back off for 4 * 0.1 seconds
+    # 0.6 - retry #3 (the final attempt) - server should now be fixed
+    # 0.6 - success!
+
     @pytest.mark.expected_duration(0.6)
     def test_recover_from_read_truncated_within_npy_header(self):
         chunk, slices, array_name = self._put_chunk(
             'please-truncate-read-after-60-bytes-for-0.4-seconds')
-        # With the RETRY settings of 3 status retries and backoff factor of 0.1 s
-        # we get the following timeline (indexed by seconds):
-        # 0.0 - access chunk for the first time
-        # 0.0 - response is 200 but truncated, immediately try again (retry #1)
-        # 0.0 - response is 200 but truncated, back off for 2 * 0.1 seconds
-        # 0.2 - retry #2, response is 200 but truncated, back off for 4 * 0.1 seconds
-        # 0.6 - retry #3 (the final attempt) - server should now be fixed
-        # 0.6 - success!
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Truncated read not recovered')
 
