@@ -597,7 +597,8 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
     def test_recover_from_server_errors(self):
         chunk, slices, array_name = self._put_chunk(
             'please-respond-with-500-for-0.8-seconds')
-        self.store.get_chunk(array_name, slices, chunk.dtype)
+        chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
+        assert_array_equal(chunk_retrieved, chunk, 'Bad chunk after server error')
 
     @pytest.mark.expected_duration(1.0)
     def test_persistent_server_errors(self):
@@ -609,7 +610,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
 
     # TRUNCATED READS
     #
-    # With the RETRY settings of 3 status retries and backoff factor of 0.1 s
+    # With the RETRY settings of 3 read retries and backoff factor of 0.1 s
     # we get the following timeline (indexed by seconds):
     # 0.0 - access chunk for the first time
     # 0.0 - response is 200 but truncated, immediately try again (retry #1)
@@ -626,7 +627,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         suggestion = f'please-truncate-read-after-{nbytes}-bytes-for-0.4-seconds'
         chunk, slices, array_name = self._put_chunk(suggestion)
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
-        assert_array_equal(chunk_retrieved, chunk, 'Truncated read not recovered')
+        assert_array_equal(chunk_retrieved, chunk, 'Bad chunk after truncated read')
 
     @pytest.mark.expected_duration(0.6)
     def test_persistent_truncated_reads(self):
@@ -656,7 +657,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         suggestion = f'please-pause-read-after-{nbytes}-bytes'
         chunk, slices, array_name = self._put_chunk(suggestion)
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
-        assert_array_equal(chunk_retrieved, chunk, 'Paused read failed')
+        assert_array_equal(chunk_retrieved, chunk, 'Bad chunk after paused read')
 
     # SOCKET TIMEOUTS
     #
@@ -676,7 +677,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         chunk, slices, array_name = self._put_chunk(suggestion)
         self.store.timeout = (5.0, 0.09)
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
-        assert_array_equal(chunk_retrieved, chunk, 'Retried read failed')
+        assert_array_equal(chunk_retrieved, chunk, 'Bad chunk after socket timeout')
 
     @pytest.mark.expected_duration(0.96)
     def test_persistent_socket_timeouts(self):
