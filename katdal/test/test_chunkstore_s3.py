@@ -35,6 +35,7 @@ import pathlib
 import re
 import shutil
 import socket
+import struct
 import sys
 import tempfile
 import threading
@@ -410,6 +411,14 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
                     self.send_response(status_code, 'Suggested by unit test')
                     self.end_headers()
                     return
+                if command == 'reset-connection':
+                    # Use SO_LINGER with linger interval of 0 s to send a TCP reset
+                    # (RST) packet. This drops the connection like a hot potato.
+                    l_onoff = 1  # non-zero value enables linger option in kernel
+                    l_linger = 0  # timeout interval in seconds
+                    self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
+                                               struct.pack('ii', l_onoff, l_linger))
+                    return
                 # Truncate or pause transmission of the payload after specified bytes
                 glitch = re.match(r'^(truncate|pause)-read-after-(\d+)-bytes$', command)
                 if glitch:
@@ -624,6 +633,20 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         chunk, slices, array_name = self._put_chunk(
             'please-truncate-read-after-60-bytes-for-0.8-seconds')
         # After 0.6 seconds the client gives up
+        with pytest.raises(ChunkNotFound):
+            self.store.get_chunk(array_name, slices, chunk.dtype)
+
+    @pytest.mark.expected_duration(0.6)
+    def test_recover_from_reset_connections(self):
+        chunk, slices, array_name = self._put_chunk(
+            'please-reset-connection-for-0.4-seconds')
+        chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
+        assert_array_equal(chunk_retrieved, chunk, 'Bad chunk after reset connection')
+
+    @pytest.mark.expected_duration(0.6)
+    def test_persistent_reset_connections(self):
+        chunk, slices, array_name = self._put_chunk(
+            'please-reset-connection-for-0.8-seconds')
         with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
 
