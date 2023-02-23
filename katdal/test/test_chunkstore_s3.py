@@ -376,6 +376,17 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
             return self.do_all
         return self.__getattribute__(name)
 
+    def _reset_connection(self):
+        """Send a TCP reset (RST) packet to reset the connection.
+
+        Enable SO_LINGER with a linger interval of 0 s. This drops the
+        connection like a hot potato once closed.
+        """
+        l_onoff = 1  # non-zero value enables linger option in kernel
+        l_linger = 0  # timeout interval in seconds
+        self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
+                                   struct.pack('ii', l_onoff, l_linger))
+
     def do_all(self):
         # See https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Connection
         HOP_HEADERS = {
@@ -412,12 +423,7 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
                     self.end_headers()
                     return
                 if command == 'reset-connection':
-                    # Use SO_LINGER with linger interval of 0 s to send a TCP reset
-                    # (RST) packet. This drops the connection like a hot potato.
-                    l_onoff = 1  # non-zero value enables linger option in kernel
-                    l_linger = 0  # timeout interval in seconds
-                    self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
-                                               struct.pack('ii', l_onoff, l_linger))
+                    self._reset_connection()
                     return
                 # Truncate or pause transmission of the payload after specified bytes
                 glitch = re.match(r'^(truncate|pause)-read-after-(\d+)-bytes$', command)
