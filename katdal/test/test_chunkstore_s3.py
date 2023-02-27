@@ -398,6 +398,7 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
         data = self.rfile.read(data_len)
         truncate = False
         pause = 0.0
+        reset = False
         glitch_location = 0
 
         # Extract a proxy suggestion prepended to the path
@@ -426,11 +427,12 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
                     self._reset_connection()
                     return
                 # Truncate or pause transmission of the payload after specified bytes
-                glitch = re.match(r'^(truncate|pause)-read-after-(\d+)-bytes$', command)
+                glitch = re.match(r'^(truncate|pause|reset)-read-after-(\d+)-bytes$', command)
                 if glitch:
                     flavour = glitch.group(1)
                     truncate = (flavour == 'truncate')
                     pause = READ_PAUSE if flavour == 'pause' else 0.0
+                    reset = (flavour == 'reset')
                     glitch_location = int(glitch.group(2))
                 else:
                     raise ValueError(f"Unknown command '{command}' "
@@ -490,14 +492,19 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
         # might stop listening if it knows nothing more is coming, like in a PUT response).
         if len(content) == 0:
             return
-        if pause:
-            self.wfile.write(content[:glitch_location])
+        # Write the first half of the data
+        self.wfile.write(content[:glitch_location])
+        if truncate:
+            return
+        elif reset:
+            self._reset_connection()
+            return
+        elif pause:
             # The wfile object should be an unbuffered _SocketWriter but flush anyway
             self.wfile.flush()
             time.sleep(pause)
-            self.wfile.write(content[glitch_location:])
-        else:
-            self.wfile.write(content[:glitch_location] if truncate else content)
+        # Write the rest of the data
+        self.wfile.write(content[glitch_location:])
 
     def log_message(self, format, *args):
         # Get time offset from first of these requests (useful for debugging)
@@ -646,12 +653,19 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
     @pytest.mark.expected_duration(0.6)
     def test_recover_from_reset_connections(self):
         chunk, slices, array_name = self._put_chunk(
-            'please-reset-connection-for-0.4-seconds')
+            'please-reset-read-after-129-bytes-for-0.4-seconds')
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Bad chunk after reset connection')
 
     @pytest.mark.expected_duration(0.6)
     def test_persistent_reset_connections(self):
+        chunk, slices, array_name = self._put_chunk(
+            'please-reset-read-after-129-bytes-for-0.8-seconds')
+        with pytest.raises(ChunkNotFound):
+            self.store.get_chunk(array_name, slices, chunk.dtype)
+
+    @pytest.mark.expected_duration(0.6)
+    def test_persistent_early_reset_connections(self):
         chunk, slices, array_name = self._put_chunk(
             'please-reset-connection-for-0.8-seconds')
         with pytest.raises(ChunkNotFound):
