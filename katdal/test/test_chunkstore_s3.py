@@ -672,11 +672,11 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
 
-    @pytest.mark.expected_duration(0.6)
+    @pytest.mark.expected_duration(0.0)
     def test_persistent_early_reset_connections(self):
         chunk, slices, array_name = self._put_chunk(
-            'please-reset-connection-for-0.8-seconds')
-        with pytest.raises(ChunkNotFound):
+            'please-reset-connection-for-0.2-seconds')
+        with pytest.raises(StoreUnavailable):
             self.store.get_chunk(array_name, slices, chunk.dtype)
 
     @pytest.mark.parametrize('nbytes', [60, 129])  # check both NPY header and array itself
