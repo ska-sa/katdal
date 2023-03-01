@@ -328,7 +328,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
     def test_mark_complete_top_level(self):
         self._test_mark_complete(PREFIX + '-completetest')
 
-    def test_rdb_support(self):
+    def test_rdb_support(self, suggestion=''):
         telstate = katsdptelstate.TelescopeState()
         view, cbid, sn, _, _ = make_fake_data_source(telstate, self.store, (5, 16, 40), PREFIX)
         telstate['capture_block_id'] = cbid
@@ -341,7 +341,11 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         # Read the file back in and upload it to S3
         with open(temp_filename, mode='rb') as rdb_file:
             rdb_data = rdb_file.read()
-        rdb_url = urllib.parse.urljoin(self.store_url, self.store.join(cbid, rdb_filename))
+        if suggestion:
+            rdb_path = self.store.join(cbid, suggestion, rdb_filename)
+        else:
+            rdb_path = self.store.join(cbid, rdb_filename)
+        rdb_url = urllib.parse.urljoin(self.store_url, rdb_path)
         self.store.create_array(cbid)
         self.store.complete_request('PUT', rdb_url, data=rdb_data)
         # Check that data source can be constructed from URL (with auto chunk store)
@@ -649,6 +653,10 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         # After 0.6 seconds the client gives up
         with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
+
+    @pytest.mark.expected_duration(0.6)
+    def test_rdb_support(self):
+        super().test_rdb_support('please-truncate-read-after-1000-bytes-for-0.4-seconds')
 
     @pytest.mark.expected_duration(0.6)
     def test_recover_from_reset_connections(self):
