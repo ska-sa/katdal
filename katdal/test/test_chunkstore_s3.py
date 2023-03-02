@@ -69,10 +69,10 @@ PREFIX = '1234567890'
 # Pick quick but different timeouts and retries for unit tests:
 #  - The effective connect timeout is 5.0 (initial) + 5.0 (1 retry) = 10 seconds
 #  - The effective read timeout is 2.0 + 3 * 2.0 + 0.1 * (0 + 2 + 4) = 8.6 seconds
-#  - The effective status timeout is 0.1 * (0 + 2 + 4) = 0.6 seconds, or
-#    4 * 0.1 + 0.6 = 1.0 second if the suggestions use SUGGESTED_STATUS_DELAY
+#  - The effective status timeout is 0.1 * (0 + 2) = 0.2 seconds, or
+#    3 * 0.1 + 0.2 = 0.5 second if the suggestions use SUGGESTED_STATUS_DELAY
 TIMEOUT = (5.0, 2.0)
-RETRY = Retry(connect=1, read=3, status=3, backoff_factor=0.1,
+RETRY = Retry(connect=1, read=3, status=2, backoff_factor=0.1,
               raise_on_status=False, status_forcelist=_DEFAULT_SERVER_GLITCHES)
 SUGGESTED_STATUS_DELAY = 0.1
 READ_PAUSE = 0.1
@@ -599,29 +599,27 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
 
     # 50x STATUSES
     #
-    # With the RETRY settings of 3 status retries, backoff factor of 0.1 s
+    # With the RETRY settings of 2 status retries, backoff factor of 0.1 s
     # and SUGGESTED_STATUS_DELAY of 0.1 s we get the following timeline
     # (indexed by seconds):
     # 0.0 - access chunk for the first time
     # 0.1 - response is 500, immediately try again (retry #1)
     # 0.2 - response is 500, back off for 2 * 0.1 seconds
-    # 0.4 - retry #2
-    # 0.5 - response is 500, back off for 4 * 0.1 seconds
-    # 0.9 - retry #3 (the final attempt) - server should now be fixed
-    # 0.9 - success!
+    # 0.4 - retry #2 (the final attempt) - server should now be fixed
+    # 0.4 - success!
 
-    @pytest.mark.expected_duration(0.9)
+    @pytest.mark.expected_duration(0.4)
     def test_recover_from_server_errors(self):
         chunk, slices, array_name = self._put_chunk(
-            'please-respond-with-500-for-0.8-seconds')
+            'please-respond-with-500-for-0.3-seconds')
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Bad chunk after server error')
 
-    @pytest.mark.expected_duration(1.0)
+    @pytest.mark.expected_duration(0.5)
     def test_persistent_server_errors(self):
         chunk, slices, array_name = self._put_chunk(
-            'please-respond-with-502-for-1.2-seconds')
-        # After 0.9 seconds the client gives up and returns with failure 0.1 s later
+            'please-respond-with-502-for-0.7-seconds')
+        # After 0.4 seconds the client gives up and returns with failure 0.1 s later
         with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
 
