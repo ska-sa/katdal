@@ -402,6 +402,23 @@ class _Multipart:
         return sum(memoryview(item).nbytes for item in self.items)
 
 
+def _connect_read_tuple(connect_and_or_read):
+    """Turn connect and/or read retries/timeouts into a (connect, read) tuple."""
+    try:
+        connect, read = connect_and_or_read
+    except TypeError:
+        connect = read = connect_and_or_read
+    return (connect, read)
+
+
+def _retry_object(retries, **defaults):
+    """Turn (connect, read) `retries` into `Retry` object (or keep as is)."""
+    if not isinstance(retries, Retry):
+        connect_retries, read_retries = _connect_read_tuple(retries)
+        retries = Retry(connect=connect_retries, read=read_retries, **defaults)
+    return retries
+
+
 class S3ChunkStore(ChunkStore):
     """A store of chunks (i.e. N-dimensional arrays) based on the Amazon S3 API.
 
@@ -427,9 +444,9 @@ class S3ChunkStore(ChunkStore):
         string type with UTF-8. The URL may also contain a path if this store is
         relative to an existing bucket, in which case the chunk name is a relative
         path (useful for unit tests).
-    timeout : float or tuple of 2 floats, optional
+    timeout : float or None or tuple of 2 floats or None's, optional
         Connect / read timeout, in seconds, either a single value for both or
-        custom values as (connect, read) tuple (set to None to leave unchanged)
+        custom values as (connect, read) tuple. None means "wait forever"...
     retries : int or tuple of 2 ints or :class:`urllib3.util.retry.Retry`, optional
         Number of connect / read retries, either a single value for both or
         custom values as (connect, read) tuple, or a `Retry` object for full
@@ -458,17 +475,11 @@ class S3ChunkStore(ChunkStore):
         error_map = {requests.exceptions.RequestException: StoreUnavailable}
         super().__init__(error_map)
         auth = _auth_factory(url, token, credentials)
-        if not isinstance(retries, Retry):
-            try:
-                connect_retries, read_retries = retries
-            except TypeError:
-                connect_retries = read_retries = retries
-            # The backoff factor of 10 provides 5 minutes worth of retries
-            # when the S3 server is strained; with 5 retries you get
-            # (0 + 2 + 4 + 8 + 16) * 10 = 300 seconds on top of read timeouts.
-            retries = Retry(connect=connect_retries, read=read_retries,
-                            status=5, backoff_factor=10.,
-                            status_forcelist=_DEFAULT_SERVER_GLITCHES)
+        # The backoff factor of 10 provides 5 minutes worth of retries
+        # when the S3 server is strained; with 5 retries you get
+        # (0 + 2 + 4 + 8 + 16) * 10 = 300 seconds on top of read timeouts.
+        retries = _retry_object(retries, status=5, backoff_factor=10.,
+                                status_forcelist=_DEFAULT_SERVER_GLITCHES)
 
         def session_factory():
             session = _CacheSettingsSession(url)
@@ -483,7 +494,7 @@ class S3ChunkStore(ChunkStore):
         self._url = to_str(url)
         self._retries = retries
         self._verified_buckets = set()
-        self.timeout = timeout
+        self.timeout = _connect_read_tuple(timeout)
         self.public_read = public_read
         self.expiry_days = int(expiry_days)
 
@@ -507,7 +518,7 @@ class S3ChunkStore(ChunkStore):
             Name of chunk, used for error reporting only
         ignored_errors : collection of int, optional
             HTTP status codes that are treated like 200 OK, not raising an error
-        timeout : tuple or float, optional
+        timeout : float or None or tuple of 2 floats or None's, optional
             Override timeout for this request (use the store timeout by default)
         kwargs : optional
             These are passed on to :meth:`requests.Session.request`
@@ -528,10 +539,10 @@ class S3ChunkStore(ChunkStore):
         StoreUnavailable
             If a general HTTP error occurred that is not ignored
         """
-        kwargs['timeout'] = self.timeout if timeout == () else timeout
+        timeout = self.timeout if timeout == () else _connect_read_tuple(timeout)
         # Use _standard_errors to filter errors emanating from within with-block
         with self._standard_errors(chunk_name), self._session_pool() as session:
-            with session.request(method, url, **kwargs) as response:
+            with session.request(method, url, timeout=timeout, **kwargs) as response:
                 # Turn error responses into the appropriate exception, like raise_for_status
                 status = response.status_code
                 if 400 <= status < 600 and status not in ignored_errors:
@@ -561,11 +572,7 @@ class S3ChunkStore(ChunkStore):
                     raise glitch_error from trunc_error
                 except SocketTimeoutError as timeout_error:
                     prefix = f'Chunk {chunk_name!r}: ' if chunk_name else ''
-                    try:
-                        read_timeout = kwargs['timeout'][1]
-                    except TypeError:
-                        read_timeout = kwargs['timeout']
-                    msg = prefix + f'Read timed out - socket idle for {read_timeout} seconds'
+                    msg = prefix + f'Read timed out - socket idle for {timeout[1]} seconds'
                     retry_error = ReadTimeoutError(response.raw._pool, response.url, msg)
                     glitch_error = S3ServerGlitch(msg, status, retry_error)
                     raise glitch_error from timeout_error
