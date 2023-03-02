@@ -593,7 +593,7 @@ class S3ChunkStore(ChunkStore):
                     glitch_error = S3ServerGlitch(msg, response.status_code, retry_error)
                     raise glitch_error from timeout_error
 
-    def complete_request(self, method, url, process=lambda response: None, **kwargs):
+    def complete_request(self, method, url, process=lambda response: response, **kwargs):
         """Send HTTP request to S3 server, process response and retry if needed.
 
         This retries temporary HTTP errors, including reset connections while
@@ -604,7 +604,7 @@ class S3ChunkStore(ChunkStore):
         method, url : str
             The standard required parameters of :meth:`requests.Session.request`
         process : function, signature ``result = process(response)``, optional
-            Function that will process response (the default does nothing)
+            Function that will process response (just return response by default)
         kwargs : optional
             Passed on to :meth:`request` and :meth:`requests.Session.request`
 
@@ -650,8 +650,7 @@ class S3ChunkStore(ChunkStore):
             return
         try:
             # Speed up the request by only checking that the bucket has at least one key
-            response = self.complete_request('GET', bucket, process=lambda r: r,
-                                             params={'max-keys': 1})
+            response = self.complete_request('GET', bucket, params={'max-keys': 1})
         except S3ObjectNotFound as err:
             # There is no point continuing if the bucket is completely missing
             raise StoreUnavailable(err) from chunk_error
