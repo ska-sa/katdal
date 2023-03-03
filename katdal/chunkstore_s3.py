@@ -590,7 +590,14 @@ class S3ChunkStore(ChunkStore):
                     msg = f'Read timed out - socket idle for {timeout[1]} seconds'
                     raise ReadTimeoutError('Read timeout', url, msg) from timeout_error
 
-    def complete_request(self, method, url, process=lambda response: response, **kwargs):
+    def complete_request(
+        self,
+        method,
+        url,
+        process=lambda response: response,
+        retries=None,
+        **kwargs
+    ):
         """Send HTTP request to S3 server, process response and retry if needed.
 
         This retries temporary HTTP errors, including reset connections while
@@ -602,6 +609,8 @@ class S3ChunkStore(ChunkStore):
             The standard required parameters of :meth:`requests.Session.request`
         process : function, signature ``result = process(response)``, optional
             Function that will process response (just return response by default)
+        retries : int or tuple of 2 ints or :class:`urllib3.util.retry.Retry`, optional
+            Override retries for this request (use the store retries by default)
         kwargs : optional
             Passed on to :meth:`request` and :meth:`requests.Session.request`
 
@@ -621,7 +630,8 @@ class S3ChunkStore(ChunkStore):
         StoreUnavailable
             If a general HTTP error occurred that is not ignored
         """
-        retries = self._retries.new()
+        retries = self._retries if retries is None else _retry_object(retries)
+        retries = retries.new()
         try:
             while True:
                 try:
