@@ -41,8 +41,14 @@ try:
     from socket import timeout as SocketTimeoutError
 except ImportError:
     SocketTimeoutError = TimeoutError
-from urllib3.exceptions import MaxRetryError, ReadTimeoutError
-from urllib3.response import HTTPResponse
+from urllib3.exceptions import (
+    MaxRetryError,
+    ProxyError,
+    ConnectTimeoutError,
+    ReadTimeoutError,
+    ProtocolError,
+    ResponseError,
+)
 from urllib3.util.retry import Retry
 
 from .chunkstore import (BadChunk, ChunkNotFound, ChunkStore, StoreUnavailable,
@@ -73,11 +79,13 @@ _BUCKET_POLICY = {
     ]
 }
 
-# Fake HTTP status code associated with reset connections / truncated data
-_TRUNCATED_HTTP_STATUS_CODE = 555
 # These HTTP responses typically indicate temporary S3 server / proxy overload,
 # which will trigger retries terminating in a missing data response if unsuccessful.
-_DEFAULT_SERVER_GLITCHES = (500, 502, 503, 504, _TRUNCATED_HTTP_STATUS_CODE)
+_DEFAULT_SERVER_GLITCHES = (500, 502, 503, 504)
+# Urllib3 exceptions that can trigger or report connect / read / status retries
+_CONNECT_ERRORS = (ProxyError, ConnectTimeoutError)
+_READ_ERRORS = (ReadTimeoutError, ProtocolError)
+_RETRYABLE_STATUSES = (ResponseError,)
 
 
 class S3ObjectNotFound(ChunkNotFound):
@@ -87,13 +95,8 @@ class S3ObjectNotFound(ChunkNotFound):
 class S3ServerGlitch(ChunkNotFound):
     """S3 chunk store responded with an HTTP error deemed to be temporary."""
 
-    def __init__(self, msg, status_code, error=None):
-        super().__init__(msg)
-        self.status_code = status_code
-        self.error = error
 
-
-class TruncatedRead(ValueError):
+class TruncatedRead(ProtocolError, ValueError):
     """HTTP request to S3 chunk store responded with fewer bytes than expected."""
 
 
@@ -419,7 +422,7 @@ def _raise_for_status(response, chunk_name, retries, ignored_errors):
         elif status == 404:
             raise S3ObjectNotFound(msg)
         elif retries.is_retry(response.request.method, status):
-            raise S3ServerGlitch(msg, status)
+            raise ResponseError(response, msg)
         else:
             raise StoreUnavailable(msg)
 
@@ -494,7 +497,11 @@ class S3ChunkStore(ChunkStore):
 
     def __init__(self, url, timeout=(30, 300), retries=2, token=None,
                  credentials=None, public_read=False, expiry_days=0, **kwargs):
-        error_map = {requests.exceptions.RequestException: StoreUnavailable}
+        error_map = {
+            requests.exceptions.ConnectionError: ConnectTimeoutError,  # connect retries
+            ConnectionResetError: ProtocolError,  # turn 104's (or 54's) into read retries
+            requests.exceptions.RequestException: StoreUnavailable,
+        }
         super().__init__(error_map)
         auth = _auth_factory(url, token, credentials)
         # The backoff factor of 10 provides 5 minutes worth of retries
@@ -506,9 +513,8 @@ class S3ChunkStore(ChunkStore):
         def session_factory():
             session = _CacheSettingsSession(url)
             session.auth = auth
-            # Don't let requests do status retries as we'll be doing it ourselves
-            max_retries = retries.new(status=0, raise_on_status=False)
-            adapter = requests.adapters.HTTPAdapter(max_retries=max_retries)
+            # Don't let Requests or urllib3 do retries as we'll be doing it ourselves
+            adapter = requests.adapters.HTTPAdapter()
             session.mount(url, adapter)
             return session
 
@@ -567,8 +573,8 @@ class S3ChunkStore(ChunkStore):
             If the request is not authorised by appropriate token or credentials
         S3ObjectNotFound
             If S3 object request fails because it does not exist
-        S3ServerGlitch
-            If HTTP error has a retryable status code (i.e. temporary glitch)
+        ConnectTimeoutError, ReadTimeoutError, ProtocolError, ResponseError
+            If the HTTP error can be retried, raise appropriate urllib3 exception
         StoreUnavailable
             If a general HTTP error occurred that is not ignored
         """
@@ -580,18 +586,9 @@ class S3ChunkStore(ChunkStore):
                 _raise_for_status(response, chunk_name, retries, ignored_errors)
                 try:
                     yield response
-                except TruncatedRead as trunc_error:
-                    # A truncated read is considered a glitch with custom status
-                    prefix = f'Chunk {chunk_name!r}: ' if chunk_name else ''
-                    glitch_error = S3ServerGlitch(prefix + str(trunc_error),
-                                                  _TRUNCATED_HTTP_STATUS_CODE)
-                    raise glitch_error from trunc_error
                 except SocketTimeoutError as timeout_error:
-                    prefix = f'Chunk {chunk_name!r}: ' if chunk_name else ''
-                    msg = prefix + f'Read timed out - socket idle for {timeout[1]} seconds'
-                    retry_error = ReadTimeoutError(response.raw._pool, response.url, msg)
-                    glitch_error = S3ServerGlitch(msg, response.status_code, retry_error)
-                    raise glitch_error from timeout_error
+                    msg = f'Read timed out - socket idle for {timeout[1]} seconds'
+                    raise ReadTimeoutError('Read timeout', url, msg) from timeout_error
 
     def complete_request(self, method, url, process=lambda response: response, **kwargs):
         """Send HTTP request to S3 server, process response and retry if needed.
@@ -625,23 +622,27 @@ class S3ChunkStore(ChunkStore):
             If a general HTTP error occurred that is not ignored
         """
         retries = self._retries.new()
-        while True:
-            try:
-                with self.request(method, url, **kwargs) as response:
-                    result = process(response)
-            except S3ServerGlitch as e:
-                # Retry based on status of response (or error) until we run out of retries
-                response = HTTPResponse(status=e.status_code)
+        try:
+            while True:
                 try:
-                    retries = retries.increment(method, url, response, e.error)
-                except MaxRetryError:
-                    # Raise the final straw that broke the retry camel's back
-                    msg = f'{e} [after {len(retries.history)} retries]'
-                    raise S3ServerGlitch(msg, e.status_code, e.error) from e.error
-                else:
-                    retries.sleep(response)
+                    with self.request(method, url, retries=retries, **kwargs) as response:
+                        return process(response)
+                except _CONNECT_ERRORS + _READ_ERRORS as error:
+                    retries = retries.increment(method, url, error=error)
+                    retries.sleep()
+                except _RETRYABLE_STATUSES as error:
+                    response = error.args[0]
+                    assert isinstance(response, requests.Response), \
+                        f'Expected ResponseError(response, msg), not {response}'
+                    retries = retries.increment(method, url, response.raw)
+                    retries.sleep(response.raw)
+        except MaxRetryError as error:
+            # Raise the final straw that broke the retry camel's back
+            msg = f'{error} [after {len(retries.history) + 1} retries]'
+            if isinstance(error.reason, _READ_ERRORS + _RETRYABLE_STATUSES):
+                raise S3ServerGlitch(msg) from None
             else:
-                return result
+                raise StoreUnavailable(msg) from None
 
     def _verify_bucket(self, url, chunk_error=None):
         """Check that bucket associated with `url` exists and is not empty."""
