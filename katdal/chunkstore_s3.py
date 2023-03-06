@@ -538,7 +538,7 @@ class S3ChunkStore(ChunkStore):
         """Assemble URL corresponding to chunk (or array) name."""
         return urllib.parse.urljoin(self._url, to_str(urllib.parse.quote(chunk_name + extension)))
 
-    def complete_request(
+    def request(
         self,
         method,
         url,
@@ -613,7 +613,7 @@ class S3ChunkStore(ChunkStore):
             return
         try:
             # Speed up the request by only checking that the bucket has at least one key
-            response = self.complete_request('GET', bucket, params={'max-keys': 1})
+            response = self.request('GET', bucket, params={'max-keys': 1})
         except S3ObjectNotFound as err:
             # There is no point continuing if the bucket is completely missing
             raise StoreUnavailable(err) from chunk_error
@@ -633,8 +633,8 @@ class S3ChunkStore(ChunkStore):
         # work with non-identity encodings.
         headers = {'Accept-Encoding': 'identity'}
         try:
-            chunk = self.complete_request('GET', url, _read_chunk, chunk_name=chunk_name,
-                                          headers=headers, stream=True)
+            chunk = self.request('GET', url, _read_chunk, chunk_name=chunk_name,
+                                 headers=headers, stream=True)
         except S3ObjectNotFound as err:
             # If the entire bucket is gone, this becomes StoreUnavailable instead
             self._verify_bucket(url, err)
@@ -654,7 +654,7 @@ class S3ChunkStore(ChunkStore):
 
     def _create_bucket(self, url):
         # Make bucket (409 indicates the bucket already exists, which is OK)
-        self.complete_request('PUT', url, ignored_errors=(409,))
+        self.request('PUT', url, ignored_errors=(409,))
 
         if self.public_read:
             policy_url = urllib.parse.urljoin(url, '?policy')
@@ -664,14 +664,14 @@ class S3ChunkStore(ChunkStore):
                 f'arn:aws:s3:::{bucket_name}/*',
                 f'arn:aws:s3:::{bucket_name}'
             ]
-            self.complete_request('PUT', policy_url, data=json.dumps(policy))
+            self.request('PUT', policy_url, data=json.dumps(policy))
 
         if self.expiry_days > 0:
             xml_payload = _BASE_LIFECYCLE_POLICY.format(self.expiry_days)
             b64_md5 = base64.b64encode(hashlib.md5(xml_payload.encode('utf-8')).digest()).decode('utf-8')
             lifecycle_headers = {'Content-Type': 'text/xml', 'Content-MD5': b64_md5}
-            self.complete_request('PUT', url, params='lifecycle',
-                                  data=xml_payload, headers=lifecycle_headers)
+            self.request('PUT', url, params='lifecycle',
+                         data=xml_payload, headers=lifecycle_headers)
 
     def put_chunk(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put_chunk`."""
@@ -685,21 +685,21 @@ class S3ChunkStore(ChunkStore):
         md5 = base64.b64encode(md5_gen.digest())
         headers = {'Content-MD5': md5.decode()}
         data = _Multipart([npy_header, memoryview(chunk)])
-        self.complete_request('PUT', url, chunk_name=chunk_name, headers=headers, data=data)
+        self.request('PUT', url, chunk_name=chunk_name, headers=headers, data=data)
 
     def mark_complete(self, array_name):
         """See the docstring of :meth:`ChunkStore.mark_complete`."""
         self.create_array(array_name)
         obj_name = self.join(array_name, 'complete')
         url = urllib.parse.urljoin(self._url, obj_name)
-        self.complete_request('PUT', url, chunk_name=obj_name, data=b'')
+        self.request('PUT', url, chunk_name=obj_name, data=b'')
 
     def is_complete(self, array_name):
         """See the docstring of :meth:`ChunkStore.is_complete`."""
         obj_name = self.join(array_name, 'complete')
         url = urllib.parse.urljoin(self._url, obj_name)
         try:
-            self.complete_request('GET', url, chunk_name=obj_name)
+            self.request('GET', url, chunk_name=obj_name)
         except ChunkNotFound:
             return False
         return True

@@ -347,7 +347,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             rdb_path = self.store.join(cbid, rdb_filename)
         rdb_url = urllib.parse.urljoin(self.store_url, rdb_path)
         self.store.create_array(cbid)
-        self.store.complete_request('PUT', rdb_url, data=rdb_data)
+        self.store.request('PUT', rdb_url, data=rdb_data)
         # Check that data source can be constructed from URL (with auto chunk store)
         source_from_url = TelstateDataSource.from_url(rdb_url, **self.store_kwargs)
         source_direct = TelstateDataSource(view, cbid, sn, self.store)
