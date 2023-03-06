@@ -512,25 +512,24 @@ class S3ChunkStore(ChunkStore):
         }
         super().__init__(error_map)
         auth = _auth_factory(url, token, credentials)
-        # The backoff factor of 10 provides 5 minutes worth of retries
-        # when the S3 server is strained; with 5 retries you get
-        # (0 + 2 + 4 + 8 + 16) * 10 = 300 seconds on top of read timeouts.
-        retries = _retry_object(retries, status=5, backoff_factor=10.,
-                                status_forcelist=_DEFAULT_SERVER_GLITCHES)
 
         def session_factory():
             session = _CacheSettingsSession(url)
             session.auth = auth
-            # Don't let Requests or urllib3 do retries as we'll be doing it ourselves
+            # Don't set `max_retries` yet - it will be done at the request level
             adapter = requests.adapters.HTTPAdapter()
             session.mount(url, adapter)
             return session
 
         self._session_pool = _Pool(session_factory)
         self._url = to_str(url)
-        self._retries = retries
         self._verified_buckets = set()
         self.timeout = _connect_read_tuple(timeout)
+        # The backoff factor of 10 provides 5 minutes worth of retries
+        # when the S3 server is strained; with 5 retries you get
+        # (0 + 2 + 4 + 8 + 16) * 10 = 300 seconds on top of read timeouts.
+        self.retries = _retry_object(retries, status=5, backoff_factor=10.,
+                                     status_forcelist=_DEFAULT_SERVER_GLITCHES)
         self.public_read = public_read
         self.expiry_days = int(expiry_days)
 
@@ -588,7 +587,7 @@ class S3ChunkStore(ChunkStore):
             If a general HTTP error occurred that is not ignored
         """
         timeout = self.timeout if timeout == () else _connect_read_tuple(timeout)
-        retries = self._retries if retries is None else _retry_object(retries)
+        retries = self.retries if retries is None else _retry_object(retries)
         retries = retries.new()
         # Use _standard_errors to filter errors emanating from within with-block
         with self._standard_errors(chunk_name), self._session_pool() as session:
