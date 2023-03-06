@@ -73,7 +73,7 @@ PREFIX = '1234567890'
 #    3 * 0.1 + 0.2 = 0.5 second if the suggestions use SUGGESTED_STATUS_DELAY
 TIMEOUT = (5.0, 2.0)
 RETRY = Retry(connect=1, read=3, status=2, backoff_factor=0.1,
-              raise_on_status=False, status_forcelist=_DEFAULT_SERVER_GLITCHES)
+              status_forcelist=_DEFAULT_SERVER_GLITCHES)
 SUGGESTED_STATUS_DELAY = 0.1
 READ_PAUSE = 0.1
 # Dummy private key for ES256 algorithm (taken from PyJWT unit tests)
