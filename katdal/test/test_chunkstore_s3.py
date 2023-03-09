@@ -351,7 +351,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         with open(temp_filename, mode='rb') as rdb_file:
             rdb_data = rdb_file.read()
         if suggestion:
-            rdb_path = self.store.join(cbid, suggestion, rdb_filename)
+            rdb_path = self.store.join(suggestion, cbid, rdb_filename)
         else:
             rdb_path = self.store.join(cbid, rdb_filename)
         rdb_url = urllib.parse.urljoin(self.store_url, rdb_path)
@@ -583,7 +583,8 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         elif url != cls.httpd.target:
             raise RuntimeError('Cannot use multiple target URLs with http proxy')
         # The token authorises the standard bucket and anything starting with PREFIX
-        token = encode_jwt({'prefix': [BUCKET, PREFIX]})
+        # (as well as suggestions prepended to the path)
+        token = encode_jwt({'prefix': [BUCKET, PREFIX, 'please']})
         kwargs.setdefault('token', token)
         return super().prepare_store_args(cls.proxy_url, credentials=None, **kwargs)
 
@@ -681,7 +682,6 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
 
-    @pytest.mark.expected_duration(0.6)
     def test_rdb_support(self):
         super().test_rdb_support('please-truncate-read-after-1000-bytes-for-0.4-seconds')
 

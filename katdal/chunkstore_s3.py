@@ -186,6 +186,16 @@ def _read_chunk(response):
     return chunk
 
 
+def _read_object(response):
+    """Read bytes from content of HTTP response and check that it's all there."""
+    data = response.content
+    # Verify that all content has been consumed
+    bytes_left = response.raw.length_remaining
+    if bytes_left is not None and bytes_left > 0:
+        raise IncompleteRead(response.raw.tell(), bytes_left)
+    return data
+
+
 def _bucket_url(url):
     """Turn `url` into associated S3 bucket URL (first path component only)."""
     split_url = urllib.parse.urlsplit(url)
