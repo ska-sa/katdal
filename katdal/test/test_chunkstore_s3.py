@@ -617,15 +617,15 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
 
     @pytest.mark.expected_duration(0.4)
     def test_recover_from_server_errors(self):
-        chunk, slices, array_name = self._put_chunk(
-            'please-respond-with-500-for-0.3-seconds')
+        suggestion = 'please-respond-with-500-for-0.3-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Bad chunk after server error')
 
     @pytest.mark.expected_duration(0.5)
     def test_persistent_server_errors(self):
-        chunk, slices, array_name = self._put_chunk(
-            'please-respond-with-502-for-0.7-seconds')
+        suggestion = 'please-respond-with-502-for-0.7-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
         # After 0.4 seconds the client gives up and returns with failure 0.1 s later
         with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
@@ -653,8 +653,8 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
 
     @pytest.mark.expected_duration(0.6)
     def test_persistent_truncated_reads(self):
-        chunk, slices, array_name = self._put_chunk(
-            'please-truncate-read-after-60-bytes-for-0.8-seconds')
+        suggestion = 'please-truncate-read-after-60-bytes-for-0.8-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
         # After 0.6 seconds the client gives up
         with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
@@ -665,22 +665,22 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
 
     @pytest.mark.expected_duration(0.6)
     def test_recover_from_reset_connections(self):
-        chunk, slices, array_name = self._put_chunk(
-            'please-reset-read-after-129-bytes-for-0.4-seconds')
+        suggestion = 'please-reset-read-after-129-bytes-for-0.4-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
         assert_array_equal(chunk_retrieved, chunk, 'Bad chunk after reset connection')
 
     @pytest.mark.expected_duration(0.6)
     def test_persistent_reset_connections(self):
-        chunk, slices, array_name = self._put_chunk(
-            'please-reset-read-after-129-bytes-for-0.8-seconds')
+        suggestion = 'please-reset-read-after-129-bytes-for-0.8-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
         with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
 
     @pytest.mark.expected_duration(0.6)
     def test_persistent_early_reset_connections(self):
-        chunk, slices, array_name = self._put_chunk(
-            'please-reset-connection-for-0.8-seconds')
+        suggestion = 'please-reset-connection-for-0.8-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
         with pytest.raises(StoreUnavailable):
             self.store.get_chunk(array_name, slices, chunk.dtype)
 
