@@ -58,10 +58,11 @@ from katdal.chunkstore_s3 import (
     _DEFAULT_SERVER_GLITCHES,
     InvalidToken,
     S3ChunkStore,
+    S3ServerGlitch,
     _AWSAuth,
     AuthorisationFailed,
     decode_jwt,
-    read_array
+    read_array,
 )
 from katdal.datasources import TelstateDataSource
 from katdal.test.s3_utils import MissingProgram, S3Server, S3User
@@ -282,6 +283,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         # Also get rid of the cache of verified buckets
         self.store._verified_buckets.clear()
         self.store.timeout = TIMEOUT
+        self.store.retries = RETRY
         print(f"Chunk store: {self.store_url}, S3 server: {self.s3_url}")
 
     def array_name(self, name):
@@ -615,6 +617,15 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
     # 0.4 - retry #2 (the final attempt) - server should now be fixed
     # 0.4 - success!
 
+    @pytest.mark.expected_duration(0.1)
+    def test_server_error(self):
+        suggestion = 'please-respond-with-500-for-0.2-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
+        chunk_name, _ = self.store.chunk_metadata(array_name, slices, dtype=chunk.dtype)
+        url = self.store._chunk_url(chunk_name)
+        response = self.store.request('GET', url, ignored_errors=(500,), retries=0, stream=True)
+        assert response.status_code == 500
+
     @pytest.mark.expected_duration(0.4)
     def test_recover_from_server_errors(self):
         suggestion = 'please-respond-with-500-for-0.3-seconds'
@@ -643,6 +654,17 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
 
     # The NPY file has a 128-byte header, followed by the array data itself.
     # Check both parts, since they are read somewhat differently (read vs readinto).
+    @pytest.mark.parametrize('nbytes', [60, 129])
+    @pytest.mark.expected_duration(0.0)
+    def test_truncated_read(self, nbytes):
+        suggestion = f'please-truncate-read-after-{nbytes}-bytes-for-0.1-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
+        self.store.retries = Retry(0)
+        with pytest.raises(S3ServerGlitch) as excinfo:
+            self.store.get_chunk(array_name, slices, chunk.dtype)
+        bytes_left = 128 + chunk.nbytes - nbytes
+        excinfo.match(fr'IncompleteRead\({nbytes} bytes read, {bytes_left} more expected\)')
+
     @pytest.mark.parametrize('nbytes', [60, 129])
     @pytest.mark.expected_duration(0.6)
     def test_recover_from_truncated_read(self, nbytes):
@@ -674,8 +696,10 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
     def test_persistent_reset_connections(self):
         suggestion = 'please-reset-read-after-129-bytes-for-0.8-seconds'
         chunk, slices, array_name = self._put_chunk(suggestion)
-        with pytest.raises(ChunkNotFound):
+        with pytest.raises(ChunkNotFound) as excinfo:
             self.store.get_chunk(array_name, slices, chunk.dtype)
+        excinfo.match('Connection reset by peer')
+        assert isinstance(excinfo.value, S3ServerGlitch)
 
     @pytest.mark.expected_duration(0.6)
     def test_persistent_early_reset_connections(self):
