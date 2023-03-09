@@ -20,6 +20,7 @@ import base64
 import contextlib
 import copy
 import hashlib
+import http.client
 import json
 import threading
 import time
@@ -30,6 +31,7 @@ import urllib.request
 import jwt
 import numpy as np
 import requests
+import urllib3
 
 try:
     import botocore.auth
@@ -41,7 +43,7 @@ try:
     from socket import timeout as SocketTimeoutError
 except ImportError:
     SocketTimeoutError = TimeoutError
-from urllib3.exceptions import MaxRetryError, ReadTimeoutError, ProtocolError
+from urllib3.exceptions import MaxRetryError, ReadTimeoutError, ProtocolError, IncompleteRead
 from urllib3.util.retry import Retry
 
 from .chunkstore import (BadChunk, ChunkNotFound, ChunkStore, StoreUnavailable,
@@ -85,27 +87,48 @@ class S3ServerGlitch(ChunkNotFound):
     """S3 chunk store responded with an HTTP error deemed to be temporary."""
 
 
-class TruncatedRead(ProtocolError, ValueError):
-    """HTTP request to S3 chunk store responded with fewer bytes than expected."""
-
-
 class _DetectTruncation:
-    """Raise :exc:`TruncatedRead` if wrapped `readable` runs out of data."""
+    """Raise :exc:`IncompleteRead` if wrapped `readable` runs out of data."""
 
     def __init__(self, readable):
         self._readable = readable
+        if isinstance(readable, http.client.HTTPResponse):
+            # Store initial length in case of httplib so that we can figure out bytes_read
+            # (because tell() doesn't work since the socket cannot be seeked).
+            self._content_length = readable.length
+        else:
+            self._content_length = None
 
     def __getattr__(self, name):
         """Proxy all attributes to underlying wrapped object."""
         return getattr(self._readable, name)
 
-    def read(self, size, *args, **kwargs):
+    def _raise_incomplete_read(self, bytes_read, bytes_left):
+        """Figure out more accurate parameters for `IncompleteRead` and raise it."""
+        if isinstance(self._readable, http.client.HTTPResponse):
+            if self._readable.length is not None:
+                bytes_left = self._readable.length
+                bytes_read = self._content_length - bytes_left
+        elif isinstance(self._readable, urllib3.response.HTTPResponse):
+            if self._readable.length_remaining is not None:
+                bytes_left = self._readable.length_remaining
+                bytes_read = self._readable.tell()
+        raise IncompleteRead(bytes_read, bytes_left)
+
+    def read(self, size=None, *args, **kwargs):
         """Overload `read` method to detect truncated data source."""
         data = self._readable.read(size, *args, **kwargs)
-        if data == b'' and size != 0:
-            raise TruncatedRead('Error reading from S3 HTTP response: expected '
-                                f'{size} more byte(s), got EOF')
+        if data == b'' and size is not None and size > 0:
+            self._raise_incomplete_read(0, size)
         return data
+
+    def readinto(self, buffer, *args, **kwargs):
+        """Overload `readinto` method to detect truncated data source."""
+        view = memoryview(buffer)
+        bytes_read = self._readable.readinto(view, *args, **kwargs)
+        if bytes_read != view.nbytes:
+            self._raise_incomplete_read(bytes_read, view.nbytes - bytes_read)
+        return bytes_read
 
 
 def read_array(fp):
@@ -136,10 +159,7 @@ def read_array(fp):
     # For HTTPResponse it works to just pass in `data` directly, but the
     # wrapping is added for the benefit of any other implementation that
     # isn't expecting a numpy array
-    bytes_read = fp.readinto(memoryview(data.view(np.uint8)))
-    if bytes_read != data.nbytes:
-        raise TruncatedRead('Error reading from S3 HTTP response: '
-                            f'expected {data.nbytes} bytes, got {bytes_read}')
+    fp.readinto(data.view(np.uint8))
     if fortran_order:
         data.shape = shape[::-1]
         data = data.transpose()
@@ -428,7 +448,7 @@ def _request(session, method, url, timeout=(None, None), **kwargs):
         except SocketTimeoutError as error:
             msg = f'Read timed out - socket idle for {timeout[1]} seconds'
             raise ReadTimeoutError('Read timeout', url, msg) from error
-        except ConnectionResetError as error:
+        except (ConnectionResetError, IncompleteRead) as error:
             raise ProtocolError(str(error)) from error
 
 

@@ -50,12 +50,19 @@ import requests
 from katsdptelstate.rdb_writer import RDBWriter
 import pytest
 from numpy.testing import assert_array_equal
+from urllib3.exceptions import IncompleteRead
 from urllib3.util.retry import Retry
 
 from katdal.chunkstore import ChunkNotFound, StoreUnavailable
-from katdal.chunkstore_s3 import (_DEFAULT_SERVER_GLITCHES, InvalidToken,
-                                  S3ChunkStore, TruncatedRead, _AWSAuth,
-                                  AuthorisationFailed, decode_jwt, read_array)
+from katdal.chunkstore_s3 import (
+    _DEFAULT_SERVER_GLITCHES,
+    InvalidToken,
+    S3ChunkStore,
+    _AWSAuth,
+    AuthorisationFailed,
+    decode_jwt,
+    read_array
+)
 from katdal.datasources import TelstateDataSource
 from katdal.test.s3_utils import MissingProgram, S3Server, S3User
 from katdal.test.test_chunkstore import ChunkStoreTestBase, generate_arrays
@@ -150,7 +157,7 @@ class TestReadArray:
         fp.seek(*args)
         fp.truncate()
         fp.seek(0)
-        with pytest.raises(TruncatedRead):
+        with pytest.raises(IncompleteRead):
             read_array(fp)
 
     def testShort(self):
