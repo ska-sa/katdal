@@ -452,14 +452,19 @@ def _request(session, method, url, timeout=(None, None), **kwargs):
     is being read and reraises them as appropriate urllib3 exceptions that can
     be passed to a `Retry` object to trigger a read retry.
     """
-    with session.request(method, url, timeout=timeout, **kwargs) as response:
-        try:
+    try:
+        with session.request(method, url, timeout=timeout, **kwargs) as response:
             yield response
-        except SocketTimeoutError as error:
-            msg = f'Read timed out - socket idle for {timeout[1]} seconds'
-            raise ReadTimeoutError('Read timeout', url, msg) from error
-        except (ConnectionResetError, IncompleteRead) as error:
-            raise ProtocolError(str(error)) from error
+    except SocketTimeoutError as error:
+        msg = f'Read timed out - socket idle for {timeout[1]} seconds'
+        raise ReadTimeoutError('Read timeout', url, msg) from error
+    except (
+        # Requests massages ProtocolErrors into ChunkedEncodingErrors, so turn it back
+        requests.exceptions.ChunkedEncodingError,
+        ConnectionResetError,
+        IncompleteRead,
+    ) as error:
+        raise ProtocolError(str(error)) from error
 
 
 def _connect_read_tuple(connect_and_or_read):

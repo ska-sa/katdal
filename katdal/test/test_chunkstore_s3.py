@@ -63,8 +63,9 @@ from katdal.chunkstore_s3 import (
     AuthorisationFailed,
     decode_jwt,
     read_array,
+    _read_object,
 )
-from katdal.datasources import TelstateDataSource
+from katdal.datasources import TelstateDataSource, DataSourceNotFound
 from katdal.test.s3_utils import MissingProgram, S3Server, S3User
 from katdal.test.test_chunkstore import ChunkStoreTestBase, generate_arrays
 from katdal.test.test_datasources import (assert_telstate_data_source_equal,
@@ -682,8 +683,13 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
 
-    def test_rdb_support(self):
+    def test_rdb_support_recover_from_truncated_reads(self):
         super().test_rdb_support('please-truncate-read-after-1000-bytes-for-0.4-seconds')
+
+    def test_rdb_support_persistent_truncated_reads(self):
+        with pytest.raises(DataSourceNotFound) as excinfo:
+            super().test_rdb_support('please-truncate-read-after-1000-bytes-for-0.8-seconds')
+        excinfo.match(r'IncompleteRead\(1000 bytes read')
 
     @pytest.mark.expected_duration(0.6)
     def test_recover_from_reset_connections(self):
@@ -744,3 +750,19 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         # The final retry starts at 0.87 seconds and the client gives up 0.09 seconds later
         with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
+
+    # XXX Check whether the 'pause' condition (socket timeouts) can be tested
+    # with _read_object, which preloads the content due to stream=False.
+    @pytest.mark.parametrize('condition', ['truncate', 'reset'])
+    @pytest.mark.expected_duration(0.6)
+    def test_non_streaming_request_recovery_from_glitches(self, condition):
+        data = b'x' * 1000
+        cbid = PREFIX
+        path = self.store.join(cbid, f'test_recovery_from_{condition}.bin')
+        url = urllib.parse.urljoin(self.store_url, path)
+        self.store.create_array(cbid)
+        self.store.request('PUT', url, data=data)
+        suggestion = f'please-{condition}-read-after-400-bytes-for-0.52-seconds'
+        url = urllib.parse.urljoin(self.store_url, self.store.join(suggestion, path))
+        retrieved_data = self.store.request('GET', url, process=_read_object)
+        assert retrieved_data == data
