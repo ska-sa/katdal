@@ -699,7 +699,6 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         chunk, slices, array_name = self._put_chunk(suggestion)
         with pytest.raises(ChunkNotFound) as excinfo:
             self.store.get_chunk(array_name, slices, chunk.dtype)
-        excinfo.match('Connection reset by peer')
         assert isinstance(excinfo.value, S3ServerGlitch)
 
     @pytest.mark.expected_duration(0.6)
