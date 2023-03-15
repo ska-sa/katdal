@@ -5,7 +5,7 @@ botocore
 cityhash
 dask[array]
 h5py
-katpoint==1.0a1
+katpoint==1.0a2
 numba
 numpy
 pyjwt
