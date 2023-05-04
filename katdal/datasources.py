@@ -26,7 +26,7 @@ import numpy as np
 
 from .chunkstore import ChunkStoreError
 from .chunkstore_npy import NpyFileChunkStore
-from .chunkstore_s3 import S3ChunkStore
+from .chunkstore_s3 import S3ChunkStore, _read_object
 from .dataset import parse_url_or_path
 from .sensordata import TelstateSensorGetter, TelstateToStr
 from .vis_flags_weights import ChunkStoreVisFlagsWeights
@@ -461,8 +461,8 @@ class TelstateDataSource(DataSource):
             telstate = katsdptelstate.TelescopeState()
             try:
                 rdb_store = S3ChunkStore(store_url, **kwargs)
-                with rdb_store.request('GET', rdb_url) as response:
-                    telstate.load_from_file(io.BytesIO(response.content))
+                rdb_data = rdb_store.request('GET', rdb_url, process=_read_object)
+                telstate.load_from_file(io.BytesIO(rdb_data))
             except ChunkStoreError as e:
                 raise DataSourceNotFound(str(e)) from e
             # If the RDB file is opened via archive URL, use that URL and

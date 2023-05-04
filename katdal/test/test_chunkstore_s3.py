@@ -35,6 +35,7 @@ import pathlib
 import re
 import shutil
 import socket
+import struct
 import sys
 import tempfile
 import threading
@@ -49,13 +50,22 @@ import requests
 from katsdptelstate.rdb_writer import RDBWriter
 import pytest
 from numpy.testing import assert_array_equal
+from urllib3.exceptions import IncompleteRead
 from urllib3.util.retry import Retry
 
 from katdal.chunkstore import ChunkNotFound, StoreUnavailable
-from katdal.chunkstore_s3 import (_DEFAULT_SERVER_GLITCHES, InvalidToken,
-                                  S3ChunkStore, TruncatedRead, _AWSAuth,
-                                  AuthorisationFailed, decode_jwt, read_array)
-from katdal.datasources import TelstateDataSource
+from katdal.chunkstore_s3 import (
+    _DEFAULT_SERVER_GLITCHES,
+    InvalidToken,
+    S3ChunkStore,
+    S3ServerGlitch,
+    _AWSAuth,
+    AuthorisationFailed,
+    decode_jwt,
+    read_array,
+    _read_object,
+)
+from katdal.datasources import TelstateDataSource, DataSourceNotFound
 from katdal.test.s3_utils import MissingProgram, S3Server, S3User
 from katdal.test.test_chunkstore import ChunkStoreTestBase, generate_arrays
 from katdal.test.test_datasources import (assert_telstate_data_source_equal,
@@ -68,11 +78,11 @@ PREFIX = '1234567890'
 # Pick quick but different timeouts and retries for unit tests:
 #  - The effective connect timeout is 5.0 (initial) + 5.0 (1 retry) = 10 seconds
 #  - The effective read timeout is 2.0 + 3 * 2.0 + 0.1 * (0 + 2 + 4) = 8.6 seconds
-#  - The effective status timeout is 0.1 * (0 + 2 + 4) = 0.6 seconds, or
-#    4 * 0.1 + 0.6 = 1.0 second if the suggestions use SUGGESTED_STATUS_DELAY
+#  - The effective status timeout is 0.1 * (0 + 2) = 0.2 seconds, or
+#    3 * 0.1 + 0.2 = 0.5 second if the suggestions use SUGGESTED_STATUS_DELAY
 TIMEOUT = (5.0, 2.0)
-RETRY = Retry(connect=1, read=3, status=3, backoff_factor=0.1,
-              raise_on_status=False, status_forcelist=_DEFAULT_SERVER_GLITCHES)
+RETRY = Retry(connect=1, read=3, status=2, backoff_factor=0.1,
+              status_forcelist=_DEFAULT_SERVER_GLITCHES)
 SUGGESTED_STATUS_DELAY = 0.1
 READ_PAUSE = 0.1
 # Dummy private key for ES256 algorithm (taken from PyJWT unit tests)
@@ -103,9 +113,9 @@ def get_free_port(host):
 
 
 class TestReadArray:
-    def _test(self, array):
+    def _test(self, array, version=None):
         fp = io.BytesIO()
-        np.save(fp, array)
+        np.lib.format.write_array(fp, array, version, allow_pickle=False)
         fp.seek(0)
         out = read_array(fp)
         np.testing.assert_equal(array, out)
@@ -122,12 +132,7 @@ class TestReadArray:
         self._test(np.arange(20).reshape(4, 5, 1).T)
 
     def testV2(self):
-        # Make dtype that needs more than 64K to store, forcing .npy version 2.0
-        dtype = np.dtype([('a' * 70000, np.float32), ('b', np.float32)])
-        with warnings.catch_warnings():
-            # Suppress warning that V2 files can only be read by numpy >= 1.9
-            warnings.simplefilter('ignore', category=UserWarning)
-            self._test(np.zeros(100, dtype))
+        self._test(np.zeros(100), version=(2, 0))
 
     def testBadVersion(self):
         data = b'\x93NUMPY\x03\x04'     # Version 3.4
@@ -149,7 +154,7 @@ class TestReadArray:
         fp.seek(*args)
         fp.truncate()
         fp.seek(0)
-        with pytest.raises(TruncatedRead):
+        with pytest.raises(IncompleteRead):
             read_array(fp)
 
     def testShort(self):
@@ -273,6 +278,8 @@ class TestS3ChunkStore(ChunkStoreTestBase):
                 shutil.rmtree(entry.path)
         # Also get rid of the cache of verified buckets
         self.store._verified_buckets.clear()
+        self.store.timeout = TIMEOUT
+        self.store.retries = RETRY
         print(f"Chunk store: {self.store_url}, S3 server: {self.s3_url}")
 
     def array_name(self, name):
@@ -326,7 +333,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
     def test_mark_complete_top_level(self):
         self._test_mark_complete(PREFIX + '-completetest')
 
-    def test_rdb_support(self):
+    def test_rdb_support(self, suggestion=''):
         telstate = katsdptelstate.TelescopeState()
         view, cbid, sn, _, _ = make_fake_data_source(telstate, self.store, (5, 16, 40), PREFIX)
         telstate['capture_block_id'] = cbid
@@ -339,9 +346,13 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         # Read the file back in and upload it to S3
         with open(temp_filename, mode='rb') as rdb_file:
             rdb_data = rdb_file.read()
-        rdb_url = urllib.parse.urljoin(self.store_url, self.store.join(cbid, rdb_filename))
+        if suggestion:
+            rdb_path = self.store.join(suggestion, cbid, rdb_filename)
+        else:
+            rdb_path = self.store.join(cbid, rdb_filename)
+        rdb_url = urllib.parse.urljoin(self.store_url, rdb_path)
         self.store.create_array(cbid)
-        self.store.complete_request('PUT', rdb_url, data=rdb_data)
+        self.store.request('PUT', rdb_url, data=rdb_data)
         # Check that data source can be constructed from URL (with auto chunk store)
         source_from_url = TelstateDataSource.from_url(rdb_url, **self.store_kwargs)
         source_direct = TelstateDataSource(view, cbid, sn, self.store)
@@ -374,6 +385,17 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
             return self.do_all
         return self.__getattribute__(name)
 
+    def _reset_connection(self):
+        """Send a TCP reset (RST) packet to reset the connection.
+
+        Enable SO_LINGER with a linger interval of 0 s. This drops the
+        connection like a hot potato once closed.
+        """
+        l_onoff = 1  # non-zero value enables linger option in kernel
+        l_linger = 0  # timeout interval in seconds
+        self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
+                                   struct.pack('ii', l_onoff, l_linger))
+
     def do_all(self):
         # See https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Connection
         HOP_HEADERS = {
@@ -385,6 +407,7 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
         data = self.rfile.read(data_len)
         truncate = False
         pause = 0.0
+        reset = False
         glitch_location = 0
 
         # Extract a proxy suggestion prepended to the path
@@ -409,12 +432,16 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
                     self.send_response(status_code, 'Suggested by unit test')
                     self.end_headers()
                     return
+                if command == 'reset-connection':
+                    self._reset_connection()
+                    return
                 # Truncate or pause transmission of the payload after specified bytes
-                glitch = re.match(r'^(truncate|pause)-read-after-(\d+)-bytes$', command)
+                glitch = re.match(r'^(truncate|pause|reset)-read-after-(\d+)-bytes$', command)
                 if glitch:
                     flavour = glitch.group(1)
                     truncate = (flavour == 'truncate')
                     pause = READ_PAUSE if flavour == 'pause' else 0.0
+                    reset = (flavour == 'reset')
                     glitch_location = int(glitch.group(2))
                 else:
                     raise ValueError(f"Unknown command '{command}' "
@@ -474,14 +501,19 @@ class _TokenHTTPProxyHandler(http.server.BaseHTTPRequestHandler):
         # might stop listening if it knows nothing more is coming, like in a PUT response).
         if len(content) == 0:
             return
-        if pause:
-            self.wfile.write(content[:glitch_location])
+        # Write the first half of the data
+        self.wfile.write(content[:glitch_location])
+        if truncate:
+            return
+        elif reset:
+            self._reset_connection()
+            return
+        elif pause:
             # The wfile object should be an unbuffered _SocketWriter but flush anyway
             self.wfile.flush()
             time.sleep(pause)
-            self.wfile.write(content[glitch_location:])
-        else:
-            self.wfile.write(content[:glitch_location] if truncate else content)
+        # Write the rest of the data
+        self.wfile.write(content[glitch_location:])
 
     def log_message(self, format, *args):
         # Get time offset from first of these requests (useful for debugging)
@@ -547,7 +579,8 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         elif url != cls.httpd.target:
             raise RuntimeError('Cannot use multiple target URLs with http proxy')
         # The token authorises the standard bucket and anything starting with PREFIX
-        token = encode_jwt({'prefix': [BUCKET, PREFIX]})
+        # (as well as suggestions prepended to the path)
+        token = encode_jwt({'prefix': [BUCKET, PREFIX, 'please']})
         kwargs.setdefault('token', token)
         return super().prepare_store_args(cls.proxy_url, credentials=None, **kwargs)
 
@@ -570,68 +603,160 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         self.store.put_chunk(array_name, slices, chunk)
         return chunk, slices, self.store.join(array_name, suggestion)
 
-    @pytest.mark.expected_duration(0.9)
-    def test_recover_from_server_errors(self):
-        chunk, slices, array_name = self._put_chunk(
-            'please-respond-with-500-for-0.8-seconds')
-        # With the RETRY settings of 3 status retries, backoff factor of 0.1 s
-        # and SUGGESTED_STATUS_DELAY of 0.1 s we get the following timeline
-        # (indexed by seconds):
-        # 0.0 - access chunk for the first time
-        # 0.1 - response is 500, immediately try again (retry #1)
-        # 0.2 - response is 500, back off for 2 * 0.1 seconds
-        # 0.4 - retry #2
-        # 0.5 - response is 500, back off for 4 * 0.1 seconds
-        # 0.9 - retry #3 (the final attempt) - server should now be fixed
-        # 0.9 - success!
-        self.store.get_chunk(array_name, slices, chunk.dtype)
+    # 50x STATUSES
+    #
+    # With the RETRY settings of 2 status retries, backoff factor of 0.1 s
+    # and SUGGESTED_STATUS_DELAY of 0.1 s we get the following timeline
+    # (indexed by seconds):
+    # 0.0 - access chunk for the first time
+    # 0.1 - response is 500, immediately try again (retry #1)
+    # 0.2 - response is 500, back off for 2 * 0.1 seconds
+    # 0.4 - retry #2 (the final attempt) - server should now be fixed
+    # 0.4 - success!
 
-    @pytest.mark.expected_duration(1.0)
+    @pytest.mark.expected_duration(0.1)
+    def test_server_error(self):
+        suggestion = 'please-respond-with-500-for-0.2-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
+        chunk_name, _ = self.store.chunk_metadata(array_name, slices, dtype=chunk.dtype)
+        url = self.store._chunk_url(chunk_name)
+        response = self.store.request('GET', url, ignored_errors=(500,), retries=0, stream=True)
+        assert response.status_code == 500
+
+    @pytest.mark.expected_duration(0.4)
+    def test_recover_from_server_errors(self):
+        suggestion = 'please-respond-with-500-for-0.3-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
+        chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
+        assert_array_equal(chunk_retrieved, chunk, 'Bad chunk after server error')
+
+    @pytest.mark.expected_duration(0.5)
     def test_persistent_server_errors(self):
-        chunk, slices, array_name = self._put_chunk(
-            'please-respond-with-502-for-1.2-seconds')
-        # After 0.9 seconds the client gives up and returns with failure 0.1 s later
+        suggestion = 'please-respond-with-502-for-0.7-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
+        # After 0.4 seconds the client gives up and returns with failure 0.1 s later
         with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
 
-    @pytest.mark.expected_duration(0.6)
-    def test_recover_from_read_truncated_within_npy_header(self):
-        chunk, slices, array_name = self._put_chunk(
-            'please-truncate-read-after-60-bytes-for-0.4-seconds')
-        # With the RETRY settings of 3 status retries and backoff factor of 0.1 s
-        # we get the following timeline (indexed by seconds):
-        # 0.0 - access chunk for the first time
-        # 0.0 - response is 200 but truncated, immediately try again (retry #1)
-        # 0.0 - response is 200 but truncated, back off for 2 * 0.1 seconds
-        # 0.2 - retry #2, response is 200 but truncated, back off for 4 * 0.1 seconds
-        # 0.6 - retry #3 (the final attempt) - server should now be fixed
-        # 0.6 - success!
-        chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
-        assert_array_equal(chunk_retrieved, chunk, 'Truncated read not recovered')
+    # TRUNCATED READS
+    #
+    # With the RETRY settings of 3 read retries and backoff factor of 0.1 s
+    # we get the following timeline (indexed by seconds):
+    # 0.0 - access chunk for the first time
+    # 0.0 - response is 200 but truncated, immediately try again (retry #1)
+    # 0.0 - response is 200 but truncated, back off for 2 * 0.1 seconds
+    # 0.2 - retry #2, response is 200 but truncated, back off for 4 * 0.1 seconds
+    # 0.6 - retry #3 (the final attempt) - server should now be fixed
+    # 0.6 - success!
 
+    # The NPY file has a 128-byte header, followed by the array data itself.
+    # Check both parts, since they are read somewhat differently (read vs readinto).
+    @pytest.mark.parametrize('nbytes', [60, 129])
+    @pytest.mark.expected_duration(0.0)
+    def test_truncated_read(self, nbytes):
+        suggestion = f'please-truncate-read-after-{nbytes}-bytes-for-0.1-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
+        self.store.retries = Retry(0)
+        with pytest.raises(S3ServerGlitch) as excinfo:
+            self.store.get_chunk(array_name, slices, chunk.dtype)
+        bytes_left = 128 + chunk.nbytes - nbytes
+        excinfo.match(fr'IncompleteRead\({nbytes} bytes read, {bytes_left} more expected\)')
+
+    @pytest.mark.parametrize('nbytes', [60, 129])
     @pytest.mark.expected_duration(0.6)
-    def test_recover_from_read_truncated_within_npy_array(self):
-        chunk, slices, array_name = self._put_chunk(
-            'please-truncate-read-after-129-bytes-for-0.4-seconds')
+    def test_recover_from_truncated_read(self, nbytes):
+        suggestion = f'please-truncate-read-after-{nbytes}-bytes-for-0.4-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
-        assert_array_equal(chunk_retrieved, chunk, 'Truncated read not recovered')
+        assert_array_equal(chunk_retrieved, chunk, 'Bad chunk after truncated read')
 
     @pytest.mark.expected_duration(0.6)
     def test_persistent_truncated_reads(self):
-        chunk, slices, array_name = self._put_chunk(
-            'please-truncate-read-after-60-bytes-for-0.8-seconds')
+        suggestion = 'please-truncate-read-after-60-bytes-for-0.8-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
         # After 0.6 seconds the client gives up
         with pytest.raises(ChunkNotFound):
             self.store.get_chunk(array_name, slices, chunk.dtype)
 
-    @pytest.mark.expected_duration(READ_PAUSE)
-    def test_handle_read_paused_within_npy_header(self):
-        chunk, slices, array_name = self._put_chunk('please-pause-read-after-60-bytes')
-        chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
-        assert_array_equal(chunk_retrieved, chunk, 'Paused read failed')
+    def test_rdb_support_recover_from_truncated_reads(self):
+        super().test_rdb_support('please-truncate-read-after-1000-bytes-for-0.4-seconds')
 
-    @pytest.mark.expected_duration(READ_PAUSE)
-    def test_handle_read_paused_within_npy_array(self):
-        chunk, slices, array_name = self._put_chunk('please-pause-read-after-129-bytes')
+    def test_rdb_support_persistent_truncated_reads(self):
+        with pytest.raises(DataSourceNotFound) as excinfo:
+            super().test_rdb_support('please-truncate-read-after-1000-bytes-for-0.8-seconds')
+        excinfo.match(r'IncompleteRead\(1000 bytes read')
+
+    @pytest.mark.expected_duration(0.6)
+    def test_recover_from_reset_connections(self):
+        suggestion = 'please-reset-read-after-129-bytes-for-0.4-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
         chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
-        assert_array_equal(chunk_retrieved, chunk, 'Paused read failed')
+        assert_array_equal(chunk_retrieved, chunk, 'Bad chunk after reset connection')
+
+    @pytest.mark.expected_duration(0.6)
+    def test_persistent_reset_connections(self):
+        suggestion = 'please-reset-read-after-129-bytes-for-0.8-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
+        with pytest.raises(ChunkNotFound) as excinfo:
+            self.store.get_chunk(array_name, slices, chunk.dtype)
+        assert isinstance(excinfo.value, S3ServerGlitch)
+
+    @pytest.mark.expected_duration(0.6)
+    def test_persistent_early_reset_connections(self):
+        suggestion = 'please-reset-connection-for-0.8-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
+        with pytest.raises(StoreUnavailable):
+            self.store.get_chunk(array_name, slices, chunk.dtype)
+
+    @pytest.mark.parametrize('nbytes', [60, 129])  # check both NPY header and array itself
+    @pytest.mark.expected_duration(READ_PAUSE)
+    def test_handle_paused_read(self, nbytes):
+        suggestion = f'please-pause-read-after-{nbytes}-bytes'
+        chunk, slices, array_name = self._put_chunk(suggestion)
+        chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
+        assert_array_equal(chunk_retrieved, chunk, 'Bad chunk after paused read')
+
+    # SOCKET TIMEOUTS
+    #
+    # With a read timeout of 0.09 seconds and the RETRY settings of 3 read retries and
+    # backoff factor of 0.1 s, we get the following timeline (indexed by seconds):
+    # 0.00 - access chunk for the first time
+    # 0.09 - response is 200 but socket times out after 0.09 seconds, immediately try again
+    # 0.18 - retry #1, response is 200 but socket stalls, back off for 2 * 0.1 seconds
+    # 0.47 - retry #2, response is 200 but socket stalls, back off for 4 * 0.1 seconds
+    # 0.87 - retry #3 (the final attempt) - server should now be fixed
+    # 0.87 - success!
+
+    @pytest.mark.parametrize('nbytes', [60, 129])  # check both NPY header and array itself
+    @pytest.mark.expected_duration(0.87)
+    def test_recover_from_socket_timeout(self, nbytes):
+        suggestion = f'please-pause-read-after-{nbytes}-bytes-for-0.8-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
+        self.store.timeout = (5.0, 0.09)
+        chunk_retrieved = self.store.get_chunk(array_name, slices, chunk.dtype)
+        assert_array_equal(chunk_retrieved, chunk, 'Bad chunk after socket timeout')
+
+    @pytest.mark.expected_duration(0.96)
+    def test_persistent_socket_timeouts(self):
+        suggestion = 'please-pause-read-after-129-bytes-for-1.0-seconds'
+        chunk, slices, array_name = self._put_chunk(suggestion)
+        self.store.timeout = (5.0, 0.09)
+        # The final retry starts at 0.87 seconds and the client gives up 0.09 seconds later
+        with pytest.raises(ChunkNotFound):
+            self.store.get_chunk(array_name, slices, chunk.dtype)
+
+    # XXX Check whether the 'pause' condition (socket timeouts) can be tested
+    # with _read_object, which preloads the content due to stream=False.
+    @pytest.mark.parametrize('condition', ['truncate', 'reset'])
+    @pytest.mark.expected_duration(0.6)
+    def test_non_streaming_request_recovery_from_glitches(self, condition):
+        data = b'x' * 1000
+        cbid = PREFIX
+        path = self.store.join(cbid, f'test_recovery_from_{condition}.bin')
+        url = urllib.parse.urljoin(self.store_url, path)
+        self.store.create_array(cbid)
+        self.store.request('PUT', url, data=data)
+        suggestion = f'please-{condition}-read-after-400-bytes-for-0.52-seconds'
+        url = urllib.parse.urljoin(self.store_url, self.store.join(suggestion, path))
+        retrieved_data = self.store.request('GET', url, process=_read_object)
+        assert retrieved_data == data

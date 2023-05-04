@@ -20,6 +20,7 @@ import base64
 import contextlib
 import copy
 import hashlib
+import http.client
 import json
 import threading
 import time
@@ -30,14 +31,19 @@ import urllib.request
 import jwt
 import numpy as np
 import requests
+import urllib3
 
 try:
     import botocore.auth
     import botocore.credentials
 except ImportError:
     botocore = None
-from urllib3.exceptions import MaxRetryError
-from urllib3.response import HTTPResponse
+try:
+    # XXX A deprecated alias of TimeoutError since Python 3.10
+    from socket import timeout as SocketTimeoutError
+except ImportError:
+    SocketTimeoutError = TimeoutError
+from urllib3.exceptions import MaxRetryError, ReadTimeoutError, ProtocolError, IncompleteRead
 from urllib3.util.retry import Retry
 
 from .chunkstore import (BadChunk, ChunkNotFound, ChunkStore, StoreUnavailable,
@@ -68,11 +74,9 @@ _BUCKET_POLICY = {
     ]
 }
 
-# Fake HTTP status code associated with reset connections / truncated data
-_TRUNCATED_HTTP_STATUS_CODE = 555
 # These HTTP responses typically indicate temporary S3 server / proxy overload,
 # which will trigger retries terminating in a missing data response if unsuccessful.
-_DEFAULT_SERVER_GLITCHES = (500, 502, 503, 504, _TRUNCATED_HTTP_STATUS_CODE)
+_DEFAULT_SERVER_GLITCHES = (500, 502, 503, 504)
 
 
 class S3ObjectNotFound(ChunkNotFound):
@@ -82,32 +86,49 @@ class S3ObjectNotFound(ChunkNotFound):
 class S3ServerGlitch(ChunkNotFound):
     """S3 chunk store responded with an HTTP error deemed to be temporary."""
 
-    def __init__(self, msg, status_code):
-        super().__init__(msg)
-        self.status_code = status_code
-
-
-class TruncatedRead(ValueError):
-    """HTTP request to S3 chunk store responded with fewer bytes than expected."""
-
 
 class _DetectTruncation:
-    """Raise :exc:`TruncatedRead` if wrapped `readable` runs out of data."""
+    """Raise :exc:`IncompleteRead` if wrapped `readable` runs out of data."""
 
     def __init__(self, readable):
         self._readable = readable
+        if isinstance(readable, http.client.HTTPResponse):
+            # Store initial length in case of httplib so that we can figure out bytes_read
+            # (because tell() doesn't work since the socket cannot be seeked).
+            self._content_length = readable.length
+        else:
+            self._content_length = None
 
     def __getattr__(self, name):
         """Proxy all attributes to underlying wrapped object."""
         return getattr(self._readable, name)
 
-    def read(self, size, *args, **kwargs):
+    def _raise_incomplete_read(self, bytes_read, bytes_left):
+        """Figure out more accurate parameters for `IncompleteRead` and raise it."""
+        if isinstance(self._readable, http.client.HTTPResponse):
+            if self._readable.length is not None:
+                bytes_left = self._readable.length
+                bytes_read = self._content_length - bytes_left
+        elif isinstance(self._readable, urllib3.response.HTTPResponse):
+            if self._readable.length_remaining is not None:
+                bytes_left = self._readable.length_remaining
+                bytes_read = self._readable.tell()
+        raise IncompleteRead(bytes_read, bytes_left)
+
+    def read(self, size=None, *args, **kwargs):
         """Overload `read` method to detect truncated data source."""
         data = self._readable.read(size, *args, **kwargs)
-        if data == b'' and size != 0:
-            raise TruncatedRead('Error reading from S3 HTTP response: expected '
-                                f'{size} more byte(s), got EOF')
+        if data == b'' and size is not None and size > 0:
+            self._raise_incomplete_read(0, size)
         return data
+
+    def readinto(self, buffer, *args, **kwargs):
+        """Overload `readinto` method to detect truncated data source."""
+        view = memoryview(buffer)
+        bytes_read = self._readable.readinto(view, *args, **kwargs)
+        if bytes_read != view.nbytes:
+            self._raise_incomplete_read(bytes_read, view.nbytes - bytes_read)
+        return bytes_read
 
 
 def read_array(fp):
@@ -138,10 +159,7 @@ def read_array(fp):
     # For HTTPResponse it works to just pass in `data` directly, but the
     # wrapping is added for the benefit of any other implementation that
     # isn't expecting a numpy array
-    bytes_read = fp.readinto(memoryview(data.view(np.uint8)))
-    if bytes_read != data.nbytes:
-        raise TruncatedRead('Error reading from S3 HTTP response: '
-                            f'expected {data.nbytes} bytes, got {bytes_read}')
+    fp.readinto(data.view(np.uint8))
     if fortran_order:
         data.shape = shape[::-1]
         data = data.transpose()
@@ -166,6 +184,16 @@ def _read_chunk(response):
     # we've consumed all the data and hence it can reuse the connection.
     response.content
     return chunk
+
+
+def _read_object(response):
+    """Read bytes from content of HTTP response and check that it's all there."""
+    data = response.content
+    # Verify that all content has been consumed
+    bytes_left = response.raw.length_remaining
+    if bytes_left is not None and bytes_left > 0:
+        raise IncompleteRead(response.raw.tell(), bytes_left)
+    return data
 
 
 def _bucket_url(url):
@@ -396,6 +424,66 @@ class _Multipart:
         return sum(memoryview(item).nbytes for item in self.items)
 
 
+def _raise_for_status(response, chunk_name, ignored_errors):
+    """Turn error responses into appropriate exceptions, like raise_for_status."""
+    status = response.status_code
+    if 400 <= status < 600 and status not in ignored_errors:
+        # Construct error message, including detailed response content if sensible
+        prefix = f'Chunk {chunk_name!r}: ' if chunk_name else ''
+        msg = (f'{prefix}Store responded with HTTP error {status} ({response.reason}) '
+               f'to request: {response.request.method} {response.url}')
+        content_type = response.headers.get('Content-Type')
+        if content_type in ('application/xml', 'text/xml', 'text/plain'):
+            msg += f'\nDetails of server response: {response.text}'
+        # Raise the appropriate exception
+        if status in (401, 403):
+            raise AuthorisationFailed(msg)
+        elif status == 404:
+            raise S3ObjectNotFound(msg)
+        else:
+            raise StoreUnavailable(msg)
+
+
+@contextlib.contextmanager
+def _request(session, method, url, timeout=(None, None), **kwargs):
+    """A beefed-up request that facilitates retries on reading the response.
+
+    This catches socket timeouts and reset connections while the response data
+    is being read and reraises them as appropriate urllib3 exceptions that can
+    be passed to a `Retry` object to trigger a read retry.
+    """
+    try:
+        with session.request(method, url, timeout=timeout, **kwargs) as response:
+            yield response
+    except SocketTimeoutError as error:
+        msg = f'Read timed out - socket idle for {timeout[1]} seconds'
+        raise ReadTimeoutError('Read timeout', url, msg) from error
+    except (
+        # Requests massages ProtocolErrors into ChunkedEncodingErrors, so turn it back
+        requests.exceptions.ChunkedEncodingError,
+        ConnectionResetError,
+        IncompleteRead,
+    ) as error:
+        raise ProtocolError(str(error)) from error
+
+
+def _connect_read_tuple(connect_and_or_read):
+    """Turn connect and/or read retries/timeouts into a (connect, read) tuple."""
+    try:
+        connect, read = connect_and_or_read
+    except TypeError:
+        connect = read = connect_and_or_read
+    return (connect, read)
+
+
+def _retry_object(retries, **defaults):
+    """Turn (connect, read) `retries` into `Retry` object (or keep as is)."""
+    if not isinstance(retries, Retry):
+        connect_retries, read_retries = _connect_read_tuple(retries)
+        retries = Retry(connect=connect_retries, read=read_retries, **defaults)
+    return retries
+
+
 class S3ChunkStore(ChunkStore):
     """A store of chunks (i.e. N-dimensional arrays) based on the Amazon S3 API.
 
@@ -421,9 +509,9 @@ class S3ChunkStore(ChunkStore):
         string type with UTF-8. The URL may also contain a path if this store is
         relative to an existing bucket, in which case the chunk name is a relative
         path (useful for unit tests).
-    timeout : float or tuple of 2 floats, optional
+    timeout : float or None or tuple of 2 floats or None's, optional
         Connect / read timeout, in seconds, either a single value for both or
-        custom values as (connect, read) tuple (set to None to leave unchanged)
+        custom values as (connect, read) tuple. None means "wait forever"...
     retries : int or tuple of 2 ints or :class:`urllib3.util.retry.Retry`, optional
         Number of connect / read retries, either a single value for both or
         custom values as (connect, read) tuple, or a `Retry` object for full
@@ -449,35 +537,34 @@ class S3ChunkStore(ChunkStore):
 
     def __init__(self, url, timeout=(30, 300), retries=2, token=None,
                  credentials=None, public_read=False, expiry_days=0, **kwargs):
-        error_map = {requests.exceptions.RequestException: StoreUnavailable}
+        error_map = {
+            # Urllib3 / Requests exceptions raised when read / status retries run out
+            MaxRetryError: S3ServerGlitch,  # too many retries on reading response
+            requests.exceptions.ReadTimeout: S3ServerGlitch,  # read timeouts on header
+            requests.exceptions.RetryError: S3ServerGlitch,  # too many status retries
+            # A generic request error (includes connection failures)
+            requests.exceptions.RequestException: StoreUnavailable,
+        }
         super().__init__(error_map)
         auth = _auth_factory(url, token, credentials)
-        if not isinstance(retries, Retry):
-            try:
-                connect_retries, read_retries = retries
-            except TypeError:
-                connect_retries = read_retries = retries
-            # The backoff factor of 10 provides 5 minutes worth of retries
-            # when the S3 server is strained; with 5 retries you get
-            # (0 + 2 + 4 + 8 + 16) * 10 = 300 seconds on top of read timeouts.
-            retries = Retry(connect=connect_retries, read=read_retries,
-                            status=5, backoff_factor=10.,
-                            status_forcelist=_DEFAULT_SERVER_GLITCHES)
 
         def session_factory():
             session = _CacheSettingsSession(url)
             session.auth = auth
-            # Don't let requests do status retries as we'll be doing it ourselves
-            max_retries = retries.new(status=0, raise_on_status=False)
-            adapter = requests.adapters.HTTPAdapter(max_retries=max_retries)
+            # Don't set `max_retries` yet - it will be done at the request level
+            adapter = requests.adapters.HTTPAdapter()
             session.mount(url, adapter)
             return session
 
         self._session_pool = _Pool(session_factory)
         self._url = to_str(url)
-        self._retries = retries
         self._verified_buckets = set()
-        self.timeout = timeout
+        self.timeout = _connect_read_tuple(timeout)
+        # The backoff factor of 10 provides 5 minutes worth of retries
+        # when the S3 server is strained; with 5 retries you get
+        # (0 + 2 + 4 + 8 + 16) * 10 = 300 seconds on top of read timeouts.
+        self.retries = _retry_object(retries, status=5, backoff_factor=10.,
+                                     status_forcelist=_DEFAULT_SERVER_GLITCHES)
         self.public_read = public_read
         self.expiry_days = int(expiry_days)
 
@@ -485,77 +572,17 @@ class S3ChunkStore(ChunkStore):
         """Assemble URL corresponding to chunk (or array) name."""
         return urllib.parse.urljoin(self._url, to_str(urllib.parse.quote(chunk_name + extension)))
 
-    @contextlib.contextmanager
-    def request(self, method, url, chunk_name='', ignored_errors=(), timeout=(), **kwargs):
-        """Run a request on a session from the pool and handle error responses.
-
-        This is a context manager like :meth:`requests.Session.request` that
-        either yields a successful response or raises the appropriate chunk
-        store exception.
-
-        Parameters
-        ----------
-        method, url : str
-            The standard required parameters of :meth:`requests.Session.request`
-        chunk_name : str, optional
-            Name of chunk, used for error reporting only
-        ignored_errors : collection of int, optional
-            HTTP status codes that are treated like 200 OK, not raising an error
-        timeout : tuple or float, optional
-            Override timeout for this request (use the store timeout by default)
-        kwargs : optional
-            These are passed on to :meth:`requests.Session.request`
-
-        Yields
-        ------
-        response : `requests.Response`
-            HTTP response, considered successful
-
-        Raises
-        ------
-        AuthorisationFailed
-            If the request is not authorised by appropriate token or credentials
-        S3ObjectNotFound
-            If S3 object request fails because it does not exist
-        S3ServerGlitch
-            If HTTP error has a retryable status code (i.e. temporary glitch)
-        StoreUnavailable
-            If a general HTTP error occurred that is not ignored
-        """
-        kwargs['timeout'] = self.timeout if timeout == () else timeout
-        # Use _standard_errors to filter errors emanating from within with-block
-        with self._standard_errors(chunk_name), self._session_pool() as session:
-            with session.request(method, url, **kwargs) as response:
-                # Turn error responses into the appropriate exception, like raise_for_status
-                status = response.status_code
-                if 400 <= status < 600 and status not in ignored_errors:
-                    # Construct error message, including detailed response content if sensible
-                    prefix = f'Chunk {chunk_name!r}: ' if chunk_name else ''
-                    msg = (f'{prefix}Store responded with HTTP error {status} ({response.reason}) '
-                           f'to request: {response.request.method} {response.url}')
-                    content_type = response.headers.get('Content-Type')
-                    if content_type in ('application/xml', 'text/xml', 'text/plain'):
-                        msg += f'\nDetails of server response: {response.text}'
-                    # Raise the appropriate exception
-                    if status in (401, 403):
-                        raise AuthorisationFailed(msg)
-                    elif status == 404:
-                        raise S3ObjectNotFound(msg)
-                    elif self._retries.is_retry(method, status):
-                        raise S3ServerGlitch(msg, status)
-                    else:
-                        raise StoreUnavailable(msg)
-                try:
-                    yield response
-                except TruncatedRead as trunc_error:
-                    # A truncated read is considered a glitch with custom status
-                    prefix = f'Chunk {chunk_name!r}: ' if chunk_name else ''
-                    glitch_error = S3ServerGlitch(prefix + str(trunc_error),
-                                                  _TRUNCATED_HTTP_STATUS_CODE)
-                    raise glitch_error from trunc_error
-
-    def complete_request(self, method, url, chunk_name='',
-                         process=lambda response: None, **kwargs):
+    def request(
+        self,
+        method,
+        url,
+        process=lambda response: response,
+        chunk_name='',
+        ignored_errors=(),
+        timeout=(),  # None has a special meaning, so use something else to indicate default
+        retries=None,
+        **kwargs
+    ):
         """Send HTTP request to S3 server, process response and retry if needed.
 
         This retries temporary HTTP errors, including reset connections while
@@ -565,12 +592,18 @@ class S3ChunkStore(ChunkStore):
         ----------
         method, url : str
             The standard required parameters of :meth:`requests.Session.request`
+        process : function, signature ``result = process(response)``, optional
+            Function that will process response (just return response by default)
         chunk_name : str, optional
             Name of chunk, used for error reporting only
-        process : function, signature ``result = process(response)``, optional
-            Function that will process response (the default does nothing)
+        ignored_errors : collection of int, optional
+            HTTP status codes that are treated like 200 OK, not raising an error
+        timeout : float or None or tuple of 2 floats or None's, optional
+            Override timeout for this request (use the store timeout by default)
+        retries : int or tuple of 2 ints or :class:`urllib3.util.retry.Retry`, optional
+            Override retries for this request (use the store retries by default)
         kwargs : optional
-            Passed on to :meth:`request` and :meth:`requests.Session.request`
+            These are passed on to :meth:`requests.Session.request`
 
         Returns
         -------
@@ -588,23 +621,24 @@ class S3ChunkStore(ChunkStore):
         StoreUnavailable
             If a general HTTP error occurred that is not ignored
         """
-        retries = self._retries.new()
-        while True:
-            try:
-                with self.request(method, url, chunk_name, **kwargs) as response:
-                    result = process(response)
-            except S3ServerGlitch as e:
-                # Retry based on status of response until we run out of retries
-                response = HTTPResponse(status=e.status_code)
+        timeout = self.timeout if timeout == () else _connect_read_tuple(timeout)
+        retries = self.retries if retries is None else _retry_object(retries)
+        retries = retries.new()
+        # Use _standard_errors to filter errors emanating from within with-block
+        with self._standard_errors(chunk_name), self._session_pool() as session:
+            adapter = session.get_adapter(url)
+            while True:
+                # Initialise and reuse the same Retry object for the entire session
+                adapter.max_retries = retries
                 try:
-                    retries = retries.increment(method, url, response)
-                except MaxRetryError:
-                    # Raise the final straw that broke the retry camel's back
-                    raise e from None
-                else:
-                    retries.sleep(response)
-            else:
-                return result
+                    with _request(session, method, url, timeout, **kwargs) as response:
+                        _raise_for_status(response, chunk_name, ignored_errors)
+                        retries = response.raw.retries.new()
+                        return process(response)
+                # Urllib3 exceptions that can trigger read retries
+                except (ReadTimeoutError, ProtocolError) as error:
+                    retries = retries.increment(method, url, error=error)
+                    retries.sleep()
 
     def _verify_bucket(self, url, chunk_error=None):
         """Check that bucket associated with `url` exists and is not empty."""
@@ -613,8 +647,7 @@ class S3ChunkStore(ChunkStore):
             return
         try:
             # Speed up the request by only checking that the bucket has at least one key
-            response = self.complete_request('GET', bucket, process=lambda r: r,
-                                             params={'max-keys': 1})
+            response = self.request('GET', bucket, params={'max-keys': 1})
         except S3ObjectNotFound as err:
             # There is no point continuing if the bucket is completely missing
             raise StoreUnavailable(err) from chunk_error
@@ -634,8 +667,8 @@ class S3ChunkStore(ChunkStore):
         # work with non-identity encodings.
         headers = {'Accept-Encoding': 'identity'}
         try:
-            chunk = self.complete_request('GET', url, chunk_name, _read_chunk,
-                                          headers=headers, stream=True)
+            chunk = self.request('GET', url, _read_chunk, chunk_name=chunk_name,
+                                 headers=headers, stream=True)
         except S3ObjectNotFound as err:
             # If the entire bucket is gone, this becomes StoreUnavailable instead
             self._verify_bucket(url, err)
@@ -655,7 +688,7 @@ class S3ChunkStore(ChunkStore):
 
     def _create_bucket(self, url):
         # Make bucket (409 indicates the bucket already exists, which is OK)
-        self.complete_request('PUT', url, ignored_errors=(409,))
+        self.request('PUT', url, ignored_errors=(409,))
 
         if self.public_read:
             policy_url = urllib.parse.urljoin(url, '?policy')
@@ -665,14 +698,14 @@ class S3ChunkStore(ChunkStore):
                 f'arn:aws:s3:::{bucket_name}/*',
                 f'arn:aws:s3:::{bucket_name}'
             ]
-            self.complete_request('PUT', policy_url, data=json.dumps(policy))
+            self.request('PUT', policy_url, data=json.dumps(policy))
 
         if self.expiry_days > 0:
             xml_payload = _BASE_LIFECYCLE_POLICY.format(self.expiry_days)
             b64_md5 = base64.b64encode(hashlib.md5(xml_payload.encode('utf-8')).digest()).decode('utf-8')
             lifecycle_headers = {'Content-Type': 'text/xml', 'Content-MD5': b64_md5}
-            self.complete_request('PUT', url, params='lifecycle',
-                                  data=xml_payload, headers=lifecycle_headers)
+            self.request('PUT', url, params='lifecycle',
+                         data=xml_payload, headers=lifecycle_headers)
 
     def put_chunk(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put_chunk`."""
@@ -686,21 +719,21 @@ class S3ChunkStore(ChunkStore):
         md5 = base64.b64encode(md5_gen.digest())
         headers = {'Content-MD5': md5.decode()}
         data = _Multipart([npy_header, memoryview(chunk)])
-        self.complete_request('PUT', url, chunk_name, headers=headers, data=data)
+        self.request('PUT', url, chunk_name=chunk_name, headers=headers, data=data)
 
     def mark_complete(self, array_name):
         """See the docstring of :meth:`ChunkStore.mark_complete`."""
         self.create_array(array_name)
         obj_name = self.join(array_name, 'complete')
         url = urllib.parse.urljoin(self._url, obj_name)
-        self.complete_request('PUT', url, obj_name, data=b'')
+        self.request('PUT', url, chunk_name=obj_name, data=b'')
 
     def is_complete(self, array_name):
         """See the docstring of :meth:`ChunkStore.is_complete`."""
         obj_name = self.join(array_name, 'complete')
         url = urllib.parse.urljoin(self._url, obj_name)
         try:
-            self.complete_request('GET', url, obj_name)
+            self.request('GET', url, chunk_name=obj_name)
         except ChunkNotFound:
             return False
         return True
