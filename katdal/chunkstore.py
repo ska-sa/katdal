@@ -569,6 +569,8 @@ class ChunkStore:
             # Set custom getter anyway to prevent slice fusion during graph optimisation,
             # which ends up calling chunk store with wrong chunks.
             getitem=_ArrayLikeGetter.__getitem__,
+            # Provide explicit meta, otherwise dask downloads a chunk just to check type
+            meta=np.empty(shape=(0,) * getter_shim.ndim, dtype=getter_shim.dtype),
             **from_array_kwargs,
         )
         return array[index]
@@ -597,6 +599,8 @@ class ChunkStore:
             name=f'store-{array_name}-{offset}',
             dtype=object,
             chunks=array.ndim * (1,),
+            meta=np.empty(shape=(0,) * array.ndim, dtype=object),
+            # kwargs for _put_map_blocks
             store=self,
             array_name=array_name,
             offset=offset,
