@@ -24,26 +24,62 @@
 #
 
 import argparse
+import json
 import os
 import subprocess
 
 import dask
+import katdal
 
+from collections import defaultdict
 from pathlib import Path, PurePosixPath
-from urllib.parse import urlparse, urlunparse, parse_qsl
+from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+from katdal.datasources import view_capture_stream
+from katdal.lazy_indexer import dask_getitem
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('source', help='Dataset URL')
     parser.add_argument('dest', type=Path, help='Output directory')
+    parser.add_argument('--select', type=json.loads, default={},
+                        help='Kwargs for DataSet.select as a JSON object')
     parser.add_argument('--workers', type=int, default=8 * dask.system.CPU_COUNT,
                         help='Number of rclone workers for parallel I/O [%(default)s]')
     args = parser.parse_args()
     return args
 
 
-def rclone_copy(bucket, dest, endpoint, token=None, workers=4):
+def extra_flag_streams(telstate, capture_block_id, stream_name):
+    """Look for associated flag streams and return corresponding telstate views."""
+    # This is a simplified version of katdal.datasources._upgrade_flags
+    telstate_extra_flags = []
+    for s in telstate.get('sdp_archived_streams', []):
+        telstate_cs = view_capture_stream(telstate.root(), capture_block_id, s)
+        if telstate_cs.get('stream_type') == 'sdp.flags' and \
+           stream_name in telstate_cs['src_streams']:
+            telstate_extra_flags.append(telstate_cs)
+    return telstate_extra_flags
+
+
+def stream_graphs(telstate, store, keep):
+    """Prepare Dask graphs to copy all chunked arrays of a capture stream.
+
+    This returns a list of Dask graphs and also modifies `out_telstate` and
+    `out_store`.
+    """
+    all_chunks = defaultdict(list)
+    for array, info in telstate['chunk_info'].items():
+        darray = store.get_dask_array(
+            array, info['chunks'], info['dtype'], errors='dryrun'
+        )
+        kept_blocks = dask_getitem(darray, keep[:darray.ndim]).blocks.ravel()
+        chunks = sorted(chunk.name + '.npy' for chunk in dask.compute(*kept_blocks))
+        all_chunks[info['prefix']].extend(chunks)
+    return all_chunks
+
+
+def rclone_copy(bucket, dest, endpoint, token=None, files=None, workers=4):
     env = os.environ.copy()
     # Ignore config file as we will configure rclone with environment variables instead
     env['RCLONE_CONFIG'] = ''
@@ -55,18 +91,45 @@ def rclone_copy(bucket, dest, endpoint, token=None, workers=4):
     if token:
          env['RCLONE_HEADER'] = f'Authorization: Bearer {token}'
     rclone_args = ['rclone', 'copy', f'archive:{bucket}', dest]
-    subprocess.run(rclone_args, check=True, env=env)
+    run_kwargs = dict(check=True, env=env)
+    if files is not None:
+        rclone_args.extend(['--files-from', '-'])
+        run_kwargs.update(input='\n'.join(files), text=True)
+    subprocess.run(rclone_args, **run_kwargs)
 
 
 def main():
     args = parse_args()
     url_parts = urlparse(args.source)
-    cbid = PurePosixPath(url_parts.path).parts[1]
+    _, cbid, rdb_filename = PurePosixPath(url_parts.path).parts
     endpoint = urlunparse((url_parts.scheme, url_parts.netloc, '', '', '', ''))
     token = dict(parse_qsl(url_parts.query)).get('token')
-    dest = args.dest / cbid
-    print(f"\nCopying metadata bucket ({cbid}) to {dest.absolute()} ...")
-    rclone_copy(cbid, dest, endpoint, token, args.workers)
+    meta_path = args.dest / cbid
+    print(f"\nCopying metadata bucket ({cbid}) to {meta_path.absolute()} ...")
+    rclone_copy(cbid, meta_path, endpoint, token, workers=args.workers)
+
+    query = urlencode(dict(token=token, s3_endpoint_url=endpoint))
+    rdb_path = (meta_path / rdb_filename).absolute()
+    local_rdb = urlunparse(('file', '', str(rdb_path), '', query, ''))
+    d = katdal.open(local_rdb)
+    cbid = d.source.capture_block_id
+    stream = d.source.stream_name
+    telstate = d.source.telstate
+    store = d.source.data.store
+    d.select(**args.select)
+    # Iterate over all stream views, collecting chunk names for each chunked array
+    chunks = {}
+    for view in [telstate] + extra_flag_streams(telstate, cbid, stream):
+        chunks.update(stream_graphs(view, store, d.vis.keep))
+    for bucket, files in chunks.items():
+        bucket_path = args.dest / bucket
+        n_chunks = len(files)
+        if not args.select:
+            n_chunks = f'all {n_chunks}'
+            files = None
+        print(f"\nCopying {n_chunks} chunks from data bucket {bucket} "
+              f"to {bucket_path.absolute()} ...")
+        rclone_copy(bucket, bucket_path, endpoint, token, files, args.workers)
 
 
 if __name__ == '__main__':
