@@ -45,17 +45,18 @@ class BadChunk(ValueError, ChunkStoreError):
 
 
 class PlaceholderChunk:
-    """Chunk returned to indicate missing data."""
+    """Dummy chunk returned to indicate missing data (and chunk identity)."""
 
-    def __init__(self, shape, dtype):
+    def __init__(self, shape, dtype, name=''):
         self.shape = shape
         self.dtype = np.dtype(dtype)
+        self.name = name
 
     def __getitem__(self, index):
         # Create an array with a zero-sized dtype, so that it takes no memory
         dummy = np.empty(self.shape, dtype=[])
         new_shape = dummy[index].shape
-        return PlaceholderChunk(new_shape, self.dtype)
+        return PlaceholderChunk(new_shape, self.dtype, self.name)
 
 
 def _floor_power_of_two(x):
@@ -319,13 +320,15 @@ class ChunkStore:
             chunk_name, shape = self.chunk_metadata(array_name, slices)
             return np.full(shape, default_value, dtype)
 
-    def get_chunk_or_placeholder(self, array_name, slices, dtype):
+    def get_chunk_or_placeholder(self, array_name, slices, dtype, dryrun=False):
         """Get chunk from the store but return a :class:`PlaceholderChunk` if it is missing."""
-        try:
-            return self.get_chunk(array_name, slices, dtype)
-        except ChunkNotFound:
-            shape = tuple(s.stop - s.start for s in slices)
-            return PlaceholderChunk(shape, dtype)
+        if not dryrun:
+            try:
+                return self.get_chunk(array_name, slices, dtype)
+            except ChunkNotFound:
+                pass
+        chunk_name, shape = self.chunk_metadata(array_name, slices)
+        return PlaceholderChunk(shape, dtype, chunk_name)
 
     def create_array(self, array_name):
         """Create a new array if it does not already exist.
@@ -516,7 +519,7 @@ class ChunkStore:
             Data type of array
         offset : tuple of int, optional
             Offset to add to each dimension when addressing chunks in store
-        errors : number or 'raise' or 'placeholder', optional
+        errors : number or 'raise' or 'placeholder' or 'dryrun', optional
             Error handling. If 'raise', exceptions are passed through,
             causing the evaluation to fail.
 
@@ -526,6 +529,10 @@ class ChunkStore:
             material for building new graphs via functions like
             :func:`da.map_blocks`.
 
+            If 'dryrun', pretend that all chunks are missing and return
+            :class:`PlaceholderChunk`s instead. This is useful for identifying
+            the chunks to be downloaded while avoiding any data transfers.
+
             If a numeric value, it is used as a default value.
 
         Returns
@@ -534,12 +541,16 @@ class ChunkStore:
             Dask array of given dtype
         """
         getter_kwargs = {}
-        if errors == 'placeholder':
+        if errors in ('placeholder', 'dryrun'):
             getter = self.get_chunk_or_placeholder
+            getter_kwargs['dryrun'] = errors == 'dryrun'
         elif errors == 'raise':
             getter = self.get_chunk
         elif isinstance(errors, str):
-            raise ValueError("Unexpected value for errors; expected 'placeholder', 'raise', or a number")
+            raise ValueError(
+                "Unexpected value for errors; expected "
+                "'placeholder', 'raise', 'dryrun' or a number"
+            )
         else:
             getter = self.get_chunk_or_default
             getter_kwargs['default_value'] = errors
