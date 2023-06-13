@@ -23,7 +23,7 @@ import pytest
 
 from katdal.chunkstore import (BadChunk, ChunkNotFound, ChunkStore,
                                PlaceholderChunk, StoreUnavailable,
-                               generate_chunks, _prune_chunks)
+                               generate_chunks, _prune_chunks, _blocks_ravel)
 
 
 class TestGenerateChunks:
@@ -317,8 +317,9 @@ class ChunkStoreTestBase:
                                              dask_array.dtype, offset, errors='dryrun')
             # Find the blocks involved in a slice of the original array
             index = np.s_[2:, 10:, 1:]
-            placeholder_chunks = da.compute(*pull[index].blocks.ravel())
-            assert len(placeholder_chunks) == dask_array[index].blocks.size
+            placeholder_chunks = da.compute(*_blocks_ravel(pull[index]))
+            # XXX Workaround for array.blocks.size (dask >= 2021.11.0)
+            assert len(placeholder_chunks) == np.prod(dask_array[index].numblocks)
             assert all(isinstance(c, PlaceholderChunk) for c in placeholder_chunks)
             slices = da.core.slices_from_chunks(dask_array.chunks)
             all_chunks = [self.store.chunk_metadata(array_name, s)[0] for s in slices]

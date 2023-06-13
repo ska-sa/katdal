@@ -59,6 +59,18 @@ class PlaceholderChunk:
         return PlaceholderChunk(new_shape, self.dtype, self.name)
 
 
+def _blocks_ravel(array):
+    """Workaround for `array.blocks.ravel()`.
+
+    Return a flat list of mini dask arrays, one per chunk / block in `array`.
+    XXX Remove once we depend on dask >= 2021.11.0.
+    """
+    ndim = len(array.numblocks)
+    # Enumerate all block indices and pass them to old .blocks (an IndexCallable)
+    block_indices = np.indices(array.numblocks).reshape(ndim, -1).T
+    return [array.blocks[tuple(ind)] for ind in block_indices]
+
+
 def _floor_power_of_two(x):
     """The largest power of two smaller than or equal to `x`."""
     return 2 ** int(np.floor(np.log2(x)))

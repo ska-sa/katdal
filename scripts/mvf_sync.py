@@ -34,6 +34,7 @@ import katdal
 from collections import defaultdict
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+from katdal.chunkstore import _blocks_ravel
 from katdal.datasources import view_capture_stream
 from katdal.lazy_indexer import dask_getitem
 
@@ -73,7 +74,7 @@ def stream_graphs(telstate, store, keep):
         darray = store.get_dask_array(
             array, info['chunks'], info['dtype'], errors='dryrun'
         )
-        kept_blocks = dask_getitem(darray, keep[:darray.ndim]).blocks.ravel()
+        kept_blocks = _blocks_ravel(dask_getitem(darray, keep[:darray.ndim]))
         chunks = sorted(chunk.name + '.npy' for chunk in dask.compute(*kept_blocks))
         all_chunks[info['prefix']].extend(chunks)
     return all_chunks
