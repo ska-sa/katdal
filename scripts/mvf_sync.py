@@ -109,9 +109,13 @@ def main():
     print(f"\nCopying metadata bucket ({cbid}) to {meta_path.absolute()} ...")
     rclone_copy(cbid, meta_path, endpoint, token, workers=args.workers)
 
-    query = urlencode(dict(token=token, s3_endpoint_url=endpoint))
+    query_params = {'s3_endpoint_url': endpoint}
+    if token:
+        query_params['token'] = token
+    query = urlencode(query_params)
     rdb_path = (meta_path / rdb_filename).absolute()
     local_rdb = urlunparse(('file', '', str(rdb_path), '', query, ''))
+    print(f"Opening local RDB file: {local_rdb}")
     d = katdal.open(local_rdb)
     cbid = d.source.capture_block_id
     stream = d.source.stream_name
