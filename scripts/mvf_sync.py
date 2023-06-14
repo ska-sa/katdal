@@ -27,6 +27,7 @@ import argparse
 import json
 import os
 import subprocess
+import sys
 
 import dask
 import katdal
@@ -37,6 +38,10 @@ from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 from katdal.chunkstore import _blocks_ravel
 from katdal.datasources import view_capture_stream
 from katdal.lazy_indexer import dask_getitem
+from packaging import version
+
+# This version is good for file-less config, enabling --config "" and --files-from -
+MINIMUM_RCLONE_VERSION = version.Version('1.56')
 
 
 def parse_args():
@@ -80,6 +85,21 @@ def stream_graphs(telstate, store, keep):
     return all_chunks
 
 
+def has_recent_rclone():
+    try:
+        result = subprocess.run(['rclone', 'version'], capture_output=True, check=True)
+    except FileNotFoundError:
+        print('The rclone tool was not found. Please install at least version '
+              f'{MINIMUM_RCLONE_VERSION} (see rclone.org) or check the path.')
+    else:
+        installed_version = version.parse(result.stdout.split()[1].decode())
+        if installed_version >= MINIMUM_RCLONE_VERSION:
+            return True
+        print(f'Found rclone {installed_version} but the script needs version '
+              f'{MINIMUM_RCLONE_VERSION}. See rclone.org for installation options.')
+    return False
+
+
 def rclone_copy(bucket, dest, endpoint, token=None, files=None, workers=4):
     env = os.environ.copy()
     # Ignore config file as we will configure rclone with environment variables instead
@@ -101,6 +121,8 @@ def rclone_copy(bucket, dest, endpoint, token=None, files=None, workers=4):
 
 def main():
     args = parse_args()
+    if not has_recent_rclone():
+        return False
     url_parts = urlparse(args.source)
     _, cbid, rdb_filename = PurePosixPath(url_parts.path).parts
     endpoint = urlunparse((url_parts.scheme, url_parts.netloc, '', '', '', ''))
@@ -135,7 +157,8 @@ def main():
         print(f"\nCopying {n_chunks} chunks from data bucket {bucket} "
               f"to {bucket_path.absolute()} ...")
         rclone_copy(bucket, bucket_path, endpoint, token, files, args.workers)
-
+    return True
 
 if __name__ == '__main__':
-    main()
+    if not main():
+        sys.exit(1)
