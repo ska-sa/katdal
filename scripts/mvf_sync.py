@@ -50,8 +50,6 @@ def parse_args():
     parser.add_argument('dest', type=Path, help='Output directory')
     parser.add_argument('--select', type=json.loads, default={},
                         help='Kwargs for DataSet.select as a JSON object')
-    parser.add_argument('--workers', type=int, default=8 * dask.system.CPU_COUNT,
-                        help='Number of rclone workers for parallel I/O [%(default)s]')
     args = parser.parse_args()
     return args
 
@@ -100,15 +98,14 @@ def has_recent_rclone():
     return False
 
 
-def rclone_copy(bucket, dest, endpoint, token=None, files=None, workers=4):
+def rclone_copy(bucket, dest, endpoint, token=None, files=None):
     env = os.environ.copy()
     # Ignore config file as we will configure rclone with environment variables instead
     env['RCLONE_CONFIG'] = ''
-    env['RCLONE_S3_PROVIDER'] = 'Ceph'
-    env['RCLONE_PROGRESS'] = '1'
-    env['RCLONE_CACHE_WORKERS'] = str(workers)
     env['RCLONE_CONFIG_ARCHIVE_TYPE'] = 's3'
     env['RCLONE_CONFIG_ARCHIVE_ENDPOINT'] = endpoint
+    env['RCLONE_S3_PROVIDER'] = 'Ceph'
+    env['RCLONE_PROGRESS'] = '1'
     if token:
          env['RCLONE_HEADER'] = f'Authorization: Bearer {token}'
     rclone_args = ['rclone', 'copy', f'archive:{bucket}', dest]
@@ -129,7 +126,7 @@ def main():
     token = dict(parse_qsl(url_parts.query)).get('token')
     meta_path = args.dest / cbid
     print(f"\nCopying metadata bucket ({cbid}) to {meta_path.absolute()} ...")
-    rclone_copy(cbid, meta_path, endpoint, token, workers=args.workers)
+    rclone_copy(cbid, meta_path, endpoint, token)
 
     query_params = {'s3_endpoint_url': endpoint}
     if token:
@@ -156,7 +153,7 @@ def main():
             files = None
         print(f"\nCopying {n_chunks} chunks from data bucket {bucket} "
               f"to {bucket_path.absolute()} ...")
-        rclone_copy(bucket, bucket_path, endpoint, token, files, args.workers)
+        rclone_copy(bucket, bucket_path, endpoint, token, files)
     return True
 
 if __name__ == '__main__':
