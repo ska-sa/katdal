@@ -26,6 +26,7 @@
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -46,7 +47,7 @@ MINIMUM_RCLONE_VERSION = version.Version('1.56')
 
 def parse_args(args=None, namespace=None):
     parser = argparse.ArgumentParser(
-        usage='%(prog)s [-h] [--select SELECT] source dest [rclone options]',
+        usage='%(prog)s [-h] [--select JSON] [--workers N] source dest [rclone options]',
         description='Copy MVFv4 dataset (or a subset of chunks) using rclone.',
         epilog='Any extra script options are passed to rclone.',
     )
@@ -54,7 +55,13 @@ def parse_args(args=None, namespace=None):
     parser.add_argument('dest', type=Path, help='Output directory')
     parser.add_argument('--select', type=json.loads, default={},
                         help='Kwargs for DataSet.select as a JSON object')
+    parser.add_argument('--workers', type=int, default=min(8 * dask.system.CPU_COUNT, 200),
+                        help='Number of rclone threads for parallel I/O [%(default)s]')
     args, rclone_args = parser.parse_known_args(args, namespace)
+    rclone_args.extend([
+        '--transfers', str(args.workers),
+        '--checkers', str(min(args.workers, 20))
+    ])
     return args, rclone_args
 
 
@@ -102,6 +109,17 @@ def has_recent_rclone():
     return False
 
 
+def rclone_output_fit_to_terminal(args):
+    new_args = args.copy()
+    # Find the last instances of --transfers and --checkers flags
+    reversed_args = list(reversed(new_args))
+    n_transfers = int(reversed_args[reversed_args.index('--transfers') - 1])
+    n_checkers = int(reversed_args[reversed_args.index('--checkers') - 1])
+    if n_transfers + n_checkers + 6 > shutil.get_terminal_size().lines:
+        new_args.append('--stats-one-line')
+    return new_args
+
+
 def rclone_copy(endpoint, bucket, dest, args, token=None, files=None):
     env = os.environ.copy()
     # Ignore config file as we will configure rclone with environment variables instead
@@ -111,6 +129,8 @@ def rclone_copy(endpoint, bucket, dest, args, token=None, files=None):
     rclone_args = [
         'rclone', 'copy', f'archive:{bucket}', dest,
         '--s3-provider', 'Ceph',
+        '--fast-list',
+        '--checksum',
         '--progress',
     ]
     if token:
@@ -121,6 +141,7 @@ def rclone_copy(endpoint, bucket, dest, args, token=None, files=None):
         run_kwargs.update(input='\n'.join(files), text=True)
     # User-supplied arguments can override any of the above args
     rclone_args.extend(args)
+    rclone_args = rclone_output_fit_to_terminal(rclone_args)
     subprocess.run(rclone_args, **run_kwargs)
 
 
