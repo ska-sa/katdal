@@ -44,14 +44,18 @@ from packaging import version
 MINIMUM_RCLONE_VERSION = version.Version('1.56')
 
 
-def parse_args():
-    parser = argparse.ArgumentParser()
+def parse_args(args=None, namespace=None):
+    parser = argparse.ArgumentParser(
+        usage='%(prog)s [-h] [--select SELECT] source dest [rclone options]',
+        description='Copy MVFv4 dataset (or a subset of chunks) using rclone.',
+        epilog='Any extra script options are passed to rclone.',
+    )
     parser.add_argument('source', help='Dataset URL')
     parser.add_argument('dest', type=Path, help='Output directory')
     parser.add_argument('--select', type=json.loads, default={},
                         help='Kwargs for DataSet.select as a JSON object')
-    args = parser.parse_args()
-    return args
+    args, rclone_args = parser.parse_known_args(args, namespace)
+    return args, rclone_args
 
 
 def extra_flag_streams(telstate, capture_block_id, stream_name):
@@ -98,26 +102,30 @@ def has_recent_rclone():
     return False
 
 
-def rclone_copy(bucket, dest, endpoint, token=None, files=None):
+def rclone_copy(endpoint, bucket, dest, args, token=None, files=None):
     env = os.environ.copy()
     # Ignore config file as we will configure rclone with environment variables instead
     env['RCLONE_CONFIG'] = ''
     env['RCLONE_CONFIG_ARCHIVE_TYPE'] = 's3'
     env['RCLONE_CONFIG_ARCHIVE_ENDPOINT'] = endpoint
-    env['RCLONE_S3_PROVIDER'] = 'Ceph'
-    env['RCLONE_PROGRESS'] = '1'
+    rclone_args = [
+        'rclone', 'copy', f'archive:{bucket}', dest,
+        '--s3-provider', 'Ceph',
+        '--progress',
+    ]
     if token:
-         env['RCLONE_HEADER'] = f'Authorization: Bearer {token}'
-    rclone_args = ['rclone', 'copy', f'archive:{bucket}', dest]
+        rclone_args.extend(['--header', f'Authorization: Bearer {token}'])
     run_kwargs = dict(check=True, env=env)
     if files is not None:
         rclone_args.extend(['--files-from', '-'])
         run_kwargs.update(input='\n'.join(files), text=True)
+    # User-supplied arguments can override any of the above args
+    rclone_args.extend(args)
     subprocess.run(rclone_args, **run_kwargs)
 
 
 def main():
-    args = parse_args()
+    args, rclone_args = parse_args()
     if not has_recent_rclone():
         return False
     url_parts = urlparse(args.source)
@@ -126,7 +134,7 @@ def main():
     token = dict(parse_qsl(url_parts.query)).get('token')
     meta_path = args.dest / cbid
     print(f"\nCopying metadata bucket ({cbid}) to {meta_path.absolute()} ...")
-    rclone_copy(cbid, meta_path, endpoint, token)
+    rclone_copy(endpoint, cbid, meta_path, rclone_args, token)
 
     query_params = {'s3_endpoint_url': endpoint}
     if token:
@@ -153,7 +161,7 @@ def main():
             files = None
         print(f"\nCopying {n_chunks} chunks from data bucket {bucket} "
               f"to {bucket_path.absolute()} ...")
-        rclone_copy(bucket, bucket_path, endpoint, token, files)
+        rclone_copy(endpoint, bucket, bucket_path, rclone_args, token, files)
     return True
 
 if __name__ == '__main__':
