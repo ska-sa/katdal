@@ -57,12 +57,12 @@ def parse_args(args=None, namespace=None):
                         help='Kwargs for DataSet.select as a JSON object')
     parser.add_argument('--workers', type=int, default=min(8 * dask.system.CPU_COUNT, 200),
                         help='Number of rclone threads for parallel I/O [%(default)s]')
-    args, rclone_args = parser.parse_known_args(args, namespace)
+    mvf_sync_args, rclone_args = parser.parse_known_args(args, namespace)
     rclone_args = [
-        '--transfers', str(args.workers),
-        '--checkers', str(min(args.workers, 20))
+        '--transfers', str(mvf_sync_args.workers),
+        '--checkers', str(min(mvf_sync_args.workers, 20))
     ] + rclone_args
-    return args, rclone_args
+    return mvf_sync_args, rclone_args
 
 
 def extra_flag_streams(telstate, capture_block_id, stream_name):
