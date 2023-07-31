@@ -370,7 +370,7 @@ def main():
 
     # get a set of user selected available tracking scans, ignore slew scans
     avail_tracks = list(map(lambda x: x[0],
-                            filter(lambda x: x[1] == 'track',
+                            filter(lambda x: x[1] in ('track','scan'),
                                    dataset.scans())))
     dump_scans = options.scans if options.scans else avail_tracks
     dump_scans = list(set(dump_scans).intersection(set(avail_tracks)))
