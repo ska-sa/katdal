@@ -43,13 +43,39 @@ SPW = SpectralWindow(
 
 
 class MinimalDataSet(DataSet):
-    """Minimal data set containing a single target track."""
-    def __init__(self, target, timestamps, subarray=SUBARRAY, spectral_window=SPW):
+    """Minimal data set containing a series of slews and tracks.
+
+    The timestamps are divided evenly into compound scans (one per target).
+    Each compound scan consists of a 1-dump slew followed by a track.
+
+    This has to be a derived class instead of a factory function or fixture
+    because :class:`DataSet` is abstract. (XXX Actually it only needs
+    timestamps to be implemented for these tests to work, so it is nearly
+    there.)
+
+    Parameters
+    ----------
+    targets : list of :class:`katpoint.Target`
+    timestamps : array of float
+    subarray : :class:`katdal.dataset.Subarray`
+    spectral_window : :class:`katdal.spectral_window.SpectralWindow`
+    """
+    def __init__(self, targets, timestamps, subarray=SUBARRAY, spectral_window=SPW):
         super().__init__(name='test', ref_ant='array')
         num_dumps = len(timestamps)
         num_chans = spectral_window.num_chans
         num_corrprods = len(subarray.corr_products)
         dump_period = timestamps[1] - timestamps[0]
+
+        num_compscans = len(targets)
+        num_dumps_per_compscan = num_dumps // num_compscans
+        assert num_dumps_per_compscan * num_compscans == num_dumps, \
+            "len(timestamps) should be an integer multiple of len(targets)"
+        compscan_starts = np.arange(0, num_dumps, num_dumps_per_compscan)
+        compscan_events = np.r_[compscan_starts, num_dumps]
+        # Each slew contains just 1 dump to make things simple
+        scan_events = sorted(np.r_[compscan_starts, compscan_starts + 1, num_dumps])
+        target_sensor = CategoricalData(targets, compscan_events)
 
         def constant_sensor(value):
             return CategoricalData([value], [0, num_dumps])
@@ -57,21 +83,31 @@ class MinimalDataSet(DataSet):
         self.subarrays = [subarray]
         self.spectral_windows = [spectral_window]
         sensors = {}
+        sensors['Observation/spw_index'] = constant_sensor(0)
+        sensors['Observation/subarray_index'] = constant_sensor(0)
         for ant in subarray.ants:
             sensors[f'Antennas/{ant.name}/antenna'] = constant_sensor(ant)
-            az, el = target.azel(timestamps, ant)
-            sensors[f'Antennas/{ant.name}/az'] = az
-            sensors[f'Antennas/{ant.name}/el'] = el
-        # Extract array reference position as 'array_ant' from last antenna
-        array_ant_fields = ['array'] + ant.description.split(',')[1:5]
-        array_ant = Antenna(','.join(array_ant_fields))
+            ant_az = []
+            ant_el = []
+            for segment, target in target_sensor.segments():
+                az, el = target.azel(timestamps[segment], ant)
+                ant_az.append(az)
+                ant_el.append(el)
+            sensors[f'Antennas/{ant.name}/az'] = np.concatenate(ant_az)
+            sensors[f'Antennas/{ant.name}/el'] = np.concatenate(ant_el)
+        array_ant = subarray.ants[0].array_reference_antenna()
         sensors['Antennas/array/antenna'] = constant_sensor(array_ant)
 
-        sensors['Observation/target'] = constant_sensor(target)
-        for name in ('spw', 'subarray', 'scan', 'compscan', 'target'):
-            sensors[f'Observation/{name}_index'] = constant_sensor(0)
-        sensors['Observation/scan_state'] = constant_sensor('track')
-        sensors['Observation/label'] = constant_sensor('track')
+        compscan_sensor = CategoricalData(range(num_compscans), compscan_events)
+        label_sensor = CategoricalData(['track'] * num_compscans, compscan_events)
+        sensors['Observation/target'] = target_sensor
+        sensors['Observation/compscan_index'] = compscan_sensor
+        sensors['Observation/target_index'] = compscan_sensor
+        sensors['Observation/label'] = label_sensor
+        scan_sensor = CategoricalData(range(2 * num_compscans), scan_events)
+        state_sensor = CategoricalData(['slew', 'track'] * num_compscans, scan_events)
+        sensors['Observation/scan_index'] = scan_sensor
+        sensors['Observation/scan_state'] = state_sensor
 
         self._timestamps = timestamps
         self._time_keep = np.full(num_dumps, True, dtype=bool)
@@ -83,7 +119,7 @@ class MinimalDataSet(DataSet):
         self.sensor = SensorCache(sensors, timestamps, dump_period,
                                   keep=self._time_keep,
                                   virtual=DEFAULT_VIRTUAL_SENSORS)
-        self.catalogue.add(target)
+        self.catalogue.add(targets)
         self.catalogue.antenna = array_ant
         self.select(spw=0, subarray=0)
 
@@ -131,7 +167,7 @@ class TestVirtualSensors:
         self.target = Target('PKS1934-638, radec, 19:39, -63:42')
         # Pick a time when the source is up as that seems more realistic
         self.timestamps = 1234667890.0 + 1.0 * np.arange(10)
-        self.dataset = MinimalDataSet(self.target, self.timestamps)
+        self.dataset = MinimalDataSet([self.target], self.timestamps)
         self.antennas = self.dataset.subarrays[0].ants
         self.array_ant = self.dataset.sensor.get('Antennas/array/antenna')[0]
 
