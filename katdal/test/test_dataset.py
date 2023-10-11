@@ -27,9 +27,24 @@ from katdal.sensordata import SensorCache
 from katdal.spectral_window import SpectralWindow
 
 
+ANTENNAS = [
+    Antenna('m000, -30:42:39.8, 21:26:38.0, 1086.6, 13.5, -8.264 -207.29 8.5965'),
+    Antenna('m063, -30:42:39.8, 21:26:38.0, 1086.6, 13.5, -3419.5845 -1840.48 16.3825')
+]
+CORRPRODS = [
+    ('m000h', 'm000h'), ('m000v', 'm000v'),
+    ('m063h', 'm063h'), ('m063v', 'm063v'),
+    ('m000h', 'm063h'), ('m000v', 'm063v')
+]
+SUBARRAY = Subarray(ANTENNAS, CORRPRODS)
+SPW = SpectralWindow(
+    centre_freq=1284e6, channel_width=0, num_chans=16, sideband=1, bandwidth=856e6
+)
+
+
 class MinimalDataSet(DataSet):
     """Minimal data set containing a single target track."""
-    def __init__(self, target, subarray, spectral_window, timestamps):
+    def __init__(self, target, timestamps, subarray=SUBARRAY, spectral_window=SPW):
         super().__init__(name='test', ref_ant='array')
         num_dumps = len(timestamps)
         num_chans = spectral_window.num_chans
@@ -114,19 +129,10 @@ def test_selection_to_list():
 class TestVirtualSensors:
     def setup_method(self):
         self.target = Target('PKS1934-638, radec, 19:39, -63:42')
-        self.antennas = [Antenna('m000, -30:42:39.8, 21:26:38.0, 1086.6, 13.5, '
-                                 '-8.264 -207.29 8.5965'),
-                         Antenna('m063, -30:42:39.8, 21:26:38.0, 1086.6, 13.5, '
-                                 '-3419.5845 -1840.48 16.3825')]
-        corrprods = [('m000h', 'm000h'), ('m000v', 'm000v'),
-                     ('m063h', 'm063h'), ('m063v', 'm063v'),
-                     ('m000h', 'm063h'), ('m000v', 'm063v')]
-        subarray = Subarray(self.antennas, corrprods)
-        spw = SpectralWindow(centre_freq=1284e6, channel_width=0, num_chans=16,
-                             sideband=1, bandwidth=856e6)
         # Pick a time when the source is up as that seems more realistic
         self.timestamps = 1234667890.0 + 1.0 * np.arange(10)
-        self.dataset = MinimalDataSet(self.target, subarray, spw, self.timestamps)
+        self.dataset = MinimalDataSet(self.target, self.timestamps)
+        self.antennas = self.dataset.subarrays[0].ants
         self.array_ant = self.dataset.sensor.get('Antennas/array/antenna')[0]
 
     def test_timestamps(self):
