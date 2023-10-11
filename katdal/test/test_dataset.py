@@ -17,6 +17,7 @@
 """Tests for :py:mod:`katdal.dataset`."""
 
 import numpy as np
+import pytest
 from katpoint import Antenna, Target, Timestamp, rad2deg
 from numpy.testing import assert_array_almost_equal, assert_array_equal
 
@@ -206,8 +207,78 @@ class TestVirtualSensors:
         assert_array_equal(self.dataset.v[:, 5], v)
         assert_array_equal(self.dataset.w[:, 5], w)
 
+
+class TestSelection:
+    def setup_method(self):
+        self.targets = [
+            # It would have been nice to have radec = 19:39, -63:42 but then
+            # selection by description string does not work because the catalogue's
+            # description string pads it out to radec = 19:39:00.00, -63:42:00.0.
+            # (XXX Maybe fix Target comparison in katpoint to support this?)
+            Target('J1939-6342 | PKS1934-638, radec bpcal, 19:39:25.03, -63:42:45.6'),
+            Target('J1939-6342, radec gaincal, 19:39:25.03, -63:42:45.6'),
+            Target('J0408-6545 | PKS 0408-65, radec bpcal, 4:08:20.38, -65:45:09.1'),
+            Target('J1346-6024 | Cen B, radec, 13:46:49.04, -60:24:29.4'),
+        ]
+        # Ensure that len(timestamps) is an integer multiple of len(targets)
+        self.timestamps = 1234667890.0 + 1.0 * np.arange(12)
+        self.dataset = MinimalDataSet(self.targets, self.timestamps)
+
     def test_selecting_antenna(self):
         self.dataset.select(ants='~m000')
         assert_array_equal(
             self.dataset.corr_products,
             [('m063h', 'm063h'), ('m063v', 'm063v')])
+
+    @pytest.mark.parametrize(
+        'scans,dumps',
+        [
+             ('track', [1, 2, 4, 5, 7, 8, 10, 11]),
+             ('slew', [0, 3, 6, 9]),
+             ('~slew', [1, 2, 4, 5, 7, 8, 10, 11]),
+             (('track', 'slew'), np.arange(12)),
+             (('track', '~slew'), [1, 2, 4, 5, 7, 8, 10, 11]),
+             (1, [1, 2]),
+             ([1, 3, 4], [1, 2, 4, 5, 6]),
+        ]
+    )
+    def test_select_scans(self, scans, dumps):
+        self.dataset.select(scans=scans)
+        assert_array_equal(self.dataset.dumps, dumps)
+
+    @pytest.mark.parametrize(
+        'compscans,dumps',
+        [
+             ('track', np.arange(12)),
+             ('~track', []),
+             (1, [3, 4, 5]),
+             ([1, 3], [3, 4, 5, 9, 10, 11]),
+        ]
+    )
+    def test_select_compscans(self, compscans, dumps):
+        self.dataset.select(compscans=compscans)
+        assert_array_equal(self.dataset.dumps, dumps)
+
+
+    @pytest.mark.parametrize(
+        'targets,dumps',
+        [
+            ('PKS1934-638', [0, 1, 2]),
+            (('J0408-6545', 'Cen B'), [6, 7, 8, 9, 10, 11]),
+            ('J1939-6342, radec gaincal, 19:39, -63:42', []),
+            ('J1939-6342, radec gaincal, 19:39:25.03, -63:42:45.6', [3, 4, 5]),
+            (Target('J1939-6342, radec gaincal, 19:39:25.03, -63:42:45.6'), [3, 4, 5]),
+            (
+                [
+                    Target('J1939-6342, radec gaincal, 19:39:25.03, -63:42:45.6'),
+                    'J1346-6024 | Cen B, radec, 13:46:49.04, -60:24:29.4',
+                ],
+                [3, 4, 5, 9, 10, 11]
+            ),
+            (1, [3, 4, 5]),
+            ([1, 3], [3, 4, 5, 9, 10, 11]),
+        ]
+    )
+    def test_select_targets(self, targets, dumps):
+        self.dataset.select(targets=targets)
+        assert_array_equal(self.dataset.dumps, dumps)
