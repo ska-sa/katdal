@@ -55,6 +55,7 @@ from urllib3.util.retry import Retry
 
 from katdal.chunkstore import ChunkNotFound, StoreUnavailable
 from katdal.chunkstore_s3 import (
+    _CHUNK_EXTENSION,
     _DEFAULT_SERVER_GLITCHES,
     InvalidToken,
     S3ChunkStore,
@@ -619,7 +620,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         suggestion = 'please-respond-with-500-for-0.2-seconds'
         chunk, slices, array_name = self._put_chunk(suggestion)
         chunk_name, _ = self.store.chunk_metadata(array_name, slices, dtype=chunk.dtype)
-        url = self.store._chunk_url(chunk_name)
+        url = self.store.make_url(chunk_name + _CHUNK_EXTENSION)
         response = self.store.request('GET', url, ignored_errors=(500,), retries=0, stream=True)
         assert response.status_code == 500
 

@@ -74,6 +74,7 @@ _BUCKET_POLICY = {
     ]
 }
 
+_CHUNK_EXTENSION = '.npy'
 # These HTTP responses typically indicate temporary S3 server / proxy overload,
 # which will trigger retries terminating in a missing data response if unsuccessful.
 _DEFAULT_SERVER_GLITCHES = (500, 502, 503, 504)
@@ -568,9 +569,10 @@ class S3ChunkStore(ChunkStore):
         self.public_read = public_read
         self.expiry_days = int(expiry_days)
 
-    def _chunk_url(self, chunk_name, extension='.npy'):
-        """Assemble URL corresponding to chunk (or array) name."""
-        return urllib.parse.urljoin(self._url, to_str(urllib.parse.quote(chunk_name + extension)))
+    def make_url(self, relative_path):
+        """Assemble URL by combining base store URL with `relative_path`."""
+        relative_path = to_str(urllib.parse.quote(relative_path))
+        return urllib.parse.urljoin(self._url, relative_path)
 
     def request(
         self,
@@ -662,7 +664,7 @@ class S3ChunkStore(ChunkStore):
         """See the docstring of :meth:`ChunkStore.get_chunk`."""
         dtype = np.dtype(dtype)
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
-        url = self._chunk_url(chunk_name)
+        url = self.make_url(chunk_name + _CHUNK_EXTENSION)
         # Our hacky optimisation to speed up response reading doesn't
         # work with non-identity encodings.
         headers = {'Accept-Encoding': 'identity'}
@@ -682,7 +684,7 @@ class S3ChunkStore(ChunkStore):
     def create_array(self, array_name):
         """See the docstring of :meth:`ChunkStore.create_array`."""
         # Array name is formatted as bucket/array but we only need to create bucket
-        array_url = self._chunk_url(array_name, extension='')
+        array_url = self.make_url(array_name)
         bucket_url = _bucket_url(array_url)
         self._create_bucket(bucket_url)
 
@@ -710,7 +712,7 @@ class S3ChunkStore(ChunkStore):
     def put_chunk(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put_chunk`."""
         chunk_name, _ = self.chunk_metadata(array_name, slices, chunk=chunk)
-        url = self._chunk_url(chunk_name)
+        url = self.make_url(chunk_name + _CHUNK_EXTENSION)
         npy_header, chunk = npy_header_and_body(chunk)
         # Compute the MD5 sum to protect the object against corruption in
         # transmission.
