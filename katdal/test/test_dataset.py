@@ -277,6 +277,7 @@ def test_select_compscans(dataset, compscans, expected_dumps):
     'targets,expected_dumps',
     [
         ('PKS1934-638', [0, 1, 2]),
+        ('J1939-6342', [0, 1, 2, 3, 4, 5]),
         (('J0408-6545', 'Cen B'), [6, 7, 8, 9, 10, 11]),
         ('J1939-6342, radec gaincal, 19:39:25.03, -63:42:45.6', [3, 4, 5]),
         (Target('J1939-6342, radec gaincal, 19:39:25.03, -63:42:45.6'), [3, 4, 5]),
