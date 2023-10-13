@@ -727,13 +727,13 @@ class S3ChunkStore(ChunkStore):
         """See the docstring of :meth:`ChunkStore.mark_complete`."""
         self.create_array(array_name)
         obj_name = self.join(array_name, 'complete')
-        url = urllib.parse.urljoin(self._url, obj_name)
+        url = self.make_url(obj_name)
         self.request('PUT', url, chunk_name=obj_name, data=b'')
 
     def is_complete(self, array_name):
         """See the docstring of :meth:`ChunkStore.is_complete`."""
         obj_name = self.join(array_name, 'complete')
-        url = urllib.parse.urljoin(self._url, obj_name)
+        url = self.make_url(obj_name)
         try:
             self.request('GET', url, chunk_name=obj_name)
         except ChunkNotFound:

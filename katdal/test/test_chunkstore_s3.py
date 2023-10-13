@@ -351,7 +351,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             rdb_path = self.store.join(suggestion, cbid, rdb_filename)
         else:
             rdb_path = self.store.join(cbid, rdb_filename)
-        rdb_url = urllib.parse.urljoin(self.store_url, rdb_path)
+        rdb_url = self.store.make_url(rdb_path)
         self.store.create_array(cbid)
         self.store.request('PUT', rdb_url, data=rdb_data)
         # Check that data source can be constructed from URL (with auto chunk store)
@@ -370,7 +370,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         with pytest.raises(StoreUnavailable):
             self.store.get_chunk(f'{BUCKET}-empty/x', slices, dtype)
         # Check that the standard bucket has not been verified yet
-        bucket_url = urllib.parse.urljoin(self.store._url, BUCKET)
+        bucket_url = self.store.make_url(BUCKET)
         assert bucket_url not in self.store._verified_buckets
         # Check that the standard bucket remains verified after initial check
         self.test_chunk_non_existent()
@@ -754,10 +754,10 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         data = b'x' * 1000
         cbid = PREFIX
         path = self.store.join(cbid, f'test_recovery_from_{condition}.bin')
-        url = urllib.parse.urljoin(self.store_url, path)
+        url = self.store.make_url(path)
         self.store.create_array(cbid)
         self.store.request('PUT', url, data=data)
         suggestion = f'please-{condition}-read-after-400-bytes-for-0.52-seconds'
-        url = urllib.parse.urljoin(self.store_url, self.store.join(suggestion, path))
+        url = self.store.make_url(self.store.join(suggestion, path))
         retrieved_data = self.store.request('GET', url, process=_read_object)
         assert retrieved_data == data
