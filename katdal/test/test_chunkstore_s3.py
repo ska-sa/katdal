@@ -65,6 +65,7 @@ from katdal.chunkstore_s3 import (
     decode_jwt,
     read_array,
     _read_object,
+    _normalise_bucket_name,
 )
 from katdal.datasources import TelstateDataSource, DataSourceNotFound
 from katdal.test.s3_utils import MissingProgram, S3Server, S3User
@@ -72,8 +73,11 @@ from katdal.test.test_chunkstore import ChunkStoreTestBase, generate_arrays
 from katdal.test.test_datasources import (assert_telstate_data_source_equal,
                                           make_fake_data_source)
 
-# Use a standard bucket for most tests to ensure valid bucket name (regex '^[0-9a-z.-]{3,63}$')
-BUCKET = 'katdal-unittest'
+# Use a standard bucket for most tests to ensure a valid bucket name
+# (regex '^[0-9a-z.-]{3,63}$'). While we are at it, go a step further
+# and check the underscore-to-dash conversion in `S3ChunkStore.make_url`
+# by including an underscore here.
+BUCKET = 'katdal_unittest'
 # Also authorise this prefix for tests that will make their own buckets
 PREFIX = '1234567890'
 # Pick quick but different timeouts and retries for unit tests:
@@ -165,6 +169,19 @@ class TestReadArray:
         self._truncate_and_fail_to_read(20)
         # Chop off last byte (in array part of bytes)
         self._truncate_and_fail_to_read(-1, 2)
+
+
+@pytest.mark.parametrize('url,expected',
+    [
+        ('https://archive/bucket/key/000', 'https://archive/bucket/key/000'),
+        ('https://archive/bucket/key/0_0', 'https://archive/bucket/key/0_0'),
+        ('https://archive/bu_ket/key/0_0', 'https://archive/bu-ket/key/0_0'),
+        ('https://a-chive/bu_ket/key/0-0', 'https://a-chive/bu-ket/key/0-0'),
+        ('https://archive/just-a_bucket', 'https://archive/just-a-bucket'),
+    ]
+)
+def test_normalise_bucket_name(url, expected):
+    assert _normalise_bucket_name(url) == expected
 
 
 def encode_jwt(payload):
@@ -581,7 +598,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
             raise RuntimeError('Cannot use multiple target URLs with http proxy')
         # The token authorises the standard bucket and anything starting with PREFIX
         # (as well as suggestions prepended to the path)
-        token = encode_jwt({'prefix': [BUCKET, PREFIX, 'please']})
+        token = encode_jwt({'prefix': [BUCKET.replace('_', '-'), PREFIX, 'please']})
         kwargs.setdefault('token', token)
         return super().prepare_store_args(cls.proxy_url, credentials=None, **kwargs)
 

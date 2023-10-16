@@ -206,6 +206,17 @@ def _bucket_url(url):
     return split_url._replace(path=bucket_name).geturl()
 
 
+def _normalise_bucket_name(url):
+    """Ensure that S3 bucket name in `url` contains dashes and not underscores."""
+    split_url = urllib.parse.urlsplit(url)
+    # Split path into first component (S3 bucket name) and the rest (key name or empty)
+    path_components = split_url.path.lstrip('/').split('/', 1)
+    path_components[0] = path_components[0].replace('_', '-')
+    path = '/' + '/'.join(path_components)
+    # Note to self: namedtuple._replace is not a private method, despite the underscore!
+    return split_url._replace(path=path).geturl()
+
+
 class AuthorisationFailed(StoreUnavailable):
     """Authorisation failed, e.g. due to invalid, malformed or expired token."""
 
@@ -570,9 +581,33 @@ class S3ChunkStore(ChunkStore):
         self.expiry_days = int(expiry_days)
 
     def make_url(self, relative_path):
-        """Assemble URL by combining base store URL with `relative_path`."""
+        """Assemble valid URL by combining base URL with `relative_path`.
+
+        Replace underscores in the S3 bucket name with dashes as well.
+
+        Parameters
+        ----------
+        relative_path : str
+            Path relative to base store URL / endpoint
+
+        Returns
+        -------
+        url : str
+            Complete URL
+
+        Notes
+        -----
+        Before 19 December 2018 the MeerKAT Ceph archive had underscores in
+        its S3 bucket names, even though it was in violation of the S3 spec.
+        Since October 2023 the archive runs a stricter version of Ceph and
+        those older buckets were renamed to use dashes / hyphens instead.
+        The metadata in the corresponding RDB files still refer to bucket
+        names with underscores though, and this method fixes those instances
+        while assembling their URLs.
+        """
         relative_path = to_str(urllib.parse.quote(relative_path))
-        return urllib.parse.urljoin(self._url, relative_path)
+        url = urllib.parse.urljoin(self._url, relative_path)
+        return _normalise_bucket_name(url)
 
     def request(
         self,
