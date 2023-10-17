@@ -65,8 +65,8 @@ for st in range(0, f.shape[0], args.time):
     current_time = time.time()
     elapsed = current_time - last_time
     last_time = current_time
-    size = np.product(vis.shape) * 10
+    size = np.prod(vis.shape) * 10
     logging.info('Loaded %d dumps (%.3f MB/s)', vis.shape[0], size / elapsed / 1e6)
-size = np.product(f.shape) * 10
+size = np.prod(f.shape) * 10
 elapsed = time.time() - start
 logging.info('Loaded %d bytes in %.3f s (%.3f MB/s)', size, elapsed, size / elapsed / 1e6)

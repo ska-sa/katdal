@@ -155,7 +155,7 @@ def read_array(fp):
         raise ValueError(f'Unsupported .npy version {version}')
     if dtype.hasobject:
         raise ValueError('Object arrays are not supported')
-    count = int(np.product(shape))
+    count = int(np.prod(shape))
     data = np.ndarray(count, dtype=dtype)
     # For HTTPResponse it works to just pass in `data` directly, but the
     # wrapping is added for the benefit of any other implementation that
