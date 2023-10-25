@@ -81,12 +81,13 @@ BUCKET = 'katdal_unittest'
 # Also authorise this prefix for tests that will make their own buckets
 PREFIX = '1234567890'
 # Pick quick but different timeouts and retries for unit tests:
-#  - The effective connect timeout is 5.0 (initial) + 5.0 (1 retry) = 10 seconds
+#  - The effective connect timeout is 4.0 (initial) + 4.0 (retry #1)
+#    + 0.2 (backoff) + 4.0 (retry #2) + 0.4 (backoff) + 4.0 (retry #3) = 16.6 seconds
 #  - The effective read timeout is 2.0 + 3 * 2.0 + 0.1 * (0 + 2 + 4) = 8.6 seconds
 #  - The effective status timeout is 0.1 * (0 + 2) = 0.2 seconds, or
 #    3 * 0.1 + 0.2 = 0.5 second if the suggestions use SUGGESTED_STATUS_DELAY
-TIMEOUT = (5.0, 2.0)
-RETRY = Retry(connect=1, read=3, status=2, backoff_factor=0.1,
+TIMEOUT = (4.0, 2.0)
+RETRY = Retry(connect=3, read=3, status=2, backoff_factor=0.1,
               status_forcelist=_DEFAULT_SERVER_GLITCHES)
 SUGGESTED_STATUS_DELAY = 0.1
 READ_PAUSE = 0.1
