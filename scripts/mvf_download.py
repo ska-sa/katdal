@@ -29,13 +29,12 @@ import os
 import shutil
 import subprocess
 import sys
+from collections import defaultdict
+from pathlib import Path, PurePosixPath
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import dask
 import katdal
-
-from collections import defaultdict
-from pathlib import Path, PurePosixPath
-from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 from katdal.chunkstore import _blocks_ravel
 from katdal.datasources import view_capture_stream
 from katdal.lazy_indexer import dask_getitem
@@ -46,8 +45,10 @@ MINIMUM_RCLONE_VERSION = version.Version('1.56')
 
 
 def parse_args(args=None, namespace=None):
+    """Parse script arguments into script-specific ones and ones meant for rclone."""
     parser = argparse.ArgumentParser(
-        usage='%(prog)s [-h] [--select JSON] [--workers N] source dest [rclone options]',
+        usage='%(prog)s [-h] [--select JSON] [--workers N] '
+              'source dest [rclone options]',
         description='Download MVFv4 dataset (or a subset of chunks) using rclone.',
         epilog='Any extra script options are passed to rclone.',
     )
@@ -95,6 +96,7 @@ def stream_graphs(telstate, store, keep):
 
 
 def has_recent_rclone():
+    """Check that rclone is installed and has an appropriate version."""
     try:
         result = subprocess.run(['rclone', 'version'], capture_output=True, check=True)
     except FileNotFoundError:
@@ -110,6 +112,7 @@ def has_recent_rclone():
 
 
 def rclone_fit_output_to_terminal(args):
+    """Reduce rclone output to a single line if it won't fit on terminal."""
     new_args = args.copy()
     # Find the last instances of --transfers and --checkers flags
     reversed_args = list(reversed(new_args))
@@ -121,6 +124,7 @@ def rclone_fit_output_to_terminal(args):
 
 
 def rclone_copy(endpoint, bucket, dest, args, token=None, files=None):
+    """Run 'rclone copy' with appropriate arguments."""
     env = os.environ.copy()
     # Ignore config file as we will configure rclone with environment variables instead
     env['RCLONE_CONFIG'] = ''
@@ -142,15 +146,16 @@ def rclone_copy(endpoint, bucket, dest, args, token=None, files=None):
     # User-supplied arguments can override any of the above args
     rclone_args.extend(args)
     rclone_args = rclone_fit_output_to_terminal(rclone_args)
-    subprocess.run(rclone_args, **run_kwargs)
+    subprocess.run(rclone_args, **run_kwargs)  # pylint: disable=subprocess-run-check
 
 
 def main():
+    """Main routine of mvf_download script."""
     args, rclone_args = parse_args()
     if not has_recent_rclone():
         return False
     url_parts = urlparse(args.source)
-    _, cbid, rdb_filename = PurePosixPath(url_parts.path).parts
+    *_, cbid, rdb_filename = PurePosixPath(url_parts.path).parts
     endpoint = urlunparse((url_parts.scheme, url_parts.netloc, '', '', '', ''))
     token = dict(parse_qsl(url_parts.query)).get('token')
     meta_path = args.dest / cbid
@@ -184,6 +189,7 @@ def main():
               f"to {bucket_path.absolute()} ...")
         rclone_copy(endpoint, bucket, bucket_path, rclone_args, token, files)
     return True
+
 
 if __name__ == '__main__':
     if not main():
