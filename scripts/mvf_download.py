@@ -17,7 +17,7 @@
 ################################################################################
 
 #
-# Make a local copy of an MVF4 dataset using rclone.
+# Download an MVF4 dataset using rclone.
 #
 # Ludwig Schwardt
 # 16 May 2023
@@ -48,7 +48,7 @@ MINIMUM_RCLONE_VERSION = version.Version('1.56')
 def parse_args(args=None, namespace=None):
     parser = argparse.ArgumentParser(
         usage='%(prog)s [-h] [--select JSON] [--workers N] source dest [rclone options]',
-        description='Copy MVFv4 dataset (or a subset of chunks) using rclone.',
+        description='Download MVFv4 dataset (or a subset of chunks) using rclone.',
         epilog='Any extra script options are passed to rclone.',
     )
     parser.add_argument('source', help='Dataset URL')
@@ -57,12 +57,12 @@ def parse_args(args=None, namespace=None):
                         help='Kwargs for DataSet.select as a JSON object')
     parser.add_argument('--workers', type=int, default=min(8 * dask.system.CPU_COUNT, 200),
                         help='Number of rclone threads for parallel I/O [%(default)s]')
-    mvf_sync_args, rclone_args = parser.parse_known_args(args, namespace)
+    mvf_download_args, rclone_args = parser.parse_known_args(args, namespace)
     rclone_args = [
-        '--transfers', str(mvf_sync_args.workers),
-        '--checkers', str(min(mvf_sync_args.workers, 20))
+        '--transfers', str(mvf_download_args.workers),
+        '--checkers', str(min(mvf_download_args.workers, 20))
     ] + rclone_args
-    return mvf_sync_args, rclone_args
+    return mvf_download_args, rclone_args
 
 
 def extra_flag_streams(telstate, capture_block_id, stream_name):
@@ -154,7 +154,7 @@ def main():
     endpoint = urlunparse((url_parts.scheme, url_parts.netloc, '', '', '', ''))
     token = dict(parse_qsl(url_parts.query)).get('token')
     meta_path = args.dest / cbid
-    print(f"\nCopying metadata bucket ({cbid}) to {meta_path.absolute()} ...")
+    print(f"\nDownloading metadata bucket ({cbid}) to {meta_path.absolute()} ...")
     rclone_copy(endpoint, cbid, meta_path, rclone_args, token)
 
     query_params = {'s3_endpoint_url': endpoint}
@@ -180,7 +180,7 @@ def main():
         if not args.select:
             n_chunks = f'all {n_chunks}'
             files = None
-        print(f"\nCopying {n_chunks} chunks from data bucket {bucket} "
+        print(f"\nDownloading {n_chunks} chunks from data bucket {bucket} "
               f"to {bucket_path.absolute()} ...")
         rclone_copy(endpoint, bucket, bucket_path, rclone_args, token, files)
     return True
