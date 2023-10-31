@@ -42,6 +42,53 @@ from packaging import version
 
 # This version is good for file-less config, enabling --config "" and --files-from -
 MINIMUM_RCLONE_VERSION = version.Version('1.56')
+DESCRIPTION = """
+Download MVFv4 dataset (or a subset of chunks) using rclone.
+
+You need rclone (https://rclone.org/downloads/) if it is not on your system.
+It is a single executable file that you could download to your user account.
+Just ensure that it is on your PATH; no need to configure it any further.
+
+Run the script like this:
+
+  mvf_download.py https://archive/1698676533/1698676533_sdp_l0.full.rdb?token=<> dest
+
+Data will appear in three subdirectories in the specified output directory as
+
+  dest/1698676533/...
+  dest/1698676533-sdp-l0/...
+  dest/1698676533-sdp-l1-flags/...
+
+Open the local dataset like this:
+
+  d = katdal.open("dest/1698676533/1698676533_sdp_l0.full.rdb")
+
+If the script crashes or you terminate it, you can just run it again and
+it will carry on, fixing any half-downloaded chunks along the way. If it
+completes, you can be sure that all your data is safely downloaded.
+
+BONUS: you can even copy just parts of the data (e.g. the tracks and not the
+slews). This works as long as your selection picks out a subset of the chunks
+but leaves the chunks themselves intact. Because MeerKAT data is chunked first
+in time and then in frequency, but not in correlation product, this won't help
+to select a subset of antennas or baselines or autocorrelations, as that would
+require breaking up chunks into smaller chunks. It is well suited for
+time-based selections though.
+
+Note that you have to pass a JSON object (which resembles a Python dict) as a
+string to the --select argument. The "dict" contains keyword arguments meant
+for the DataSet.select() method. It's important to note that the strings in
+the dict need double quotes (") while the entire string has to be encapsulated
+in single quotes ('). Some examples:
+
+  mvf_download.py url directory --select='{"scans": "track"}'
+  mvf_download.py url directory --select='{"scans": 1}'
+  mvf_download.py url directory --select='{"scans": [0, 1, 2]}'
+  mvf_download.py url directory --select='{"targets": "J1939-6342"}'
+
+The chunks that are not copied will appear as "lost" data in the downloaded
+dataset, but that is fine. If you apply the same selection, you won't see it.
+"""
 
 
 def parse_args(args=None, namespace=None):
@@ -49,10 +96,11 @@ def parse_args(args=None, namespace=None):
     parser = argparse.ArgumentParser(
         usage='%(prog)s [-h] [--select JSON] [--workers N] '
               'source dest [rclone options]',
-        description='Download MVFv4 dataset (or a subset of chunks) using rclone.',
+        description=DESCRIPTION,
         epilog='Any extra script options are passed to rclone.',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument('source', help='Dataset URL')
+    parser.add_argument('source', help='Dataset URL (including token if needed)')
     parser.add_argument('dest', type=Path, help='Output directory')
     parser.add_argument('--select', type=json.loads, default={},
                         help='Kwargs for DataSet.select as a JSON object')
