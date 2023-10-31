@@ -34,10 +34,10 @@ setup(name='katdal',
       author_email='ludwig@ska.ac.za',
       packages=find_packages(),
       scripts=[
-          'scripts/h5list.py',
-          'scripts/h5toms.py',
+          'scripts/mvf_copy.py',
+          'scripts/mvf_download.py',
           'scripts/mvftoms.py',
-          'scripts/fix_ant_positions.py'],
+      ],
       url='https://github.com/ska-sa/katdal',
       license='Modified BSD',
       classifiers=[
