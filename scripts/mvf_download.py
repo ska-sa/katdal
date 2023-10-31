@@ -56,12 +56,12 @@ def parse_args(args=None, namespace=None):
     parser.add_argument('dest', type=Path, help='Output directory')
     parser.add_argument('--select', type=json.loads, default={},
                         help='Kwargs for DataSet.select as a JSON object')
-    parser.add_argument('--workers', type=int, default=min(8 * dask.system.CPU_COUNT, 200),
+    parser.add_argument('--workers', type=int, default=16,
                         help='Number of rclone threads for parallel I/O [%(default)s]')
     mvf_download_args, rclone_args = parser.parse_known_args(args, namespace)
     rclone_args = [
         '--transfers', str(mvf_download_args.workers),
-        '--checkers', str(min(mvf_download_args.workers, 20))
+        '--checkers', str(mvf_download_args.workers + 4)
     ] + rclone_args
     return mvf_download_args, rclone_args
 
