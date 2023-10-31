@@ -69,11 +69,13 @@ completes, you can be sure that all your data is safely downloaded.
 
 BONUS: you can even copy just parts of the data (e.g. the tracks and not the
 slews). This works as long as your selection picks out a subset of the chunks
-but leaves the chunks themselves intact. Because MeerKAT data is chunked first
-in time and then in frequency, but not in correlation product, this won't help
-to select a subset of antennas or baselines or autocorrelations, as that would
-require breaking up chunks into smaller chunks. It is well suited for
-time-based selections though.
+but leaves the chunks themselves intact. It is well suited for time-based
+selections.
+
+Because MeerKAT data is chunked first in time and then in frequency, but not
+in correlation product, this won't help to select a subset of antennas or
+baselines or autocorrelations, as that would require breaking up chunks into
+smaller chunks. For that, consider using the mvf_copy.py script instead.
 
 Note that you have to pass a JSON object (which resembles a Python dict) as a
 string to the --select argument. The "dict" contains keyword arguments meant
@@ -103,7 +105,7 @@ def parse_args(args=None, namespace=None):
     parser.add_argument('source', help='Dataset URL (including token if needed)')
     parser.add_argument('dest', type=Path, help='Output directory')
     parser.add_argument('--select', type=json.loads, default={},
-                        help='Kwargs for DataSet.select as a JSON object')
+                        help='Kwargs for katdal.DataSet.select as a JSON object')
     parser.add_argument('--workers', type=int, default=16,
                         help='Number of rclone threads for parallel I/O [%(default)s]')
     mvf_download_args, rclone_args = parser.parse_known_args(args, namespace)
