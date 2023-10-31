@@ -114,11 +114,12 @@ def has_recent_rclone():
 def rclone_fit_output_to_terminal(args):
     """Reduce rclone output to a single line if it won't fit on terminal."""
     new_args = args.copy()
-    # Find the last instances of --transfers and --checkers flags
-    reversed_args = list(reversed(new_args))
-    n_transfers = int(reversed_args[reversed_args.index('--transfers') - 1])
-    n_checkers = int(reversed_args[reversed_args.index('--checkers') - 1])
-    if n_transfers + n_checkers + 6 > shutil.get_terminal_size().lines:
+    # Find last instances of --transfers and --checkers flags (guaranteed one of each)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--transfers', action='append', type=int)
+    parser.add_argument('--checkers', action='append', type=int)
+    n, _ = parser.parse_known_args([str(arg) for arg in new_args])
+    if n.transfers[-1] + n.checkers[-1] + 6 > shutil.get_terminal_size().lines:
         new_args.append('--stats-one-line')
     return new_args
 
