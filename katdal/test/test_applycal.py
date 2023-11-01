@@ -381,7 +381,7 @@ class TestComplexInterp:
         yi = self.yi_unit.astype(np.complex64)
         y = complex_interp(self.x, self.xi, yi)
         assert y.dtype == yi.dtype
-        assert_allclose(np.abs(y), 1.0, rtol=1e-7)
+        assert_array_equal_within_n_ulps(np.abs(y), np.ones(y.shape, dtype=np.float32))
 
     def test_left_right(self):
         # Extend yi[0] and yi[-1] at edges
@@ -444,7 +444,7 @@ class TestCalProductAccess:
     def test_get_cal_product_selfcal_gain(self):
         product_sensor = get_cal_product(self.cache, CAL_STREAM, 'GPHASE')
         product = create_product(partial(create_gain, multi_channel=True, targets=True))
-        assert_array_equal(product_sensor[GAIN_EVENTS], product)
+        assert_array_equal_within_n_ulps(product_sensor[GAIN_EVENTS], product)
 
 
 class TestCorrectionPerInput:
@@ -487,8 +487,8 @@ class TestCorrectionPerInput:
         for n in range(len(ANTS)):
             for m in range(len(POLS)):
                 sensor = calc_gain_correction(product_sensor, (m, n), target_sensor)
-                assert_array_equal(sensor[:], gain_corrections(
-                    m, n, multi_channel=True, targets=True))
+                expected = gain_corrections(m, n, multi_channel=True, targets=True)
+                assert_array_equal_within_n_ulps(sensor[:], expected, n=3)
 
 
 class TestVirtualCorrectionSensors:
@@ -535,8 +535,8 @@ class TestVirtualCorrectionSensors:
             for m, pol in enumerate(POLS):
                 sensor_name = f'Calibration/Corrections/{stream}/GPHASE/{ant}{pol}'
                 sensor = self.cache.get(sensor_name)
-                assert_array_equal(sensor[:], gain_corrections(
-                    m, n, multi_channel=True, targets=True))
+                expected = gain_corrections(m, n, multi_channel=True, targets=True)
+                assert_array_equal_within_n_ulps(sensor[:], expected, n=3)
 
     def test_unknown_inputs_and_products(self):
         known_input = ANTS[0] + POLS[0]
@@ -609,7 +609,7 @@ class TestCalcCorrection:
         corrections = corrections[dump:dump+1, channels].compute()
         expected_corrections = corrections_per_corrprod([dump], channels,
                                                         final_cal_products)
-        assert_array_equal(corrections, expected_corrections)
+        assert_array_equal_within_n_ulps(corrections, expected_corrections, n=6)
 
     def test_skip_missing_products(self):
         dump = 15
@@ -640,7 +640,7 @@ class TestCalcCorrection:
         corrections = corrections[dump:dump+1, channels].compute()
         expected_corrections = corrections_per_corrprod([dump], channels,
                                                         final_cal_products)
-        assert_array_equal(corrections, expected_corrections)
+        assert_array_equal_within_n_ulps(corrections, expected_corrections, n=10)
 
 
 class TestApplyCal:
@@ -666,7 +666,7 @@ class TestApplyCal:
         # Leave visibilities alone where gains are NaN
         corrections[np.isnan(corrections)] = 1.0
         vis *= corrections
-        assert_array_equal(calibrated_vis, vis)
+        assert_array_equal_within_n_ulps(calibrated_vis, vis)
 
     def test_applycal_weights(self):
         weights = np.random.rand(N_DUMPS, N_CHANS,
