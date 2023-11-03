@@ -74,6 +74,7 @@ _BUCKET_POLICY = {
     ]
 }
 
+_CHUNK_EXTENSION = '.npy'
 # These HTTP responses typically indicate temporary S3 server / proxy overload,
 # which will trigger retries terminating in a missing data response if unsuccessful.
 _DEFAULT_SERVER_GLITCHES = (500, 502, 503, 504)
@@ -203,6 +204,17 @@ def _bucket_url(url):
     bucket_name = split_url.path.lstrip('/').split('/')[0]
     # Note to self: namedtuple._replace is not a private method, despite the underscore!
     return split_url._replace(path=bucket_name).geturl()
+
+
+def _normalise_bucket_name(url):
+    """Ensure that S3 bucket name in `url` contains dashes and not underscores."""
+    split_url = urllib.parse.urlsplit(url)
+    # Split path into first component (S3 bucket name) and the rest (key name or empty)
+    path_components = split_url.path.lstrip('/').split('/', 1)
+    path_components[0] = path_components[0].replace('_', '-')
+    path = '/' + '/'.join(path_components)
+    # Note to self: namedtuple._replace is not a private method, despite the underscore!
+    return split_url._replace(path=path).geturl()
 
 
 class AuthorisationFailed(StoreUnavailable):
@@ -568,9 +580,34 @@ class S3ChunkStore(ChunkStore):
         self.public_read = public_read
         self.expiry_days = int(expiry_days)
 
-    def _chunk_url(self, chunk_name, extension='.npy'):
-        """Assemble URL corresponding to chunk (or array) name."""
-        return urllib.parse.urljoin(self._url, to_str(urllib.parse.quote(chunk_name + extension)))
+    def make_url(self, relative_path):
+        """Assemble valid URL by combining base URL with `relative_path`.
+
+        Replace underscores in the S3 bucket name with dashes as well.
+
+        Parameters
+        ----------
+        relative_path : str
+            Path relative to base store URL / endpoint
+
+        Returns
+        -------
+        url : str
+            Complete URL
+
+        Notes
+        -----
+        Before 19 December 2018 the MeerKAT Ceph archive had underscores in
+        its S3 bucket names, even though it was in violation of the S3 spec.
+        Since October 2023 the archive runs a stricter version of Ceph and
+        those older buckets were renamed to use dashes / hyphens instead.
+        The metadata in the corresponding RDB files still refer to bucket
+        names with underscores though, and this method fixes those instances
+        while assembling their URLs.
+        """
+        relative_path = to_str(urllib.parse.quote(relative_path))
+        url = urllib.parse.urljoin(self._url, relative_path)
+        return _normalise_bucket_name(url)
 
     def request(
         self,
@@ -662,7 +699,7 @@ class S3ChunkStore(ChunkStore):
         """See the docstring of :meth:`ChunkStore.get_chunk`."""
         dtype = np.dtype(dtype)
         chunk_name, shape = self.chunk_metadata(array_name, slices, dtype=dtype)
-        url = self._chunk_url(chunk_name)
+        url = self.make_url(chunk_name + _CHUNK_EXTENSION)
         # Our hacky optimisation to speed up response reading doesn't
         # work with non-identity encodings.
         headers = {'Accept-Encoding': 'identity'}
@@ -682,7 +719,7 @@ class S3ChunkStore(ChunkStore):
     def create_array(self, array_name):
         """See the docstring of :meth:`ChunkStore.create_array`."""
         # Array name is formatted as bucket/array but we only need to create bucket
-        array_url = self._chunk_url(array_name, extension='')
+        array_url = self.make_url(array_name)
         bucket_url = _bucket_url(array_url)
         self._create_bucket(bucket_url)
 
@@ -710,7 +747,7 @@ class S3ChunkStore(ChunkStore):
     def put_chunk(self, array_name, slices, chunk):
         """See the docstring of :meth:`ChunkStore.put_chunk`."""
         chunk_name, _ = self.chunk_metadata(array_name, slices, chunk=chunk)
-        url = self._chunk_url(chunk_name)
+        url = self.make_url(chunk_name + _CHUNK_EXTENSION)
         npy_header, chunk = npy_header_and_body(chunk)
         # Compute the MD5 sum to protect the object against corruption in
         # transmission.
@@ -725,13 +762,13 @@ class S3ChunkStore(ChunkStore):
         """See the docstring of :meth:`ChunkStore.mark_complete`."""
         self.create_array(array_name)
         obj_name = self.join(array_name, 'complete')
-        url = urllib.parse.urljoin(self._url, obj_name)
+        url = self.make_url(obj_name)
         self.request('PUT', url, chunk_name=obj_name, data=b'')
 
     def is_complete(self, array_name):
         """See the docstring of :meth:`ChunkStore.is_complete`."""
         obj_name = self.join(array_name, 'complete')
-        url = urllib.parse.urljoin(self._url, obj_name)
+        url = self.make_url(obj_name)
         try:
             self.request('GET', url, chunk_name=obj_name)
         except ChunkNotFound:

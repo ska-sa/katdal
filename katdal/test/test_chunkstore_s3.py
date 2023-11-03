@@ -55,6 +55,7 @@ from urllib3.util.retry import Retry
 
 from katdal.chunkstore import ChunkNotFound, StoreUnavailable
 from katdal.chunkstore_s3 import (
+    _CHUNK_EXTENSION,
     _DEFAULT_SERVER_GLITCHES,
     InvalidToken,
     S3ChunkStore,
@@ -64,6 +65,7 @@ from katdal.chunkstore_s3 import (
     decode_jwt,
     read_array,
     _read_object,
+    _normalise_bucket_name,
 )
 from katdal.datasources import TelstateDataSource, DataSourceNotFound
 from katdal.test.s3_utils import MissingProgram, S3Server, S3User
@@ -71,8 +73,11 @@ from katdal.test.test_chunkstore import ChunkStoreTestBase, generate_arrays
 from katdal.test.test_datasources import (assert_telstate_data_source_equal,
                                           make_fake_data_source)
 
-# Use a standard bucket for most tests to ensure valid bucket name (regex '^[0-9a-z.-]{3,63}$')
-BUCKET = 'katdal-unittest'
+# Use a standard bucket for most tests to ensure a valid bucket name
+# (regex '^[0-9a-z.-]{3,63}$'). While we are at it, go a step further
+# and check the underscore-to-dash conversion in `S3ChunkStore.make_url`
+# by including an underscore here.
+BUCKET = 'katdal_unittest'
 # Also authorise this prefix for tests that will make their own buckets
 PREFIX = '1234567890'
 # Pick quick but different timeouts and retries for unit tests:
@@ -164,6 +169,19 @@ class TestReadArray:
         self._truncate_and_fail_to_read(20)
         # Chop off last byte (in array part of bytes)
         self._truncate_and_fail_to_read(-1, 2)
+
+
+@pytest.mark.parametrize('url,expected',
+    [
+        ('https://archive/bucket/key/000', 'https://archive/bucket/key/000'),
+        ('https://archive/bucket/key/0_0', 'https://archive/bucket/key/0_0'),
+        ('https://archive/bu_ket/key/0_0', 'https://archive/bu-ket/key/0_0'),
+        ('https://a-chive/bu_ket/key/0-0', 'https://a-chive/bu-ket/key/0-0'),
+        ('https://archive/just-a_bucket', 'https://archive/just-a-bucket'),
+    ]
+)
+def test_normalise_bucket_name(url, expected):
+    assert _normalise_bucket_name(url) == expected
 
 
 def encode_jwt(payload):
@@ -350,7 +368,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
             rdb_path = self.store.join(suggestion, cbid, rdb_filename)
         else:
             rdb_path = self.store.join(cbid, rdb_filename)
-        rdb_url = urllib.parse.urljoin(self.store_url, rdb_path)
+        rdb_url = self.store.make_url(rdb_path)
         self.store.create_array(cbid)
         self.store.request('PUT', rdb_url, data=rdb_data)
         # Check that data source can be constructed from URL (with auto chunk store)
@@ -369,7 +387,7 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         with pytest.raises(StoreUnavailable):
             self.store.get_chunk(f'{BUCKET}-empty/x', slices, dtype)
         # Check that the standard bucket has not been verified yet
-        bucket_url = urllib.parse.urljoin(self.store._url, BUCKET)
+        bucket_url = self.store.make_url(BUCKET)
         assert bucket_url not in self.store._verified_buckets
         # Check that the standard bucket remains verified after initial check
         self.test_chunk_non_existent()
@@ -580,7 +598,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
             raise RuntimeError('Cannot use multiple target URLs with http proxy')
         # The token authorises the standard bucket and anything starting with PREFIX
         # (as well as suggestions prepended to the path)
-        token = encode_jwt({'prefix': [BUCKET, PREFIX, 'please']})
+        token = encode_jwt({'prefix': [BUCKET.replace('_', '-'), PREFIX, 'please']})
         kwargs.setdefault('token', token)
         return super().prepare_store_args(cls.proxy_url, credentials=None, **kwargs)
 
@@ -619,7 +637,7 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         suggestion = 'please-respond-with-500-for-0.2-seconds'
         chunk, slices, array_name = self._put_chunk(suggestion)
         chunk_name, _ = self.store.chunk_metadata(array_name, slices, dtype=chunk.dtype)
-        url = self.store._chunk_url(chunk_name)
+        url = self.store.make_url(chunk_name + _CHUNK_EXTENSION)
         response = self.store.request('GET', url, ignored_errors=(500,), retries=0, stream=True)
         assert response.status_code == 500
 
@@ -753,10 +771,10 @@ class TestS3ChunkStoreToken(TestS3ChunkStore):
         data = b'x' * 1000
         cbid = PREFIX
         path = self.store.join(cbid, f'test_recovery_from_{condition}.bin')
-        url = urllib.parse.urljoin(self.store_url, path)
+        url = self.store.make_url(path)
         self.store.create_array(cbid)
         self.store.request('PUT', url, data=data)
         suggestion = f'please-{condition}-read-after-400-bytes-for-0.52-seconds'
-        url = urllib.parse.urljoin(self.store_url, self.store.join(suggestion, path))
+        url = self.store.make_url(self.store.join(suggestion, path))
         retrieved_data = self.store.request('GET', url, process=_read_object)
         assert retrieved_data == data
