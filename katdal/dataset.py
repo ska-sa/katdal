@@ -781,20 +781,26 @@ class DataSet:
                 self._time_keep &= scan_keep
             elif k == 'targets':
                 targets = v if is_iterable(v) else [v]
-                target_keep = np.zeros(len(self._time_keep), dtype=bool)
-                target_index_sensor = self.sensor.get('Observation/target_index')
+                target_indices = []
                 for t in targets:
                     try:
                         if isinstance(t, numbers.Integral):
-                            target_index = t
+                            target_indices.append(t)
                         elif isinstance(t, katpoint.Target) or isinstance(t, str) and ',' in t:
-                            target_index = self.catalogue.targets.index(t)
+                            target_indices.append(self.catalogue.targets.index(t))
                         else:
-                            target_index = self.catalogue.targets.index(self.catalogue[t])
+                            targets_with_name = self.catalogue._targets_with_name(t)
+                            if not targets_with_name:
+                                raise KeyError(f"Catalogue has no target named '{t}'")
+                            for t2 in targets_with_name:
+                                target_indices.append(self.catalogue.targets.index(t2))
                     except (KeyError, ValueError):
                         # Warn here, in case the user gets the target subtly wrong and wonders why it is not selected
                         logger.warning("Skipping unknown selected target '%s'", t)
                         continue
+                target_keep = np.zeros(len(self._time_keep), dtype=bool)
+                target_index_sensor = self.sensor.get('Observation/target_index')
+                for target_index in set(target_indices):
                     target_keep |= (target_index_sensor == target_index)
                 self._time_keep &= target_keep
             # Selections that affect frequency axis
