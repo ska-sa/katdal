@@ -1,6 +1,13 @@
 History
 =======
 
+0.22 (2023-11-28)
+-----------------
+* Restore np.bool_ in Numba averaging function to prevent mvftoms crash (#370)
+* Replace underscores with dashes when loading old buckets from RDBs (#370)
+* Select multiple targets with same name to avoid dropped scans in MS (#369)
+* Support on-the-fly (OTF) scans in mvftoms (#366)
+
 0.21 (2023-05-12)
 -----------------
 * Fix support for numpy >= 1.24 and move unit tests from nose to pytest (#361)
