@@ -29,6 +29,7 @@ setup(name='katdal',
       description='Karoo Array Telescope data access library for interacting '
                   'with data sets in the MeerKAT Visibility Format (MVF)',
       long_description=long_description,
+      long_description_content_type='text/x-rst',
       author='Ludwig Schwardt',
       author_email='ludwig@ska.ac.za',
       packages=find_packages(),
