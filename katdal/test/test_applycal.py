@@ -294,7 +294,8 @@ def assert_array_equal_within_n_ulps(x, y, n=1):
         # "RuntimeWarning: invalid value encountered in subtract")
         finite = (non_finite_x == 0) & (non_finite_y == 0)
         z2[finite] += np.abs(x[finite] - y[finite])
-        # A mismatch in finiteness ensures that z1 and z2 are far apart
+        # Ensure z1 and z2 are far apart if there is a mismatch
+        # in finiteness for any element.
         different_finiteness = non_finite_x != non_finite_y
         z1[different_finiteness] = -np.inf
         z2[different_finiteness] = np.inf
