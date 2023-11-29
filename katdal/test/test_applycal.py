@@ -21,7 +21,7 @@ from functools import partial
 import dask.array as da
 import katpoint
 import numpy as np
-from numpy.testing import assert_allclose, assert_array_equal
+from numpy.testing import assert_allclose, assert_array_equal, assert_array_max_ulp
 import pytest
 
 from katdal.applycal import (INVALID_GAIN, add_applycal_sensors,
@@ -90,6 +90,7 @@ ATTRS = {'antlist': ANTS, 'pol_ordering': POLS,
          'measured_flux': PIPELINE_FLUXES}
 CAL_PRODUCT_TYPES = ('K', 'B', 'G', 'GPHASE')
 CAL_PRODUCTS = [f'{CAL_STREAM}.{prod}' for prod in CAL_PRODUCT_TYPES]
+EPS = np.finfo(1.0).eps
 
 
 def create_delay(pol, ant):
@@ -266,6 +267,85 @@ def assert_categorical_data_equal(actual, desired):
         assert_array_equal(a, d)
 
 
+def _non_finite_complex(x):
+    """Identify various kinds of nonfiniteness in complex numbers."""
+    rx = np.real(x)
+    ix = np.imag(x)
+    return (32 * np.isposinf(rx) + 16 * np.isneginf(rx) + 8 * np.isnan(rx)
+            + 4 * np.isposinf(ix) + 2 * np.isneginf(ix) + np.isnan(ix))
+
+
+def assert_array_equal_within_n_ulps(x, y, n=1):
+    """Check that `x` and `y` are almost equal (also if complex, nonfinite)."""
+    x = np.atleast_1d(x)
+    y = np.atleast_1d(y)
+    if np.iscomplexobj(x) or np.iscomplexobj(y):
+        # Largest magnitude of complex numbers x and y
+        ax = np.abs(x)
+        ay = np.abs(y)
+        z1 = np.where(ax > ay, ax, ay)
+        # Find the type of non-finiteness for each number
+        non_finite_x = _non_finite_complex(x)
+        non_finite_y = _non_finite_complex(y)
+        # For now, z2 == z1 (caters for both x and y non-finite in the same way)
+        z2 = z1.copy()
+        # Tweak z2 by length of difference vector, but only if finite
+        # (this avoids inf - inf = nan, which generates
+        # "RuntimeWarning: invalid value encountered in subtract")
+        finite = (non_finite_x == 0) & (non_finite_y == 0)
+        z2[finite] += np.abs(x[finite] - y[finite])
+        # Ensure z1 and z2 are far apart if there is a mismatch
+        # in finiteness for any element.
+        different_finiteness = non_finite_x != non_finite_y
+        z1[different_finiteness] = -np.inf
+        z2[different_finiteness] = np.inf
+    else:
+        # Directly check ULP difference for real numbers
+        z1 = x
+        z2 = y
+    nulp_diff = assert_array_max_ulp(z1, z2, maxulp=np.inf)
+    nulp_diff = np.ceil(nulp_diff).astype(int)
+    if not np.all(nulp_diff <= n):
+        worst = np.argmax(nulp_diff)
+        raise AssertionError(
+            f"Arrays are not almost equal up to {n} ULP (max difference "
+            f"is {nulp_diff.flat[worst]} ULP at position {worst}: "
+            f"x={x.flat[worst]} vs y={y.flat[worst]})"
+        )
+
+
+@pytest.mark.parametrize('x,y,n',
+    [
+        (1.0, 1.0 + EPS, 1),
+        (1.0, 1.0 - EPS, 2),
+        (1.0 + 1.0j, 1.0 - EPS + 1.0j, 1),
+        (1.0 + 1.0j, 1.0 + 1.0j + 1j * EPS, 1),
+        (np.nan + 1.0j, np.nan - 1.0j, 1),
+        (np.inf + 1.0j, np.inf - 1.0j, 1),
+        (np.inf - 1j * np.inf, np.inf - 2j * np.inf, 1),
+        (np.ones((2, 4)), np.ones((2, 4)) + EPS, 1),
+    ]
+)
+def test_assert_array_equal_within_n_ulps(x, y, n):
+    assert_array_equal_within_n_ulps(x, y, n)
+
+
+@pytest.mark.parametrize('x,y',
+    [
+        (1.0, np.inf), (1.0, np.nan), (-np.inf, np.inf),
+        (np.inf + 1.0j, -np.inf + 1.0j),
+        (np.nan + 1.0j, np.inf + 1.0j),
+        (np.inf + 1.0j, 0.0 + 1.0j),
+        (np.inf + 1.0j, 0.0 + 1.0j * np.nan),
+        (np.inf + 1.0j, np.inf + 1.0j * np.nan),
+        (np.inf - 1j * np.inf, - np.inf + 1j * np.inf),
+    ]
+)
+def test_assert_array_not_equal_within_n_ulps(x, y):
+    with pytest.raises(AssertionError):
+        assert_array_equal_within_n_ulps(x, y, n=1e6)
+
+
 class TestComplexInterp:
     """Test the :func:`~katdal.applycal.complex_interp` function."""
     def setup_method(self):
@@ -302,7 +382,7 @@ class TestComplexInterp:
         yi = self.yi_unit.astype(np.complex64)
         y = complex_interp(self.x, self.xi, yi)
         assert y.dtype == yi.dtype
-        assert_allclose(np.abs(y), 1.0, rtol=1e-7)
+        assert_array_equal_within_n_ulps(np.abs(y), np.ones(y.shape, dtype=np.float32))
 
     def test_left_right(self):
         # Extend yi[0] and yi[-1] at edges
@@ -365,7 +445,7 @@ class TestCalProductAccess:
     def test_get_cal_product_selfcal_gain(self):
         product_sensor = get_cal_product(self.cache, CAL_STREAM, 'GPHASE')
         product = create_product(partial(create_gain, multi_channel=True, targets=True))
-        assert_array_equal(product_sensor[GAIN_EVENTS], product)
+        assert_array_equal_within_n_ulps(product_sensor[GAIN_EVENTS], product)
 
 
 class TestCorrectionPerInput:
@@ -408,8 +488,8 @@ class TestCorrectionPerInput:
         for n in range(len(ANTS)):
             for m in range(len(POLS)):
                 sensor = calc_gain_correction(product_sensor, (m, n), target_sensor)
-                assert_array_equal(sensor[:], gain_corrections(
-                    m, n, multi_channel=True, targets=True))
+                expected = gain_corrections(m, n, multi_channel=True, targets=True)
+                assert_array_equal_within_n_ulps(sensor[:], expected, n=3)
 
 
 class TestVirtualCorrectionSensors:
@@ -456,8 +536,8 @@ class TestVirtualCorrectionSensors:
             for m, pol in enumerate(POLS):
                 sensor_name = f'Calibration/Corrections/{stream}/GPHASE/{ant}{pol}'
                 sensor = self.cache.get(sensor_name)
-                assert_array_equal(sensor[:], gain_corrections(
-                    m, n, multi_channel=True, targets=True))
+                expected = gain_corrections(m, n, multi_channel=True, targets=True)
+                assert_array_equal_within_n_ulps(sensor[:], expected, n=3)
 
     def test_unknown_inputs_and_products(self):
         known_input = ANTS[0] + POLS[0]
@@ -530,7 +610,7 @@ class TestCalcCorrection:
         corrections = corrections[dump:dump+1, channels].compute()
         expected_corrections = corrections_per_corrprod([dump], channels,
                                                         final_cal_products)
-        assert_array_equal(corrections, expected_corrections)
+        assert_array_equal_within_n_ulps(corrections, expected_corrections, n=6)
 
     def test_skip_missing_products(self):
         dump = 15
@@ -561,7 +641,7 @@ class TestCalcCorrection:
         corrections = corrections[dump:dump+1, channels].compute()
         expected_corrections = corrections_per_corrprod([dump], channels,
                                                         final_cal_products)
-        assert_array_equal(corrections, expected_corrections)
+        assert_array_equal_within_n_ulps(corrections, expected_corrections, n=10)
 
 
 class TestApplyCal:
@@ -587,7 +667,7 @@ class TestApplyCal:
         # Leave visibilities alone where gains are NaN
         corrections[np.isnan(corrections)] = 1.0
         vis *= corrections
-        assert_array_equal(calibrated_vis, vis)
+        assert_array_equal_within_n_ulps(calibrated_vis, vis)
 
     def test_applycal_weights(self):
         weights = np.random.rand(N_DUMPS, N_CHANS,

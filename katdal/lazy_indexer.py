@@ -135,7 +135,7 @@ def dask_getitem(x, indices):
     # ensure_dict, which copies all the keys, presumably to speed up the
     # case where most keys are retained. A lazy indexer is normally used to
     # fetch a small part of the data.
-    if np.product(out.numblocks) < 0.5 * np.product(x.numblocks):
+    if np.prod(out.numblocks) < 0.5 * np.prod(x.numblocks):
         dsk = dask.optimization.cull(out.dask, out.__dask_keys__())[0]
         out.dask = dask.highlevelgraph.HighLevelGraph.from_collections(out.name, dsk)
     return out

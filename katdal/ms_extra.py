@@ -167,7 +167,7 @@ def kat_ms_desc_and_dminfo(nbl, nchan, ncorr, model_data=False):
 
         # Try bump up the number of rows in our tiles while they're
         # below the memory limit for the tile
-        while np.product(rev_shape + [2*ntilerows])*nbytes < tile_mem_limit:
+        while np.prod(rev_shape + [2*ntilerows])*nbytes < tile_mem_limit:
             ntilerows *= 2
 
         return {"DEFAULTTILESHAPE": np.int32(rev_shape + [ntilerows])}

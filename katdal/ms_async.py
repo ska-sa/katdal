@@ -41,7 +41,7 @@ class RawArray:
     def __init__(self, shape, dtype):
         self.shape = shape
         self.dtype = np.dtype(dtype)
-        size = self.dtype.itemsize * int(np.product(shape))
+        size = self.dtype.itemsize * int(np.prod(shape))
         self.storage = multiprocessing.sharedctypes.RawArray('c', size)
 
     def asarray(self):
