@@ -364,7 +364,7 @@ def main():
     dump_fields = validate_selection(options.target, avail_fields, 'target field')
     # select a subset of target tags
     avail_tags = list({tag for target in dataset.catalogue.targets for tag in target.tags})
-    dump_tags = validate_selection(options.target_tag, avail_tags, 'target_tag')
+    dump_tags = validate_selection(options.target_tag, avail_tags, 'target tag')
 
     dataset.select(targets=dump_fields, target_tags=dump_tags)
 
