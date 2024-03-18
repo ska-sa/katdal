@@ -609,7 +609,8 @@ class DataSet:
         The selection criteria are divided into groups, based on whether they
         affect the time, frequency or correlation product dimension::
 
-        * Time: `dumps`, `timerange`, `scans`, `compscans`, `targets`
+        * Time: `dumps`, `timerange`, `scans`, `compscans`,
+                `targets`, `target_tags`
         * Frequency: `channels`, `freqrange`
         * Correlation product: `corrprods`, `ants`, `inputs`, `pol`
 
@@ -649,6 +650,8 @@ class DataSet:
         targets : int or string or :class:`katpoint.Target` object or sequence,
                   optional
             Select targets by index or name or description or object
+        target_tags : string or sequence of strings, optional
+            Select targets by their tags
 
         spw : int, optional
             Select spectral window by index (only one may be active)
