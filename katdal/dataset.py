@@ -805,13 +805,18 @@ class DataSet:
                     target_keep |= (target_index_sensor == target_index)
                 self._time_keep &= target_keep
             elif k == 'target_tags':
-                tags = v if is_iterable(v) else [v]
+                selected_tags = _selection_to_list(v)
+                known_tags = {tag for target in self.catalogue.targets for tag in target.tags}
+                tags = []
+                for tag in selected_tags:
+                    if tag in known_tags:
+                        tags.append(tag)
+                    else:
+                        logger.warning("Skipping unknown selected target tag '%s'", tag)
                 target_keep = np.zeros(len(self._time_keep), dtype=bool)
                 target_index_sensor = self.sensor.get('Observation/target_index')
-                for target in self.catalogue.targets:
-                    target_tags = target.tags
-                    if set(target_tags) & set(tags):
-                        target_index = self.catalogue.targets.index(target)
+                for target_index, target in enumerate(self.catalogue.targets):
+                    if set(target.tags) & set(tags):
                         target_keep |= (target_index_sensor == target_index)
                 self._time_keep &= target_keep
             # Selections that affect frequency axis

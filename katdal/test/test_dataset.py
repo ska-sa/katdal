@@ -309,11 +309,18 @@ def test_select_targets(caplog, dataset, targets, expected_dumps):
     'target_tags,expected_dumps',
     [
         ('radec', np.arange(12)),
-        # Empty selections
+        ('bpcal', [0, 1, 2, 6, 7, 8]),
+        ('gaincal', [3, 4, 5]),
+        ('gaincal,incorrect_tag', [3, 4, 5]),
+        (['gaincal'], [3, 4, 5]),
+        ('bpcal,gaincal', [0, 1, 2, 3, 4, 5, 6, 7, 8]),
+        (('bpcal', 'gaincal'), [0, 1, 2, 3, 4, 5, 6, 7, 8]),
         ('incorrect_tag', []),
     ]
 )
 def test_select_target_tags(caplog, dataset, target_tags, expected_dumps):
     with caplog.at_level(logging.WARNING, logger='katdal.dataset'):
         dataset.select(target_tags=target_tags)
+    if 'incorrect_tag' in target_tags:
+        assert 'Skipping unknown selected target tag' in caplog.text
     assert_array_equal(dataset.dumps, expected_dumps)
