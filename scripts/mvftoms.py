@@ -76,6 +76,37 @@ def casa_style_int_list(range_string, use_argparse=False, opt_unit="m"):
     return vals
 
 
+def validate_selection(selected_options, available_options, option_type):
+    """Split selection on commas and validate against available options."""
+    if not selected_options:
+        selected_options = available_options
+    # some users may specify comma-separated lists although we said the switch should
+    # be specified multiple times. Put in a guard to split comma separated lists as well
+    split_options = []
+    for option in selected_options:
+        split_options += [x.strip() for x in option.split(",")]
+    selected_options = split_options
+    selected_options_str = ", ".join(map(repr, selected_options))
+    available_options_str = ", ".join(map(repr, available_options))
+    if not set(selected_options) <= set(available_options):
+        raise RuntimeError(
+            f"One or more {option_type}s cannot be found in the dataset. "
+            f"You requested {selected_options_str} but only "
+            f"{available_options_str} are available."
+        )
+    if len(selected_options) == 0:
+        print(
+            f"User {option_type} criterion resulted in empty database, "
+            "nothing to be done. Perhaps you wanted to select from the "
+            f"following: {available_options_str}"
+        )
+    print(
+        f"Per user request the following {option_type}s will be selected: "
+        f"{selected_options_str}"
+    )
+    return selected_options
+
+
 def default_ms_name(args, centre_freq=None):
     """Infer default MS name from argument list and optional frequency label."""
     # Use the first dataset in the list to generate the base part of the MS name
@@ -240,6 +271,10 @@ def main():
                         help="Select only specified target field (name). This switch can "
                              "be specified multiple times if need be. Default is select "
                              "all fields.")
+    parser.add_argument("--target-tag", default=[], action="append",
+                        help="Select only target fields with specified tag (e.g. 'bpcal'). "
+                             "This switch can be specified multiple times if need be. "
+                             "Default is select all fields.")
     parser.add_argument("--ant", default=[], action="append",
                         help="Select only specified antenna (specified as name). This switch can "
                              "be specified multiple times if need be. Default is select "
@@ -323,50 +358,15 @@ def main():
 
     # select a subset of antennas
     avail_ants = [a.name for a in dataset.ants]
-    dump_ants = options.ant if len(options.ant) != 0 else avail_ants
-    # some users may specify comma-separated lists although we said the switch should
-    # be specified multiple times. Put in a guard to split comma separated lists as well
-    split_ants = []
-    for a in dump_ants:
-        split_ants += [x.strip() for x in a.split(",")]
-    dump_ants = split_ants
-    dump_ant_str = ", ".join(map(repr, dump_ants))
-    avail_ant_str = ", ".join(map(repr, avail_ants))
-
-    if not set(dump_ants) <= set(avail_ants):
-        raise RuntimeError("One or more antennas cannot be found in the dataset. "
-                           f"You requested {dump_ant_str} but only {avail_ant_str} are available.")
-
-    if len(dump_ants) == 0:
-        print('User antenna criterion resulted in empty database, nothing to be done. '
-              f'Perhaps you wanted to select from the following: {avail_ant_str}')
-
-    print(f'Per user request the following antennas will be selected: {dump_ant_str}')
-
+    dump_ants = validate_selection(options.ant, avail_ants, 'antenna')
     # select a subset of targets
     avail_fields = [f.name for f in dataset.catalogue.targets]
-    dump_fields = options.target if len(options.target) != 0 else avail_fields
+    dump_fields = validate_selection(options.target, avail_fields, 'target field')
+    # select a subset of target tags
+    avail_tags = list({tag for target in dataset.catalogue.targets for tag in target.tags})
+    dump_tags = validate_selection(options.target_tag, avail_tags, 'target tag')
 
-    # some users may specify comma-separated lists although we said the switch should
-    # be specified multiple times. Put in a guard to split comma separated lists as well
-    split_fields = []
-    for f in dump_fields:
-        split_fields += [x.strip() for x in f.split(",")]
-    dump_fields = split_fields
-    dump_field_str = ", ".join(map(repr, dump_fields))
-    avail_field_str = ", ".join(map(repr, avail_fields))
-
-    if not set(dump_fields) <= set(avail_fields):
-        raise RuntimeError("One or more fields cannot be found in the dataset. "
-                           f"You requested {dump_field_str} but only {avail_field_str} are available.")
-
-    if len(dump_fields) == 0:
-        print('User target field criterion resulted in empty database, nothing to be done. '
-              f'Perhaps you wanted to select from the following: {avail_field_str}')
-
-    print(f'Per user request the following target fields will be selected: {dump_field_str}')
-
-    dataset.select(targets=dump_fields)
+    dataset.select(targets=dump_fields, target_tags=dump_tags)
 
     # get a set of user selected available tracking scans, ignore slew scans
     avail_tracks = list(map(lambda x: x[0],
@@ -422,6 +422,7 @@ def main():
         dataset.select(spw=win,
                        scans=dump_scans,  # should already be filtered to target type only
                        targets=dump_fields,
+                       target_tags=dump_tags,
                        flags=options.flags,
                        ants=dump_ants,
                        dumps=slice(options.quack, None))
