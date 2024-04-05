@@ -609,7 +609,8 @@ class DataSet:
         The selection criteria are divided into groups, based on whether they
         affect the time, frequency or correlation product dimension::
 
-        * Time: `dumps`, `timerange`, `scans`, `compscans`, `targets`
+        * Time: `dumps`, `timerange`, `scans`, `compscans`,
+                `targets`, `target_tags`
         * Frequency: `channels`, `freqrange`
         * Correlation product: `corrprods`, `ants`, `inputs`, `pol`
 
@@ -649,6 +650,8 @@ class DataSet:
         targets : int or string or :class:`katpoint.Target` object or sequence,
                   optional
             Select targets by index or name or description or object
+        target_tags : string or sequence of strings, optional
+            Select targets by their tags
 
         spw : int, optional
             Select spectral window by index (only one may be active)
@@ -700,7 +703,8 @@ class DataSet:
             If `spw` or `subarray` is out of range
 
         """
-        time_selectors = ['dumps', 'timerange', 'scans', 'compscans', 'targets']
+        time_selectors = ['dumps', 'timerange', 'scans', 'compscans',
+                          'targets', 'target_tags']
         freq_selectors = ['channels', 'freqrange']
         corrprod_selectors = ['corrprods', 'ants', 'inputs', 'pol']
         # Check if keywords are valid and raise exception only if this is explicitly enabled
@@ -802,6 +806,21 @@ class DataSet:
                 target_index_sensor = self.sensor.get('Observation/target_index')
                 for target_index in set(target_indices):
                     target_keep |= (target_index_sensor == target_index)
+                self._time_keep &= target_keep
+            elif k == 'target_tags':
+                selected_tags = _selection_to_list(v)
+                known_tags = {tag for target in self.catalogue.targets for tag in target.tags}
+                tags = []
+                for tag in selected_tags:
+                    if tag in known_tags:
+                        tags.append(tag)
+                    else:
+                        logger.warning("Skipping unknown selected target tag '%s'", tag)
+                target_keep = np.zeros(len(self._time_keep), dtype=bool)
+                target_index_sensor = self.sensor.get('Observation/target_index')
+                for target_index, target in enumerate(self.catalogue.targets):
+                    if set(target.tags) & set(tags):
+                        target_keep |= (target_index_sensor == target_index)
                 self._time_keep &= target_keep
             # Selections that affect frequency axis
             elif k == 'channels':
