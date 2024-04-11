@@ -531,6 +531,10 @@ class ChunkStore:
             Data type of array
         offset : tuple of int, optional
             Offset to add to each dimension when addressing chunks in store
+        index : tuple of unit-step slices, optional
+            Index expression that selects a subset of existing chunks. The dask
+            array will only ever contain those chunks, making it more efficient
+            than a full array followed by standard selection.
         errors : number or 'raise' or 'placeholder' or 'dryrun', optional
             Error handling. If 'raise', exceptions are passed through,
             causing the evaluation to fail.
