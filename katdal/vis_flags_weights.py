@@ -291,6 +291,8 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
     def __init__(self, store, chunk_info, corrprods=None,
                  stored_weights_are_scaled=True, van_vleck='off', preselect_index=()):
         self.store = store
+        self.chunk_info = chunk_info
+        self.preselect_index = preselect_index
         self.vis_prefix = chunk_info['correlator_data']['prefix']
         darray = {}
         for array, info in chunk_info.items():
