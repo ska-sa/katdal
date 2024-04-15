@@ -36,7 +36,6 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 import dask
 import katdal
 from katdal.chunkstore import _blocks_ravel
-from katdal.datasources import view_capture_stream
 from katdal.lazy_indexer import dask_getitem
 from packaging import version
 
