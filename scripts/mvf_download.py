@@ -116,28 +116,16 @@ def parse_args(args=None, namespace=None):
     return mvf_download_args, rclone_args
 
 
-def extra_flag_streams(telstate, capture_block_id, stream_name):
-    """Look for associated flag streams and return corresponding telstate views."""
-    # This is a simplified version of katdal.datasources._upgrade_flags
-    telstate_extra_flags = []
-    for s in telstate.get('sdp_archived_streams', []):
-        telstate_cs = view_capture_stream(telstate.root(), capture_block_id, s)
-        if telstate_cs.get('stream_type') == 'sdp.flags' and \
-           stream_name in telstate_cs['src_streams']:
-            telstate_extra_flags.append(telstate_cs)
-    return telstate_extra_flags
-
-
-def stream_graphs(telstate, store, keep):
-    """Prepare Dask graphs to copy all chunked arrays of a capture stream.
-
-    This returns a list of Dask graphs and also modifies `out_telstate` and
-    `out_store`.
-    """
+def chunk_names(vfw, keep):
+    """Names of chunks covered by selection `keep` in all storage arrays in `vfw`."""
     all_chunks = defaultdict(list)
-    for array, info in telstate['chunk_info'].items():
-        darray = store.get_dask_array(
-            array, info['chunks'], info['dtype'], errors='dryrun'
+    for array, info in vfw.chunk_info.items():
+        darray = vfw.store.get_dask_array(
+            array,
+            info['chunks'],
+            info['dtype'],
+            index=vfw.preselect_index,
+            errors='dryrun',
         )
         kept_blocks = _blocks_ravel(dask_getitem(darray, keep[:darray.ndim]))
         chunks = sorted(chunk.name + '.npy' for chunk in dask.compute(*kept_blocks))
@@ -221,15 +209,9 @@ def main():
     local_rdb = urlunparse(('file', '', str(rdb_path), '', query, ''))
     print(f"Opening local RDB file: {local_rdb}")
     d = katdal.open(local_rdb)
-    cbid = d.source.capture_block_id
-    stream = d.source.stream_name
-    telstate = d.source.telstate
-    store = d.source.data.store
     d.select(**args.select)
-    # Iterate over all stream views, collecting chunk names for each chunked array
-    chunks = {}
-    for view in [telstate] + extra_flag_streams(telstate, cbid, stream):
-        chunks.update(stream_graphs(view, store, d.vis.keep))
+    # Collect names of chunks covered by selection in each chunked storage array
+    chunks = chunk_names(d.source.data, d.vis.keep)
     for bucket, files in chunks.items():
         bucket_path = args.dest / bucket
         n_chunks = len(files)
