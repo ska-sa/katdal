@@ -1,7 +1,7 @@
 #! /usr/bin/env python3
 
 ################################################################################
-# Copyright (c) 2023, National Research Foundation (SARAO)
+# Copyright (c) 2023-2024, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -42,7 +42,7 @@ from packaging import version
 # This version is good for file-less config, enabling --config "" and --files-from -
 MINIMUM_RCLONE_VERSION = version.Version('1.56')
 DESCRIPTION = """
-Download MVFv4 dataset (or a subset of chunks) using rclone.
+Download MVFv4 dataset (or a subset of chunks) from S3 to disk using rclone.
 
 You need rclone (https://rclone.org/downloads/) if it is not on your system.
 It is a single executable file that you could download to your user account.
@@ -74,7 +74,8 @@ selections.
 Because MeerKAT data is chunked first in time and then in frequency, but not
 in correlation product, this won't help to select a subset of antennas or
 baselines or autocorrelations, as that would require breaking up chunks into
-smaller chunks. For that, consider using the mvf_copy.py script instead.
+smaller chunks. For that, consider using the mvf_copy.py script instead, which
+is also useful if you want to copy a subset of data from disk to disk.
 
 Note that you have to pass a JSON object (which resembles a Python dict) as a
 string to the --select argument. The "dict" contains keyword arguments meant

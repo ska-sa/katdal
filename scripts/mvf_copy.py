@@ -1,7 +1,7 @@
 #! /usr/bin/env python3
 
 ################################################################################
-# Copyright (c) 2021-2023, National Research Foundation (SARAO)
+# Copyright (c) 2021-2024, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -40,7 +40,7 @@ from katdal.lazy_indexer import dask_getitem
 
 
 DESCRIPTION = """
-Copy MVFv4 dataset from S3/disk to disk using dask.
+Copy MVFv4 dataset (or a part of it) from S3/disk to disk using dask.
 
 Run the script like this:
 
@@ -60,12 +60,14 @@ Open the local dataset like this:
 
   d = katdal.open("dest/1698676533/1698676533_sdp_l0.full.rdb")
 
-While dask allows multiple retries while downloading chunks, it currently has
-no way to resume copying if the script crashes. For peace of mind, consider
-using the mvf_download.py script instead.
-
 BONUS: you can even copy just parts of the data by selecting a subset of
 correlation products. The --corrprods value is passed to DataSet.select().
+
+While dask allows multiple retries while downloading chunks, it currently has
+no way to resume copying if the script crashes. For peace of mind, consider
+using the mvf_download.py script instead if you are just trying to download
+your dataset from the archive to disk. You are stuck with mvf_copy.py if you
+are copying from disk to disk or you want to cull some correlation products.
 
 Some examples:
 
