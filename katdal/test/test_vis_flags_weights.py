@@ -124,7 +124,7 @@ class TestChunkStoreVisFlagsWeights:
         # Put fake dataset into chunk store
         store, chunk_info, data, weights = self._make_basic_dataset()
         index = np.s_[2:5, -20:]
-        vfw = ChunkStoreVisFlagsWeights(store, chunk_info, index=index)
+        vfw = ChunkStoreVisFlagsWeights(store, chunk_info, preselect_index=index)
         assert_array_equal(vfw.vis.compute(), data['correlator_data'][index])
         assert_array_equal(vfw.flags.compute(), data['flags'][index])
         assert_array_equal(vfw.weights.compute(), weights[index])

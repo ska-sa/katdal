@@ -6,6 +6,7 @@ dask[array]
 h5py
 numba
 numpy
+packaging
 pyjwt
 requests
 

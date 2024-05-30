@@ -1,7 +1,7 @@
 #! /usr/bin/env python3
 
 ################################################################################
-# Copyright (c) 2021-2023, National Research Foundation (SARAO)
+# Copyright (c) 2021-2024, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -39,13 +39,55 @@ from katdal.datasources import view_capture_stream
 from katdal.lazy_indexer import dask_getitem
 
 
+DESCRIPTION = """
+Copy MVFv4 dataset (or a part of it) from S3/disk to disk using dask.
+
+Run the script like this:
+
+  mvf_copy.py https://archive/1698676533/1698676533_sdp_l0.full.rdb?token=<> dest
+
+or:
+
+  mvf_copy.py src_dir dest_dir
+
+Data will appear in three subdirectories in the specified output directory as
+
+  dest/1698676533/...
+  dest/1698676533-sdp-l0/...
+  dest/1698676533-sdp-l1-flags/...
+
+Open the local dataset like this:
+
+  d = katdal.open("dest/1698676533/1698676533_sdp_l0.full.rdb")
+
+BONUS: you can even copy just parts of the data by selecting a subset of
+correlation products. The --corrprods value is passed to DataSet.select().
+
+While dask allows multiple retries while downloading chunks, it currently has
+no way to resume copying if the script crashes. For peace of mind, consider
+using the mvf_download.py script instead if you are just trying to download
+your dataset from the archive to disk. You are stuck with mvf_copy.py if you
+are copying from disk to disk or you want to cull some correlation products.
+
+Some examples:
+
+  mvf_copy.py url directory --corrprods=auto
+  mvf_copy.py url directory --corrprods=cross
+"""
+
+
 def parse_args():
-    parser = argparse.ArgumentParser()
+    """Parse script arguments."""
+    parser = argparse.ArgumentParser(
+        usage='%(prog)s [-h] [--corrprods CORRPRODS] [--workers N] source dest',
+        description=DESCRIPTION,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument('source', help='Dataset URL (or input RDB file path)')
     parser.add_argument('dest', type=Path, help='Output directory')
     parser.add_argument('--corrprods',
-                        help='Select correlation products (kwarg to katdal.DataSet.select). '
-                        'Keeps all corrprods by default.')
+                        help='Select correlation products (kwarg to '
+                             'katdal.DataSet.select). Keeps all corrprods by default.')
     parser.add_argument('--workers', type=int, default=8 * dask.system.CPU_COUNT,
                         help='Number of dask workers for parallel I/O [%(default)s]')
     args = parser.parse_args()
@@ -91,6 +133,7 @@ def stream_graphs(telstate, store, corrprod_mask, out_telstate, out_store):
 
 
 def main():
+    """Main routine of mvf_copy script."""
     args = parse_args()
 
     d = katdal.open(args.source)

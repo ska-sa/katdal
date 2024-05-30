@@ -394,7 +394,7 @@ class TelstateDataSource(DataSource):
                                              corrprods=telstate['bls_ordering'],
                                              stored_weights_are_scaled=not need_weights_power_scale,
                                              van_vleck=van_vleck,
-                                             index=index)
+                                             preselect_index=index)
 
         if timestamps is None:
             # Synthesise timestamps from the relevant telstate bits

@@ -277,7 +277,7 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
         Should be True if `corrprods` is `None`.
     van_vleck : {'off', 'autocorr'}, optional
         Type of Van Vleck (quantisation) correction to perform
-    index : tuple of slice, optional
+    preselect_index : tuple of slice, optional
         Slice expression to apply to each array before combining them. At the
         moment this can only have two elements (no slicing of baselines),
         because ``weights_channel`` only has time and frequency dimensions.
@@ -289,15 +289,22 @@ class ChunkStoreVisFlagsWeights(VisFlagsWeights):
     """
 
     def __init__(self, store, chunk_info, corrprods=None,
-                 stored_weights_are_scaled=True, van_vleck='off', index=()):
+                 stored_weights_are_scaled=True, van_vleck='off', preselect_index=()):
         self.store = store
+        self.chunk_info = chunk_info
+        self.preselect_index = preselect_index
         self.vis_prefix = chunk_info['correlator_data']['prefix']
         darray = {}
         for array, info in chunk_info.items():
             array_name = store.join(info['prefix'], array)
-            chunk_args = (array_name, info['chunks'], info['dtype'])
             errors = DATA_LOST if array == 'flags' else 'placeholder'
-            darray[array] = store.get_dask_array(*chunk_args, index=index, errors=errors)
+            darray[array] = store.get_dask_array(
+                array_name,
+                info['chunks'],
+                info['dtype'],
+                index=preselect_index,
+                errors=errors,
+            )
         flags_orig_name = darray['flags'].name
         flags_raw_name = store.join(chunk_info['flags']['prefix'], 'flags_raw')
         # Combine original flags with data_lost indicating where values were lost from
