@@ -559,13 +559,17 @@ class S3ChunkStore(ChunkStore):
         }
         super().__init__(error_map)
         auth = _auth_factory(url, token, credentials)
+        self._sessions = []
 
         def session_factory():
             session = _CacheSettingsSession(url)
             session.auth = auth
             # Don't set `max_retries` yet - it will be done at the request level
+#             adapter = requests.adapters.HTTPAdapter(pool_connections=1, pool_maxsize=1, pool_block=True)
             adapter = requests.adapters.HTTPAdapter()
             session.mount(url, adapter)
+            print('new session', hex(id(session)), len(self._sessions))
+            self._sessions.append(session)
             return session
 
         self._session_pool = _Pool(session_factory)
@@ -608,6 +612,16 @@ class S3ChunkStore(ChunkStore):
         relative_path = to_str(urllib.parse.quote(relative_path))
         url = urllib.parse.urljoin(self._url, relative_path)
         return _normalise_bucket_name(url)
+
+    def _debug_session(self, session, *args):
+        pools = session.get_adapter('https://archive-gw-1.kat.ac.za/').poolmanager.pools
+        if len(pools) >= 1:
+            conns = list(list(pools._container.values())[0].pool.queue)
+            socks = [(hex(id(cc)), cc.sock.getsockname()) for cc in conns if cc is not None]
+        else:
+            socks = []
+        name = self._sessions.index(session)
+        print(name, socks, *args)
 
     def request(
         self,
@@ -665,6 +679,7 @@ class S3ChunkStore(ChunkStore):
         with self._standard_errors(chunk_name), self._session_pool() as session:
             adapter = session.get_adapter(url)
             while True:
+                self._debug_session(session, url, retries)
                 # Initialise and reuse the same Retry object for the entire session
                 adapter.max_retries = retries
                 try:
