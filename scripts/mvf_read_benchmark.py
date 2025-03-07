@@ -24,7 +24,6 @@ import dask
 import numpy as np
 
 import katdal
-from ipdb import set_trace
 from katdal.lazy_indexer import DaskLazyIndexer
 
 parser = argparse.ArgumentParser()
