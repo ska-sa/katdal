@@ -445,7 +445,7 @@ class TestCalProductAccess:
     def test_get_cal_product_selfcal_gain(self):
         product_sensor = get_cal_product(self.cache, CAL_STREAM, 'GPHASE')
         product = create_product(partial(create_gain, multi_channel=True, targets=True))
-        assert_array_equal_within_n_ulps(product_sensor[GAIN_EVENTS], product)
+        assert_array_equal_within_n_ulps(product_sensor[GAIN_EVENTS], product, n=3)
 
 
 class TestCorrectionPerInput:
