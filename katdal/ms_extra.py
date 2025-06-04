@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2011-2019,2021-2023, National Research Foundation (SARAO)
+# Copyright (c) 2011-2019,2021-2024, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -1035,3 +1035,57 @@ def write_dict(ms_dict, ms_name, verbose=True):
             t.close()
             if verbose:
                 print("  closed successfully")
+
+
+# -------- Routines that estimate MS size -----------
+
+# The main table.fX_TSM0 files have sizes that are multiples of these
+# block sizes in bytes ("bucket" sizes in CASA Tiled Storage Manager speak?).
+# XXX This is empirically determined so far, maybe cross-check with code.
+# See `casacore.tables.table.getdminfo output` and look for `BucketSize`.
+BIG_BLOCK_SIZE = 2 ** 21
+SMALL_BLOCK_SIZE = 2 ** 18
+
+
+def _col_size(n_cells, bits, block_size=BIG_BLOCK_SIZE):
+    """Round `n_cells` of `bits` bits up to next multiple of `block_size`."""
+    return np.ceil(n_cells * bits / 8 / block_size) * block_size
+
+
+def estimate_ms_size(n_dumps, n_chans, n_corrprods, n_pols=4):
+    """Estimate MeasurementSet size from basic MVF4 parameters.
+
+    Parameters
+    ----------
+    n_dumps, n_chans, n_corrprods : int
+        Number of dumps, channels and corrprods to write to MS (ie MVF4 shape)
+    n_pols : int
+        Number of polarisation terms to write to MS
+
+    Returns
+    -------
+    size : int
+        Estimated MS size, in bytes (typically underestimated by 0.1%)
+    """
+    # Assume that MVF4 has all 4 polarisation terms (HH, VV, HV, VH)
+    n_baselines = n_corrprods // 4
+    n_rows = n_dumps * n_baselines
+    n_cells = n_rows * n_pols
+    n_cells_per_spectrum = n_cells * n_chans
+    # Start with table.f0_TSM0 (not sure what that is, an index?)
+    size = 12 * SMALL_BLOCK_SIZE
+    # DATA: complex64
+    size += _col_size(n_cells_per_spectrum, bits=64)
+    # WEIGHT_SPECTRUM: float32
+    size += _col_size(n_cells_per_spectrum, bits=32)
+    # SIGMA_SPECTRUM: float32
+    size += _col_size(n_cells_per_spectrum, bits=32)
+    # FLAG: bit
+    size += _col_size(n_cells_per_spectrum, bits=1, block_size=SMALL_BLOCK_SIZE)
+    # FLAG_CATEGORY: bit
+    size += _col_size(n_cells_per_spectrum, bits=1, block_size=SMALL_BLOCK_SIZE)
+    # WEIGHT: float32
+    size += _col_size(n_cells, bits=32)
+    # SIGMA: float32
+    size += _col_size(n_cells, bits=32)
+    return size

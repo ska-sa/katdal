@@ -284,6 +284,8 @@ def main():
                         help="Only select a range of tracking scans. Default is select all "
                              "tracking scans. Accepts a comma list or a casa style range "
                              "such as 5~10.")
+    parser.add_argument("--estimate-size", action="store_true", default=False,
+                        help="Estimate MS size in bytes and quit without conversion")
     parser.add_argument("datasets", help="Dataset path", nargs='+')
 
     parseargs = parser.parse_args()
