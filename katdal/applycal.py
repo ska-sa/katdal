@@ -1,5 +1,5 @@
 ###############################################################################
-# Copyright (c) 2018-2021, National Research Foundation (SARAO)
+# Copyright (c) 2018-2021,2025, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -193,14 +193,20 @@ def calc_gain_correction(sensor, index, targets=None):
     if targets is None:
         targets = CategoricalData([0], [0, len(dumps)])
     smooth_gains = np.full((len(dumps), gains.shape[0]), INVALID_GAIN)
-    # Iterate over number of channels / "IFs" / subbands in gain product
+    # We either have a single dummy target (L1) or iterate over actual targets (L2)
     for target in targets.unique_values:
         on_target = (targets == target)
+        # Iterate over number of channels / "IFs" / subbands in gain product
         for chan, gains_per_chan in enumerate(gains):
             valid = np.isfinite(gains_per_chan) & on_target[events]
             if valid.any():
+                # The current target has at least one valid gain solution in the channel
                 smooth_gains[on_target, chan] = complex_interp(
                     dumps[on_target], events[valid], gains_per_chan[valid])
+            elif not on_target[events].any():
+                # We are on a target without any (L2) gain solutions, i.e. a calibrator.
+                # Rather preserve the L1 gains by setting L2 gains to 1.0 in this case.
+                smooth_gains[on_target, chan] = np.complex64(1.0)
     return np.reciprocal(smooth_gains)
 
 
