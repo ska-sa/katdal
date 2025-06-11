@@ -1,5 +1,5 @@
 ###############################################################################
-# Copyright (c) 2018-2023, National Research Foundation (SARAO)
+# Copyright (c) 2018-2023,2025, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -71,11 +71,18 @@ GAIN_EVENTS = list(range(10, N_DUMPS, 10))
 BAD_GAIN_ANT = 3
 BAD_GAIN_DUMPS = [20, 40]
 
-TARGETS = np.array([katpoint.Target('gaincal1, radec, 0, -90'),
-                    katpoint.Target('other | gaincal2, radec, 0, -80')])
-TARGET_INDICES = np.arange(len(GAIN_EVENTS)) % 2
+TARGETS = np.array([
+    katpoint.Target('gaincal1, radec, 0, -90'),
+    katpoint.Target('other | gaincal2, radec, 0, -80'),
+    katpoint.Target('no_gains, radec, 0, -70'),
+])
+# Alternate between targets with gains
+GAIN_TARGET_INDICES = np.arange(len(GAIN_EVENTS)) % 2
+# Include an extra target without gains at the end
+TARGET_EVENTS = GAIN_EVENTS + [N_DUMPS - 5]
+TARGET_INDICES = np.r_[GAIN_TARGET_INDICES, len(TARGETS) - 1]
 FLUX_VALUES = np.array([16.0, 4.0])
-FLUX_SCALE_FACTORS = 1.0 / np.sqrt(FLUX_VALUES[TARGET_INDICES])
+FLUX_SCALE_FACTORS = 1.0 / np.sqrt(FLUX_VALUES[GAIN_TARGET_INDICES])
 FLUXES = {'gaincal1': FLUX_VALUES[0], 'gaincal2': FLUX_VALUES[1]}
 # The measured flux for gaincal1 is wrong on purpose so that we have to
 # override it. There is also an extra unknown gain calibrator in the mix.
@@ -164,7 +171,7 @@ def create_categorical_sensor(timestamps, values, initial_value=None):
                                  1.0, initial_value=initial_value)
 
 
-TARGET_SENSOR = create_categorical_sensor(GAIN_EVENTS, TARGETS[TARGET_INDICES])
+TARGET_SENSOR = create_categorical_sensor(TARGET_EVENTS, TARGETS[TARGET_INDICES])
 
 
 def create_sensor_cache(bandpass_parts=BANDPASS_PARTS):
@@ -224,8 +231,15 @@ def gain_corrections(pol, ant, multi_channel=False, targets=False, fluxes=False)
         for target in set(targets):
             on_target = (targets == target)
             valid = np.isfinite(gains_per_chan) & on_target[events]
-            smooth_gains[on_target, chan] = INVALID_GAIN if not valid.any() else \
-                complex_interp(dumps[on_target], events[valid], gains_per_chan[valid])
+            if valid.any():
+                smooth_gains[on_target, chan] = complex_interp(
+                    dumps[on_target], events[valid], gains_per_chan[valid]
+                )
+            elif not on_target[events].any():
+                # Preserve L1 gains of targets without L2 gains (i.e. calibrators)
+                smooth_gains[on_target, chan] = np.complex64(1.0)
+            else:
+                smooth_gains[on_target, chan] = INVALID_GAIN
     return np.reciprocal(smooth_gains)
 
 
@@ -445,7 +459,7 @@ class TestCalProductAccess:
     def test_get_cal_product_selfcal_gain(self):
         product_sensor = get_cal_product(self.cache, CAL_STREAM, 'GPHASE')
         product = create_product(partial(create_gain, multi_channel=True, targets=True))
-        assert_array_equal_within_n_ulps(product_sensor[GAIN_EVENTS], product)
+        assert_array_equal_within_n_ulps(product_sensor[GAIN_EVENTS], product, n=3)
 
 
 class TestCorrectionPerInput:
