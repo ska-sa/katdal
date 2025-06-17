@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2018-2019,2021-2023, National Research Foundation (SARAO)
+# Copyright (c) 2018-2019,2021-2023,2025, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -19,8 +19,10 @@
 from functools import partial
 from numbers import Integral
 
+import dask
 import dask.array as da
 import numpy as np
+from packaging.version import Version
 import pytest
 
 from katdal.lazy_indexer import (DaskLazyIndexer, _dask_oindex,
@@ -172,6 +174,7 @@ def numpy_oindex_lite(x, keep):
 
 
 UNEVEN = [False, True, True, True, False, False, True, True, False, True]
+DASK_SLICE_BUG = Version(dask.__version__) >= Version('2024.8.0')
 
 
 class TestDaskGetitem:
@@ -234,11 +237,13 @@ class TestDaskGetitem:
         self._test_with(np.s_[:, [0], :, -1])
         self._test_with(np.s_[:, 0, [0, 2], [1, 3, 5]])
 
+    @pytest.mark.skipif(DASK_SLICE_BUG, reason="Dask newaxis + mask slicing broken")
     def test_newaxis(self):
         self._test_with(np.s_[np.newaxis, :, 2 * UNEVEN, :, 0])
         self._test_with(np.s_[:, 2 * UNEVEN, np.newaxis, 0, :])
         self._test_with(np.s_[0, np.newaxis, 1, np.newaxis, 2, np.newaxis, 3])
 
+    @pytest.mark.skipif(DASK_SLICE_BUG, reason="Dask newaxis + mask slicing broken")
     def test_the_lot(self):
         self._test_with(np.s_[..., 0, 2:5, 3 * UNEVEN, np.newaxis, [4, 6]],
                         np.s_[0, 2:5, 3 * UNEVEN, np.newaxis, [4, 6]])
