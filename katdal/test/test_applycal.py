@@ -137,7 +137,7 @@ def create_gain(pol, ant, multi_channel=False, targets=False, fluxes=False):
         gains *= (-1) ** np.arange(len(GAIN_EVENTS))
     if multi_channel:
         gains = np.outer(gains, create_bandpass(pol, ant))
-        gains /= np.abs(gains)
+        gains /= np.nan_to_num(np.abs(gains), nan=1.0)
     if ant == BAD_GAIN_ANT:
         gains[:] = INVALID_GAIN
     bad_events = [GAIN_EVENTS.index(dump) for dump in BAD_GAIN_DUMPS]
