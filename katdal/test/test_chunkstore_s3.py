@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2017-2023, National Research Foundation (SARAO)
+# Copyright (c) 2017-2023,2025, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -306,6 +306,10 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         if name.startswith(PREFIX):
             return name
         return self.store.join(BUCKET, name)
+
+    @pytest.mark.skipif(sys.version_info >= (3, 12), reason="0-dim chunks not supported")
+    def test_chunk_zero_dim(self):
+        self.put_get_chunk('z', ())
 
     def test_chunk_non_existent(self):
         # An empty bucket will trigger StoreUnavailable so put something in there first

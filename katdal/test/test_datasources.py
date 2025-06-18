@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2018-2022, National Research Foundation (SARAO)
+# Copyright (c) 2018-2022,2025, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -34,6 +34,12 @@ from katdal.test.test_vis_flags_weights import put_fake_dataset
 from katdal.vis_flags_weights import correct_autocorr_quantisation
 
 
+FIRST_TIMESTAMP = 123.0
+SYNC_TIME = 1600000000.0
+INT_TIME = 2.0
+T0 = SYNC_TIME + FIRST_TIMESTAMP
+
+
 def _make_fake_stream(telstate, store, cbid, stream, shape,
                       chunk_overrides=None, array_overrides=None, flags_only=False,
                       bls_ordering_override=None):
@@ -46,9 +52,9 @@ def _make_fake_stream(telstate, store, cbid, stream, shape,
     cs_view = telstate.view(telstate_prefix)
     s_view = telstate.view(stream)
     cs_view['chunk_info'] = chunk_info
-    cs_view['first_timestamp'] = 123.0
-    s_view['sync_time'] = 1600000000.0
-    s_view['int_time'] = 2.0
+    cs_view['first_timestamp'] = FIRST_TIMESTAMP
+    s_view['sync_time'] = SYNC_TIME
+    s_view['int_time'] = INT_TIME
     s_view['bandwidth'] = 856e6
     s_view['center_freq'] = 1284e6
     s_view['n_chans'] = shape[1]
@@ -134,12 +140,12 @@ class TestTelstateDataSource:
 
     def test_basic_timestamps(self):
         # Add a sensor to telstate to exercise the relevant code paths in TelstateDataSource
-        self.telstate.add('obs_script_log', 'Digitisers synced', ts=1600000000.)
+        self.telstate.add('obs_script_log', 'Digitisers synced', ts=SYNC_TIME)
         view, cbid, sn, _, _ = make_fake_data_source(self.telstate, self.store, (20, 64, 40))
         data_source = TelstateDataSource(
             view, cbid, sn, chunk_store=None, url='http://hello')
         assert data_source.data is None
-        expected_timestamps = np.arange(20, dtype=np.float32) * 2 + 1600000123
+        expected_timestamps = T0 + np.arange(20) * INT_TIME
         np.testing.assert_array_equal(data_source.timestamps, expected_timestamps)
 
     def test_timestamps_preselect(self):
@@ -149,7 +155,8 @@ class TestTelstateDataSource:
                                          preselect=dict(dumps=np.s_[2:10]))
         np.testing.assert_array_equal(
             data_source.timestamps,
-            np.arange(2, 10, dtype=np.float32) * 2 + 1600000123)
+            T0 + np.arange(2, 10) * INT_TIME,
+        )
 
     def test_bad_preselect(self):
         view, cbid, sn, l0_data, l1_flags_data = \
@@ -192,7 +199,7 @@ class TestTelstateDataSource:
             l0_chunk_overrides=l0_chunk_overrides,
             l1_flags_chunk_overrides=l1_flags_chunk_overrides)
         data_source = TelstateDataSource(view, cbid, sn, self.store)
-        expected_timestamps = np.arange(l0_shape[0], dtype=np.float32) * 2 + 1600000123
+        expected_timestamps = T0 + np.arange(l0_shape[0]) * INT_TIME
         np.testing.assert_array_equal(data_source.timestamps, expected_timestamps)
         np.testing.assert_array_equal(data_source.data.vis.compute(), l0_data['correlator_data'])
         expected_flags = np.zeros(l0_shape, np.uint8)
@@ -221,7 +228,7 @@ class TestTelstateDataSource:
             l0_chunk_overrides=l0_chunk_overrides,
             l1_flags_chunk_overrides=l1_flags_chunk_overrides)
         data_source = TelstateDataSource(view, cbid, sn, self.store)
-        expected_timestamps = np.arange(l1_flags_shape[0], dtype=np.float32) * 2 + 1600000123
+        expected_timestamps = T0 + np.arange(l1_flags_shape[0]) * INT_TIME
         np.testing.assert_array_equal(data_source.timestamps, expected_timestamps)
         expected_vis = np.zeros(l1_flags_shape, l0_data['correlator_data'].dtype)
         expected_vis[:18] = l0_data['correlator_data']
