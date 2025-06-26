@@ -3,6 +3,8 @@
 cffi==1.15.1                           # via cryptography
 coverage
 cryptography==38.0.3
+packaging
 pycparser==2.21                        # via cffi
+pyparsing                              # via packaging
 pytest
 pytest-cov

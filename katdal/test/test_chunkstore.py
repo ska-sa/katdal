@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2017-2023, National Research Foundation (SARAO)
+# Copyright (c) 2017-2023,2025, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -255,6 +255,8 @@ class ChunkStoreTestBase:
     def test_chunk_zero_size(self):
         # Try a chunk with zero size
         self.put_get_chunk('y', (slice(4, 7), slice(3, 3), slice(0, 2)))
+
+    def test_chunk_zero_dim(self):
         # Try an empty slice on a zero-dimensional array (but why?)
         self.put_get_chunk('z', ())
 

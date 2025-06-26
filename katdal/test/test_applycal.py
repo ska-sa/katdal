@@ -29,7 +29,8 @@ from katdal.applycal import (INVALID_GAIN, add_applycal_sensors,
                              apply_weights_correction,
                              calc_bandpass_correction, calc_correction,
                              calc_delay_correction, calc_gain_correction,
-                             calibrate_flux, complex_interp, get_cal_product)
+                             calibrate_flux, complex_interp, get_cal_product,
+                             quiet_reciprocal)
 from katdal.categorical import (CategoricalData, ComparableArrayWrapper,
                                 sensor_to_categorical)
 from katdal.flags import POSTPROC
@@ -137,7 +138,7 @@ def create_gain(pol, ant, multi_channel=False, targets=False, fluxes=False):
         gains *= (-1) ** np.arange(len(GAIN_EVENTS))
     if multi_channel:
         gains = np.outer(gains, create_bandpass(pol, ant))
-        gains /= np.abs(gains)
+        gains /= np.nan_to_num(np.abs(gains), nan=1.0)
     if ant == BAD_GAIN_ANT:
         gains[:] = INVALID_GAIN
     bad_events = [GAIN_EVENTS.index(dump) for dump in BAD_GAIN_DUMPS]
@@ -216,7 +217,7 @@ def bandpass_corrections(pol, ant):
                             left=INVALID_GAIN, right=INVALID_GAIN)
     else:
         bp = np.full(N_CHANS, INVALID_GAIN)
-    return np.reciprocal(bp)
+    return quiet_reciprocal(bp)
 
 
 def gain_corrections(pol, ant, multi_channel=False, targets=False, fluxes=False):
@@ -240,7 +241,7 @@ def gain_corrections(pol, ant, multi_channel=False, targets=False, fluxes=False)
                 smooth_gains[on_target, chan] = np.complex64(1.0)
             else:
                 smooth_gains[on_target, chan] = INVALID_GAIN
-    return np.reciprocal(smooth_gains)
+    return quiet_reciprocal(smooth_gains)
 
 
 def corrections_per_corrprod(dumps, channels, cal_products):

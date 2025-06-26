@@ -17,6 +17,7 @@
 """Utilities for applying calibration solutions to visibilities and weights."""
 
 import logging
+import warnings
 
 import dask.array as da
 import numba
@@ -87,6 +88,13 @@ def complex_interp(x, xi, yi, left=None, right=None):
     return y.astype(yi.dtype)
 
 
+def quiet_reciprocal(x):
+    """Invert `x` but don't complain about invalid values."""
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', 'invalid value', RuntimeWarning)
+        return np.reciprocal(x)
+
+
 def _parse_cal_product(cal_product):
     """Split `cal_product` into `cal_stream` and `product_type` parts."""
     fields = cal_product.rsplit('.', 1)
@@ -153,7 +161,7 @@ def calc_bandpass_correction(sensor, index, data_freqs, cal_freqs):
                                 left=INVALID_GAIN, right=INVALID_GAIN)
         else:
             bp = np.full(len(data_freqs), INVALID_GAIN)
-        corrections.append(ComparableArrayWrapper(np.reciprocal(bp)))
+        corrections.append(ComparableArrayWrapper(quiet_reciprocal(bp)))
     return CategoricalData(corrections, sensor.events)
 
 
@@ -207,7 +215,7 @@ def calc_gain_correction(sensor, index, targets=None):
                 # We are on a target without any (L2) gain solutions, i.e. a calibrator.
                 # Rather preserve the L1 gains by setting L2 gains to 1.0 in this case.
                 smooth_gains[on_target, chan] = np.complex64(1.0)
-    return np.reciprocal(smooth_gains)
+    return quiet_reciprocal(smooth_gains)
 
 
 def calibrate_flux(sensor, targets, gaincal_flux):
