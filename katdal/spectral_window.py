@@ -79,6 +79,9 @@ class SpectralWindow:
         self._channel_freqs_lock = threading.Lock()
         self._channel_freqs = None
 
+    def __reduce__(self):
+        return (SpectralWindow, (self.centre_freq, self.channel_width, self.num_chans, self.product, self.sideband, self.band, self.bandwidth))
+
     @property
     def channel_freqs(self):
         with self._channel_freqs_lock:
