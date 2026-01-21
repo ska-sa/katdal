@@ -264,15 +264,21 @@ class TestS3ChunkStore(ChunkStoreTestBase):
         return url, kwargs
 
     @classmethod
-    def setup_class(cls):
-        """Start minio service running on temp dir, and ChunkStore on that."""
+    def setup_class(cls, **kwargs):
+        """Start minio service running on temp dir, and ChunkStore on that.
+
+        Parameters
+        ----------
+        kwargs : dict, optional
+            Extra keyword arguments passed to :class:`katdal.chunkstore_s3.S3ChunkStore`
+        """
         cls.arrays = generate_arrays()
         cls.credentials = ('access*key', 'secret*key')
         cls.tempdir = tempfile.mkdtemp()
         cls.minio = None
         try:
             cls.s3_url = cls.start_minio('127.0.0.1')
-            cls.store_url, cls.store_kwargs = cls.prepare_store_args(cls.s3_url)
+            cls.store_url, cls.store_kwargs = cls.prepare_store_args(cls.s3_url, **kwargs)
             cls.store = S3ChunkStore(cls.store_url, **cls.store_kwargs)
             # Ensure that pagination is tested
             cls.store.list_max_keys = 3
