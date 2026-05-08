@@ -24,6 +24,7 @@ from .dataset import DataSet, WrongVersion  # noqa: F401
 from .datasources import open_data_source
 from .h5datav1 import H5DataV1
 from .h5datav2 import H5DataV2
+from .h5datav2_5 import H5DataV2_5
 from .h5datav3 import H5DataV3
 from .lazy_indexer import LazyTransform, dask_getitem  # noqa: F401
 from .spectral_window import SpectralWindow  # noqa: F401
@@ -59,7 +60,7 @@ else:
 # -- Top-level functions passed on to the appropriate format handler
 # -----------------------------------------------------------------------------
 
-formats = [H5DataV3, H5DataV2, H5DataV1]
+formats = [H5DataV3, H5DataV2_5, H5DataV2, H5DataV1]
 
 
 def _file_action(action, filename, *args, **kwargs):
