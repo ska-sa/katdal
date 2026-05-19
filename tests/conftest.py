@@ -15,6 +15,9 @@
 ################################################################################
 
 import pytest
+import numpy as np
+from katpoint import Target
+from minimal_dataset import MinimalDataSet
 
 TEST_DURATION_TOLERANCE = 0.1
 
@@ -50,3 +53,21 @@ def pytest_runtest_makereport(item, call):
         report.longrepr = (f"\nTest took {report.duration:g} seconds, "
                            f"which is outside the range [{minimum:g}, {maximum:g}]\n")
     return report
+
+
+@pytest.fixture
+def dataset():
+    """A basic dataset used to test the selection mechanism."""
+    targets = [
+        # It would have been nice to have radec = 19:39, -63:42 but then
+        # selection by description string does not work because the catalogue's
+        # description string pads it out to radec = 19:39:00.00, -63:42:00.0.
+        # (XXX Maybe fix Target comparison in katpoint to support this?)
+        Target('J1939-6342 | PKS1934-638, radec bpcal, 19:39:25.03, -63:42:45.6'),
+        Target('J1939-6342, radec gaincal, 19:39:25.03, -63:42:45.6'),
+        Target('J0408-6545 | PKS 0408-65, radec bpcal, 4:08:20.38, -65:45:09.1'),
+        Target('J1346-6024 | Cen B, radec, 13:46:49.04, -60:24:29.4'),
+    ]
+    # Ensure that len(timestamps) is an integer multiple of len(targets)
+    timestamps = 1234667890.0 + 1.0 * np.arange(12)
+    return MinimalDataSet(targets, timestamps)
