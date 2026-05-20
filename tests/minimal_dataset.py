@@ -21,6 +21,7 @@ from katpoint import Antenna, Timestamp
 
 from katdal.categorical import CategoricalData
 from katdal.dataset import DEFAULT_VIRTUAL_SENSORS, DataSet, Subarray
+from katdal.lazy_indexer import LazyIndexer
 from katdal.sensordata import SensorCache
 from katdal.spectral_window import SpectralWindow
 
@@ -60,6 +61,7 @@ class MinimalDataSet(DataSet):
     """
     def __init__(self, targets, timestamps, subarray=SUBARRAY, spectral_window=SPW):
         super().__init__(name='test', ref_ant='array')
+        self.version = '4.0'
         num_dumps = len(timestamps)
         num_chans = spectral_window.num_chans
         num_corrprods = len(subarray.corr_products)
@@ -120,7 +122,26 @@ class MinimalDataSet(DataSet):
         self.catalogue.add(targets)
         self.catalogue.antenna = array_ant
         self.select(spw=0, subarray=0)
+        self._vis = np.zeros(self.shape, dtype=np.complex64)
+        self._flags = np.zeros(self.shape, dtype=bool)
+        self._weights = np.zeros(self.shape, dtype=np.float32)
+
+    @property
+    def _stage1(self):
+        return (self._time_keep, self._freq_keep, self._corrprod_keep)
 
     @property
     def timestamps(self):
         return self._timestamps[self._time_keep]
+
+    @property
+    def vis(self):
+        return LazyIndexer(self._vis, self._stage1)
+
+    @property
+    def flags(self):
+        return LazyIndexer(self._flags, self._stage1)
+
+    @property
+    def weights(self):
+        return LazyIndexer(self._weights, self._stage1)
