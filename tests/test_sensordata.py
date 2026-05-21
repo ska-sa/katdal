@@ -72,9 +72,9 @@ class TestToStr:
         np.testing.assert_array_equal(to_str(a), b)
 
 
-@mock.patch('katsdptelstate.encoding._allow_pickle', True)
-@mock.patch('katsdptelstate.encoding._warn_on_pickle', False)
-def test_telstate_decode():
+def test_telstate_decode(mocker):
+    mocker.patch('katsdptelstate.encoding._allow_pickle', True)
+    mocker.patch('katsdptelstate.encoding._warn_on_pickle', False)
     raw = "S'1'\n."
     assert telstate_decode(raw) == '1'
     assert telstate_decode(raw.encode()) == '1'
