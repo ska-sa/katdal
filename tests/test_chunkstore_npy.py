@@ -24,7 +24,7 @@ import pytest
 
 from katdal.chunkstore import StoreUnavailable
 from katdal.chunkstore_npy import NpyFileChunkStore
-from katdal.test.test_chunkstore import ChunkStoreTestBase, generate_arrays
+from test_chunkstore import ChunkStoreTestBase, generate_arrays
 
 
 class TestNpyFileChunkStore(ChunkStoreTestBase):
