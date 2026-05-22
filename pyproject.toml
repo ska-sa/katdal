@@ -81,6 +81,7 @@ Changelog = "https://github.com/ska-sa/katdal/blob/master/NEWS.rst"
 readme = {file = ["README.rst", "NEWS.rst"]}
 
 [tool.setuptools_scm]
+version_scheme = "no-guess-dev"
 
 
 
