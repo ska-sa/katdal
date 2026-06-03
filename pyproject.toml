@@ -82,6 +82,8 @@ readme = {file = ["README.rst", "NEWS.rst"]}
 
 [tool.setuptools_scm]
 version_scheme = "no-guess-dev"
+# XXX Change to version_file when requires-python = ">=3.8" (and setuptools_scm>=8.0)
+write_to = "src/katdal/_version.py"
 
 
 

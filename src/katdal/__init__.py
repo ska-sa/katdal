@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2011-2021, National Research Foundation (SARAO)
+# Copyright (c) 2011-2021,2026 National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -44,16 +44,11 @@ _no_config_handler.addFilter(_NoConfigFilter())
 logger = _logging.getLogger(__name__)
 logger.addHandler(_no_config_handler)
 
-# BEGIN VERSION CHECK
-# Get package version when locally imported from repo or via -e develop install
 try:
-    import katversion as _katversion
+    from ._version import version as __version__
 except ImportError:
     import time as _time
     __version__ = "0.0+unknown.{}".format(_time.strftime('%Y%m%d%H%M'))
-else:
-    __version__ = _katversion.get_version(__path__[0])
-# END VERSION CHECK
 
 # -----------------------------------------------------------------------------
 # -- Top-level functions passed on to the appropriate format handler
