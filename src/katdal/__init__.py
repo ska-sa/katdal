@@ -45,7 +45,7 @@ logger = _logging.getLogger(__name__)
 logger.addHandler(_no_config_handler)
 
 try:
-    from ._version import version as __version__
+    from ._version import __version__
 except ImportError:
     import time as _time
     __version__ = "0.0+unknown.{}".format(_time.strftime('%Y%m%d%H%M'))
