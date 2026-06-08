@@ -41,7 +41,6 @@ import tempfile
 import threading
 import time
 import urllib.parse
-import warnings
 
 import jwt
 import katsdptelstate
@@ -171,7 +170,8 @@ class TestReadArray:
         self._truncate_and_fail_to_read(-1, 2)
 
 
-@pytest.mark.parametrize('url,expected',
+@pytest.mark.parametrize(
+    'url,expected',
     [
         ('https://archive/bucket/key/000', 'https://archive/bucket/key/000'),
         ('https://archive/bucket/key/0_0', 'https://archive/bucket/key/0_0'),
