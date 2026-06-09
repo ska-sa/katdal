@@ -82,8 +82,12 @@ readme = {file = ["README.rst", "NEWS.rst"]}
 
 [tool.versioningit]
 write = {file = "src/katdal/_version.py"}
+
+[tool.versioningit.vcs]
+method = "git-archive"
+describe-subst = "$Format:%(describe)$"
 # Set a default tag since the Jenkins pipeline fetches the package git repo without tags
-vcs = {method = "git", default-tag = "v0.0"}
+default-tag = "v0.0"
 
 [tool.versioningit.format]
 distance =       "{base_version}.post1.dev{distance}+{branch}.{vcs}{rev}"
