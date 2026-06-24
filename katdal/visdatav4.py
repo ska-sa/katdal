@@ -523,6 +523,11 @@ class VisibilityDataV4(DataSet):
                 self._corrected = VisFlagsWeights(corrected_vis, corrected_flags,
                                                   corrected_weights, unscaled_weights)
 
+
+
+        from .parquet_export import parquet_export
+        parquet_export(attrs, self.sensor)
+
         # Apply default selection and initialise all members that depend
         # on selection in the process
         self.select(spw=0, subarray=0, ants=obs_ants)
