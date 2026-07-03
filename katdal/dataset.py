@@ -22,6 +22,8 @@ import pathlib
 import time
 import urllib.parse
 
+import ast
+
 import katpoint
 import numpy as np
 from katpoint import is_iterable, rad2deg
@@ -164,6 +166,30 @@ def _selection_to_list(names, **groups):
         return list(names)
     else:
         return [names]
+
+
+def _parse_slice_string(value):
+    """Convert a slice-like string or dict to a Python slice.
+
+    Accepts:
+      - A dict with optional "start", "stop", "step" keys
+      - "slice(start,stop[,step])" string
+
+    Returns the original value unchanged if it doesn't match either pattern.
+    """
+    if isinstance(value, dict):
+        return slice(value.get('start'), value.get('stop'), value.get('step'))
+    
+    if isinstance(value, str) and value.startswith("slice(") and value.endswith(")"):
+        try:
+            args = ast.literal_eval(f"({value[6:-1]})")
+            if not all(isinstance(a, int) for a in args):
+                raise ValueError
+        except (ValueError, SyntaxError):
+            raise ValueError(
+                f"Invalid slice string {value}: expected 'slice(start, stop[, step])'") from None
+        return slice(*args)
+    return value # if corrprods is slected as 'auto' or 'cross'
 
 
 def _is_deselection(selectors):
@@ -753,6 +779,12 @@ class DataSet:
             self._corrprod_keep = np.ones(len(self.subarrays[self.subarray].corr_products), dtype=bool)
             for key in corrprod_selectors:
                 self._selection.pop(key, None)
+        # Allow slice-like strings for selectors that accept slices/indices
+        slice_keys = ('dumps', 'channels', 'corrprods')
+        for key in slice_keys:
+            if key in kwargs:
+                kwargs[key] = _parse_slice_string(kwargs[key])
+
         # Now add the new selection criteria to the list (after the existing ones were kept or culled)
         self._selection.update(kwargs)
 
@@ -826,9 +858,11 @@ class DataSet:
             elif k == 'channels':
                 if np.asarray(v).dtype == bool:
                     self._freq_keep &= v
+                    print(f'Print the frequency keep array: {self._freq_keep}')
                 else:
                     chan_keep = np.zeros(len(self._freq_keep), dtype=bool)
                     chan_keep[v] = True
+                    #print(f'Print the channel keep array: {chan_keep}') # what is this channel keep array
                     self._freq_keep &= chan_keep
             elif k == 'freqrange':
                 start_freq = v[0] + 0.5 * self.spectral_windows[self.spw].channel_width

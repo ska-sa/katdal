@@ -87,6 +87,7 @@ in single quotes ('). Some examples:
   mvf_download.py url directory --select='{"scans": 1}'
   mvf_download.py url directory --select='{"scans": [0, 1, 2]}'
   mvf_download.py url directory --select='{"targets": "J1939-6342"}'
+  mvf_download.py url directory --select='{"channels": "slice(start_chan, end_chan)"}'
 
 The chunks that are not copied will appear as "lost" data in the downloaded
 dataset, but that is fine. If you apply the same selection, you won't see it.
@@ -209,7 +210,9 @@ def main():
     local_rdb = urlunparse(('file', '', str(rdb_path), '', query, ''))
     print(f"Opening local RDB file: {local_rdb}")
     d = katdal.open(local_rdb)
+    print(args) # json objects are passed to select as dict 
     d.select(**args.select)
+    print(d)
     # Collect names of chunks covered by selection in each chunked storage array
     chunks = chunk_names(d.source.data, d.vis.keep)
     for bucket, files in chunks.items():
