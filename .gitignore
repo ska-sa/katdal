@@ -35,3 +35,5 @@ nosetests.xml
 # Virtual Studio Code settings
 .vscode
 
+# baked-in version
+src/katdal/_version.py

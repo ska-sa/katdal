@@ -41,7 +41,6 @@ import tempfile
 import threading
 import time
 import urllib.parse
-import warnings
 
 import jwt
 import katsdptelstate
@@ -68,10 +67,9 @@ from katdal.chunkstore_s3 import (
     _normalise_bucket_name,
 )
 from katdal.datasources import TelstateDataSource, DataSourceNotFound
-from katdal.test.s3_utils import MissingProgram, S3Server, S3User
-from katdal.test.test_chunkstore import ChunkStoreTestBase, generate_arrays
-from katdal.test.test_datasources import (assert_telstate_data_source_equal,
-                                          make_fake_data_source)
+from s3_utils import MissingProgram, S3Server, S3User
+from test_chunkstore import ChunkStoreTestBase, generate_arrays
+from test_datasources import assert_telstate_data_source_equal, make_fake_data_source
 
 # Use a standard bucket for most tests to ensure a valid bucket name
 # (regex '^[0-9a-z.-]{3,63}$'). While we are at it, go a step further
@@ -172,7 +170,8 @@ class TestReadArray:
         self._truncate_and_fail_to_read(-1, 2)
 
 
-@pytest.mark.parametrize('url,expected',
+@pytest.mark.parametrize(
+    'url,expected',
     [
         ('https://archive/bucket/key/000', 'https://archive/bucket/key/000'),
         ('https://archive/bucket/key/0_0', 'https://archive/bucket/key/0_0'),

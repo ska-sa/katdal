@@ -370,7 +370,7 @@ def main():
 
     # get a set of user selected available tracking scans, ignore slew scans
     avail_tracks = list(map(lambda x: x[0],
-                            filter(lambda x: x[1] in ('track','scan'),
+                            filter(lambda x: x[1] in ('track', 'scan'),
                                    dataset.scans())))
     dump_scans = options.scans if options.scans else avail_tracks
     dump_scans = list(set(dump_scans).intersection(set(avail_tracks)))
@@ -553,7 +553,8 @@ def main():
         else:
             # Create the MeasurementSet
             table_desc, dminfo = ms_extra.kat_ms_desc_and_dminfo(
-            nbl=nbl, nchan=nchan, ncorr=npol, model_data=options.model_data)
+                nbl=nbl, nchan=nchan, ncorr=npol, model_data=options.model_data
+            )
 
             ms_extra.create_ms(ms_name, table_desc, dminfo)
 

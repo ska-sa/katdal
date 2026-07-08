@@ -22,7 +22,7 @@ import numpy as np
 import dask.array as da
 
 from katdal.chunkstore_dict import DictChunkStore
-from katdal.test.test_chunkstore import ChunkStoreTestBase, generate_arrays
+from test_chunkstore import ChunkStoreTestBase, generate_arrays
 
 
 class TestDictChunkStore(ChunkStoreTestBase):

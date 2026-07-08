@@ -329,7 +329,8 @@ def assert_array_equal_within_n_ulps(x, y, n=1):
         )
 
 
-@pytest.mark.parametrize('x,y,n',
+@pytest.mark.parametrize(
+    'x,y,n',
     [
         (1.0, 1.0 + EPS, 1),
         (1.0, 1.0 - EPS, 2),
@@ -345,7 +346,8 @@ def test_assert_array_equal_within_n_ulps(x, y, n):
     assert_array_equal_within_n_ulps(x, y, n)
 
 
-@pytest.mark.parametrize('x,y',
+@pytest.mark.parametrize(
+    'x,y',
     [
         (1.0, np.inf), (1.0, np.nan), (-np.inf, np.inf),
         (np.inf + 1.0j, -np.inf + 1.0j),

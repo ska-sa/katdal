@@ -30,8 +30,9 @@ from katdal.chunkstore_npy import NpyFileChunkStore
 from katdal.datasources import (DataSourceNotFound, TelstateDataSource,
                                 open_data_source, view_l0_capture_stream)
 from katdal.flags import DATA_LOST
-from katdal.test.test_vis_flags_weights import put_fake_dataset
 from katdal.vis_flags_weights import correct_autocorr_quantisation
+
+from test_vis_flags_weights import put_fake_dataset
 
 
 FIRST_TIMESTAMP = 123.0

@@ -1,2 +1,99 @@
+################################################################################
+# Copyright (c) 2011,2013,2016-2023,2026 National Research Foundation (SARAO)
+#
+# Licensed under the BSD 3-Clause License (the "License"); you may not use
+# this file except in compliance with the License. You may obtain a copy
+# of the License at
+#
+#   https://opensource.org/licenses/BSD-3-Clause
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+################################################################################
+
 [build-system]
-requires = ["setuptools", "wheel", "katversion"]
+requires = [
+        "setuptools>=45",
+        "versioningit",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "katdal"
+description = "Karoo Array Telescope Data Access Library for interacting with data sets in the MeerKAT Visibility Format (MVF)"
+license = {text = "BSD-3-Clause"}
+authors = [
+    {name = "Ludwig Schwardt", email = "ludwig@ska.ac.za"}
+]
+keywords = ["meerkat", "ska"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Astronomy",
+]
+requires-python = ">=3.6"
+dependencies = [
+    "numpy >= 1.12.0",
+    "katpoint >= 0.9, < 1",
+    "h5py >= 2.3",
+    "numba",
+    "katsdptelstate[rdb] >= 0.10",
+    "dask[array] >= 2.7.0",
+    "requests >= 2.18.0",
+    "pyjwt >= 2",
+    "cityhash >= 0.2.2",
+    "packaging",
+]
+dynamic = ["version", "readme"]
+
+[project.optional-dependencies]
+ms = ["python-casacore >= 2.2.1"]
+s3 = []
+s3credentials = ["botocore"]
+test = [
+    "cryptography",
+    "pytest",
+    "pytest-cov",
+]
+
+[project.urls]
+Homepage = "https://github.com/ska-sa/katdal"
+Documentation = "https://katdal.readthedocs.io"
+Repository = "https://github.com/ska-sa/katdal.git"
+Issues = "https://github.com/ska-sa/katdal/issues"
+Changelog = "https://github.com/ska-sa/katdal/blob/master/NEWS.rst"
+
+[project.scripts]
+"mvf_copy.py" = "katdal.scripts.mvf_copy:main"
+"mvf_download.py" = "katdal.scripts.mvf_download:main"
+"mvftoms.py" = "katdal.scripts.mvftoms:main"
+
+
+
+[tool.setuptools.dynamic]
+readme = {file = ["README.rst", "NEWS.rst"]}
+
+[tool.versioningit]
+write = {file = "src/katdal/_version.py"}
+
+[tool.versioningit.vcs]
+method = "git-archive"
+describe-subst = "$Format:%(describe)$"
+# Set a default tag since the Jenkins pipeline fetches the package git repo without tags
+default-tag = "v0.0"
+
+[tool.versioningit.format]
+distance =       "{base_version}.post1.dev{distance}+{branch}.{vcs}{rev}"
+distance-dirty = "{base_version}.post1.dev{distance}+{branch}.{vcs}{rev}.dirty"
+dirty =          "{base_version}+dirty"
+
+[tool.darglint]
+docstring_style = "numpy"
+strictness = "long"
