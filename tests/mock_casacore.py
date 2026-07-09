@@ -18,7 +18,6 @@ import sys
 from unittest import mock
 
 casacore = mock.MagicMock()
-casacore.__version__ = "3.5.0"
 casacore.tables = tables = mock.MagicMock()
 
 # The output of casacore.tables.required_ms_desc("MAIN")
