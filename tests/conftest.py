@@ -69,5 +69,5 @@ def dataset():
         Target('J1346-6024 | Cen B, radec, 13:46:49.04, -60:24:29.4'),
     ]
     # Ensure that len(timestamps) is an integer multiple of len(targets)
-    timestamps = 1234667890.0 + 1.0 * np.arange(12)
+    timestamps = 1234667890.0 + 1.0 * np.arange(3 * len(targets))
     return MinimalDataSet(targets, timestamps)
