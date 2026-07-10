@@ -101,12 +101,13 @@ def test_mvftoms_main(tmp_path, mocker, dataset):
     mocker.patch("sys.argv", ["mvftoms.py", "dummy.rdb", "-o", ms_name])
     # Mock multiprocessing.Process to run synchronously
     mock_proc = mocker.patch("multiprocessing.Process")
-    # Capture the target and args
-    def side_effect(*args, **kwargs):
+
+    def _side_effect(*args, **kwargs):
+        """Capture the target and args."""
         p = mock.MagicMock()
         return p
 
-    mock_proc.side_effect = side_effect
+    mock_proc.side_effect = _side_effect
 
     # We need to avoid the infinite loop in result_queue.get()
     mock_queue_cls = mocker.patch("multiprocessing.Queue")
