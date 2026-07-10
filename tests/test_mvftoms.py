@@ -34,7 +34,7 @@ def test_ms_extra_logic():
     assert mock_casacore.tables.default_ms.called
 
 
-def test_ms_async_writer(tmp_path):
+def test_ms_async_writer(tmp_path, mocker):
     """Test the ms_async writer process logic."""
     ms_name = str(tmp_path / "test.ms")
     options = mock.MagicMock(verbose=True, model_data=False)
@@ -62,64 +62,66 @@ def test_ms_async_writer(tmp_path):
     raw_flag = ms_async.RawArray((4, 1, 2, 16, 4), bool)
 
     # We need to mock ms_extra.open_table since it returns a mock that we want to control
-    with mock.patch("katdal.ms_extra.open_table") as mock_open:
-        table_mock = mock_open.return_value
-        table_mock.nrows.return_value = 0
-        table_mock.colnames.return_value = list(mock_casacore.REQUIRED_MS_DESC.keys()) + [
-            "DATA",
-            "WEIGHT_SPECTRUM",
-            "SIGMA_SPECTRUM",
-        ]
-        ms_async.ms_writer_process(
-            work_queue,
-            result_queue,
-            options,
-            antennas,
-            cp_info,
-            ms_name,
-            raw_vis,
-            raw_weight,
-            raw_flag,
-            start_row=0,
-        )
+    mock_open = mocker.patch("katdal.ms_extra.open_table")
+    table_mock = mock_open.return_value
+    table_mock.nrows.return_value = 0
+    table_mock.colnames.return_value = list(mock_casacore.REQUIRED_MS_DESC.keys()) + [
+        "DATA",
+        "WEIGHT_SPECTRUM",
+        "SIGMA_SPECTRUM",
+    ]
+
+    # The function under test (FUT)
+    ms_async.ms_writer_process(
+        work_queue,
+        result_queue,
+        options,
+        antennas,
+        cp_info,
+        ms_name,
+        raw_vis,
+        raw_weight,
+        raw_flag,
+        start_row=0,
+    )
 
     # Check if an error was put in the result queue
     for call in result_queue.put.call_args_list:
         obj = call[0][0]
         if isinstance(obj, Exception):
             raise obj
-
     assert table_mock.addrows.called
 
 
-def test_mvftoms_main(tmp_path, dataset):
+def test_mvftoms_main(tmp_path, mocker, dataset):
     """End-to-end test of the mvftoms script."""
     ms_name = str(tmp_path / "test.ms")
 
-    with mock.patch("katdal.open", return_value=dataset):
-        with mock.patch("sys.argv", ["mvftoms.py", "dummy.rdb", "-o", ms_name]):
-            # Mock multiprocessing.Process to run synchronously
-            with mock.patch("multiprocessing.Process") as mock_proc:
-                # Capture the target and args
-                def side_effect(*args, **kwargs):
-                    p = mock.MagicMock()
-                    return p
+    mocker.patch("katdal.open", return_value=dataset)
+    mocker.patch("sys.argv", ["mvftoms.py", "dummy.rdb", "-o", ms_name])
+    # Mock multiprocessing.Process to run synchronously
+    mock_proc = mocker.patch("multiprocessing.Process")
+    # Capture the target and args
+    def side_effect(*args, **kwargs):
+        p = mock.MagicMock()
+        return p
 
-                mock_proc.side_effect = side_effect
+    mock_proc.side_effect = side_effect
 
-                # We need to avoid the infinite loop in result_queue.get()
-                with mock.patch("multiprocessing.Queue") as mock_queue_cls:
-                    res_queue = mock_queue_cls.return_value
-                    # MinimalDataSet has 4 tracks (and 4 slews which are skipped)
-                    # For each track, result_queue.get() is called once.
-                    # Then in finally, it's called until it gets None.
-                    res_queue.get.side_effect = [mock.MagicMock(scan_size=1024)] * 4 + [None]
-                    # get_nowait is used to check for errors asynchronously
-                    res_queue.get_nowait.side_effect = queue.Empty
+    # We need to avoid the infinite loop in result_queue.get()
+    mock_queue_cls = mocker.patch("multiprocessing.Queue")
+    res_queue = mock_queue_cls.return_value
+    # MinimalDataSet has 4 tracks (and 4 slews which are skipped)
+    # For each track, result_queue.get() is called once.
+    # Then in finally, it's called until it gets None.
+    res_queue.get.side_effect = [mock.MagicMock(scan_size=1024)] * 4 + [None]
+    # get_nowait is used to check for errors asynchronously
+    res_queue.get_nowait.side_effect = queue.Empty
 
-                    try:
-                        mvftoms.main()
-                    except SystemExit:
-                        pass
+    # The function under test (FUT)
+    try:
+        mvftoms.main()
+    except SystemExit:
+        pass
 
     assert mock_casacore.tables.default_ms.called
