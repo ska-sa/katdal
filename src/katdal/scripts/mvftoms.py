@@ -39,7 +39,6 @@ import katdal
 from katdal import averager, ms_async, ms_extra
 from katdal.flags import NAMES as FLAG_NAMES
 from katdal.lazy_indexer import DaskLazyIndexer
-from katdal.sensordata import telstate_decode
 
 SLOTS = 4    # Controls overlap between loading and writing
 
@@ -256,9 +255,6 @@ def main():
     parser.add_argument("--flagav", action="store_true", default=False,
                         help="If a single element in an averaging bin is flagged, "
                              "flag the averaged bin")
-    parser.add_argument("--caltables", action="store_true", default=False,
-                        help="Create calibration tables from gain solutions in "
-                             "the dataset (if present)")
     parser.add_argument("--quack", type=int, default=1, metavar='N',
                         help="Discard the first N dumps "
                              "(which are frequently incomplete)")
@@ -569,12 +565,6 @@ def main():
             ms_dict['OBSERVATION'] = ms_extra.populate_observation_dict(
                 start_time, end_time, telescope_name, dataset.observer, dataset.experiment_id)
 
-            # before resetting ms_dict, copy subset to caltable dictionary
-            if options.caltables:
-                caltable_dict = {}
-                caltable_dict['ANTENNA'] = ms_dict['ANTENNA']
-                caltable_dict['OBSERVATION'] = ms_dict['OBSERVATION']
-
             print("Writing static meta data...")
             ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
 
@@ -767,151 +757,6 @@ def main():
             tar = tarfile.open(f'{ms_name}.tar', 'w')
             tar.add(ms_name, arcname=os.path.basename(ms_name))
             tar.close()
-
-        # --------------------------------------
-        # Now write calibration product tables if required
-        # Open first HDF5 file in the list to extract TelescopeState parameters from
-        #   (can't extract telstate params from contatenated katdal file as it
-        #    uses the hdf5 file directly)
-        first_dataset = katdal.open(args[0], ref_ant=options.ref_ant)
-        main_table = ms_extra.open_table(ms_name, verbose=options.verbose)
-
-        if options.caltables:
-            # copy extra subtable dictionary values necessary for caltable
-            caltable_dict['SPECTRAL_WINDOW'] = ms_dict['SPECTRAL_WINDOW']
-            caltable_dict['FIELD'] = ms_dict['FIELD']
-
-            solution_types = ['G', 'B', 'K']
-            ms_soltype_lookup = {'G': 'G Jones', 'B': 'B Jones', 'K': 'K Jones'}
-
-            print("\nWriting calibration solution tables to disk....")
-            if 'TelescopeState' not in first_dataset.file.keys():
-                print(" No TelescopeState in first dataset. Can't create solution tables.\n")
-            else:
-                # first get solution antenna ordering
-                #   newer files have the cal antlist as a sensor
-                if 'cal_antlist' in first_dataset.file['TelescopeState'].keys():
-                    a0 = first_dataset.file['TelescopeState/cal_antlist'][()]
-                    antlist = telstate_decode(a0[0][1])
-                #   older files have the cal antlist as an attribute
-                elif 'cal_antlist' in first_dataset.file['TelescopeState'].attrs.keys():
-                    antlist = np.safe_eval(first_dataset.file['TelescopeState'].attrs['cal_antlist'])
-                else:
-                    print(" No calibration antenna ordering in first dataset. "
-                          "Can't create solution tables.\n")
-                    continue
-                antlist_indices = list(range(len(antlist)))
-
-                # for each solution type in the file, create a table
-                for sol in solution_types:
-                    caltable_name = f'{basename}.{sol}'
-                    sol_name = f'cal_product_{sol}'
-
-                    if sol_name in first_dataset.file['TelescopeState'].keys():
-                        print(f' - creating {sol} solution table: {caltable_name}\n')
-
-                        # get solution values from the file
-                        solutions = first_dataset.file['TelescopeState'][sol_name][()]
-                        soltimes, solvals = [], []
-                        for t, s in solutions:
-                            soltimes.append(t)
-                            solvals.append(telstate_decode(s))
-                        solvals = np.array(solvals)
-
-                        # convert averaged UTC timestamps to MJD seconds.
-                        sol_mjd = np.array([katpoint.Timestamp(time_utc).to_mjd() * 24 * 60 * 60
-                                            for time_utc in soltimes])
-
-                        # determine solution characteristics
-                        if len(solvals.shape) == 4:
-                            ntimes, nchans, npols, nants = solvals.shape
-                        else:
-                            ntimes, npols, nants = solvals.shape
-                            nchans = 1
-                            solvals = solvals.reshape((ntimes, nchans, npols, nants))
-
-                        # create calibration solution measurement set
-                        caltable_desc = ms_extra.caltable_desc_float \
-                            if sol == 'K' else ms_extra.caltable_desc_complex
-                        caltable = ms_extra.open_table(caltable_name, tabledesc=caltable_desc)
-
-                        # add other keywords for main table
-                        if sol == 'K':
-                            caltable.putkeyword('ParType', 'Float')
-                        else:
-                            caltable.putkeyword('ParType', 'Complex')
-                        caltable.putkeyword('MSName', ms_name)
-                        caltable.putkeyword('VisCal', ms_soltype_lookup[sol])
-                        caltable.putkeyword('PolBasis', 'unknown')
-                        # add necessary units
-                        caltable.putcolkeywords('TIME', {'MEASINFO': {'Ref': 'UTC', 'type': 'epoch'},
-                                                         'QuantumUnits': ['s']})
-                        caltable.putcolkeywords('INTERVAL', {'QuantumUnits': ['s']})
-                        # specify that this is a calibration table
-                        caltable.putinfo({'readme': '', 'subType': ms_soltype_lookup[sol],
-                                          'type': 'Calibration'})
-
-                        # get the solution data to write to the main table
-                        solutions_to_write = solvals.transpose(0, 3, 1, 2).reshape((
-                            ntimes * nants, nchans, npols))
-
-                        # MS's store delays in nanoseconds
-                        if sol == 'K':
-                            solutions_to_write = 1e9 * solutions_to_write
-
-                        times_to_write = np.repeat(sol_mjd, nants)
-                        antennas_to_write = np.tile(antlist_indices, ntimes)
-                        # just mock up the scans -- this doesnt actually correspond to scans in the data
-                        scans_to_write = np.repeat(list(range(len(sol_mjd))), nants)
-                        # write the main table
-                        main_cal_dict = ms_extra.populate_caltable_main_dict(
-                            times_to_write, solutions_to_write, antennas_to_write, scans_to_write)
-                        ms_extra.write_rows(caltable, main_cal_dict, verbose=options.verbose)
-
-                        # create and write subtables
-                        subtables = ['OBSERVATION', 'ANTENNA', 'FIELD', 'SPECTRAL_WINDOW', 'HISTORY']
-                        subtable_key = [(os.path.join(caltable.name(), st)) for st in subtables]
-
-                        # Add subtable keywords and create subtables
-                        # ------------------------------------------------------------------------------
-                        # # this gives an error in casapy:
-                        # *** Error *** MSObservation(const Table &) - table is not a valid MSObservation
-                        # for subtable, subtable_location in zip(subtables, subtable_key)
-                        #    ms_extra.open_table(subtable_location, tabledesc=ms_extra.ms_desc[subtable])
-                        #    caltable.putkeyword(subtable, 'Table: {0}'.format(subtable_location))
-                        # # write the static info for the table
-                        # ms_extra.write_dict(caltable_dict, caltable.name(), verbose=options.verbose)
-                        # ------------------------------------------------------------------------------
-                        # instead try just copying the main table subtables
-                        #   this works to plot the data casapy, but the solutions still can't be
-                        #   applied in casapy...
-                        for subtable, subtable_location in zip(subtables, subtable_key):
-                            main_subtable = ms_extra.open_table(os.path.join(main_table.name(),
-                                                                             subtable))
-                            main_subtable.copy(subtable_location, deep=True)
-                            caltable.putkeyword(subtable, f'Table: {subtable_location}')
-                            if subtable == 'ANTENNA':
-                                caltable.putkeyword('NAME', antlist)
-                                caltable.putkeyword('STATION', antlist)
-                        if sol != 'B':
-                            spw_table = ms_extra.open_table(os.path.join(caltable.name(),
-                                                                         'SPECTRAL_WINDOW'))
-                            spw_table.removerows(spw_table.rownumbers())
-                            cen_index = len(out_freqs) // 2
-                            # the delay values in the cal pipeline are calculated relative to frequency 0
-                            ref_freq = 0.0 if sol == 'K' else None
-                            spw_dict = {'SPECTRAL_WINDOW':
-                                        ms_extra.populate_spectral_window_dict(np.atleast_1d(out_freqs[cen_index]),
-                                                                               np.atleast_1d(channel_freq_width),
-                                                                               ref_freq=ref_freq)}
-                            ms_extra.write_dict(spw_dict, caltable.name(), verbose=options.verbose)
-
-                        # done with this caltable
-                        caltable.flush()
-                        caltable.close()
-
-        main_table.close()
-        # done writing main table
 
 
 if __name__ == '__main__':
