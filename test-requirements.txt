@@ -8,3 +8,4 @@ pycparser==2.21                        # via cffi
 pyparsing                              # via packaging
 pytest
 pytest-cov
+pytest-mock==3.12.0

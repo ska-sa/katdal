@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2018-2022, National Research Foundation (SARAO)
+# Copyright (c) 2018-2022,2026, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -72,9 +72,9 @@ class TestToStr:
         np.testing.assert_array_equal(to_str(a), b)
 
 
-@mock.patch('katsdptelstate.encoding._allow_pickle', True)
-@mock.patch('katsdptelstate.encoding._warn_on_pickle', False)
-def test_telstate_decode():
+def test_telstate_decode(mocker):
+    mocker.patch('katsdptelstate.encoding._allow_pickle', True)
+    mocker.patch('katsdptelstate.encoding._warn_on_pickle', False)
     raw = "S'1'\n."
     assert telstate_decode(raw) == '1'
     assert telstate_decode(raw.encode()) == '1'

@@ -24,17 +24,8 @@ import os
 import os.path
 from copy import deepcopy
 
-import casacore
 import numpy as np
 from casacore import tables
-from pkg_resources import parse_version
-
-# Perform python-casacore version checks
-pyc_ver = parse_version(casacore.__version__)
-req_ver = parse_version("2.2.1")
-if not pyc_ver >= req_ver:
-    raise ImportError(f"python-casacore {req_ver} is required, but the current version is {pyc_ver}. "
-                      f"Note that python-casacore {req_ver} requires at least casacore 2.3.0.")
 
 
 def open_table(name, readonly=False, verbose=False, **kwargs):
