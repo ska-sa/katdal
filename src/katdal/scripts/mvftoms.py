@@ -25,6 +25,7 @@ import multiprocessing.sharedctypes
 import os
 import queue
 import re
+import sys
 import tarfile
 import time
 import urllib.parse
@@ -564,6 +565,52 @@ def main():
                                                                           circular=options.circular)
             ms_dict['OBSERVATION'] = ms_extra.populate_observation_dict(
                 start_time, end_time, telescope_name, dataset.observer, dataset.experiment_id)
+
+            # Log conversion into HISTORY subtable
+
+            current_mjd_sec = katpoint.Timestamp().to_mjd() * 86400.0
+            # Capture the exact command line invocation
+            cli_cmd = list(sys.argv)
+
+            # Construct message lines matching CASA task history format
+            messages = [
+                "taskname=mvftoms",
+                f"version: {katdal.__version__}",
+            ]
+
+            # Record input dataset path(s)
+            if isinstance(open_args, (list, tuple)):
+                messages.append(f"dataset         = {repr(list(open_args))}")
+            else:
+                messages.append(f"dataset         = {repr(open_args)}")
+
+            # Append user-selected command line parameters
+            for opt, val in vars(options).items():
+                if val is not None:
+                    messages.append(f"{opt:15s} = {repr(val)}")
+
+            n_rows = len(messages)
+            times = [current_mjd_sec] * n_rows
+            applications = ["mvftoms"] * n_rows
+            origins = ["mvftoms"] * n_rows
+            cli_commands = [cli_cmd] * n_rows
+            app_params = [[""]] * n_rows
+            priorities = ["INFO"] * n_rows
+            object_ids = [0] * n_rows
+            observation_ids = [-1] * n_rows
+
+            # Populate HISTORY subtable
+            ms_dict['HISTORY'] = ms_extra.populate_history_dict(
+                times=times,
+                applications=applications,
+                origins=origins,
+                messages=messages,
+                cli_command=cli_commands,
+                app_params=app_params,
+                priorities=priorities,
+                object_ids=object_ids,
+                observation_ids=observation_ids,
+            )
 
             print("Writing static meta data...")
             ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
