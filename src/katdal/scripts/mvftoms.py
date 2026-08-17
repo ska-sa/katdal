@@ -576,6 +576,7 @@ def main():
             messages = [
                 "taskname=mvftoms",
                 f"version: {katdal.__version__}",
+                f"katpoint version: {katpoint.__version__}",
             ]
 
             # Record input dataset path(s)
@@ -601,17 +602,13 @@ def main():
 
             # Populate HISTORY subtable
             ms_dict['HISTORY'] = ms_extra.populate_history_dict(
-                times=times,
-                applications=applications,
-                origins=origins,
-                messages=messages,
-                cli_command=cli_commands,
-                app_params=app_params,
-                priorities=priorities,
-                object_ids=object_ids,
-                observation_ids=observation_ids,
+              times=times,
+              applications=applications,
+              origins=origins,
+              messages=messages,
+              cli_command=cli_commands
             )
-
+            
             print("Writing static meta data...")
             ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
 
