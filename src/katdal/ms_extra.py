@@ -903,9 +903,7 @@ def populate_pointing_dict(num_antennas, observation_duration, start_time, phase
     return pointing_dict
 
 
-def populate_history_dict(times, applications, origins, messages,
-                          cli_command=None, app_params=None,
-                          priorities=None, object_ids=None, observation_ids=None):
+def populate_history_dict(times, applications, origins, messages, cli_command=None, app_params=None):
     """Construct a dictionary containing all standard columns for the HISTORY subtable.
 
     Parameters
@@ -922,12 +920,6 @@ def populate_history_dict(times, applications, origins, messages,
         CLI arguments vector per row
     app_params : sequence of list of str, optional
         Application parameters vector per row
-    priorities : sequence of str, optional
-        Priority strings (e.g., 'INFO')
-    object_ids : sequence of int, optional
-        Object IDs (default 0)
-    observation_ids : sequence of int, optional
-        Observation IDs (default -1)
 
     Returns
     -------
@@ -943,22 +935,16 @@ def populate_history_dict(times, applications, origins, messages,
         cli_command = [[""]] * n
     if app_params is None:
         app_params = [[""]] * n
-    if priorities is None:
-        priorities = ["INFO"] * n
-    if object_ids is None:
-        object_ids = [0] * n
-    if observation_ids is None:
-        observation_ids = [-1] * n
 
     history_dict = {}
-    history_dict['APP_PARAMS'] = np.asarray(app_params, dtype=object)
-    history_dict['CLI_COMMAND'] = np.asarray(cli_command, dtype=object)
-    history_dict['APPLICATION'] = np.asarray(applications, dtype=object)
-    history_dict['MESSAGE'] = np.asarray(messages, dtype=object)
-    history_dict['OBJECT_ID'] = np.asarray(object_ids, dtype=np.int32)
-    history_dict['OBSERVATION_ID'] = np.asarray(observation_ids, dtype=np.int32)
-    history_dict['ORIGIN'] = np.asarray(origins, dtype=object)
-    history_dict['PRIORITY'] = np.asarray(priorities, dtype=object)
+    history_dict['APP_PARAMS'] = np.asarray(app_params, dtype=str)
+    history_dict['CLI_COMMAND'] = np.asarray(cli_command, dtype=str)
+    history_dict['APPLICATION'] = np.asarray(applications, dtype=str)
+    history_dict['MESSAGE'] = np.asarray(messages, dtype=str)
+    history_dict['OBJECT_ID'] = np.zeros(n, dtype=np.int32)
+    history_dict['OBSERVATION_ID'] = np.full(n, -1, dtype=np.int32)
+    history_dict['ORIGIN'] = np.asarray(origins, dtype=str)
+    history_dict['PRIORITY'] = np.full(n, "INFO", dtype='U32')
     history_dict['TIME'] = np.asarray(times, dtype=np.float64)
 
     return history_dict
