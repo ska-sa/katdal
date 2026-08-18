@@ -903,6 +903,53 @@ def populate_pointing_dict(num_antennas, observation_duration, start_time, phase
     return pointing_dict
 
 
+def populate_history_dict(times, applications, origins, messages, cli_command=None, app_params=None):
+    """Construct a dictionary containing all standard columns for the HISTORY subtable.
+
+    Parameters
+    ----------
+    times : sequence of float
+        Event times in MJD seconds
+    applications : sequence of str
+        Application names (e.g., 'mvftoms')
+    origins : sequence of str
+        Origin script/module names (e.g., 'mvftoms')
+    messages : sequence of str
+        Log and parameter history entries
+    cli_command : sequence of list of str, optional
+        CLI arguments vector per row
+    app_params : sequence of list of str, optional
+        Application parameters vector per row
+
+    Returns
+    -------
+    history_dict : dict
+        Dictionary mapping HISTORY column names to numpy arrays
+    """
+    n = len(times)
+    if not (len(applications) == len(origins) == len(messages) == n):
+        raise ValueError("All main input sequences must have the same length")
+
+    # Supply default column data if optional sequences are not provided
+    if cli_command is None:
+        cli_command = [[""]] * n
+    if app_params is None:
+        app_params = [[""]] * n
+
+    history_dict = {}
+    history_dict['APP_PARAMS'] = np.asarray(app_params, dtype=str)
+    history_dict['CLI_COMMAND'] = np.asarray(cli_command, dtype=str)
+    history_dict['APPLICATION'] = np.asarray(applications, dtype=str)
+    history_dict['MESSAGE'] = np.asarray(messages, dtype=str)
+    history_dict['OBJECT_ID'] = np.zeros(n, dtype=np.int32)
+    history_dict['OBSERVATION_ID'] = np.full(n, -1, dtype=np.int32)
+    history_dict['ORIGIN'] = np.asarray(origins, dtype=str)
+    history_dict['PRIORITY'] = np.full(n, "INFO", dtype='U32')
+    history_dict['TIME'] = np.asarray(times, dtype=np.float64)
+
+    return history_dict
+
+
 def populate_ms_dict(uvw_coordinates, vis_data, timestamps, antenna1_index, antenna2_index,
                      integrate_length, center_frequencies, channel_bandwidths,
                      antenna_names, antenna_positions, antenna_diameter,
