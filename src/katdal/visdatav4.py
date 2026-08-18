@@ -67,6 +67,12 @@ SENSOR_ALIASES = {
     'nd_coupler': 'dig_noise_diode',
 }
 
+# Mapping from receiver band identity to SPFC SPF feed package index number
+MK_BAND_TO_SKA_MID_BAND = {
+    'l': 2,   # L-band -> SPF2
+    's': 3,   # S-band -> SPF3
+}
+
 
 def _calc_azel(cache, name, ant):
     """Calculate virtual (az, el) sensors from actual ones in sensor cache."""
@@ -374,10 +380,20 @@ class VisibilityDataV4(DataSet):
 
         # Get the receiver band identity ('l', 's', 'u', 'x')
         band = attrs['sub_band']
+        spf_index = MK_BAND_TO_SKA_MID_BAND.get(band)
         # Populate antenna -> receiver mapping and figure out noise diode
         for ant in cam_ants:
-            # Try sanitised version of RX serial number first
-            rx_serial = attrs.get(f'{ant}_rsc_rx{band}_serial_number', 0)
+            spfc_attr = (f'{ant}_spfc_serialNumbers_{spf_index}',) if spf_index else ()
+            rx_attr_options = spfc_attr + (
+                # Try sanitised version of RX serial number first
+                f'{ant}_rsc_rx{band}_serial_number',
+                f'{ant}_rx_serial_number',
+            )
+            rx_serial = 0
+            for rx_attr in rx_attr_options:
+                if rx_attr in attrs:
+                    rx_serial = attrs[rx_attr]
+                    break
             self.receivers[ant] = f'{band}.{rx_serial}'
             nd_sensor = f'{ant}_dig_{band}_band_noise_diode'
             if nd_sensor in self.sensor:
