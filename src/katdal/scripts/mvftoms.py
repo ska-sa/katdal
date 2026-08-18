@@ -595,20 +595,16 @@ def main():
             applications = ["mvftoms"] * n_rows
             origins = ["mvftoms"] * n_rows
             cli_commands = [cli_cmd] * n_rows
-            app_params = [[""]] * n_rows
-            priorities = ["INFO"] * n_rows
-            object_ids = [0] * n_rows
-            observation_ids = [-1] * n_rows
 
             # Populate HISTORY subtable
             ms_dict['HISTORY'] = ms_extra.populate_history_dict(
-              times=times,
-              applications=applications,
-              origins=origins,
-              messages=messages,
-              cli_command=cli_commands
+                times=times,
+                applications=applications,
+                origins=origins,
+                messages=messages,
+                cli_command=cli_commands
             )
-            
+
             print("Writing static meta data...")
             ms_extra.write_dict(ms_dict, ms_name, verbose=options.verbose)
 
