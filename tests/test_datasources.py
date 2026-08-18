@@ -319,4 +319,3 @@ class TestTelstateDataSource:
         from katdal.visdatav4 import VisibilityDataV4
         dataset = VisibilityDataV4(data_source)
         assert dataset.receivers['e117'] == 'l.SPF2:4A1014'
-
