@@ -162,10 +162,10 @@ def read_array(fp):
     # isn't expecting a numpy array
     fp.readinto(data.view(np.uint8))
     if fortran_order:
-        data.shape = shape[::-1]
+        data = data.reshape(shape[::-1])
         data = data.transpose()
     else:
-        data.shape = shape
+        data = data.reshape(shape)
     return data
 
 
