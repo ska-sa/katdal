@@ -60,6 +60,8 @@ def test_ms_async_writer(tmp_path, mocker):
     raw_vis = ms_async.RawArray((4, 1, 2, 16, 4), np.complex64)
     raw_weight = ms_async.RawArray((4, 1, 2, 16, 4), np.float32)
     raw_flag = ms_async.RawArray((4, 1, 2, 16, 4), bool)
+    # Avoid "divide by zero" warnings later on when calculating SIGMA, SIGMA_SPECTRUM
+    raw_weight.asarray()[:] = 1.0
 
     # We need to mock ms_extra.open_table since it returns a mock that we want to control
     mock_open = mocker.patch("katdal.ms_extra.open_table")
