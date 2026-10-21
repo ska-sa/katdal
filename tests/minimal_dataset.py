@@ -89,10 +89,18 @@ class MinimalDataSet(DataSet):
             sensors[f'Antennas/{ant.name}/antenna'] = constant_sensor(ant)
             ant_az = []
             ant_el = []
+            initial_az = 0.0
+            initial_el = np.radians(15.0)
             for segment, target in target_sensor.segments():
                 az, el = target.azel(timestamps[segment], ant)
+                # Move slightly towards the target in (az, el) during the slew dump. This
+                # is useful to distinguish the slew and also to check invalid projections.
+                az[0] = 0.9 * initial_az + 0.1 * az[0]
+                el[0] = 0.9 * initial_el + 0.1 * el[0]
                 ant_az.append(az)
                 ant_el.append(el)
+                initial_az = az[-1]
+                initial_el = el[-1]
             sensors[f'Antennas/{ant.name}/az'] = np.concatenate(ant_az)
             sensors[f'Antennas/{ant.name}/el'] = np.concatenate(ant_el)
         array_ant = subarray.ants[0].array_reference_antenna()

@@ -25,6 +25,7 @@ import urllib.parse
 import katpoint
 import numpy as np
 from katpoint import is_iterable, rad2deg
+from katpoint.projection import out_of_range_context
 
 logger = logging.getLogger(__name__)
 
@@ -431,6 +432,7 @@ class DataSet:
         self.target_indices = []
         self.target_projection = 'ARC'
         self.target_coordsys = 'azel'
+        self.target_coord_out_of_range_treatment = 'nan'
         self.shape = (0, 0, 0)
         self.size = 0
         self.applycal_products = []
@@ -1189,8 +1191,9 @@ class DataSet:
         float, shape (*T*, *A*).
 
         """
-        name = f'target_x_{self.target_projection}_{self.target_coordsys}'
-        return rad2deg(self._sensor_per_ant(name))
+        with out_of_range_context(self.target_coord_out_of_range_treatment):
+            name = f'target_x_{self.target_projection}_{self.target_coordsys}'
+            return rad2deg(self._sensor_per_ant(name))
 
     @property
     def target_y(self):
@@ -1205,8 +1208,9 @@ class DataSet:
         float, shape (*T*, *A*).
 
         """
-        name = f'target_y_{self.target_projection}_{self.target_coordsys}'
-        return rad2deg(self._sensor_per_ant(name))
+        with out_of_range_context(self.target_coord_out_of_range_treatment):
+            name = f'target_y_{self.target_projection}_{self.target_coordsys}'
+            return rad2deg(self._sensor_per_ant(name))
 
     @property
     def u(self):
