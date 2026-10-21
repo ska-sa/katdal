@@ -102,9 +102,9 @@ class TestVirtualSensors:
         self.dataset.target_projection = 'SIN'
         self.dataset.target_coord_out_of_range_treatment = 'raise'
         with pytest.raises(katpoint.projection.OutOfRangeError):
-            x = self.dataset.target_x
-        with pytest.raises(katpoint.projection.OutOfRangeError):        
-            y = self.dataset.target_y
+            self.dataset.target_x
+        with pytest.raises(katpoint.projection.OutOfRangeError):
+            self.dataset.target_y
 
     def test_uvw(self):
         u0, v0, w0 = self.target.uvw(self.antennas[0], self.timestamps, self.array_ant)
