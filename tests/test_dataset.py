@@ -18,6 +18,7 @@
 
 import logging
 
+import katpoint
 import numpy as np
 import pytest
 from katpoint import Target, Timestamp, rad2deg
@@ -78,18 +79,32 @@ class TestVirtualSensors:
         assert_array_equal(self.dataset.lst, lst * (12 / np.pi))
 
     def test_pointing(self):
-        az, el = self.target.azel(self.timestamps, self.antennas[1])
+        # Ignore slews where the (az, el) coordinates are not on target yet
+        self.dataset.select(scans='track')
+        az, el = self.target.azel(self.dataset.timestamps, self.antennas[1])
         assert_array_equal(self.dataset.az[:, 1], rad2deg(az))
         assert_array_equal(self.dataset.el[:, 1], rad2deg(el))
-        ra, dec = self.target.radec(self.timestamps, self.antennas[0])
+        ra, dec = self.target.radec(self.dataset.timestamps, self.antennas[0])
         assert_array_almost_equal(self.dataset.ra[:, 0], rad2deg(ra), decimal=5)
         assert_array_almost_equal(self.dataset.dec[:, 0], rad2deg(dec), decimal=5)
-        angle = self.target.parallactic_angle(self.timestamps, self.antennas[0])
+        angle = self.target.parallactic_angle(self.dataset.timestamps, self.antennas[0])
         # TODO: Check why this is so poor... see SR-1882 for progress on this
         assert_array_almost_equal(self.dataset.parangle[:, 0], rad2deg(angle), decimal=0)
-        x, y = self.target.sphere_to_plane(az, el, self.timestamps, self.antennas[1])
+        x, y = self.target.sphere_to_plane(az, el, self.dataset.timestamps, self.antennas[1])
         assert_array_equal(self.dataset.target_x[:, 1], rad2deg(x))
         assert_array_equal(self.dataset.target_y[:, 1], rad2deg(y))
+
+    def test_invalid_target_coords(self):
+        self.dataset.target_projection = 'SSN'
+        # Confirm that default treatment is 'nan'
+        assert_array_equal(self.dataset.target_x[0, :], np.nan)
+        assert_array_equal(self.dataset.target_y[0, :], np.nan)
+        self.dataset.target_projection = 'SIN'
+        self.dataset.target_coord_out_of_range_treatment = 'raise'
+        with pytest.raises(katpoint.projection.OutOfRangeError):
+            self.dataset.target_x
+        with pytest.raises(katpoint.projection.OutOfRangeError):
+            self.dataset.target_y
 
     def test_uvw(self):
         u0, v0, w0 = self.target.uvw(self.antennas[0], self.timestamps, self.array_ant)
