@@ -1,6 +1,17 @@
 History
 =======
 
+0.24 (2026-11-13)
+-----------------
+* Remove pkg_resources to support Python 3.12+ and setuptools 82+ (#394)
+* Set L2 gains to 1.0 instead of NaN on calibrators (#384)
+* Modernise package structure (#393)
+* Refresh for Python 3.15 and NumPy 2.5 (#385, #401)
+* Set out-of-range target coordinates to NaN (#399)
+* Remove broken caltables functionality from mvftoms (#395)
+* Add initial mvftoms unit tests that mock out casacore (#394)
+* Make TestS3ChunkStore more convenient for use with Zarr (#391)
+
 0.23 (2024-06-28)
 -----------------
 * New `mvf_download` script (also promote `mvf_copy` and remove junk) (#380)
