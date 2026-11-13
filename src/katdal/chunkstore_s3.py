@@ -1,5 +1,5 @@
 ################################################################################
-# Copyright (c) 2017-2023, National Research Foundation (SARAO)
+# Copyright (c) 2017-2023,2026, National Research Foundation (SARAO)
 #
 # Licensed under the BSD 3-Clause License (the "License"); you may not use
 # this file except in compliance with the License. You may obtain a copy
@@ -162,10 +162,10 @@ def read_array(fp):
     # isn't expecting a numpy array
     fp.readinto(data.view(np.uint8))
     if fortran_order:
-        data.shape = shape[::-1]
+        data = data.reshape(shape[::-1])
         data = data.transpose()
     else:
-        data.shape = shape
+        data = data.reshape(shape)
     return data
 
 

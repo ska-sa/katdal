@@ -58,6 +58,7 @@ ms = ["python-casacore >= 2.2.1"]
 s3 = []
 s3credentials = ["botocore"]
 test = [
+    "botocore",
     "cryptography",
     "pytest",
     "pytest-cov",
