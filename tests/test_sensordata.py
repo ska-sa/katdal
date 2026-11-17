@@ -29,7 +29,7 @@ from katdal.sensordata import (SensorCache, SensorData, SimpleSensorGetter,
 
 def assert_equal_typed(a, b):
     assert a == b
-    assert type(a) == type(b)
+    assert type(a) is type(b)
 
 
 class TestToStr:
