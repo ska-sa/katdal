@@ -77,6 +77,12 @@ WEIGHT_DESCRIPTIONS = ('visibility precision (inverse variance, i.e. 1 / sigma^2
 # Number of bits in ADC sample counter, used to timestamp correlator data in original SPEAD stream
 ADC_COUNTER_BITS = 48
 
+# Mapping from receiver band identity to SPFC SPF feed package index number
+MK_BAND_TO_SKA_MID_BAND = {
+    'l': 2,   # L-band -> SPF2
+    's': 3,   # S-band -> SPF3
+}
+
 # -------------------------------------------------------------------------------------------------
 # --- Utility functions
 # -------------------------------------------------------------------------------------------------
@@ -460,14 +466,17 @@ class H5DataV3(DataSet):
             logger.warning('Could not figure out receiver band - '
                            'please provide it via band parameter')
         # Populate antenna -> receiver mapping and figure out noise diode
+        spf_index = MK_BAND_TO_SKA_MID_BAND.get(band)
         for ant in cam_ants:
-            rx_sensor_options = (
+            spfc_sensor = (f'TelescopeState/{ant}_spfc_serialNumbers_{spf_index}',) if spf_index else ()
+            rx_sensor_options = spfc_sensor + (
                 # Since 2018-01-16 MKAT / ARx only has this version
                 f'TelescopeState/{ant}_rsc_rx{band}_serial_number',
                 # RTS since 2017-11-15
                 f'TelescopeState/{ant}_rx_serial_number',
                 # Original TelescopeModel version
-                f'Antennas/{ant}/rsc_rx{band}_serial_number')
+                f'Antennas/{ant}/rsc_rx{band}_serial_number',
+            )
             rx_serial = 0
             for rx_sensor in rx_sensor_options:
                 if rx_sensor in self.sensor:
@@ -475,6 +484,7 @@ class H5DataV3(DataSet):
                     break
             if band:
                 self.receivers[ant] = f'{band}.{rx_serial}'
+
             nd_sensor = f'TelescopeState/{ant}_dig_{band}_band_noise_diode'
             if nd_sensor in self.sensor:
                 # A sensor alias would be ideal for this but it only deals with suffixes ATM

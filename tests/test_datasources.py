@@ -304,3 +304,18 @@ class TestTelstateDataSource:
         source_name = f'{cbid}_{sn}'
         assert source_from_file.name == source_name
         assert rdb_filename in source_from_file.url
+
+    def test_spfc_receiver_serial_numbers(self):
+        self.telstate['sub_band'] = 'l'
+        self.telstate['sub_product'] = 'c856M4k'
+        self.telstate['obs_params'] = {}
+        self.telstate['sub_pool_resources'] = 'e117'
+        self.telstate['e117_observer'] = 'e117, -30:42:39.8, 21:26:38.0, 1035.0, 13.5, 0.0, 0.0, 0.0'
+        self.telstate['e117_spfc_serialNumbers_2'] = 'SPF2:4A1014'
+        view, cbid, sn, _, _ = make_fake_data_source(self.telstate, self.store, (5, 16, 40))
+        self.telstate.add('obs_activity', 'track', ts=SYNC_TIME)
+        self.telstate.add('cbf_target', 'AZEL, 0, 0', ts=SYNC_TIME)
+        data_source = TelstateDataSource(view, cbid, sn, chunk_store=self.store)
+        from katdal.visdatav4 import VisibilityDataV4
+        dataset = VisibilityDataV4(data_source)
+        assert dataset.receivers['e117'] == 'l.SPF2:4A1014'
