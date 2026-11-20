@@ -67,7 +67,7 @@ from katdal.chunkstore_s3 import (
     _normalise_bucket_name,
 )
 from katdal.datasources import TelstateDataSource, DataSourceNotFound
-from s3_utils import MissingProgram, S3Server, S3User
+from katdal.s3_utils import MissingProgram, S3Server, S3User
 from test_chunkstore import ChunkStoreTestBase, generate_arrays
 from test_datasources import assert_telstate_data_source_equal, make_fake_data_source
 
